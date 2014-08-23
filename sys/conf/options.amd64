@@ -72,3 +72,6 @@ ISCI_LOGGING	opt_isci.h
 # hw random number generators for random(4)
 PADLOCK_RNG		opt_cpu.h
 RDRAND_RNG		opt_cpu.h
+
+# Option to build kernel in NestedKernel Mode
+NESTEDKERNEL    opt_global.h
