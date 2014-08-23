@@ -1,0 +1,9 @@
+#
+# NESTEDKERNEL -- NESTEDKERNEL kernel configuration file for FreeBSD/amd64
+#
+# $FreeBSD$
+
+include		GENERIC
+ident		NESTEDKERNEL
+
+options     NESTEDKERNEL

@@ -3687,3 +3687,10 @@ dev/xen/netback/netback.c	optional xen | xenhvm
 dev/xen/netfront/netfront.c	optional xen | xenhvm
 dev/xen/xenpci/xenpci.c		optional xenpci
 dev/xen/xenpci/evtchn.c         optional xenpci
+
+#
+# Nested Kernel Architecture Support
+#   Creates an isolated memory region for managing paging structures, but also
+#   requires that the outer kernel code does not execute privilege operations:
+#   writes to control registers 0, 3, and 4; and writes to MSRs.
+nk/nk_cpufunc.c                 optional nestedkernel
