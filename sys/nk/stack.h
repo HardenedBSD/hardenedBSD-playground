@@ -221,7 +221,7 @@ extern uintptr_t SecureStackBase;
 //===-- Wrapper macro for marking Secure Entrypoints ----------------------===//
 
 #define SECURE_WRAPPER(RET, FUNC, ...) \
-int asm( \
+__asm__( \
   ".text\n" \
   ".globl " #FUNC "\n" \
   ".align 16,0x90\n" \
