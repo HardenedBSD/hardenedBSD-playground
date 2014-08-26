@@ -78,12 +78,13 @@
 
 #include <sys/stdint.h>
 
-//===-- Secure Stack Switching --------------------------------------------===//
+//===-- Secure Stack Local Data -------------------------------------------===//
 
 // Points to top of secure stack
-// XXX: Whoever defines this should ensure the region is write-protected!
 extern uintptr_t SecureStackBase;
 
+//===-- Secure Stack Switching --------------------------------------------===//
+//
 // TODO: Manage stack per-cpu, do lookup here
 // Use only RAX/RCX registers to accomplish this.
 // (Or spill more in calling context)
