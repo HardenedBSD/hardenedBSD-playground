@@ -696,10 +696,10 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 void
 pmap_init_pat(void)
 {
-	int pat_table[PAT_INDEX_SIZE];
-	uint64_t pat_msr;
-	u_long cr0, cr4;
-	int i;
+    int pat_table[PAT_INDEX_SIZE];
+    uint64_t pat_msr;
+    u_long cr0, cr4;
+    int i;
 
 	/* Bail if this CPU doesn't implement PAT. */
 	if ((cpu_feature & CPUID_PAT) == 0)
@@ -748,11 +748,7 @@ pmap_init_pat(void)
 
 	/* Disable PGE. */
 	cr4 = rcr4();
-#ifdef NESTEDKERNEL
-	nk_load_cr4(cr4 & ~CR4_PGE);
-#else
 	load_cr4(cr4 & ~CR4_PGE);
-#endif
 
 	/* Disable caches (CD = 1, NW = 0). */
 	cr0 = rcr0();
