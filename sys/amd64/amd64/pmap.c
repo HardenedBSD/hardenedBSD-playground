@@ -621,61 +621,73 @@ create_pagetables(vm_paddr_t *firstaddr)
 void
 pmap_bootstrap(vm_paddr_t *firstaddr)
 {
-	vm_offset_t va;
-	pt_entry_t *pte;
+    vm_offset_t va;
+    pt_entry_t *pte;
 
-	/*
-	 * Create an initial set of page tables to run the kernel in.
-	 */
-	create_pagetables(firstaddr);
+    /*
+     * Create an initial set of page tables to run the kernel in.
+     */
+    create_pagetables(firstaddr);
 
-	virtual_avail = (vm_offset_t) KERNBASE + *firstaddr;
-	virtual_avail = pmap_kmem_choose(virtual_avail);
+#ifdef NESTEDKERNEL
+    /* 
+     * Set the static address locations in the struct here to aid in kernel MMU
+     * initialization. Note that we pass in the page mapping for the pml4 page.
+     * This function will also initialize the cr3 and cr4.
+     */
+    nk_vmmu_init (&((pdp_entry_t *)KPML4phys)[PML4PML4I],
+            NPDEPG,
+            firstaddr,
+            (uintptr_t)btext,
+            (uintptr_t)etext); 
+#endif
 
-	virtual_end = VM_MAX_KERNEL_ADDRESS;
+    virtual_avail = (vm_offset_t) KERNBASE + *firstaddr;
+    virtual_avail = pmap_kmem_choose(virtual_avail);
+    virtual_end = VM_MAX_KERNEL_ADDRESS;
 
 
-	/* XXX do %cr0 as well */
-	load_cr4(rcr4() | CR4_PGE | CR4_PSE);
-	load_cr3(KPML4phys);
-	if (cpu_stdext_feature & CPUID_STDEXT_SMEP)
-		load_cr4(rcr4() | CR4_SMEP);
+    /* XXX do %cr0 as well */
+    load_cr4(rcr4() | CR4_PGE | CR4_PSE);
+    load_cr3(KPML4phys);
+    if (cpu_stdext_feature & CPUID_STDEXT_SMEP)
+        load_cr4(rcr4() | CR4_SMEP);
 
-	/*
-	 * Initialize the kernel pmap (which is statically allocated).
-	 */
-	PMAP_LOCK_INIT(kernel_pmap);
-	kernel_pmap->pm_pml4 = (pdp_entry_t *)PHYS_TO_DMAP(KPML4phys);
-	kernel_pmap->pm_root = NULL;
-	CPU_FILL(&kernel_pmap->pm_active);	/* don't allow deactivation */
-	TAILQ_INIT(&kernel_pmap->pm_pvchunk);
+    /*
+     * Initialize the kernel pmap (which is statically allocated).
+     */
+    PMAP_LOCK_INIT(kernel_pmap);
+    kernel_pmap->pm_pml4 = (pdp_entry_t *)PHYS_TO_DMAP(KPML4phys);
+    kernel_pmap->pm_root = NULL;
+    CPU_FILL(&kernel_pmap->pm_active);	/* don't allow deactivation */
+    TAILQ_INIT(&kernel_pmap->pm_pvchunk);
 
- 	/*
-	 * Initialize the global pv list lock.
-	 */
-	rw_init(&pvh_global_lock, "pmap pv global");
+    /*
+     * Initialize the global pv list lock.
+     */
+    rw_init(&pvh_global_lock, "pmap pv global");
 
-	/*
-	 * Reserve some special page table entries/VA space for temporary
-	 * mapping of pages.
-	 */
+    /*
+     * Reserve some special page table entries/VA space for temporary
+     * mapping of pages.
+     */
 #define	SYSMAP(c, p, v, n)	\
-	v = (c)va; va += ((n)*PAGE_SIZE); p = pte; pte += (n);
+    v = (c)va; va += ((n)*PAGE_SIZE); p = pte; pte += (n);
 
-	va = virtual_avail;
-	pte = vtopte(va);
+    va = virtual_avail;
+    pte = vtopte(va);
 
-	/*
-	 * Crashdump maps.  The first page is reused as CMAP1 for the
-	 * memory test.
-	 */
-	SYSMAP(caddr_t, CMAP1, crashdumpmap, MAXDUMPPGS)
-	CADDR1 = crashdumpmap;
+    /*
+     * Crashdump maps.  The first page is reused as CMAP1 for the
+     * memory test.
+     */
+    SYSMAP(caddr_t, CMAP1, crashdumpmap, MAXDUMPPGS)
+        CADDR1 = crashdumpmap;
 
-	virtual_avail = va;
+    virtual_avail = va;
 
-	/* Initialize the PAT MSR. */
-	pmap_init_pat();
+    /* Initialize the PAT MSR. */
+    pmap_init_pat();
 }
 
 /*
