@@ -3693,4 +3693,6 @@ dev/xen/xenpci/evtchn.c         optional xenpci
 #   Creates an isolated memory region for managing paging structures, but also
 #   requires that the outer kernel code does not execute privilege operations:
 #   writes to control registers 0, 3, and 4; and writes to MSRs.
-nk/nk_cpufunc.c                 optional nestedkernel
+nk/nk_cpufunc.c              optional nestedkernel
+nk/vmmu.c                    optional nestedkernel
+nk/pmmu.c                    optional nestedkernel
