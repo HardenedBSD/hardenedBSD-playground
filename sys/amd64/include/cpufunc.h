@@ -410,8 +410,11 @@ rcr2(void)
 static __inline void
 load_cr3(u_long data)
 {
-
+#ifdef NESTEDKERNEL
+    nk_load_pgtbl_base_ptr(data);
+#else
 	__asm __volatile("movq %0,%%cr3" : : "r" (data) : "memory");
+#endif
 }
 
 static __inline u_long

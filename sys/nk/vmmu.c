@@ -52,24 +52,10 @@
  */
 
 #include "cpufunc.h"
-
-/* 
- * Defines for #if #endif blocks for commenting out lines of code
- */
-/* Used to denote unimplemented code */
-#define NOT_YET_IMPLEMENTED 0   
-
-/* Used to denote obsolete code that hasn't been deleted yet */
-#define OBSOLETE            0   
-
-/* Define whether to enable DEBUG blocks #if statements */
-#define DEBUG               0
-
-/* Define whether or not the mmu_init code assumes virtual addresses */
-#define USE_VIRT            0
-
-/* Things that are in the PerspicuOS tree, but haven't been fully moved */
-#define NOT_PORTED_YET      0
+#include "common.h"
+#include "stack.h"
+#include "pmmu.h"
+#include "vmmu.h"
 
 /*
  * Function: nk_load_pgtbl_base_ptr
@@ -81,7 +67,8 @@
  * Inputs:
  *  pg - The physical address of the top-level page table page.
  */
-void nk_load_pgtbl_base_ptr(register_t val)
+void 
+nk_load_pgtbl_base_ptr(register_t val)
 {
     /* Execute the load */
     _load_cr3(val);
