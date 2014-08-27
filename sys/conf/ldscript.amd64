@@ -73,7 +73,7 @@ SECTIONS
   _nkWrProtStart = ALIGN(0x100000);
   .nkWrProt ALIGN(0x100000) : 
   {
-    *(nkWrProt)
+    *(.nkWrProt)
     _nkWrProtEnd = .;
   }
   
@@ -82,7 +82,7 @@ SECTIONS
   _nkPrivDataStart = ALIGN(0x100000);
   .nkPrivData ALIGN(0x100000) : 
   {
-    *(nkPrivData)
+    *(.nkPrivData)
     _nkPrivDataEnd = .;
   }
 
