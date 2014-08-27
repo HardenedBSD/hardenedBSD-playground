@@ -86,3 +86,30 @@ nk_load_pgtbl_base_ptr(register_t val)
 
     return;
 }
+
+/*
+ * Function: nk_vmmu_init
+ *
+ * Description:
+ *  This function initializes the nk vmmu unit by zeroing out the page
+ *  descriptors, capturing the statically allocated initial kernel mmu state,
+ *  and identifying all kernel code pages, and setting them in the page
+ *  descriptor array.
+ *
+ * Inputs:
+ *  - kpml4Mapping  : Mapping referencing the base kernel pml4 page table page
+ *  - nkpml4e       : The number of entries in the pml4
+ *  - firstpaddr    : A pointer to the physical address of the first free frame.
+ *  - btext         : The first virtual address of the text segment.
+ *  - etext         : The last virtual address of the text segment.
+ */ 
+SECURE_WRAPPER(void, 
+nk_vmmu_init, 
+    pml4e_t * kpml4Mapping, 
+    unsigned long nkpml4e, 
+    uintptr_t * firstpaddr, 
+    uintptr_t btext, 
+    uintptr_t etext) 
+{
+    pmmu_init(kpml4Mapping, nkpml4e, firstpaddr, btext, etext);
+}
