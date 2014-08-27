@@ -271,17 +271,166 @@ getPageDescPtr(unsigned long mapping)
 }
 
 /*
+ * Function: get_pagetable()
+ *
+ * Description:
+ *  Return a physical address that can be used to access the current page table.
+ */
+static inline unsigned char *
+get_pagetable (void) {
+  /* Value of the CR3 register */
+  uintptr_t cr3;
+
+  /* Get the page table value out of CR3 */
+  __asm__ __volatile__ ("movq %%cr3, %0\n" : "=r" (cr3));
+
+  /*
+   * Shift the value over 12 bits.  The lower-order 12 bits of the page table
+   * pointer are assumed to be zero, and so they are reserved or used by the
+   * hardware.
+   */
+  return (unsigned char *)((((uintptr_t)cr3) & 0x000ffffffffff000u));
+}
+
+//===-- Functions for finding the virtual address of page table components ===//
+static inline
+pml4e_t *
+get_pml4eVaddr (uintptr_t cr3, uintptr_t vaddr) {
+  /* Offset into the page table */
+  uintptr_t offset = (vaddr >> (39 - 3)) & vmask;
+  return (pml4e_t *) getVirtual (cr3 | offset);
+}
+
+static inline
+pdpte_t *
+get_pdpteVaddr (pml4e_t * pml4e, uintptr_t vaddr) {
+  uintptr_t base   = (*pml4e) & 0x000ffffffffff000u;
+  uintptr_t offset = (vaddr >> (30 - 3)) & vmask;
+  return (pdpte_t *) getVirtual (base | offset);
+}
+
+static inline
+pde_t *
+get_pdeVaddr (pdpte_t * pdpte, uintptr_t vaddr) {
+  uintptr_t base   = (*pdpte) & 0x000ffffffffff000u;
+  uintptr_t offset = (vaddr >> (21 - 3)) & vmask;
+  return (pde_t *) getVirtual (base | offset);
+}
+
+static inline
+pte_t *
+get_pteVaddr (pde_t * pde, uintptr_t vaddr) {
+  uintptr_t base   = (*pde) & 0x000ffffffffff000u;
+  uintptr_t offset = (vaddr >> (12 - 3)) & vmask;
+  return (pte_t *) getVirtual (base | offset);
+}
+
+/*
+ * Functions for returing the physical address of page table pages.
+ */
+static inline uintptr_t
+get_pml4ePaddr (unsigned char * cr3, uintptr_t vaddr) {
+  /* Offset into the page table */
+  uintptr_t offset = ((vaddr >> 39) << 3) & vmask;
+  return (((uintptr_t)cr3) | offset);
+}
+
+static inline uintptr_t
+get_pdptePaddr (pml4e_t * pml4e, uintptr_t vaddr) {
+  uintptr_t offset = ((vaddr  >> 30) << 3) & vmask;
+  return ((*pml4e & 0x000ffffffffff000u) | offset);
+}
+
+static inline uintptr_t
+get_pdePaddr (pdpte_t * pdpte, uintptr_t vaddr) {
+  uintptr_t offset = ((vaddr  >> 21) << 3) & vmask;
+  return ((*pdpte & 0x000ffffffffff000u) | offset);
+}
+
+static inline uintptr_t
+get_ptePaddr (pde_t * pde, uintptr_t vaddr) {
+  uintptr_t offset = ((vaddr >> 12) << 3) & vmask;
+  return ((*pde & 0x000ffffffffff000u) | offset);
+}
+
+
+/* 
+ * Function: get_pgeVaddr
+ *
+ * Description:
+ *  This function does page walk to find the entry controlling access to the
+ *  specified address. The function takes into consideration the potential use
+ *  of larger page sizes.
+ * 
+ * Inputs:
+ *  vaddr - Virtual Address to find entry for
+ *
+ * Return value:
+ *  0 - There is no mapping for this virtual address.
+ *  Otherwise, a pointer to the PTE that controls the mapping of this virtual
+ *  address is returned.
+ */
+static inline
+page_entry_t * 
+get_pgeVaddr (uintptr_t vaddr) {
+  /* Pointer to the page table entry for the virtual address */
+  page_entry_t *pge = 0;
+
+  /* Get the base of the pml4 to traverse */
+  uintptr_t cr3 = get_pagetable();
+  if ((cr3 & 0xfffffffffffff000u) == 0)
+    return 0;
+
+  /* Get the VA of the pml4e for this vaddr */
+  pml4e_t *pml4e = get_pml4eVaddr (cr3, vaddr);
+
+  if (*pml4e & PG_V) {
+    /* Get the VA of the pdpte for this vaddr */
+    pdpte_t *pdpte = get_pdpteVaddr (pml4e, vaddr);
+    if (*pdpte & PG_V) {
+      /* 
+       * The PDPE can be configurd in large page mode. If it is then we have the
+       * entry corresponding to the given vaddr If not then we go deeper in the
+       * page walk.
+       */
+      if (*pdpte & PG_PS) {
+        pge = pdpte;
+      } else {
+        /* Get the pde associated with this vaddr */
+        pde_t *pde = get_pdeVaddr (pdpte, vaddr);
+        if (*pde & PG_V) {
+          /* 
+           * As is the case with the pdpte, if the pde is configured for large
+           * page size then we have the corresponding entry. Otherwise we need
+           * to traverse one more level, which is the last. 
+           */
+          if (*pde & PG_PS) {
+            pge = pde;
+          } else {
+            pge = get_pteVaddr (pde, vaddr);
+          }
+        }
+      }
+    }
+  }
+
+  /* Return the entry corresponding to this vaddr */
+  return pge;
+}
+
+/*
  * Function: getPhysicalAddr()
  *
  * Description:
  *  Find the physical page number of the specified virtual address.
  */
-#if NOT_PORTED_YET
 static uintptr_t
 getPhysicalAddr (void * v) 
 {
     /* Mask to get the proper number of bits from the virtual address */
+#if NO_PORTED_YET
     static const uintptr_t vmask = 0x0000000000000fffu;
+#endif
 
     /* Virtual address to convert */
     uintptr_t vaddr  = ((uintptr_t) v);
@@ -308,7 +457,7 @@ getPhysicalAddr (void * v)
      * Determine if the PDPTE has the PS flag set.  If so, then it's pointing to
      * a 1 GB page; return the physical address of that page.
      */
-    if ((*pdpte) & PTE_PS) {
+    if ((*pdpte) & PG_PS) {
         return (*pdpte & 0x000fffffffffffffu) >> 30;
     }
 
@@ -321,7 +470,7 @@ getPhysicalAddr (void * v)
      * Determine if the PDE has the PS flag set.  If so, then it's pointing to a
      * 2 MB page; return the physical address of that page.
      */
-    if ((*pde) & PTE_PS) {
+    if ((*pde) & PG_PS) {
         return (*pde & 0x000fffffffe00000u) + (vaddr & 0x1fffffu);
     }
 
@@ -337,8 +486,6 @@ getPhysicalAddr (void * v)
     uintptr_t paddr = (*pte & 0x000ffffffffff000u) + offset;
     return paddr;
 }
-
-#endif /* NOT_PORTED_YET */
 
 /*
  * Function: declare_ptp_and_walk_pt_entries
@@ -635,9 +782,8 @@ declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
  *  endVA      - The last virtual address of the memory region.
  *  pgType     - The nested kernel page type 
  */
-#if NOT_PORTED_YET
 void
-init_protected_pages (uintptr_t startVA, uintptr_t endVA, page_type_t
+init_protected_pages (uintptr_t startVA, uintptr_t endVA, enum page_type_t
         pgType) 
 {
     /* Get pointers for the pages */
@@ -645,6 +791,7 @@ init_protected_pages (uintptr_t startVA, uintptr_t endVA, page_type_t
     uintptr_t startPA = getPhysicalAddr(startVA) & PG_FRAME;
     uintptr_t endPA = getPhysicalAddr(endVA) & PG_FRAME;
 
+#if NOT_PORTED_YET
     PERSPDEBUG(dec_ker_cod_pgs,"\nDeclaring pages for range: %p -- %p\n",
             startVA, endVA);
 
@@ -664,8 +811,8 @@ init_protected_pages (uintptr_t startVA, uintptr_t endVA, page_type_t
 
     PERSPDEBUG(dec_ker_cod_pgs,"\nFinished decl pages for range: %p -- %p\n",
             startVA, endVA);
-}
 #endif
+}
 
 /*
  * Function: pmmu_init()
