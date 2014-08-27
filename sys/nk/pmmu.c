@@ -373,49 +373,49 @@ get_ptePaddr (pde_t * pde, uintptr_t vaddr) {
 static inline
 page_entry_t * 
 get_pgeVaddr (uintptr_t vaddr) {
-  /* Pointer to the page table entry for the virtual address */
-  page_entry_t *pge = 0;
+    /* Pointer to the page table entry for the virtual address */
+    page_entry_t *pge = 0;
 
-  /* Get the base of the pml4 to traverse */
-  uintptr_t cr3 = get_pagetable();
-  if ((cr3 & 0xfffffffffffff000u) == 0)
-    return 0;
+    /* Get the base of the pml4 to traverse */
+    uintptr_t cr3 = get_pagetable();
+    if ((cr3 & 0xfffffffffffff000u) == 0)
+        return 0;
 
-  /* Get the VA of the pml4e for this vaddr */
-  pml4e_t *pml4e = get_pml4eVaddr (cr3, vaddr);
+    /* Get the VA of the pml4e for this vaddr */
+    pml4e_t *pml4e = get_pml4eVaddr (cr3, vaddr);
 
-  if (*pml4e & PG_V) {
-    /* Get the VA of the pdpte for this vaddr */
-    pdpte_t *pdpte = get_pdpteVaddr (pml4e, vaddr);
-    if (*pdpte & PG_V) {
-      /* 
-       * The PDPE can be configurd in large page mode. If it is then we have the
-       * entry corresponding to the given vaddr If not then we go deeper in the
-       * page walk.
-       */
-      if (*pdpte & PG_PS) {
-        pge = pdpte;
-      } else {
-        /* Get the pde associated with this vaddr */
-        pde_t *pde = get_pdeVaddr (pdpte, vaddr);
-        if (*pde & PG_V) {
-          /* 
-           * As is the case with the pdpte, if the pde is configured for large
-           * page size then we have the corresponding entry. Otherwise we need
-           * to traverse one more level, which is the last. 
-           */
-          if (*pde & PG_PS) {
-            pge = pde;
-          } else {
-            pge = get_pteVaddr (pde, vaddr);
-          }
+    if (*pml4e & PG_V) {
+        /* Get the VA of the pdpte for this vaddr */
+        pdpte_t *pdpte = get_pdpteVaddr (pml4e, vaddr);
+        if (*pdpte & PG_V) {
+            /* 
+             * The PDPE can be configurd in large page mode. If it is then we have the
+             * entry corresponding to the given vaddr If not then we go deeper in the
+             * page walk.
+             */
+            if (*pdpte & PG_PS) {
+                pge = pdpte;
+            } else {
+                /* Get the pde associated with this vaddr */
+                pde_t *pde = get_pdeVaddr (pdpte, vaddr);
+                if (*pde & PG_V) {
+                    /* 
+                     * As is the case with the pdpte, if the pde is configured for large
+                     * page size then we have the corresponding entry. Otherwise we need
+                     * to traverse one more level, which is the last. 
+                     */
+                    if (*pde & PG_PS) {
+                        pge = pde;
+                    } else {
+                        pge = get_pteVaddr (pde, vaddr);
+                    }
+                }
+            }
         }
-      }
     }
-  }
 
-  /* Return the entry corresponding to this vaddr */
-  return pge;
+    /* Return the entry corresponding to this vaddr */
+    return pge;
 }
 
 /*
@@ -857,10 +857,10 @@ pmmu_init(pml4e_t * kpml4Mapping, unsigned long nkpml4e, uintptr_t *
     /* Walk the kernel page tables and initialize the sva page_desc */
     declare_ptp_and_walk_pt_entries(kpml4eVA, nkpml4e, PG_L4);
 
-#if NOT_PORTED_YET
     /* Identify kernel code pages and intialize the descriptors */
-    declare_kernel_code_pages(btext, etext);
+    init_protected_pages(btext, etext, PG_CODE);
 
+#if NOT_PORTED_YET
     /* Now load the initial value of the cr3 to complete kernel init */
     _load_cr3(*kpml4Mapping & PG_FRAME);
 
