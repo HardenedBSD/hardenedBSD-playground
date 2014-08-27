@@ -39,6 +39,9 @@
 #ifndef _MACHINE_CPUFUNC_H_
 #define	_MACHINE_CPUFUNC_H_
 
+#include <nk/nk_cpufunc.h>
+#include <nk/vmmu.h>
+
 #ifndef _SYS_CDEFS_H_
 #error this file needs sys/cdefs.h as a prerequisite
 #endif
@@ -379,8 +382,11 @@ wrmsr(u_int msr, uint64_t newval)
 static __inline void
 load_cr0(u_long data)
 {
-
+#ifdef NESTEDKERNEL
+    nk_load_cr0(data);
+#else
 	__asm __volatile("movq %0,%%cr0" : : "r" (data));
+#endif
 }
 
 static __inline u_long
@@ -420,7 +426,11 @@ rcr3(void)
 static __inline void
 load_cr4(u_long data)
 {
+#ifdef NESTEDKERNEL
+    nk_load_cr4(data);
+#else
 	__asm __volatile("movq %0,%%cr4" : : "r" (data));
+#endif
 }
 
 static __inline u_long
