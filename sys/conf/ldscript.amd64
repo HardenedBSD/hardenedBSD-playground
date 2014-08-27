@@ -67,6 +67,25 @@ SECTIONS
   PROVIDE (__etext = .);
   PROVIDE (_etext = .);
   PROVIDE (etext = .);
+  
+  /* Create the Nested Kernel write protected data section */
+  /* Align on 2MB boundary to get a whole large page */
+  _nkWrProtStart = ALIGN(0x100000);
+  .nkWrProt ALIGN(0x100000) : 
+  {
+    *(nkWrProt)
+    _nkWrProtEnd = .;
+  }
+  
+  /* Create the Nested Kernel private data section */
+  /* Align on 2MB boundary to get a whole large page */
+  _nkPrivDataStart = ALIGN(0x100000);
+  .nkPrivData ALIGN(0x100000) : 
+  {
+    *(nkPrivData)
+    _nkPrivDataEnd = .;
+  }
+
   .rodata         : { *(.rodata .rodata.* .gnu.linkonce.r.*) }
   .rodata1        : { *(.rodata1) }
   .eh_frame_hdr : { *(.eh_frame_hdr) }
