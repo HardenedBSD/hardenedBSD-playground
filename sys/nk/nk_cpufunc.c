@@ -50,6 +50,7 @@
 
 #include "nk/nk_cpufunc.h"
 #include "cpufunc.h"
+#include "common.h"
 
 #include <sys/types.h>
 
@@ -77,15 +78,27 @@ void nk_load_cr0 (register_t val)
  */
 void nk_load_cr4(register_t val)
 {
-    //val |= CR4_SMEP;
+#if NOT_YET_IMPLEMENTED
+    if (cpu_stdext_feature & CPUID_STDEXT_SMEP)
+#endif
+    {
+        val |= CR4_SMEP;
+    }
+
     _load_cr4(val);
+
     /* 
      * TODO:FIXME Must insert checks for this, if disabled then the nested
      * kernel isolation must be supported with another mechanisn, such as with
      * marking all usermode pages as NX.
      */
-    //if (!(val & CR4_SMEP))
-    //  panic("Nested Kernel: attempt to clear the CR4.SMEP bit: %x.", val);
+#if NOT_YET_IMPLEMENTED
+    if (cpu_stdext_feature & CPUID_STDEXT_SMEP)
+    {
+        if (!(val & CR4_SMEP))
+            panic("Nested Kernel: attempt to clear the CR4.SMEP bit: %x.", val);
+    }
+#endif
 }
 
 /*
