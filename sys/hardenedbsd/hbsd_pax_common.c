@@ -69,6 +69,17 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/pax.h>
 
+/*
+ * Enforce and check HardenedBSD constraints
+ */
+
+#ifndef INVARIANTS
+#ifndef PAX_INSECURE_MODE
+#error "HardenedBSD required enabled INVARIANTS in kernel config... If you really know what you're doing you can add `options PAX_INSECURE_MODE` to the kernel config"
+#endif
+#endif
+
+
 SYSCTL_NODE(_hardening, OID_AUTO, pax, CTLFLAG_RD, 0,
     "PaX (exploit mitigation) features.");
 
