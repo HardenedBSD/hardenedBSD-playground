@@ -110,10 +110,10 @@ pax_get_flags(struct proc *p, uint32_t *flags)
 int
 pax_elf(struct image_params *imgp, uint32_t mode)
 {
-	u_int flags, flags_aslr, flags_segvuard, flags_hardening, flags_mprotect;
+	u_int flags, flags_aslr, flags_mprotect, flags_pageexec, flags_segvuard, flags_hardening;
 
 	flags = mode;
-	flags_aslr = flags_segvuard = flags_hardening = flags_mprotect = 0;
+	flags_aslr = flags_segvuard = flags_hardening = flags_mprotect = flags_pageexec = 0;
 
 	if ((flags & ~PAX_NOTE_ALL) != 0) {
 		pax_log_aslr(imgp->proc, __func__, "unknown paxflags: %x\n", flags);
@@ -136,6 +136,10 @@ pax_elf(struct image_params *imgp, uint32_t mode)
 	flags_aslr = pax_aslr_setup_flags(imgp, mode);
 #endif
 
+#ifdef PAX_PAGEEXEC
+	flags_mprotect = pax_pageexec_setup_flags(imgp, mode);
+#endif
+
 #ifdef PAX_MPROTECT
 	flags_mprotect = pax_mprotect_setup_flags(imgp, mode);
 #endif
@@ -148,7 +152,7 @@ pax_elf(struct image_params *imgp, uint32_t mode)
 	flags_segvuard = pax_hardening_setup_flags(imgp, mode);
 #endif
 
-	flags = flags_aslr | flags_mprotect | flags_segvuard | flags_hardening;
+	flags = flags_aslr | flags_mprotect | flags_pageexec | flags_segvuard | flags_hardening;
 
 	CTR3(KTR_PAX, "%s : flags = %x mode = %x",
 	    __func__, flags, mode);
@@ -180,6 +184,7 @@ pax_init_prison(struct prison *pr)
 
 	pax_aslr_init_prison(pr);
 	pax_hardening_init_prison(pr);
+	pax_pageexec_init_prison(pr);
 	pax_mprotect_init_prison(pr);
 	pax_segvguard_init_prison(pr);
 	pax_ptrace_hardening_init_prison(pr);
