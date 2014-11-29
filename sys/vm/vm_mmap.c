@@ -449,6 +449,12 @@ map:
 	td->td_fpop = fp;
 	maxprot &= cap_maxprot;
 
+#ifdef PAX_PAGEEXEC
+	pax_pageexec(td->td_proc, &prot, &maxprot);
+#endif
+#ifdef PAX_MPROTECT
+	pax_mprotect(td->td_proc, &prot, &maxprot);
+#endif
 #ifdef PAX_ASLR
 	pax_aslr_mmap(td->td_proc, &addr, orig_addr, flags);
 #endif
