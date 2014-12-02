@@ -79,6 +79,8 @@ options 	INCLUDE_CONFIG_FILE	# Include this file in kernel
 options 	PAX_ASLR		# Address Space Layout Randomization
 options 	PAX_HARDENING		# Various hardening options
 options 	PAX_SYSCTLS		# sysctls for run-time options
+options 	PAX_PAGEEXEC		# Remove WX pages from user-space
+options 	PAX_MPROTECT		# Enfore W^X in user-space
 
 # Debugging support.  Always need this:
 options 	KDB			# Enable kernel debugger support.
