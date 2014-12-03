@@ -2915,11 +2915,11 @@ gnu/fs/reiserfs/reiserfs_stree.c	optional reiserfs
 gnu/fs/reiserfs/reiserfs_vfsops.c	optional reiserfs
 gnu/fs/reiserfs/reiserfs_vnops.c	optional reiserfs
 #
-hardenedbsd/hbsd_pax_common.c		optional pax_aslr | pax_segvguard | pax_hardening | pax_mprotect | pax_pageexec
-hardenedbsd/hbsd_pax_log.c		optional pax_aslr | pax_segvguard | pax_hardening | pax_mprotect | pax_pageexec | pax_ptrace_hardening
+hardenedbsd/hbsd_pax_common.c		optional pax_aslr | pax_segvguard | pax_hardening | pax_noexec
+hardenedbsd/hbsd_pax_log.c		optional pax_aslr | pax_segvguard | pax_hardening | pax_noexec | pax_ptrace_hardening
 hardenedbsd/hbsd_pax_aslr.c		optional pax_aslr
 hardenedbsd/hbsd_pax_hardening.c	optional pax_hardening
-hardenedbsd/hbsd_pax_noexec.c		optional pax_mprotect | pax_pageexec
+hardenedbsd/hbsd_pax_noexec.c		optional pax_noexec
 hardenedbsd/hbsd_pax_segvguard.c	optional pax_segvguard
 #
 hardenedbsd/hbsd_ptrace_hardening.c	optional pax_ptrace_hardening | pax_ptrace_hardening_grp
