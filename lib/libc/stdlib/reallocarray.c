@@ -25,7 +25,7 @@ __FBSDID("$FreeBSD$");
  * This is sqrt(SIZE_MAX+1), as s1*s2 <= SIZE_MAX
  * if both s1 < MUL_NO_OVERFLOW and s2 < MUL_NO_OVERFLOW
  */
-#define	MUL_NO_OVERFLOW	(1UL << (sizeof(size_t) * 4))
+#define	MUL_NO_OVERFLOW	((size_t)1 << (sizeof(size_t) * 4))
 
 void *
 reallocarray(void *ptr, size_t nmbr, size_t size)
