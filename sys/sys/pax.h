@@ -49,15 +49,18 @@ struct hardening_features {
 	int	 hr_pax_segvguard_expiry;       /* (p) Number of seconds to expire an entry */
 	int	 hr_pax_segvguard_suspension;   /* (p) Number of seconds to suspend an application */
 	int	 hr_pax_segvguard_maxcrashes;   /* (p) Maximum number of crashes before suspending application */
+	int	 hr_pax_pageexec_status;	/* (p) Remove WX pages from user-space */
+	int	 hr_pax_mprotect_status;	/* (p) Enforce W^X mappings */
 	int	 hr_pax_map32_enabled;		/* (p) MAP_32BIT enabled (amd64 only) */
 	int	 hr_pax_procfs_harden;		/* (p) Harden procfs */
-	int	 hr_pax_mprotect_exec;		/* (p) Disallow setting exec bit on non-exec mappings */
 	int	 hr_pax_ptrace_hardening_status;	/* (p) Disallow unprivileged ptrace */
 	gid_t	 hr_pax_ptrace_hardening_gid;	/* (p) Allowed ptrace users group */
 };
 #endif
 
 #ifdef _KERNEL
+
+#include <vm/vm.h>
 
 struct image_params;
 struct prison;
@@ -82,20 +85,22 @@ extern const char *pax_status_str[];
 
 extern const char *pax_status_simple_str[];
 
-#define PAX_NOTE_MPROTECT	0x00000001
-#define PAX_NOTE_NOMPROTECT	0x00000002
-#define PAX_NOTE_SEGVGUARD	0x00000004
-#define PAX_NOTE_NOSEGVGUARD	0x00000008
-#define PAX_NOTE_ASLR		0x00000010
-#define PAX_NOTE_NOASLR		0x00000020
+#define	PAX_NOTE_PAGEEXEC	0x00000001
+#define	PAX_NOTE_NOPAGEEXEC	0x00000002
+#define	PAX_NOTE_MPROTECT	0x00000004
+#define	PAX_NOTE_NOMPROTECT	0x00000008
+#define	PAX_NOTE_SEGVGUARD	0x00000010
+#define	PAX_NOTE_NOSEGVGUARD	0x00000020
+#define	PAX_NOTE_ASLR		0x00000040
+#define	PAX_NOTE_NOASLR		0x00000080
 
-#define PAX_NOTE_RESERVED0	0x40000000
-#define PAX_NOTE_FINALIZED	0x80000000
+#define	PAX_NOTE_RESERVED0	0x40000000
+#define	PAX_NOTE_FINALIZED	0x80000000
 
 #define PAX_NOTE_ALL_ENABLED	\
-			(PAX_NOTE_MPROTECT | PAX_NOTE_SEGVGUARD | PAX_NOTE_ASLR)
+			(PAX_NOTE_PAGEEXEC | PAX_NOTE_MPROTECT | PAX_NOTE_SEGVGUARD | PAX_NOTE_ASLR)
 #define PAX_NOTE_ALL_DISABLED	\
-			(PAX_NOTE_NOMPROTECT | PAX_NOTE_NOSEGVGUARD | PAX_NOTE_NOASLR)
+			(PAX_NOTE_NOPAGEEXEC | PAX_NOTE_NOMPROTECT | PAX_NOTE_NOSEGVGUARD | PAX_NOTE_NOASLR)
 #define PAX_NOTE_ALL	(PAX_NOTE_ALL_ENABLED | PAX_NOTE_ALL_DISABLED)
 
 /*
@@ -132,6 +137,10 @@ void pax_aslr_stack(struct proc *p, uintptr_t *addr);
 int hbsd_uprintf(const char *fmt, ...);
 void pax_log_aslr(struct proc *, const char *fmt, ...);
 void pax_ulog_aslr(const char *fmt, ...);
+void pax_log_pageexec(struct proc *, const char *fmt, ...);
+void pax_ulog_pageexec(const char *fmt, ...);
+void pax_log_mprotect(struct proc *, const char *fmt, ...);
+void pax_ulog_mprotect(const char *fmt, ...);
 void pax_log_segvguard(struct proc *, const char *fmt, ...);
 void pax_ulog_segvguard(const char *fmt, ...);
 void pax_log_ptrace_hardening(struct proc *, const char *fmt, ...);
@@ -151,6 +160,24 @@ void pax_segvguard_remove(struct thread *td, struct vnode *vn);
 u_int pax_segvguard_setup_flags(struct image_params *imgp, u_int mode);
 int pax_segvguard_update_flags_if_setuid(struct image_params *imgp,
     struct vnode *vn);
+
+/*
+ * PAX PAGEEXEC and MPROTECT hardening
+ */
+#ifdef PAX_NOEXEC
+void pax_noexec_init_prison(struct prison *pr);
+#else
+#define	pax_noexec_init_prison(pr)	do {} while (0)
+#endif
+void pax_noexec_nw(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
+void pax_noexec_nx(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
+int pax_pageexec_active(struct proc *p);
+int pax_mprotect_active(struct proc *p);
+u_int pax_pageexec_setup_flags(struct image_params *imgp, u_int mode);
+u_int pax_mprotect_setup_flags(struct image_params *imgp, u_int mode);
+void pax_pageexec(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
+void pax_mprotect(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
+int pax_mprotect_enforce(struct proc *p, vm_prot_t old_prot, vm_prot_t new_prot);
 
 /*
  * Hardening related functions

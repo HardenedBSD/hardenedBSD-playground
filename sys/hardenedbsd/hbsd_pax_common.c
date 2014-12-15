@@ -69,6 +69,17 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/pax.h>
 
+/*
+ * Enforce and check HardenedBSD constraints
+ */
+
+#ifndef INVARIANTS
+#ifndef PAX_INSECURE_MODE
+#error "HardenedBSD required enabled INVARIANTS in kernel config... If you really know what you're doing you can add `options PAX_INSECURE_MODE` to the kernel config"
+#endif
+#endif
+
+
 SYSCTL_NODE(_hardening, OID_AUTO, pax, CTLFLAG_RD, 0,
     "PaX (exploit mitigation) features.");
 
@@ -89,6 +100,15 @@ const char *pax_status_simple_str[] = {
 	[PAX_FEATURE_SIMPLE_ENABLED] = "enabled"
 };
 
+/*
+ * @brief Get the current process prison.
+ *
+ * @param p		The current process pointer.
+ *
+ * @return		prion0's address if failed or kernel process
+ * 			the actual process' prison's address else
+ *
+ */
 struct prison *
 pax_get_prison(struct proc *p)
 {
@@ -100,6 +120,14 @@ pax_get_prison(struct proc *p)
 	return (p->p_ucred->cr_prison);
 }
 
+/*
+ * @brief Get the current PAX status from process.
+ *
+ * @param p		The controlled process pointer.
+ * @param flags		Where to write the current state.
+ *
+ * @return		none
+ */
 void
 pax_get_flags(struct proc *p, uint32_t *flags)
 {
@@ -107,13 +135,22 @@ pax_get_flags(struct proc *p, uint32_t *flags)
 	*flags = p->p_pax;
 }
 
+/*
+ * @bried Initialize the new process PAX state
+ *
+ * @param imgp		Executable image's structure.
+ * @param mode		Requested mode.
+ *
+ * @return		ENOEXEC on fail
+ * 			0 on success
+ */
 int
 pax_elf(struct image_params *imgp, uint32_t mode)
 {
-	u_int flags, flags_aslr, flags_segvuard, flags_hardening;
+	u_int flags, flags_aslr, flags_mprotect, flags_pageexec, flags_segvuard, flags_hardening;
 
 	flags = mode;
-	flags_aslr = flags_segvuard = flags_hardening = 0;
+	flags_aslr = flags_segvuard = flags_hardening = flags_mprotect = flags_pageexec = 0;
 
 	if ((flags & ~PAX_NOTE_ALL) != 0) {
 		pax_log_aslr(imgp->proc, __func__, "unknown paxflags: %x\n", flags);
@@ -136,15 +173,20 @@ pax_elf(struct image_params *imgp, uint32_t mode)
 	flags_aslr = pax_aslr_setup_flags(imgp, mode);
 #endif
 
+#ifdef PAX_NOEXEC
+	flags_pageexec = pax_pageexec_setup_flags(imgp, mode);
+	flags_mprotect = pax_mprotect_setup_flags(imgp, mode);
+#endif
+
 #ifdef PAX_SEGVGUARD
 	flags_segvuard = pax_segvguard_setup_flags(imgp, mode);
 #endif
 
-#ifdef PAX_HARDENING_noyet
-	flags_segvuard = pax_hardening_setup_flags(imgp, mode);
+#ifdef PAX_HARDENING_notyet
+	flags_hardening = pax_hardening_setup_flags(imgp, mode);
 #endif
 
-	flags = flags_aslr | flags_segvuard | flags_hardening;
+	flags = flags_aslr | flags_mprotect | flags_pageexec | flags_segvuard | flags_hardening;
 
 	CTR3(KTR_PAX, "%s : flags = %x mode = %x",
 	    __func__, flags, mode);
@@ -157,7 +199,9 @@ pax_elf(struct image_params *imgp, uint32_t mode)
 
 
 /*
- * print out PaX settings on boot time, and validate some of them
+ * @brief Print out PaX settings on boot time, and validate some of them.
+ *
+ * @return		none
  */
 static void
 pax_sysinit(void)
@@ -167,6 +211,16 @@ pax_sysinit(void)
 }
 SYSINIT(pax, SI_SUB_PAX, SI_ORDER_FIRST, pax_sysinit, NULL);
 
+/*
+ * @brief Initialize prison's state.
+ *
+ * The prison0 state initialized with global state.
+ * The child prisons state initialized with it's parent's state.
+ *
+ * @param pr		Initializable prison's pointer.
+ *
+ * @return		none
+ */
 void
 pax_init_prison(struct prison *pr)
 {
@@ -176,6 +230,7 @@ pax_init_prison(struct prison *pr)
 
 	pax_aslr_init_prison(pr);
 	pax_hardening_init_prison(pr);
+	pax_noexec_init_prison(pr);
 	pax_segvguard_init_prison(pr);
 	pax_ptrace_hardening_init_prison(pr);
 
