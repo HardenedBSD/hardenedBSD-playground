@@ -1,5 +1,6 @@
+/*	$OpenBSD: timingsafe_bcmp.c,v 1.2 2014/06/10 04:17:37 deraadt Exp $	*/
 /*
- * Copyright (c) 2010 Damien Miller. All rights reserved.
+ * Copyright (c) 2010 Damien Miller.  All rights reserved.
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,28 +15,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#include <string.h>
 
-#include <strings.h>
-
-/**
- * timingsafe_bcmp, unlike bcmp
- * does not stop if the two current bytes differ
- * rather go through the whole n bytes
- */
 int
 timingsafe_bcmp(const void *b1, const void *b2, size_t n)
 {
-	char *p1, *p2;
-	int r;
+	const unsigned char *p1 = b1, *p2 = b2;
+	int ret = 0;
 
-	p1 = (char *)b1;
-	p2 = (char *)b2;
-	r = 0;
-
-	while (n-- != 0)
-		r |= *p1++ ^ *p2++;
-	
-	return (r != 0);
+	for (; n > 0; n--)
+		ret |= *p1++ ^ *p2++;
+	return (ret != 0);
 }
