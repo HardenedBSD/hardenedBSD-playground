@@ -1,6 +1,5 @@
-/*	$OpenBSD: timingsafe_bcmp.c,v 1.2 2014/06/10 04:17:37 deraadt Exp $	*/
 /*
- * Copyright (c) 2010 Damien Miller.  All rights reserved.
+ * Copyright (c) 2014 Brent Cook <bcook@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,17 +12,48 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * Emulation of getentropy(2) as documented at:
+ * http://www.openbsd.org/cgi-bin/man.cgi/OpenBSD-current/man2/getentropy.2
  */
 
-#include <string.h>
+#include <sys/types.h>
+#include <sys/sysctl.h>
+
+#include <stddef.h>
+#include <errno.h>
 
 int
-timingsafe_bcmp(const void *b1, const void *b2, size_t n)
+getentropy(void *buf, size_t len)
 {
-	const unsigned char *p1 = b1, *p2 = b2;
-	int ret = 0;
+	int mib[2];
+	size_t todo, done;
+	unsigned char *p;
+	int err;
 
-	for (; n > 0; n--)
-		ret |= *p1++ ^ *p2++;
-	return (ret != 0);
+	if (len > 256) {
+		err = -1;
+		errno = EIO;
+		goto fail;
+	}
+
+
+	mib[0] = CTL_KERN;
+	mib[1] = KERN_ARND;
+
+	p = (unsigned char *)buf;
+	done = 0;
+	err = 0;
+
+	while (done < len) {
+			todo = len - done;
+			if (sysctl(mib, 2, p, &todo, NULL, 0) == -1)
+					goto fail;
+
+			done += todo;
+			p += done;
+	}
+
+fail:
+	return (err);
 }

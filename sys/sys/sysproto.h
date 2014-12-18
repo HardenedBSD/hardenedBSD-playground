@@ -1819,10 +1819,6 @@ struct ppoll_args {
 	char ts_l_[PADL_(const struct timespec *)]; const struct timespec * ts; char ts_r_[PADR_(const struct timespec *)];
 	char set_l_[PADL_(const sigset_t *)]; const sigset_t * set; char set_r_[PADR_(const sigset_t *)];
 };
-struct getentropy_args {
-	char ptr_l_[PADL_(void *)]; void * ptr; char ptr_r_[PADR_(void *)];
-	char len_l_[PADL_(size_t)]; size_t len; char len_r_[PADR_(size_t)];
-};
 struct getdtablecount_args {
 	register_t dummy;
 };
@@ -2218,7 +2214,6 @@ int	sys_pipe2(struct thread *, struct pipe2_args *);
 int	sys_aio_mlock(struct thread *, struct aio_mlock_args *);
 int	sys_procctl(struct thread *, struct procctl_args *);
 int	sys_ppoll(struct thread *, struct ppoll_args *);
-int	sys_getentropy(struct thread *, struct getentropy_args *);
 int	sys_getdtablecount(struct thread *, struct getdtablecount_args *);
 
 #ifdef COMPAT_43
@@ -2926,7 +2921,6 @@ int	freebsd7_shmctl(struct thread *, struct freebsd7_shmctl_args *);
 #define	SYS_AUE_aio_mlock	AUE_NULL
 #define	SYS_AUE_procctl	AUE_NULL
 #define	SYS_AUE_ppoll	AUE_POLL
-#define	SYS_AUE_getentropy	AUE_NULL
 #define	SYS_AUE_getdtablecount	AUE_NULL
 
 #undef PAD_

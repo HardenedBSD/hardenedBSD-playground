@@ -1,5 +1,6 @@
+/*	$OpenBSD: timingsafe_memcmp.c,v 1.1 2014/06/13 02:12:17 matthew Exp $	*/
 /*
- * Copyright (c) 2010 Damien Miller. All rights reserved.
+ * Copyright (c) 2014 Google Inc.
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,31 +15,32 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
-
-#include <strings.h>
+#include <limits.h>
+#include <string.h>
 
 int
-timingsafe_memcmp(const void *s1, const void *s2, size_t n)
+timingsafe_memcmp(const void *b1, const void *b2, size_t len)
 {
-	const unsigned char *p1, *p2;
-	size_t i ;
-	int r, c, lt, gt;
+        const unsigned char *p1 = b1, *p2 = b2;
+        size_t i;
+        int res = 0, done = 0;
 
-	r = 0;
-	c = 0;
+        for (i = 0; i < len; i++) {
+                /* lt is -1 if p1[i] < p2[i]; else 0. */
+                int lt = (p1[i] - p2[i]) >> CHAR_BIT;
 
-	p1 = (unsigned char *)s1;
-	p2 = (unsigned char *)s2;
+                /* gt is -1 if p1[i] > p2[i]; else 0. */
+                int gt = (p2[i] - p1[i]) >> CHAR_BIT;
 
-	for (i = 0; i < n; i ++) {
-		lt = (p1[i] - p2[i]) >> 8;
-		gt = (p2[i] - p1[i]) >> 8;
+                /* cmp is 1 if p1[i] > p2[i]; -1 if p1[i] < p2[i]; else 0. */
+                int cmp = lt - gt;
 
-		r |= (lt - gt) & ~c;
-		c |= lt | gt;
-	}
+                /* set res = cmp if !done. */
+                res |= cmp & ~done;
 
-	return (r);
+                /* set done if p1[i] != p2[i]. */
+                done |= lt | gt;
+        }
+
+        return (res);
 }

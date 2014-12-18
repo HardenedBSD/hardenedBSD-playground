@@ -394,7 +394,6 @@ FBSD_1.3 {
 	ffclock_getestimate;
 	ffclock_setestimate;
 	getdtablecount;
-	getentropy;
 	pipe2;
 	posix_fadvise;
 	procctl;
