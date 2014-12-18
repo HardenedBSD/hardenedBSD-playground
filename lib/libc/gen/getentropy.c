@@ -46,12 +46,12 @@ getentropy(void *buf, size_t len)
 	err = 0;
 
 	while (done < len) {
-			todo = len - done;
-			if (sysctl(mib, 2, p, &todo, NULL, 0) == -1)
-					goto fail;
+		todo = len - done;
+		if (sysctl(mib, 2, p, &todo, NULL, 0) == -1)
+				goto fail;
 
-			done += todo;
-			p += done;
+		done += todo;
+		p += done;
 	}
 
 fail:
