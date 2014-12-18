@@ -1069,6 +1069,4 @@
 545	AUE_POLL	STD	{ int freebsd32_ppoll(struct pollfd *fds, \
 				    u_int nfds, const struct timespec32 *ts, \
 				    const sigset_t *set); }
-546	AUE_NULL	NOPROTO	{ int getentropy(void *ptr, \
-				    size_t len); }
-547	AUE_NULL	NOPROTO	{ int getdtablecount(void); }
+546	AUE_NULL	NOPROTO	{ int getdtablecount(void); }

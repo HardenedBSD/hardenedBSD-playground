@@ -453,6 +453,5 @@
 #define	FREEBSD32_SYS_freebsd32_procctl	544
 #define	FREEBSD32_SYS_freebsd32_procctl	544
 #define	FREEBSD32_SYS_freebsd32_ppoll	545
-#define	FREEBSD32_SYS_getentropy	546
-#define	FREEBSD32_SYS_getdtablecount	547
-#define	FREEBSD32_SYS_MAXSYSCALL	548
+#define	FREEBSD32_SYS_getdtablecount	546
+#define	FREEBSD32_SYS_MAXSYSCALL	547

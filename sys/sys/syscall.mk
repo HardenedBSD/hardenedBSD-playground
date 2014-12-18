@@ -411,5 +411,4 @@ MIASM =  \
 	aio_mlock.o \
 	procctl.o \
 	ppoll.o \
-	getentropy.o \
 	getdtablecount.o
