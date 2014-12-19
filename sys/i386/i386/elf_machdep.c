@@ -50,7 +50,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/md_var.h>
 #include <machine/npx.h>
 
-struct sysentvec elf32_freebsd_sysvec = {
+const struct sysentvec elf32_freebsd_sysvec = {
 	.sv_size	= SYS_MAXSYSCALL,
 	.sv_table	= sysent,
 	.sv_mask	= 0,

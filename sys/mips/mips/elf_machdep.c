@@ -53,7 +53,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/cache.h>
 
 #ifdef __mips_n64
-struct sysentvec elf64_freebsd_sysvec = {
+const struct sysentvec elf64_freebsd_sysvec = {
 	.sv_size	= SYS_MAXSYSCALL,
 	.sv_table	= sysent,
 	.sv_mask	= 0,
@@ -112,7 +112,7 @@ elf64_dump_thread(struct thread *td __unused, void *dst __unused,
 {
 }
 #else
-struct sysentvec elf32_freebsd_sysvec = {
+const struct sysentvec elf32_freebsd_sysvec = {
 	.sv_size	= SYS_MAXSYSCALL,
 	.sv_table	= sysent,
 	.sv_mask	= 0,

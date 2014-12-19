@@ -340,7 +340,7 @@ int
 cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
 {
 	struct trapframe *locr0 = td->td_frame;
-	struct sysentvec *se;
+	const struct sysentvec *se = td->td_proc->p_sysent;
 	int error, nsaved;
 
 	bzero(sa->args, sizeof(sa->args));
@@ -433,8 +433,6 @@ cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
 	if (trap_debug)
 		printf("SYSCALL #%d pid:%u\n", sa->code, td->td_proc->p_pid);
 #endif
-
-	se = td->td_proc->p_sysent;
 	/*
 	 * XXX
 	 * Shouldn't this go before switching on the code?

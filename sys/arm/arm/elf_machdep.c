@@ -51,7 +51,7 @@ __FBSDID("$FreeBSD$");
 
 static boolean_t elf32_arm_abi_supported(struct image_params *);
 
-struct sysentvec elf32_freebsd_sysvec = {
+const struct sysentvec elf32_freebsd_sysvec = {
 	.sv_size	= SYS_MAXSYSCALL,
 	.sv_table	= sysent,
 	.sv_mask	= 0,

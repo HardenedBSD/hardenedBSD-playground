@@ -940,7 +940,7 @@ linux_get_machine(const char **dst)
 	}
 }
 
-struct sysentvec elf_linux_sysvec = {
+const struct sysentvec elf_linux_sysvec = {
 	.sv_size	= LINUX_SYS_MAXSYSCALL,
 	.sv_table	= linux_sysent,
 	.sv_mask	= 0,

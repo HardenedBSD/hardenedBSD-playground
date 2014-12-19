@@ -57,7 +57,7 @@ __FBSDID("$FreeBSD$");
 
 #include "linker_if.h"
 
-static struct sysentvec elf64_freebsd_sysvec = {
+const static struct sysentvec elf64_freebsd_sysvec = {
 	.sv_size	= SYS_MAXSYSCALL,
 	.sv_table	= sysent,
 	.sv_mask	= 0,

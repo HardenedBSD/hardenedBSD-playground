@@ -62,7 +62,7 @@
 extern const char *freebsd32_syscallnames[];
 #endif
 
-struct sysentvec elf32_freebsd_sysvec = {
+const struct sysentvec elf32_freebsd_sysvec = {
 	.sv_size	= SYS_MAXSYSCALL,
 #ifdef __powerpc64__
 	.sv_table	= freebsd32_sysent,

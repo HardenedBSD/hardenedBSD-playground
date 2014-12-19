@@ -1024,7 +1024,7 @@ exec_unmap_first_page(imgp)
 int
 exec_new_vmspace(imgp, sv)
 	struct image_params *imgp;
-	struct sysentvec *sv;
+	const struct sysentvec *sv;
 {
 	int error;
 	struct proc *p = imgp->proc;

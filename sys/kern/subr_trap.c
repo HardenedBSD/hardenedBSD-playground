@@ -298,9 +298,8 @@ const char *
 syscallname(struct proc *p, u_int code)
 {
 	static const char unknown[] = "unknown";
-	struct sysentvec *sv;
+	const struct sysentvec *sv = p->p_sysent;
 
-	sv = p->p_sysent;
 	if (sv->sv_syscallnames == NULL || code >= sv->sv_size)
 		return (unknown);
 	return (sv->sv_syscallnames[code]);

@@ -51,7 +51,7 @@
 #include <machine/elf.h>
 #include <machine/md_var.h>
 
-struct sysentvec elf64_freebsd_sysvec = {
+const struct sysentvec elf64_freebsd_sysvec = {
 	.sv_size	= SYS_MAXSYSCALL,
 	.sv_table	= sysent,
 	.sv_mask	= 0,

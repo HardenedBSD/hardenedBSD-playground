@@ -120,7 +120,7 @@ SYSINIT(shp, SI_SUB_EXEC, SI_ORDER_FIRST, (sysinit_cfunc_t)shared_page_init,
     NULL);
 
 static void
-timehands_update(struct sysentvec *sv)
+timehands_update(const struct sysentvec *sv)
 {
 	struct vdso_timehands th;
 	struct vdso_timekeep *tk;
@@ -146,7 +146,7 @@ timehands_update(struct sysentvec *sv)
 
 #ifdef COMPAT_FREEBSD32
 static void
-timehands_update32(struct sysentvec *sv)
+timehands_update32(const struct sysentvec *sv)
 {
 	struct vdso_timekeep32 *tk;
 	struct vdso_timehands32 th;

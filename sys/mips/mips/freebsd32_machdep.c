@@ -75,7 +75,7 @@ static void freebsd32_sendsig(sig_t, ksiginfo_t *, sigset_t *);
 
 extern const char *freebsd32_syscallnames[];
 
-struct sysentvec elf32_freebsd_sysvec = {
+const struct sysentvec elf32_freebsd_sysvec = {
 	.sv_size	= SYS_MAXSYSCALL,
 	.sv_table	= freebsd32_sysent,
 	.sv_mask	= 0,
