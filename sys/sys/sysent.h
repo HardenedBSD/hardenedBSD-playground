@@ -139,7 +139,7 @@ struct sysentvec {
 	uint32_t	sv_timekeep_gen;
 	void		*sv_shared_page_obj;
 	void		(*sv_schedtail)(struct thread *);
-	void		(*sv_pax_aslr_init)(struct proc *p);
+	void		(* const sv_pax_aslr_init)(struct proc *p);
 };
 
 #define	SV_ILP32	0x000100
@@ -159,7 +159,6 @@ struct sysentvec {
 #define	SV_ABI_UNDEF	255
 
 #ifdef _KERNEL
-extern struct sysentvec aout_sysvec;
 extern struct sysentvec elf_freebsd_sysvec;
 extern struct sysentvec null_sysvec;
 extern struct sysent sysent[];
