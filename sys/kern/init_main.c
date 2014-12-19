@@ -46,6 +46,7 @@ __FBSDID("$FreeBSD$");
 
 #include "opt_ddb.h"
 #include "opt_init_path.h"
+#include "opt_pax.h"
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -694,7 +695,10 @@ start_init(void *dummy)
 	vm_offset_t addr;
 	struct execve_args args;
 	int options, error;
-	char *var, *path, *next, *s;
+#ifndef PAX_HARDENING
+	char *var;
+#endif
+	char *path, *next, *s;
 	char *ucp, **uap, *arg0, *arg1;
 	struct thread *td;
 	struct proc *p;
@@ -718,10 +722,12 @@ start_init(void *dummy)
 	p->p_vmspace->vm_maxsaddr = (caddr_t)addr;
 	p->p_vmspace->vm_ssize = 1;
 
+#ifndef PAX_HARDENING
 	if ((var = kern_getenv("init_path")) != NULL) {
 		strlcpy(init_path, var, sizeof(init_path));
 		freeenv(var);
 	}
+#endif
 	
 	for (path = init_path; *path != '\0'; path = next) {
 		while (*path == ':')
