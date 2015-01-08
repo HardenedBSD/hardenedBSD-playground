@@ -56,6 +56,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/interrupt.h>
 
 #include <vm/uma.h>
+#include <vm/vm.h>
+#include <vm/vm_page.h>
+#include <vm/vm_param.h>
+#include <vm/vm_phys.h>
 
 #ifdef DDB
 #include <ddb/ddb.h>
@@ -113,6 +117,7 @@ SYSCTL_INT(_kern_sched, OID_AUTO, cpusetsize, CTLFLAG_RD,
     SYSCTL_NULL_INT_PTR, sizeof(cpuset_t), "sizeof(cpuset_t)");
 
 cpuset_t *cpuset_root;
+cpuset_t cpuset_domain[MAXMEMDOM];
 
 /*
  * Acquire a reference to a cpuset, all pointers must be tracked with refs.
@@ -460,6 +465,7 @@ cpuset_which(cpuwhich_t which, id_t id, struct proc **pp, struct thread **tdp,
 		return (0);
 	}
 	case CPU_WHICH_IRQ:
+	case CPU_WHICH_DOMAIN:
 		return (0);
 	default:
 		return (EINVAL);
@@ -813,7 +819,8 @@ out:
 
 
 /*
- * Creates the cpuset for thread0.  We make two sets:
+ * Creates system-wide cpusets and the cpuset for thread0 including two
+ * sets:
  * 
  * 0 - The root set which should represent all valid processors in the
  *     system.  It is initially created with a mask of all processors
@@ -858,6 +865,10 @@ cpuset_thread0(void)
 	 * Initialize the unit allocator. 0 and 1 are allocated above.
 	 */
 	cpuset_unr = new_unrhdr(2, INT_MAX, NULL);
+
+	/* MD Code is responsible for initializing sets if vm_ndomains > 1. */
+	if (vm_ndomains == 1)
+		CPU_COPY(&all_cpus, &cpuset_domain[0]);
 
 	return (set);
 }
@@ -1013,6 +1024,7 @@ sys_cpuset_getid(struct thread *td, struct cpuset_getid_args *uap)
 	case CPU_WHICH_JAIL:
 		break;
 	case CPU_WHICH_IRQ:
+	case CPU_WHICH_DOMAIN:
 		return (EINVAL);
 	}
 	switch (uap->level) {
@@ -1076,6 +1088,7 @@ sys_cpuset_getaffinity(struct thread *td, struct cpuset_getaffinity_args *uap)
 		case CPU_WHICH_JAIL:
 			break;
 		case CPU_WHICH_IRQ:
+		case CPU_WHICH_DOMAIN:
 			error = EINVAL;
 			goto out;
 		}
@@ -1106,6 +1119,12 @@ sys_cpuset_getaffinity(struct thread *td, struct cpuset_getaffinity_args *uap)
 			break;
 		case CPU_WHICH_IRQ:
 			error = intr_getaffinity(uap->id, mask);
+			break;
+		case CPU_WHICH_DOMAIN:
+			if (uap->id >= vm_ndomains)
+				error = ESRCH;
+			else
+				CPU_COPY(&cpuset_domain[uap->id], mask);
 			break;
 		}
 		break;
@@ -1185,6 +1204,7 @@ sys_cpuset_setaffinity(struct thread *td, struct cpuset_setaffinity_args *uap)
 		case CPU_WHICH_JAIL:
 			break;
 		case CPU_WHICH_IRQ:
+		case CPU_WHICH_DOMAIN:
 			error = EINVAL;
 			goto out;
 		}
