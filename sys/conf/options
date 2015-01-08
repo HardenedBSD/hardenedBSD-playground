@@ -764,6 +764,9 @@ VT_TWOBUTTON_MOUSE	opt_syscons.h
 DEV_SC			opt_syscons.h
 DEV_VT			opt_syscons.h
 
+# kbdmux options
+KBDMUX_DFLT_KEYMAP	opt_kbdmux.h
+
 # teken terminal emulator options
 TEKEN_CONS25		opt_teken.h
 TEKEN_UTF8		opt_teken.h
@@ -803,6 +806,7 @@ AH_SUPPORT_AR9130	opt_ah.h
 # This is required for AR933x SoC support
 AH_SUPPORT_AR9330	opt_ah.h
 AH_SUPPORT_AR9340	opt_ah.h
+AH_SUPPORT_QCA9550	opt_ah.h
 
 AH_DEBUG		opt_ah.h
 AH_ASSERT		opt_ah.h

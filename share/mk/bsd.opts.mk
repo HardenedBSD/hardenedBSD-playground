@@ -69,8 +69,7 @@ __DEFAULT_NO_OPTIONS = \
     CTF \
     DEBUG_FILES \
     DTRACE_HARDENING \
-    INSTALL_AS_USER \
-    INFO
+    INSTALL_AS_USER
 
 .include <bsd.mkopt.mk>
 
