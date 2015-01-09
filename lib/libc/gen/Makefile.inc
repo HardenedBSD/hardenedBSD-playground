@@ -56,6 +56,7 @@ SRCS+=	__getosreldate.c \
 	getcap.c \
 	getcwd.c \
 	getdomainname.c \
+	getdtablecount.c \
 	getentropy.c \
 	getgrent.c \
 	getgrouplist.c \

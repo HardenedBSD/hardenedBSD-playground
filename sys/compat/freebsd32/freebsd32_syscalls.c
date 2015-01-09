@@ -579,5 +579,4 @@ const char *freebsd32_syscallnames[] = {
 	"freebsd32_procctl",			/* 544 = freebsd32_procctl */
 #endif
 	"freebsd32_ppoll",			/* 545 = freebsd32_ppoll */
-	"getdtablecount",			/* 546 = getdtablecount */
 };

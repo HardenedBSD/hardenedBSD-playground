@@ -580,5 +580,4 @@ struct sysent sysent[] = {
 	{ AS(aio_mlock_args), (sy_call_t *)lkmressys, AUE_NULL, NULL, 0, 0, 0, SY_THR_ABSENT },	/* 543 = aio_mlock */
 	{ AS(procctl_args), (sy_call_t *)sys_procctl, AUE_NULL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 544 = procctl */
 	{ AS(ppoll_args), (sy_call_t *)sys_ppoll, AUE_POLL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 545 = ppoll */
-	{ 0, (sy_call_t *)sys_getdtablecount, AUE_NULL, NULL, 0, 0, 0, SY_THR_STATIC },	/* 546 = getdtablecount */
 };
