@@ -111,6 +111,12 @@ static void	fdunused(struct filedesc *fdp, int fd);
 static void	fdused(struct filedesc *fdp, int fd);
 static int	getmaxfd(struct proc *p);
 
+static int sysctl_getdtablecount(SYSCTL_HANDLER_ARGS);
+
+SYSCTL_PROC(_kern, OID_AUTO, tblcount, CTLTYPE_INT|CTLFLAG_RD,
+	NULL, 0, sysctl_getdtablecount, "I", "");
+
+
 /* Flags for do_dup() */
 #define	DUP_FIXED	0x1	/* Force fixed allocation. */
 #define	DUP_FCNTL	0x2	/* fcntl()-style errors. */
@@ -319,15 +325,6 @@ fdfree(struct filedesc *fdp, int fd)
 #endif
 }
 
-/*
- * System calls on descriptors.
- */
-#ifndef _SYS_SYSPROTO_H_
-struct getdtablesize_args {
-	int	dummy;
-};
-#endif
-/* ARGSUSED */
 int
 sys_getdtablesize(struct thread *td, struct getdtablesize_args *uap)
 {
@@ -1262,34 +1259,27 @@ sys_closefrom(struct thread *td, struct closefrom_args *uap)
 	return (0);
 }
 
-/*
- * Number of file descriptors per process
- */ 
-#ifndef _SYS_SYSPROTO_H_
-struct getdtablecount_args {
-	int	dummy;
-};
-#endif
-/* ARGSUSED */
-
-int
-sys_getdtablecount(struct thread *td, struct getdtablecount_args *uap)
+static int
+sysctl_getdtablecount(SYSCTL_HANDLER_ARGS)
 {
+	struct proc *p;
 	struct filedesc *fdp;
-	int open_fd;
+	int open_fd, error;
 	int i;
 
-	fdp = td->td_proc->p_fd;
+	p = curproc;
+	fdp = p->p_fd;
 	open_fd = 0;
 
 	FILEDESC_SLOCK(fdp);
 	for (i = 0; i < (fdp->fd_lastfile + 1); i ++)
 		if ((fdp->fd_map[NDSLOT(i)] & NDBIT(i)) != 0)
 			open_fd++;
-	td->td_retval[0] = open_fd;
 	FILEDESC_SUNLOCK(fdp);
+
+	error = SYSCTL_OUT(req, &open_fd, sizeof(open_fd));
 	
-	return (0);
+	return (error);
 }
 
 #if defined(COMPAT_43)

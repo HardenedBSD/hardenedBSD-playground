@@ -463,5 +463,4 @@
 #define	SYS_aio_mlock	543
 #define	SYS_procctl	544
 #define	SYS_ppoll	545
-#define	SYS_getdtablecount	546
-#define	SYS_MAXSYSCALL	547
+#define	SYS_MAXSYSCALL	546

@@ -3382,11 +3382,6 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		*n_args = 4;
 		break;
 	}
-	/* getdtablecount */
-	case 546: {
-		*n_args = 0;
-		break;
-	}
 	default:
 		*n_args = 0;
 		break;
@@ -9024,9 +9019,6 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			break;
 		};
 		break;
-	/* getdtablecount */
-	case 546:
-		break;
 	default:
 		break;
 	};
@@ -10970,8 +10962,6 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		if (ndx == 0 || ndx == 1)
 			p = "int";
 		break;
-	/* getdtablecount */
-	case 546:
 	default:
 		break;
 	};
