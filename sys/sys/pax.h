@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2006 Elad Efrat <elad@NetBSD.org>
- * Copyright (c) 2013-2014, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2013-2015, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
  * Copyright (c) 2014, by Shawn Webb <lattera at gmail.com>
  * All rights reserved.
  *
@@ -32,7 +32,7 @@
 #ifndef	__SYS_PAX_H
 #define	__SYS_PAX_H
 
-#define	__HardenedBSD_version	11
+#define	__HardenedBSD_version	12
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
 struct hardening_features {
@@ -109,6 +109,7 @@ void pax_aslr_mmap(struct proc *p, vm_offset_t *addr,
     vm_offset_t orig_addr, int flags);
 u_int pax_aslr_setup_flags(struct image_params *imgp, u_int mode);
 void pax_aslr_stack(struct proc *p, uintptr_t *addr);
+void pax_aslr_stack_adjust(struct proc *p, u_long *ssiz);
 
 /*
  * Log related functions
