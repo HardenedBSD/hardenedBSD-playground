@@ -212,8 +212,7 @@ static int pax_aslr_stack_len = PAX_ASLR_DELTA_STACK_MAX_LEN;
 static int pax_aslr_exec_len = PAX_ASLR_DELTA_EXEC_MAX_LEN;
 #else
 static int pax_aslr_mmap_len = PAX_ASLR_DELTA_MMAP_DEF_LEN;
-/* static int pax_aslr_stack_len = PAX_ASLR_DELTA_STACK_DEF_LEN; */
-static int pax_aslr_stack_len = 15; /* XXXOP github-issue: #104 */
+static int pax_aslr_stack_len = PAX_ASLR_DELTA_STACK_DEF_LEN;
 static int pax_aslr_exec_len = PAX_ASLR_DELTA_EXEC_DEF_LEN;
 #endif /* PAX_ASLR_MAX_SEC */
 
@@ -564,7 +563,7 @@ SYSINIT(pax_aslr, SI_SUB_PAX, SI_ORDER_SECOND, pax_aslr_sysinit, NULL);
 int
 pax_aslr_active(struct proc *p)
 {
-	u_int flags;
+	uint32_t flags;
 
 	pax_get_flags(p, &flags);
 
@@ -818,11 +817,11 @@ pax_aslr_execbase(struct proc *p, u_long *et_dyn_addr)
 	*et_dyn_addr += p->p_vmspace->vm_aslr_delta_exec;
 }
 
-u_int
-pax_aslr_setup_flags(struct image_params *imgp, u_int mode)
+uint32_t
+pax_aslr_setup_flags(struct image_params *imgp, uint32_t mode)
 {
 	struct prison *pr;
-	u_int flags, status;
+	uint32_t flags, status;
 
 	flags = 0;
 	status = 0;
@@ -881,27 +880,3 @@ pax_aslr_setup_flags(struct image_params *imgp, u_int mode)
 	return (flags);
 }
 
-
-void
-pax_init_aslr_workaround(void)
-{
-	/*
-	 * XXXOP
-	 *
-	 * workaround init related problems...
-	 * by default use pax_aslr_stack, which is out of the range
-	 * and after init started up properly, bump it to default
-	 */
-
-	if (pax_aslr_stack_len != 15)
-		return;
-
-	printf("[PAX ASLR] init creation workaround applied. "
-	    "See github-issue: #104\n");
-	printf("[PAX ASLR] increase stack randomiztion from %d to %d\n",
-	    pax_aslr_stack_len, PAX_ASLR_DELTA_STACK_DEF_LEN);
-
-	pax_aslr_stack_len = PAX_ASLR_DELTA_STACK_DEF_LEN;
-	prison0.pr_hardening.hr_pax_aslr_stack_len =
-	    pax_aslr_stack_len;
-}
