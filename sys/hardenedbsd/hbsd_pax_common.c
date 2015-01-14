@@ -42,6 +42,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/imgact_elf.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
+#include <sys/sx.h>
 #include <sys/sysent.h>
 #include <sys/stat.h>
 #include <sys/proc.h>
@@ -68,6 +69,9 @@ __FBSDID("$FreeBSD$");
 #include <machine/elf.h>
 
 #include <sys/pax.h>
+
+static int pax_validate_flags(uint32_t flags);
+static int pax_check_conflicting_modes(uint32_t mode);
 
 SYSCTL_NODE(_hardening, OID_AUTO, pax, CTLFLAG_RD, 0,
     "PaX (exploit mitigation) features.");
@@ -107,27 +111,76 @@ pax_get_flags(struct proc *p, uint32_t *flags)
 	*flags = p->p_pax;
 }
 
+/*
+ * Init needs special handling with higher entropy
+ * stack randomization
+ */
+int
+pax_proc_is_init(struct proc *p)
+{
+	sx_slock(&proctree_lock);
+	if (p->p_pptr == &proc0 && p->p_pid == 1) {
+		CTR2(KTR_PAX, "%s : pid = %d",
+		    __func__, p->p_pid);
+		sx_sunlock(&proctree_lock);
+
+		return (1);
+	}
+	sx_sunlock(&proctree_lock);
+
+	return (0);
+}
+
+static int
+pax_validate_flags(uint32_t flags)
+{
+
+	if ((flags & ~PAX_NOTE_ALL) != 0)
+		return (1);
+
+	return (0);
+}
+
+static int
+pax_check_conflicting_modes(uint32_t mode)
+{
+
+	if (((mode & PAX_NOTE_ALL_ENABLED) & ((mode & PAX_NOTE_ALL_DISABLED) >> 1)) != 0)
+		return (1);
+
+	return (0);
+}
+
 int
 pax_elf(struct image_params *imgp, uint32_t mode)
 {
-	u_int flags, flags_aslr, flags_segvuard, flags_hardening;
+	uint32_t flags, flags_aslr, flags_segvuard, flags_hardening;
 
 	flags = mode;
 	flags_aslr = flags_segvuard = flags_hardening = 0;
 
-	if ((flags & ~PAX_NOTE_ALL) != 0) {
-		pax_log_aslr(imgp->proc, __func__, "unknown paxflags: %x\n", flags);
-		pax_ulog_aslr(NULL, "unknown paxflags: %x\n", flags);
+	if (pax_proc_is_init(imgp->proc)) {
+		flags = PAX_NOTE_ALL_DISABLED;
+		imgp->proc->p_pax = flags;
+
+		return (0);
+	}
+
+	if (pax_validate_flags(flags) != 0) {
+		pax_log_internal(imgp->proc, __func__,
+		    "unknown paxflags: %x\n", flags);
+		pax_ulog_internal(NULL, "unknown paxflags: %x\n", flags);
 
 		return (ENOEXEC);
 	}
 
-	if (((mode & PAX_NOTE_ALL_ENABLED) & ((mode & PAX_NOTE_ALL_DISABLED) >> 1)) != 0) {
+	if (pax_check_conflicting_modes(mode) != 0) {
 		/*
 		 * indicate flags inconsistencies in dmesg and in user terminal
 		 */
-		pax_log_aslr(imgp->proc, __func__, "inconsistent paxflags: %x\n", flags);
-		pax_ulog_aslr(NULL, "inconsistent paxflags: %x\n", flags);
+		pax_log_internal(imgp->proc, __func__,
+		    "inconsistent paxflags: %x\n", flags);
+		pax_ulog_internal(NULL, "inconsistent paxflags: %x\n", flags);
 
 		return (ENOEXEC);
 	}
@@ -149,7 +202,6 @@ pax_elf(struct image_params *imgp, uint32_t mode)
 	CTR3(KTR_PAX, "%s : flags = %x mode = %x",
 	    __func__, flags, mode);
 
-	imgp->pax_flags = flags;
 	imgp->proc->p_pax = flags;
 
 	return (0);
