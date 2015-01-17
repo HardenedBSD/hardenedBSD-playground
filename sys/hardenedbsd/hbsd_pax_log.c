@@ -196,6 +196,7 @@ sysctl_hardening_log_ulog(SYSCTL_HANDLER_ARGS)
 }
 #endif
 
+__HARDENING_LOG_TEMPLATE(PAX, INTERNAL, pax, internal);
 __HARDENING_LOG_TEMPLATE(PAX, ASLR, pax, aslr);
 __HARDENING_LOG_TEMPLATE(PAX, PAGEEXEC, pax, pageexec);
 __HARDENING_LOG_TEMPLATE(PAX, MPROTECT, pax, mprotect);
