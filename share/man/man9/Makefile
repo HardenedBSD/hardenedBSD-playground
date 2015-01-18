@@ -7,6 +7,7 @@ MAN=	accept_filter.9 \
 	acl.9 \
 	alq.9 \
 	altq.9 \
+	aslr.9 \
 	atomic.9 \
 	bios.9 \
 	boot.9 \
