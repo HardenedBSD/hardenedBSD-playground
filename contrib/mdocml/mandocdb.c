@@ -280,6 +280,7 @@ static	const struct mdoc_handler mdocs[MDOC_MAX] = {
 	{ NULL, TYPE_Em },  /* Em */
 	{ NULL, 0 },  /* Eo */
 	{ NULL, TYPE_Fx },  /* Fx */
+	{ NULL, TYPE_Hx },  /* Fx */
 	{ NULL, TYPE_Ms },  /* Ms */
 	{ NULL, 0 },  /* No */
 	{ NULL, 0 },  /* Ns */

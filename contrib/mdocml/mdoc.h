@@ -87,6 +87,7 @@ enum	mdoct {
 	MDOC_Em,
 	MDOC_Eo,
 	MDOC_Fx,
+	MDOC_Hx,
 	MDOC_Ms,
 	MDOC_No,
 	MDOC_Ns,

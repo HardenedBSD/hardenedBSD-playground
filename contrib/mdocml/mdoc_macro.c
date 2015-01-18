@@ -146,6 +146,7 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED | MDOC_JOIN }, /* Em */
 	{ blk_part_exp, MDOC_CALLABLE | MDOC_PARSED | MDOC_EXPLICIT }, /* Eo */
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* Fx */
+	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* Hx */
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Ms */
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED | MDOC_JOIN }, /* No */
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED |

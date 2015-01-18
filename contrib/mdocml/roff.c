@@ -286,7 +286,7 @@ const	char *const __mdoc_reserved[] = {
 	"Dt", "Dv", "Dx", "D1",
 	"Ec", "Ed", "Ef", "Ek", "El", "Em",
 	"En", "Eo", "Er", "Es", "Ev", "Ex",
-	"Fa", "Fc", "Fd", "Fl", "Fn", "Fo", "Fr", "Ft", "Fx",
+	"Fa", "Fc", "Fd", "Fl", "Fn", "Fo", "Fr", "Ft", "Fx", "Hx",
 	"Hf", "Ic", "In", "It", "Lb", "Li", "Lk", "Lp",
 	"Ms", "Mt", "Nd", "Nm", "No", "Ns", "Nx",
 	"Oc", "Oo", "Op", "Os", "Ot", "Ox",

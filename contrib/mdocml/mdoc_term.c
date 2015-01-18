@@ -192,6 +192,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_under_pre, NULL }, /* Em */
 	{ termp_quote_pre, termp_quote_post }, /* Eo */
 	{ termp_xx_pre, NULL }, /* Fx */
+	{ termp_xx_pre, NULL }, /* Hx */
 	{ termp_bold_pre, NULL }, /* Ms */
 	{ termp_li_pre, NULL }, /* No */
 	{ termp_ns_pre, NULL }, /* Ns */
@@ -1706,6 +1707,9 @@ termp_xx_pre(DECL_ARGS)
 		break;
 	case MDOC_Fx:
 		pp = "FreeBSD";
+		break;
+	case MDOC_Hx:
+		pp = "HardenedBSD";
 		break;
 	case MDOC_Nx:
 		pp = "NetBSD";

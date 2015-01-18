@@ -193,6 +193,7 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ NULL, pre_em, post_font, NULL, NULL }, /* Em */
 	{ cond_body, pre_eo, post_eo, NULL, NULL }, /* Eo */
 	{ NULL, pre_ux, NULL, "FreeBSD", NULL }, /* Fx */
+	{ NULL, pre_ux, NULL, "HardenedBSD", NULL }, /* Hx */
 	{ NULL, pre_sy, post_font, NULL, NULL }, /* Ms */
 	{ NULL, pre_no, NULL, NULL, NULL }, /* No */
 	{ NULL, pre_ns, NULL, NULL, NULL }, /* Ns */
