@@ -2459,8 +2459,7 @@ _fget(struct thread *td, int fd, struct file **fpp, int flags,
 	int error;
 
 	*fpp = NULL;
-	if (td == NULL || (fdp = td->td_proc->p_fd) == NULL)
-		return (EBADF);
+	fdp = td->td_proc->p_fd;
 	if (needrightsp != NULL)
 		needrights = *needrightsp;
 	else
