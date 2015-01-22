@@ -204,9 +204,6 @@ sys_mmap(td, uap)
 	struct file *fp;
 	struct vnode *vp;
 	vm_offset_t addr;
-#ifdef PAX_ASLR
-	vm_offset_t orig_addr;
-#endif
 	vm_size_t size, pageoff;
 	vm_prot_t cap_maxprot, prot, maxprot;
 	void *handle;
@@ -217,9 +214,6 @@ sys_mmap(td, uap)
 	cap_rights_t rights;
 
 	addr = (vm_offset_t) uap->addr;
-#ifdef PAX_ASLR
-	orig_addr = addr;
-#endif
 	size = uap->len;
 	prot = uap->prot;
 	flags = uap->flags;
@@ -453,9 +447,8 @@ map:
 	pax_mprotect(td->td_proc, &prot, &maxprot);
 #endif
 #ifdef PAX_ASLR
-	pax_aslr_mmap(td->td_proc, &addr, orig_addr, flags);
+	pax_aslr_mmap(td->td_proc, &addr, (vm_offset_t)uap->addr, flags);
 #endif
-
 	/* This relies on VM_PROT_* matching PROT_*. */
 	error = vm_mmap(&vms->vm_map, &addr, size, prot, maxprot,
 	    flags, handle_type, handle, pos);

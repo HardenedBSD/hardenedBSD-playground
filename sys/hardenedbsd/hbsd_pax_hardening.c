@@ -157,7 +157,7 @@ sysctl_pax_allow_map32(SYSCTL_HANDLER_ARGS)
 	struct prison *pr;
 	int err, val;
 
-	pr = pax_get_prison(req->td->td_proc);
+	pr = pax_get_prison_td(req->td);
 
 	val = pr->pr_hardening.hr_pax_map32_enabled;
 	err = sysctl_handle_int(oidp, &val, sizeof(int), req);
@@ -181,7 +181,7 @@ sysctl_pax_procfs(SYSCTL_HANDLER_ARGS)
 	struct prison *pr;
 	int err, val;
 
-	pr = pax_get_prison(req->td->td_proc);
+	pr = pax_get_prison_td(req->td);
 
 	val = pr->pr_hardening.hr_pax_procfs_harden;
 	err = sysctl_handle_int(oidp, &val, sizeof(int), req);
@@ -235,7 +235,7 @@ pax_map32_enabled(struct thread *td)
 {
 	struct prison *pr;
 
-	pr = pax_get_prison(td->td_proc);
+	pr = pax_get_prison_td(td);
 
 	return (pr->pr_hardening.hr_pax_map32_enabled);
 }
@@ -245,7 +245,7 @@ pax_procfs_harden(struct thread *td)
 {
 	struct prison *pr;
 
-	pr = pax_get_prison(td->td_proc);
+	pr = pax_get_prison_td(td);
 
 	return (pr->pr_hardening.hr_pax_procfs_harden ? EPERM : 0);
 }
