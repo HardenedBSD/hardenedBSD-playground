@@ -2986,7 +2986,6 @@ options         IMAGACT_BINMISC
 
 # PAX and HardenedBSD related knobs
 options 	PAX_ASLR	# Address Space Layout Randomization
-options 	PAX_ASLR_MAX_SEC	# ASLR with higher settings (probably breaks your system)
 options 	PAX_HARDENING	# Other hardening features
 options 	PAX_NOEXEC	# Remove WX pages from user-space and enforce W^X
 options 	PAX_SEGVGUARD	# Track and ban failing process

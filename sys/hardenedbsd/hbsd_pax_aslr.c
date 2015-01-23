@@ -205,28 +205,15 @@ __FBSDID("$FreeBSD$");
 FEATURE(aslr, "Address Space Layout Randomization.");
 
 static int pax_aslr_status = PAX_FEATURE_OPTOUT;
-
-#ifdef PAX_ASLR_MAX_SEC
-static int pax_aslr_mmap_len = PAX_ASLR_DELTA_MMAP_MAX_LEN;
-static int pax_aslr_stack_len = PAX_ASLR_DELTA_STACK_MAX_LEN;
-static int pax_aslr_exec_len = PAX_ASLR_DELTA_EXEC_MAX_LEN;
-#else
 static int pax_aslr_mmap_len = PAX_ASLR_DELTA_MMAP_DEF_LEN;
 static int pax_aslr_stack_len = PAX_ASLR_DELTA_STACK_DEF_LEN;
 static int pax_aslr_exec_len = PAX_ASLR_DELTA_EXEC_DEF_LEN;
-#endif /* PAX_ASLR_MAX_SEC */
 
 #ifdef COMPAT_FREEBSD32
 static int pax_aslr_compat_status = PAX_FEATURE_OPTOUT;
-#ifdef PAX_ASLR_MAX_SEC
-static int pax_aslr_compat_mmap_len = PAX_ASLR_COMPAT_DELTA_MMAP_MAX_LEN;
-static int pax_aslr_compat_stack_len = PAX_ASLR_COMPAT_DELTA_STACK_MAX_LEN;
-static int pax_aslr_compat_exec_len = PAX_ASLR_COMPAT_DELTA_EXEC_MAX_LEN;
-#else
 static int pax_aslr_compat_mmap_len = PAX_ASLR_COMPAT_DELTA_MMAP_MIN_LEN;
 static int pax_aslr_compat_stack_len = PAX_ASLR_COMPAT_DELTA_STACK_MIN_LEN;
 static int pax_aslr_compat_exec_len = PAX_ASLR_COMPAT_DELTA_EXEC_MIN_LEN;
-#endif /* PAX_ASLR_MAX_SEC */
 #endif /* COMPAT_FREEBSD32 */
 
 TUNABLE_INT("hardening.pax.aslr.status", &pax_aslr_status);
@@ -584,21 +571,25 @@ pax_aslr_init_vmspace(struct proc *p)
 {
 	struct prison *pr;
 	struct vmspace *vm;
+	long rand_buf;
 
 	vm = p->p_vmspace;
 	KASSERT(vm != NULL, ("%s: vm is null", __func__));
 
 	pr = pax_get_prison(p);
-	vm->vm_aslr_delta_mmap = PAX_ASLR_DELTA(arc4random(),
+	arc4rand(&rand_buf, sizeof(rand_buf), 0);
+	vm->vm_aslr_delta_mmap = PAX_ASLR_DELTA(rand_buf,
 	    PAX_ASLR_DELTA_MMAP_LSB,
 	    pr->pr_hardening.hr_pax_aslr_mmap_len);
 
-	vm->vm_aslr_delta_stack = PAX_ASLR_DELTA(arc4random(),
+	arc4rand(&rand_buf, sizeof(rand_buf), 0);
+	vm->vm_aslr_delta_stack = PAX_ASLR_DELTA(rand_buf,
 	    PAX_ASLR_DELTA_STACK_LSB,
 	    pr->pr_hardening.hr_pax_aslr_stack_len);
 	vm->vm_aslr_delta_stack = ALIGN(vm->vm_aslr_delta_stack);
 
-	vm->vm_aslr_delta_exec = PAX_ASLR_DELTA(arc4random(),
+	arc4rand(&rand_buf, sizeof(rand_buf), 0);
+	vm->vm_aslr_delta_exec = PAX_ASLR_DELTA(rand_buf,
 	    PAX_ASLR_DELTA_EXEC_LSB,
 	    pr->pr_hardening.hr_pax_aslr_exec_len);
 
@@ -639,21 +630,25 @@ pax_aslr_init_vmspace32(struct proc *p)
 {
 	struct prison *pr;
 	struct vmspace *vm;
+	long rand_buf;
 
 	vm = p->p_vmspace;
 	KASSERT(vm != NULL, ("%s: vm is null", __func__));
 
 	pr = pax_get_prison(p);
-	vm->vm_aslr_delta_mmap = PAX_ASLR_DELTA(arc4random(),
+	arc4rand(&rand_buf, sizeof(rand_buf), 0);
+	vm->vm_aslr_delta_mmap = PAX_ASLR_DELTA(rand_buf,
 	    PAX_ASLR_COMPAT_DELTA_MMAP_LSB,
 	    pr->pr_hardening.hr_pax_aslr_compat_mmap_len);
 
-	vm->vm_aslr_delta_stack = PAX_ASLR_DELTA(arc4random(),
+	arc4rand(&rand_buf, sizeof(rand_buf), 0);
+	vm->vm_aslr_delta_stack = PAX_ASLR_DELTA(rand_buf,
 	    PAX_ASLR_COMPAT_DELTA_STACK_LSB,
 	    pr->pr_hardening.hr_pax_aslr_compat_stack_len);
 	vm->vm_aslr_delta_stack = ALIGN(vm->vm_aslr_delta_stack);
 
-	vm->vm_aslr_delta_exec = PAX_ASLR_DELTA(arc4random(),
+	arc4rand(&rand_buf, sizeof(rand_buf), 0);
+	vm->vm_aslr_delta_exec = PAX_ASLR_DELTA(rand_buf,
 	    PAX_ASLR_COMPAT_DELTA_EXEC_LSB,
 	    pr->pr_hardening.hr_pax_aslr_compat_exec_len);
 
