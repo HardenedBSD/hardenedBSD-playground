@@ -57,11 +57,13 @@ __DEFAULT_YES_OPTIONS = \
     BLUETOOTH \
     BOOT \
     BSD_CPIO \
+    BSDINSTALL \
     BSNMP \
     BZIP2 \
     CALENDAR \
     CAPSICUM \
     CASPER \
+    CCD \
     CDDL \
     CPP \
     CROSS_COMPILER \
@@ -73,6 +75,7 @@ __DEFAULT_YES_OPTIONS = \
     DMAGENT \
     DYNAMICROOT \
     ED_CRYPTO \
+    EE \
     ELFTOOLCHAIN_TOOLS \
     EXAMPLES \
     FDT \
@@ -97,6 +100,7 @@ __DEFAULT_YES_OPTIONS = \
     INET6 \
     IPFILTER \
     IPFW \
+    ISCSI \
     JAIL \
     KDUMP \
     KVM \
@@ -143,6 +147,7 @@ __DEFAULT_YES_OPTIONS = \
     SYSCALL_COMPAT \
     SYSCONS \
     SYSINSTALL \
+    TALK \
     TCSH \
     TELNET \
     TESTS \
