@@ -85,7 +85,7 @@ __FBSDID("$FreeBSD$");
  * 	+-------+--------+--------+--------+
  * 	| MIN	|  8 bit | 16 bit |  8 bit |
  * 	+-------+--------+--------+--------+
- * 	| DEF	|  8 bit | 21 bit |  8 bit |
+ * 	| DEF	|  8 bit | 20 bit |  8 bit |
  * 	+-------+--------+--------+--------+
  * 	| MAX   | 21 bit | 42 bit | 21 bit |
  * 	+-------+--------+--------+--------+
@@ -144,7 +144,7 @@ __FBSDID("$FreeBSD$");
 #define PAX_ASLR_DELTA_MMAP_DEF_LEN	30
 #endif /* PAX_ASLR_DELTA_MMAP_DEF_LEN */
 #ifndef PAX_ASLR_DELTA_STACK_DEF_LEN
-#define PAX_ASLR_DELTA_STACK_DEF_LEN	21
+#define PAX_ASLR_DELTA_STACK_DEF_LEN	20
 #endif /* PAX_ASLR_DELTA_STACK_DEF_LEN */
 #ifndef PAX_ASLR_DELTA_EXEC_DEF_LEN
 #define PAX_ASLR_DELTA_EXEC_DEF_LEN	21
@@ -571,7 +571,7 @@ pax_aslr_init_vmspace(struct proc *p)
 {
 	struct prison *pr;
 	struct vmspace *vm;
-	long rand_buf;
+	unsigned long rand_buf;
 
 	vm = p->p_vmspace;
 	KASSERT(vm != NULL, ("%s: vm is null", __func__));
