@@ -1,7 +1,7 @@
 /*-
  * Copyright (c) 2006 Elad Efrat <elad@NetBSD.org>
- * Copyright (c) 2013-2014, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
- * Copyright (c) 2014, by Shawn Webb <lattera at gmail.com>
+ * Copyright (c) 2013-2015, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2014-2015, by Shawn Webb <shawn.webb@hardenedbsd.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -82,6 +82,16 @@ __FBSDID("$FreeBSD$");
 
 static int pax_validate_flags(uint32_t flags);
 static int pax_check_conflicting_modes(uint32_t mode);
+
+/*
+ * Enforce and check HardenedBSD constraints
+ */
+
+#ifndef INVARIANTS
+#ifndef PAX_INSECURE_MODE
+#error "HardenedBSD required enabled INVARIANTS in kernel config... If you really know what you're doing you can add `options PAX_INSECURE_MODE` to the kernel config"
+#endif
+#endif
 
 SYSCTL_NODE(_hardening, OID_AUTO, pax, CTLFLAG_RD, 0,
     "PaX (exploit mitigation) features.");
@@ -199,6 +209,15 @@ pax_check_conflicting_modes(uint32_t mode)
 	return (0);
 }
 
+/*
+ * @bried Initialize the new process PAX state
+ *
+ * @param imgp		Executable image's structure.
+ * @param mode		Requested mode.
+ *
+ * @return		ENOEXEC on fail
+ * 			0 on success
+ */
 int
 pax_elf(struct image_params *imgp, uint32_t mode)
 {
