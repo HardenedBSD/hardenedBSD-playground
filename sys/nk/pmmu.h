@@ -137,4 +137,10 @@ typedef struct page_desc_t {
 } page_desc_t;
 
 
+/*
+ * Function prototypes
+ */
+void    pmmu_init(pml4e_t * kpml4Mapping, unsigned long nkpml4e, uintptr_t *
+            firstpaddr, uintptr_t btext, uintptr_t etext);
+
 #endif /* __PMMU_H_ */

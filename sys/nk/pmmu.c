@@ -57,6 +57,11 @@
 #include "wr_prot.h"
 
 #include <sys/libkern.h>
+#include <sys/systm.h>
+
+/* These are to obtain the macros and defs for the pmap init system */
+//#include <machine/pmap.h>
+//#include <machine/param.h>
 
 /* Define whether or not the mmu_init code assumes virtual addresses */
 #define USE_VIRT            0
@@ -66,8 +71,6 @@
 //----------------------------------------------------------------------------//
 void declare_ptp_and_walk_pt_entries(page_entry_t *pageEntry, unsigned long
         numPgEntries, enum page_type_t pageLevel );
-void pmmu_init(pml4e_t * kpml4Mapping, unsigned long nkpml4e, uintptr_t *
-        firstpaddr, uintptr_t btext, uintptr_t etext);
 
 //----------------------------------------------------------------------------//
 //===-- Local Data Definitions --------------------------------------------===//
