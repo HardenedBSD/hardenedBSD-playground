@@ -39,8 +39,10 @@
 #ifndef _MACHINE_CPUFUNC_H_
 #define	_MACHINE_CPUFUNC_H_
 
+#ifdef _KERNEL
 #include <nk/nk_cpufunc.h>
 #include <nk/vmmu.h>
+#endif /* _KERNEL */
 
 #ifndef _SYS_CDEFS_H_
 #error this file needs sys/cdefs.h as a prerequisite
