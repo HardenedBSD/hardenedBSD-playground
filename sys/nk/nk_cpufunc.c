@@ -53,6 +53,11 @@
 #include "common.h"
 
 #include <sys/types.h>
+#include <sys/libkern.h>
+
+#define	CPUID_STDEXT_SMEP	0x00000080
+    
+extern u_int cpu_stdext_feature;
 
 /*
  * Function: nk_load_cr0
@@ -66,7 +71,7 @@ void nk_load_cr0 (register_t val)
     val |= CR0_WP;
     _load_cr0(val);
     if (!(val & CR0_WP))
-        panic("Nested Kernel: attempt to clear the CR0.WP bit: %x.", val);
+        panic("Nested Kernel: attempt to clear the CR0.WP bit: %p.", (void *) val);
 }
 
 /*
@@ -76,29 +81,29 @@ void nk_load_cr0 (register_t val)
  *  Nested Kernel Call to load a value in cr4. We need to make sure that the
  *  SMEP bit is enabled. 
  */
-void nk_load_cr4(register_t val)
+void 
+nk_load_cr4(register_t val)
 {
-#if NOT_YET_IMPLEMENTED
+    /* 
+     * XXX Test for SMEP support, if not the Nested Kernel Cannot guarantee full
+     * protections.
+     */
     if (cpu_stdext_feature & CPUID_STDEXT_SMEP)
-#endif
     {
         val |= CR4_SMEP;
     }
+    else 
+        printf("Nested Kernel Property Violation: SMEP Feature not supported on this chip!");
 
     _load_cr4(val);
 
     /* 
-     * TODO:FIXME Must insert checks for this, if disabled then the nested
-     * kernel isolation must be supported with another mechanisn, such as with
-     * marking all usermode pages as NX.
+     * XXX: If there is no SMEP then the nested kernel isolation must be
+     * supported with another mechanisn, such as with marking all usermode
+     * pages as NX.
      */
-#if NOT_YET_IMPLEMENTED
-    if (cpu_stdext_feature & CPUID_STDEXT_SMEP)
-    {
-        if (!(val & CR4_SMEP))
-            panic("Nested Kernel: attempt to clear the CR4.SMEP bit: %x.", val);
-    }
-#endif
+    if (cpu_stdext_feature & CPUID_STDEXT_SMEP) { if (!(val & CR4_SMEP))
+        panic("Nested Kernel: attempt to clear the CR4.SMEP bit: %p.", (void *) val); }
 }
 
 /*
@@ -107,17 +112,16 @@ void nk_load_cr4(register_t val)
  * Description:
  *  Nested Kernel Call to load a value in an MSR. If the MSR is EFER, we need
  *  to make sure that the NXE bit is enabled. 
+ *
+ * Assumption: 
+ *  The system wide enforcement of the NX bit is initialized by the pmmu_init
+ *  function.
  */
 void nk_load_msr(register_t msr, register_t val) 
 {
-    /* 
-     * TODO: This NXE bit should be set at initialization thus can we eliminate
-     * the following val setting? 
-     */
-    //val |= EFER_NXE;
     _wrmsr(msr, val);
     if ((msr == MSR_REG_EFER) && !(val & EFER_NXE))
-        panic("Nested Kernel: attempt to clear the EFER.NXE bit: %x.", val);
+        panic("Nested Kernel: attempt to clear the EFER.NXE bit: %p.", (void *) val);
 }
 
 /*
@@ -141,6 +145,6 @@ void nk_wrmsr(void)
         : "rax", "rcx", "rdx"
     );
     if ((msr == MSR_REG_EFER) && !(val & EFER_NXE))
-        panic("Nested Kernel: attempt to clear the EFER.NXE bit: %x.", val);
+        panic("Nested Kernel: attempt to clear the EFER.NXE bit: %p.", (void *) val);
 }
 #endif
