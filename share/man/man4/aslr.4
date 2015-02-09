@@ -75,9 +75,8 @@ enabled.
 For systems with that kernel option enabled, if a user wants
 to disable ASLR for a given application, the user must force that
 application to opt-out.
-.Hx
-has a special application called secadm for opting applications in to
-or out of exploit mitigation features such as ASLR.
+HardenedBSD has a special application called secadm for opting
+applications in to or out of exploit mitigation features such as ASLR.
 
 Another kernel option,
 .Cd PAX_SYSCTLS
@@ -259,9 +258,7 @@ Default: For 32bit systems: 6. For 64bit systems: 16.
 .%U https://github.com/HardenedBSD/secadm
 .Re
 .Sh HISTORY
-ASLR was first introduced in
-.Hx
-and work is ongoing to
+ASLR was first introduced in HardenedBSD and work is ongoing to
 upstream to
 .Fx 11.0-CURRENT.
 .Sh AUTHORS
