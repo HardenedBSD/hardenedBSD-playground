@@ -51,7 +51,7 @@ const	char *const __mdoc_macronames[MDOC_MAX + 1] = {
 	"Bc",		"Bf",		"Bo",		"Bq",
 	"Bsx",		"Bx",		"Db",		"Dc",
 	"Do",		"Dq",		"Ec",		"Ef",
-	"Em",		"Eo",		"Fx",		"Hx", "Ms",
+	"Em",		"Eo",		"Fx",		"Ms",
 	"No",		"Ns",		"Nx",		"Ox",
 	"Pc",		"Pf",		"Po",		"Pq",
 	"Qc",		"Ql",		"Qo",		"Qq",

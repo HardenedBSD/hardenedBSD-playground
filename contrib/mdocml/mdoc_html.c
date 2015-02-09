@@ -758,9 +758,6 @@ mdoc_xx_pre(MDOC_ARGS)
 	case MDOC_Fx:
 		pp = "FreeBSD";
 		break;
-	case MDOC_Hx:
-		pp = "HardenedBSD";
-		break;
 	case MDOC_Nx:
 		pp = "NetBSD";
 		break;

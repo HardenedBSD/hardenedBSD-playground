@@ -22,13 +22,12 @@
 
 #include "mansearch.h"
 
-const int mansearch_keymax = 41;
+const int mansearch_keymax = 40;
 
-const char *const mansearch_keynames[41] = {
+const char *const mansearch_keynames[40] = {
 	"arch", "sec",	"Xr",	"Ar",	"Fa",	"Fl",	"Dv",	"Fn",
 	"Ic",	"Pa",	"Cm",	"Li",	"Em",	"Cd",	"Va",	"Ft",
 	"Tn",	"Er",	"Ev",	"Sy",	"Sh",	"In",	"Ss",	"Ox",
 	"An",	"Mt",	"St",	"Bx",	"At",	"Nx",	"Fx",	"Lk",
-	"Ms",	"Bsx",	"Dx",	"Rs",	"Vt",	"Lb",	"Nm",	"Nd",
-	"Hx"
+	"Ms",	"Bsx",	"Dx",	"Rs",	"Vt",	"Lb",	"Nm",	"Nd"
 };
