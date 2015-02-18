@@ -2357,7 +2357,7 @@ fget_unlocked(struct filedesc *fdp, int fd, cap_rights_t *needrightsp,
 	u_int count;
 #ifdef CAPABILITIES
 	seq_t seq;
-	cap_rights_t *haverights;
+	cap_rights_t haverights;
 	int error;
 #endif
 
@@ -2376,7 +2376,7 @@ fget_unlocked(struct filedesc *fdp, int fd, cap_rights_t *needrightsp,
 #ifdef CAPABILITIES
 		seq = seq_read(fd_seq(fdt, fd));
 		fde = &fdt->fdt_ofiles[fd];
-		haverights = cap_rights_fde(fde);
+		haverights = *cap_rights_fde(fde);
 		fp = fde->fde_file;
 		if (!seq_consistent(fd_seq(fdt, fd), seq)) {
 			cpu_spinwait();
@@ -2389,7 +2389,7 @@ fget_unlocked(struct filedesc *fdp, int fd, cap_rights_t *needrightsp,
 			return (EBADF);
 #ifdef CAPABILITIES
 		if (needrightsp != NULL) {
-			error = cap_check(haverights, needrightsp);
+			error = cap_check(&haverights, needrightsp);
 			if (error != 0)
 				return (error);
 		}
@@ -2525,7 +2525,7 @@ fget_mmap(struct thread *td, int fd, cap_rights_t *rightsp, u_char *maxprotp,
 		 */
 		if (maxprotp != NULL)
 			*maxprotp = cap_rights_to_vmprot(cap_rights(fdp, fd));
-		if (!fd_modified(td->td_proc->p_fd, fd, seq))
+		if (!fd_modified(fdp, fd, seq))
 			break;
 		fdrop(*fpp, td);
 	}
