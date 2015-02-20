@@ -42,8 +42,11 @@ In the kernel configuration file:
 Security in
 .Fx
 is based primarily in policy-based technologies.
-Existing tools such as jails, Capsicum, vnet/vimage, and the
-.Xr mac 3
+Existing tools such as
+.Xr jail 4 ,
+.Xr capsicum 4 ,
+.Xr VNET 9 , and the
+.Xr mac 4
 framework can make
 .Fx Ns -based systems quite resilient against
 attacks.
@@ -55,20 +58,6 @@ This manual page and the associated implementation aim to
 provide a secure, robust, extensible, and easily-managed form of ASLR
 fit for production use in
 .Fx Ns .
-.Ss History
-On 14 May 2013, Oliver Pinter published to GitHub an initial patch to
-implement ASLR.
-His work was inspired by Elad Efrat's work in NetBSD.
-The patch was submitted to FreeBSD as a bug report on 24 Aug 2013.
-Independenty of Oliver's work, Shawn Webb posted to his tech blog that
-he was interested in implementing ASLR for FreeBSD.
-Oliver found his post and suggested that he and Shawn work together.
-On 08 Jun 2014, preparatory work was committed to FreeBSD, adding
-Position-Independent Executable (PIE) support in base. PIE support
-was removed sometime later.
-On 07 Apr 2014, SoldierX agreed to sponsor the project and donated a
-sparc64 machine and a BeagleBone Black to Shawn Webb. This hardware
-is used for testing and debugging ASLR.
 .Ss General Overview
 When compiled with the PAX_ASLR option, systems will have ASLR
 enabled.
@@ -140,27 +129,7 @@ hardening.pax.aslr.mmap_len tunable in
 Stack randomization is implemented using a stack gap.
 On executable image activation, the stack delta is computed and
 subtracted from the top of the stack.
-.Ss Further Enhancements
-The existing gap-based stack randomization is not optimal.
-Mapping-base stack randomization is more robust, but hard-coded kernel
-structures and addresses, especially PS_STRINGS, will need to be
-modified.
-The required changes to PS_STRINGS are major and will likely touch
-userland along with the kernel.
-
-The original PaX implementation, from which the
-.Fx
-implementation is inspired, uses a special ELF process header which
-requires modification of executable files.
-The authors of the
-.Fx
-implementation have deliberately chosen to go a different route based
-on the
-.Xr mac 3
-framework.
-Support for filesystem extended attributes will be added at a later
-time.
-.Sh APPENDIX A
+.Ss APPENDIX A
 NOTE: All tunables can only be changed during boot-time via
 /boot/loader.conf unless the kernel has been compiled with
 .Cd PAX_SYSCTLS
@@ -199,10 +168,10 @@ execbase.
 .It
 Values:
 .br
-For 32bit systems, minimum of 6, maximum of 11. For 64bit systems,
+For 32-bit systems, minimum of 6, maximum of 11. For 64-bit systems,
 minimum of 12, maximum of 22.
 .It
-Default: For 32bit systems: 6. For 64bit systems: 21.
+Default: For 32-bit systems: 6. For 64-bit systems: 21.
 .El
 .It
 hardening.pax.aslr.mmap_len
@@ -216,10 +185,10 @@ calls.
 .It
 Values:
 .br
-For 32bit systems, minimum of 8, maximum of 16. For 64bit systems,
+For 32-bit systems, minimum of 8, maximum of 16. For 64-bit systems,
 minimum of 16, maximum of 32.
 .It
-Default: For 32bit systems: 8. For 64bit systems: 21.
+Default: For 32-bit systems: 8. For 64-bit systems: 21.
 .El
 .It
 hardening.pax.aslr.stack_len
@@ -231,15 +200,15 @@ Description: Set the number of bits to be randomized for the stack.
 .It
 Values:
 .br
-For 32bit systems, minimum of 6, maximum of 11. For 64bit systems,
+For 32-bit systems, minimum of 6, maximum of 11. For 64-bit systems,
 minimum of 12, maximum of 21.
 .It
-Default: For 32bit systems: 6. For 64bit systems: 16.
+Default: For 32-bit systems: 6. For 64-bit systems: 16.
 .El
 .El
 .Sh SEE ALSO
 .Xr elf 3 ,
-.Xr mac 3 ,
+.Xr mac 4 ,
 .Xr mmap 2
 .Rs
 .%T "PaX ASLR"
@@ -258,8 +227,20 @@ Default: For 32bit systems: 6. For 64bit systems: 16.
 .%U https://github.com/HardenedBSD/secadm
 .Re
 .Sh HISTORY
-ASLR was first introduced in HardenedBSD and work is ongoing to
-upstream to
+On 14 May 2013, Oliver Pinter published to GitHub an initial patch to
+implement ASLR.
+His work was inspired by Elad Efrat's work in NetBSD.
+The patch was submitted to FreeBSD as a bug report on 24 Aug 2013.
+Independenty of Oliver's work, Shawn Webb posted to his tech blog that
+he was interested in implementing ASLR for FreeBSD.
+Oliver found his post and suggested that he and Shawn work together.
+On 08 Jun 2014, preparatory work was committed to FreeBSD, adding
+Position-Independent Executable (PIE) support in base. PIE support
+was removed sometime later.
+On 07 Apr 2014, SoldierX agreed to sponsor the project and donated a
+sparc64 machine and a BeagleBone Black to Shawn Webb. This hardware
+is used for testing and debugging ASLR.
+ASLR was first introduced in HardenedBSD and later upstreamed to
 .Fx 11.0-CURRENT.
 .Sh AUTHORS
 This manual page was written by
@@ -269,4 +250,26 @@ The ASLR implementation was written by
 .An Oliver Pinter and
 .An Shawn Webb .
 .Sh BUGS
-No known bugs at this time.
+The existing gap-based stack randomization is not optimal.
+Mapping-base stack randomization is more robust, but hard-coded kernel
+structures and addresses, especially
+.Va PS_STRINGS
+, will need to be
+modified.
+The required changes to
+.Va PS_STRINGS
+are major and will likely touch
+userland along with the kernel.
+
+The original PaX implementation, from which the
+.Fx
+implementation is inspired, uses a special ELF process header which
+requires modification of executable files.
+The authors of the
+.Fx
+implementation have deliberately chosen to go a different route based
+on the
+.Xr mac 4
+framework.
+Support for filesystem extended attributes will be added at a later
+time.
