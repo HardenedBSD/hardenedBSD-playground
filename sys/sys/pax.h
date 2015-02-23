@@ -119,21 +119,6 @@ void pax_aslr_stack_adjust(struct proc *p, u_long *ssiz);
 /*
  * Log related functions
  */
-<<<<<<< HEAD
-int hbsd_uprintf(const char *fmt, ...);
-void pax_log_internal(struct proc *, const char *fmt, ...);
-void pax_ulog_internal(const char *fmt, ...);
-void pax_log_aslr(struct proc *, const char *fmt, ...);
-void pax_ulog_aslr(const char *fmt, ...);
-void pax_log_pageexec(struct proc *, const char *fmt, ...);
-void pax_ulog_pageexec(const char *fmt, ...);
-void pax_log_mprotect(struct proc *, const char *fmt, ...);
-void pax_ulog_mprotect(const char *fmt, ...);
-void pax_log_segvguard(struct proc *, const char *fmt, ...);
-void pax_ulog_segvguard(const char *fmt, ...);
-void pax_log_ptrace_hardening(struct proc *, const char *fmt, ...);
-void pax_ulog_ptrace_hardening(const char *fmt, ...);
-=======
 
 #define	PAX_LOG_DEFAULT		0x0
 #define	PAX_LOG_SKIP_DETAILS	0x1
@@ -145,11 +130,14 @@ void pax_log_internal(struct proc *, uint64_t flags, const char *fmt, ...) __pri
 void pax_ulog_internal(const char *fmt, ...) __printflike(1, 2);
 void pax_log_aslr(struct proc *, uint64_t flags, const char *fmt, ...) __printflike(3, 4);
 void pax_ulog_aslr(const char *fmt, ...) __printflike(1, 2);
+void pax_log_pageexec(struct proc *, uint64_t flags, const char *fmt, ...) __printflike(3, 4);
+void pax_ulog_pageexec(const char *fmt, ...) __printflike(1, 2);
+void pax_log_mprotect(struct proc *, uint64_t flags, const char *fmt, ...) __printflike(3, 4);
+void pax_ulog_mprotect(const char *fmt, ...) __printflike(1, 2);
 void pax_log_segvguard(struct proc *, uint64_t flags, const char *fmt, ...) __printflike(3, 4);
 void pax_ulog_segvguard(const char *fmt, ...) __printflike(1, 2);
 void pax_log_ptrace_hardening(struct proc *, uint64_t flags, const char *fmt, ...) __printflike(3, 4);
 void pax_ulog_ptrace_hardening(const char *fmt, ...) __printflike(1, 2);
->>>>>>> origin/hardened/current/master
 
 /*
  * SegvGuard related functions

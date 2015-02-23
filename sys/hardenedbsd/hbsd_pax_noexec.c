@@ -275,10 +275,10 @@ pax_pageexec_setup_flags(struct image_params *imgp, u_int mode)
 		if (mode & PAX_NOTE_NOPAGEEXEC) {
 			flags &= ~PAX_NOTE_PAGEEXEC;
 			flags |= PAX_NOTE_NOPAGEEXEC;
-			pax_log_pageexec(imgp->proc, "PAGEEXEC is opt-out, and "
-			    "executable explicitly disabled PAGEEXEC!\n");
-			pax_ulog_pageexec("PAGEEXEC is opt-out, and executable "
-			    "explicitly disabled PAGEEXEC!\n");
+			pax_log_pageexec(imgp->proc, PAX_LOG_DEFAULT,
+"PAGEEXEC is opt-out, and executable has explicitly disabled PAGEEXEC!");
+			pax_ulog_pageexec(
+"PAGEEXEC is opt-out, and executable has explicitly disabled PAGEEXEC!\n");
 		} else {
 			flags |= PAX_NOTE_PAGEEXEC;
 			flags &= ~PAX_NOTE_NOPAGEEXEC;
@@ -402,10 +402,10 @@ pax_mprotect_setup_flags(struct image_params *imgp, u_int mode)
 		if (mode & PAX_NOTE_NOMPROTECT) {
 			flags &= ~PAX_NOTE_MPROTECT;
 			flags |= PAX_NOTE_NOMPROTECT;
-			pax_log_mprotect(imgp->proc, "MPROTECT is opt-out, and "
-			    "executable explicitly disabled MPROTECT!\n");
-			pax_ulog_mprotect("MPROTECT is opt-out, and executable "
-			    "explicitly disabled MPROTECT!\n");
+			pax_log_mprotect(imgp->proc, PAX_LOG_DEFAULT,
+"MPROTECT is opt-out, and executable has explicitly disabled MPROTECT!");
+			pax_ulog_mprotect(
+"MPROTECT is opt-out, and executable has explicitly disabled MPROTECT!\n");
 		} else {
 			flags |= PAX_NOTE_MPROTECT;
 			flags &= ~PAX_NOTE_NOMPROTECT;
