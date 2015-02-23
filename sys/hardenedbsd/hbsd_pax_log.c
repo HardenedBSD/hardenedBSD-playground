@@ -35,6 +35,7 @@
 #include <sys/types.h>
 #include <sys/kernel.h>
 #include <sys/pax.h>
+#include <sys/proc.h>
 #include <sys/sbuf.h>
 #include <sys/jail.h>
 #include <machine/stdarg.h>
