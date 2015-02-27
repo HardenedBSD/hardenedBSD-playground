@@ -100,8 +100,24 @@ static MALLOC_DEFINE(M_PRISON_RACCT, "prison_racct", "Prison racct structures");
 
 /* prison0 describes what is "real" about the system. */
 struct prison prison0 = {
-	.pr_children = LIST_HEAD_INITIALIZER(prison0.pr_children)
+	.pr_id		= 0,
+	.pr_name	= "0",
+	.pr_ref		= 1,
+	.pr_uref	= 1,
+	.pr_path	= "/",
+	.pr_securelevel	= -1,
+	.pr_devfs_rsnum = 0,
+	.pr_childmax	= JAIL_MAX,
+	.pr_hostuuid	= DEFAULT_HOSTUUID,
+	.pr_children	= LIST_HEAD_INITIALIZER(prison0.pr_children),
+#ifdef VIMAGE
+	.pr_flags	= PR_HOST|PR_VNET|_PR_IP_SADDRSEL,
+#else
+	.pr_flags	= PR_HOST|_PR_IP_SADDRSEL,
+#endif
+	.pr_allow	= PR_ALLOW_ALL,
 };
+MTX_SYSINIT(prison0, &prison0.pr_mtx, "jail mutex", MTX_DEF);
 
 #ifdef PTRACE_HARDENING
 SYSINIT(ptrace, SI_SUB_PTRACE_HARDENING, SI_ORDER_MIDDLE,
@@ -115,7 +131,6 @@ struct	prisonlist allprison = TAILQ_HEAD_INITIALIZER(allprison);
 LIST_HEAD(, prison_racct) allprison_racct;
 int	lastprid = 0;
 
-static void prison0_init(void *data);
 static int do_jail_attach(struct thread *td, struct prison *pr);
 static void prison_complete(void *context, int pending);
 static void prison_deref(struct prison *pr, int flags);
@@ -134,8 +149,6 @@ static int prison_restrict_ip4(struct prison *pr, struct in_addr *newip4);
 static int _prison_check_ip6(struct prison *pr, struct in6_addr *ia6);
 static int prison_restrict_ip6(struct prison *pr, struct in6_addr *newip6);
 #endif
-
-SYSINIT(prison0_sysinit, SI_SUB_PRISON, SI_ORDER_MIDDLE, prison0_init, NULL);
 
 /* Flags for prison_deref */
 #define	PD_DEREF	0x01
@@ -233,6 +246,23 @@ static int jail_default_devfs_rsnum = JAIL_DEFAULT_DEVFS_RSNUM;
 static unsigned jail_max_af_ips = 255;
 #endif
 
+/*
+ * Initialize the parts of prison0 that can't be static-initialized with
+ * constants.  This is called from proc0_init() after creating thread0 cpuset.
+ */
+void
+prison0_init(void)
+{
+
+	prison0.pr_cpuset = cpuset_ref(thread0.td_cpuset);
+	prison0.pr_osreldate = osreldate;
+	strlcpy(prison0.pr_osrelease, osrelease, sizeof(prison0.pr_osrelease));
+
+#ifdef PAX
+	pax_init_prison(&prison0);
+#endif
+}
+
 #ifdef INET
 static int
 qcmp_v4(const void *ip1, const void *ip2)
@@ -280,32 +310,6 @@ qcmp_v6(const void *ip1, const void *ip2)
 	return (rc);
 }
 #endif
-
-static void
-prison0_init(void *data)
-{
-
-	mtx_init(&prison0.pr_mtx, "jail mutex", NULL, MTX_DEF);
-	prison0.pr_id = 0;
-	prison0.pr_name[0] = '0';
-	prison0.pr_ref = 1;
-	prison0.pr_uref = 1;
-	prison0.pr_path[0] = '/';
-	prison0.pr_securelevel = -1;
-	prison0.pr_devfs_rsnum = 0;
-	prison0.pr_childmax = JAIL_MAX;
-	strlcpy(prison0.pr_hostuuid, DEFAULT_HOSTUUID, HOSTUUIDLEN);
-#ifdef VIMAGE
-	prison0.pr_flags = PR_HOST|PR_VNET|_PR_IP_SADDRSEL;
-#else
-	prison0.pr_flags = PR_HOST|_PR_IP_SADDRSEL;
-#endif
-	prison0.pr_allow = PR_ALLOW_ALL;
-
-#ifdef PAX
-	pax_init_prison(&prison0);
-#endif
-}
 
 /*
  * struct jail_args {
@@ -558,7 +562,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	struct prison *pr, *deadpr, *mypr, *ppr, *tpr;
 	struct vnode *root;
 	char *domain, *errmsg, *host, *name, *namelc, *p, *path, *uuid;
-	char *g_path;
+	char *g_path, *osrelstr;
 #if defined(INET) || defined(INET6)
 	struct prison *tppr;
 	void *op;
@@ -568,7 +572,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	int created, cuflags, descend, enforce, error, errmsg_len, errmsg_pos;
 	int gotchildmax, gotenforce, gothid, gotrsnum, gotslevel;
 	int fi, jid, jsys, len, level;
-	int childmax, rsnum, slevel;
+	int childmax, osreldt, rsnum, slevel;
 	int fullpath_disabled;
 #if defined(INET) || defined(INET6)
 	int ii, ij;
@@ -979,6 +983,46 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		}
 	}
 
+	error = vfs_getopt(opts, "osrelease", (void **)&osrelstr, &len);
+	if (error == ENOENT)
+		osrelstr = NULL;
+	else if (error != 0)
+		goto done_free;
+	else {
+		if (flags & JAIL_UPDATE) {
+			error = EINVAL;
+			vfs_opterror(opts,
+			    "osrelease cannot be changed after creation");
+			goto done_errmsg;
+		}
+		if (len == 0 || len >= OSRELEASELEN) {
+			error = EINVAL;
+			vfs_opterror(opts,
+			    "osrelease string must be 1-%d bytes long",
+			    OSRELEASELEN - 1);
+			goto done_errmsg;
+		}
+	}
+
+	error = vfs_copyopt(opts, "osreldate", &osreldt, sizeof(osreldt));
+	if (error == ENOENT)
+		osreldt = 0;
+	else if (error != 0)
+		goto done_free;
+	else {
+		if (flags & JAIL_UPDATE) {
+			error = EINVAL;
+			vfs_opterror(opts,
+			    "osreldate cannot be changed after creation");
+			goto done_errmsg;
+		}
+		if (osreldt == 0) {
+			error = EINVAL;
+			vfs_opterror(opts, "osreldate cannot be 0");
+			goto done_errmsg;
+		}
+	}
+
 	/*
 	 * Grab the allprison lock before letting modules check their
 	 * parameters.  Once we have it, do not let go so we'll have a
@@ -1304,6 +1348,12 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		pr->pr_allow = JAIL_DEFAULT_ALLOW & ppr->pr_allow;
 		pr->pr_enforce_statfs = JAIL_DEFAULT_ENFORCE_STATFS;
 		pr->pr_devfs_rsnum = ppr->pr_devfs_rsnum;
+
+		pr->pr_osreldate = osreldt ? osreldt : ppr->pr_osreldate;
+		if (osrelstr == NULL)
+		    strcpy(pr->pr_osrelease, ppr->pr_osrelease);
+		else
+		    strcpy(pr->pr_osrelease, osrelstr);
 
 		LIST_INIT(&pr->pr_children);
 		mtx_init(&pr->pr_mtx, "jail mutex", NULL, MTX_DEF | MTX_DUPOK);
@@ -4336,12 +4386,20 @@ sysctl_jail_param(SYSCTL_HANDLER_ARGS)
 	return (0);
 }
 
+/*
+ * CTLFLAG_RDTUN in the following indicates jail parameters that can be set at
+ * jail creation time but cannot be changed in an existing jail.
+ */
 SYSCTL_JAIL_PARAM(, jid, CTLTYPE_INT | CTLFLAG_RDTUN, "I", "Jail ID");
 SYSCTL_JAIL_PARAM(, parent, CTLTYPE_INT | CTLFLAG_RD, "I", "Jail parent ID");
 SYSCTL_JAIL_PARAM_STRING(, name, CTLFLAG_RW, MAXHOSTNAMELEN, "Jail name");
 SYSCTL_JAIL_PARAM_STRING(, path, CTLFLAG_RDTUN, MAXPATHLEN, "Jail root path");
 SYSCTL_JAIL_PARAM(, securelevel, CTLTYPE_INT | CTLFLAG_RW,
     "I", "Jail secure level");
+SYSCTL_JAIL_PARAM(, osreldate, CTLTYPE_INT | CTLFLAG_RDTUN, "I", 
+    "Jail value for kern.osreldate and uname -K");
+SYSCTL_JAIL_PARAM_STRING(, osrelease, CTLFLAG_RDTUN, OSRELEASELEN, 
+    "Jail value for kern.osrelease and uname -r");
 SYSCTL_JAIL_PARAM(, enforce_statfs, CTLTYPE_INT | CTLFLAG_RW,
     "I", "Jail cannot see all mounted file systems");
 SYSCTL_JAIL_PARAM(, devfs_ruleset, CTLTYPE_INT | CTLFLAG_RW,
