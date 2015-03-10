@@ -4741,6 +4741,10 @@ db_show_prison(struct prison *pr)
 	    pr->pr_hardening.hr_pax_aslr_compat_stack_len);
 	db_printf(" .hr_pax_aslr_compat_exec_len    = %d\n",
 	    pr->pr_hardening.hr_pax_aslr_compat_exec_len);
+	db_printf(" .hr_pax_pageexec_status           = %d\n",
+	   pr->pr_hardening.hr_pax_pageexec_status);
+	db_printf(" .hr_pax_mprotect_status           = %d\n",
+	   pr->pr_hardening.hr_pax_mprotect_status);
 	db_printf(" .hr_pax_segvguard_status        = %d\n",
 	   pr->pr_hardening.hr_pax_segvguard_status);
 	db_printf(" .hr_pax_segvguard_debug         = %d\n",
