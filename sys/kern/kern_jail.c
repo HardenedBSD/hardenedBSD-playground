@@ -4755,8 +4755,6 @@ db_show_prison(struct prison *pr)
 	   pr->pr_hardening.hr_pax_map32_enabled);
 	db_printf(" .hr_pax_procfs_harden           = %d\n",
 	   pr->pr_hardening.hr_pax_procfs_harden);
-	db_printf(" .hr_pax_mprotect_status         = %d\n",
-	   pr->pr_hardening.hr_pax_mprotect_status);
 	db_printf(" .hr_pax_ptrace_hardening_status = %d\n",
 	   pr->pr_hardening.hr_pax_ptrace_hardening_status);
 	db_printf(" }\n");
