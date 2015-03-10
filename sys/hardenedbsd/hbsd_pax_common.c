@@ -197,7 +197,7 @@ pax_check_conflicting_modes(uint32_t mode)
 int
 pax_elf(struct image_params *imgp, uint32_t mode)
 {
-	uint32_t flags, flags_aslr, flags_segvuard, flags_hardening, flags_mprotect, flags_pageexec;
+	uint32_t flags, flags_aslr, flags_mprotect, flags_pageexec, flags_segvuard, flags_hardening;
 
 	flags = mode;
 	flags_aslr = flags_segvuard = flags_hardening = flags_mprotect = flags_pageexec = 0;
