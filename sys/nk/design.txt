@@ -1,0 +1,54 @@
+#===============================================================================
+#===============================================================================
+
+<=== Modules ===>
+  - vMMU: vmmu.[c,h]
+    - init, declare, update, and remove PTPs
+  - CPU Functions: nk_cpufunc.h
+    - Updates of: cr0, cr3, cr4, and MSRs
+  - Secure Wrapper: nk_gates.[c,h]
+
+<=== Design ===>
+  - Need externally visible function and internally non-visible functions. 
+  - All externally visible functions will be declared in nk_* header files. 
+  - All internally visible files will be in non-nk header files. 
+
+<=== To Do ===>
+  - [ ] Compiler and Linker and Loader;;
+    - [x] Modify to include extra section for protected space data;;
+    - [x] Make sure all internal data structures are declared on WPed pages;;
+    - [ ] Check to see if "hidden" functions can be called from main source;;
+    - [ ] Can we use the #ifdef NESTEDKERNEL for the loader script;;
+    - [ ] Add zero squashing to keep kernel small;;
+    - [ ] Statically allocate memory for nested kernel operations --- create
+          pages solely for this;;
+  - [ ] Nested Kernel Interface;;
+    - [ ] Move nested code into a hidden library;;
+    - [ ] Make the secure stack SMP capable;;
+  - [ ] Protected CPU Functionality;;
+    - [ ] CR4;;
+      - [ ] from persp;;
+      - [ ] New ones from Grep;;
+    - [ ] CR3;;
+      - [ ] CR3s from the perspicuos implementation;;
+      - [ ] New ones from Grep;;
+      - [ ] Check for registered PTP base page in NK write func;;
+    - [ ] MSRs;;
+      - [ ] SMEP in MSRs;;
+      - [ ] from the perspicuos implementation;;
+      - [ ] New ones from Grep;;
+      - [ ] Setup code to deal with detecting availability of SMEP;;
+  - [ ] vMMU;;
+    - [ ] Initialization;;
+      - [ ] Initialize DMAP investigate how it works and make sure it is
+            correclty working;;
+            - [ ] DMAP init all non-code pages as NX;;
+            - [ ] DMAP init all code pages as X + WP;;
+            - [ ] DMAP init all user pages as U (should be none in init);;
+      - [ ] Initial page walk to track page descriptors for kernel base pages;;
+      - [ ] Get size of physical memory and allocate space for descriptors
+            dynamically;;
+      - [x] makePTReadOnly --- fix this to handle 2MB pages;;
+    - [ ] declare_*;;
+    - [ ] update_*;;
+    - [ ] remove_*;;
