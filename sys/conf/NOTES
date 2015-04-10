@@ -1722,10 +1722,8 @@ device		ata
 #device		atapci		# PCI bus support; only generic chipset support
 
 # PCI ATA chipsets
-#device		ataahci		# AHCI SATA
 #device		ataacard	# ACARD
 #device		ataacerlabs	# Acer Labs Inc. (ALI)
-#device		ataadaptec	# Adaptec
 #device		ataamd		# American Micro Devices (AMD)
 #device		ataati		# ATI
 #device		atacenatek	# Cenatek
@@ -2100,7 +2098,8 @@ device		de		# DEC/Intel DC21x4x (``Tulip'')
 device		em		# Intel Pro/1000 Gigabit Ethernet
 device		igb		# Intel Pro/1000 PCIE Gigabit Ethernet
 device		ixgb		# Intel Pro/10Gbe PCI-X Ethernet
-device		ixgbe		# Intel Pro/10Gbe PCIE Ethernet
+device		ix		# Intel Pro/10Gbe PCIE Ethernet
+device		ixv		# Intel Pro/10Gbe PCIE Ethernet VF
 device		le		# AMD Am7900 LANCE and Am79C9xx PCnet
 device		mxge		# Myricom Myri-10G 10GbE NIC
 device		nxge		# Neterion Xframe 10GbE Server/Storage Adapter
@@ -2889,11 +2888,6 @@ options 	SHMMNI=33
 # a single process at one time.
 options 	SHMSEG=9
 
-# Compress user core dumps.
-options		COMPRESS_USER_CORES
-# required to compress file output from kernel for COMPRESS_USER_CORES.
-device		gzio	    
-
 # Set the amount of time (in seconds) the system will wait before
 # rebooting automatically when a kernel panic occurs.  If set to (-1),
 # the system will wait indefinitely until a key is pressed on the
@@ -2984,10 +2978,15 @@ options 	RANDOM_DEBUG	# Debugging messages
 # Module to enable execution of application via emulators like QEMU
 options         IMAGACT_BINMISC
 
+# zlib I/O stream support
+# This enables support for compressed core dumps.
+options 	GZIO
+
 # PAX and HardenedBSD related knobs
 options 	PAX		# Enable the PAX framework
 options 	PAX_ASLR	# Address Space Layout Randomization
 options 	PAX_HARDENING	# Other hardening features
+options 	PAX_NOEXEC	# Remove WX pages from user-space and enforce W^X
 options 	PAX_SEGVGUARD	# Track and ban failing process
 options 	PAX_SYSCTLS	# Run-time settings for PAX and Hardening
 options 	PAX_PTRACE_HARDENING

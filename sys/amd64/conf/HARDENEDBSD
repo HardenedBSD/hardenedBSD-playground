@@ -77,6 +77,7 @@ options 	INCLUDE_CONFIG_FILE	# Include this file in kernel
 # HardenedBSD hardening options
 options 	PAX
 options 	PAX_ASLR		# Address Space Layout Randomization
+options 	PAX_NOEXEC		# Remove WX pages from user-space and enforce W^X
 options 	PAX_HARDENING		# Various hardening options
 options 	PAX_SYSCTLS		# sysctls for run-time options
 #options 	PAX_SEGVGUARD		# prevent brute-force attacks
@@ -226,7 +227,8 @@ device		bxe			# Broadcom NetXtreme II BCM5771X/BCM578XX 10GbE
 device		de			# DEC/Intel DC21x4x (``Tulip'')
 device		em			# Intel PRO/1000 Gigabit Ethernet Family
 device		igb			# Intel PRO/1000 PCIE Server Gigabit Family
-device		ixgbe			# Intel PRO/10GbE PCIE Ethernet Family
+device		ix			# Intel PRO/10GbE PCIE PF Ethernet
+device		ixv			# Intel PRO/10GbE PCIE VF Ethernet
 device		ixl			# Intel XL710 40Gbe PCIE Ethernet
 device		ixlv			# Intel XL710 40Gbe VF PCIE Ethernet
 device		le			# AMD Am7900 LANCE and Am79C9xx PCnet
