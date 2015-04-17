@@ -29,10 +29,10 @@
  * $FreeBSD$
  */
 
-#ifndef	__SYS_PAX_H
-#define	__SYS_PAX_H
+#ifndef	_SYS_PAX_H
+#define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	19
+#define	__HardenedBSD_version	20
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
 struct hardening_features {
@@ -109,7 +109,7 @@ void pax_aslr_init_prison32(struct prison *pr);
 #define	pax_aslr_init_prison32(pr)	do {} while (0)
 #endif
 void pax_aslr_init(struct image_params *imgp);
-void pax_aslr_execbase(struct proc *p, u_long *et_dyn_addr);
+void pax_aslr_execbase(struct proc *p, u_long *et_dyn_addrp);
 void pax_aslr_mmap(struct proc *p, vm_offset_t *addr, 
     vm_offset_t orig_addr, int flags);
 uint32_t pax_aslr_setup_flags(struct image_params *imgp, uint32_t mode);
@@ -222,4 +222,4 @@ int pax_ptrace_hardening(struct thread *td);
 			(PAX_NOTE_NOPAGEEXEC | PAX_NOTE_NOMPROTECT | PAX_NOTE_NOSEGVGUARD | PAX_NOTE_NOASLR)
 #define PAX_NOTE_ALL	(PAX_NOTE_ALL_ENABLED | PAX_NOTE_ALL_DISABLED)
 
-#endif /* __SYS_PAX_H */
+#endif /* _SYS_PAX_H */

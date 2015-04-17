@@ -86,7 +86,7 @@ __FBSDID("$FreeBSD$");
  * 	+-------+--------+--------+--------+
  * 	| MIN	|  8 bit | 16 bit |  8 bit |
  * 	+-------+--------+--------+--------+
- * 	| DEF	|  8 bit | 20 bit |  8 bit |
+ * 	| DEF	|  8 bit | 26 bit |  8 bit |
  * 	+-------+--------+--------+--------+
  * 	| MAX   | 21 bit | 42 bit | 21 bit |
  * 	+-------+--------+--------+--------+
@@ -145,7 +145,7 @@ __FBSDID("$FreeBSD$");
 #define PAX_ASLR_DELTA_MMAP_DEF_LEN	30
 #endif /* PAX_ASLR_DELTA_MMAP_DEF_LEN */
 #ifndef PAX_ASLR_DELTA_STACK_DEF_LEN
-#define PAX_ASLR_DELTA_STACK_DEF_LEN	20
+#define PAX_ASLR_DELTA_STACK_DEF_LEN	26
 #endif /* PAX_ASLR_DELTA_STACK_DEF_LEN */
 #ifndef PAX_ASLR_DELTA_EXEC_DEF_LEN
 #define PAX_ASLR_DELTA_EXEC_DEF_LEN	21
@@ -818,13 +818,13 @@ pax_aslr_stack_adjust(struct proc *p, u_long *ssiz)
 }
 
 void
-pax_aslr_execbase(struct proc *p, u_long *et_dyn_addr)
+pax_aslr_execbase(struct proc *p, u_long *et_dyn_addrp)
 {
 
 	if (!pax_aslr_active(p))
 		return;
 
-	*et_dyn_addr += p->p_vmspace->vm_aslr_delta_exec;
+	*et_dyn_addrp += p->p_vmspace->vm_aslr_delta_exec;
 }
 
 uint32_t
