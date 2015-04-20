@@ -154,7 +154,8 @@ static void
 ufsdirhash_hold(struct dirhash *dh)
 {
 
-	KASSERT(dh != NULL, ("%s: dh == NULL", __func__));
+	KASSERT(dh != NULL, ("%s: dh == NULL",
+	    __func__));
 
 	refcount_acquire(&dh->dh_refcount);
 }
@@ -163,7 +164,8 @@ static void
 ufsdirhash_drop(struct dirhash *dh)
 {
 
-	KASSERT(dh != NULL, ("%s: dh == NULL", __func__));
+	KASSERT(dh != NULL, ("%s: dh == NULL",
+	    __func__));
 
 	if (refcount_release(&dh->dh_refcount)) {
 		sx_destroy(&dh->dh_lock);
@@ -179,7 +181,8 @@ static void
 ufsdirhash_release(struct dirhash *dh)
 {
 
-	KASSERT(dh != NULL, ("%s: dh == NULL", __func__));
+	KASSERT(dh != NULL, ("%s: dh == NULL"
+	    __func__));
 
 	sx_unlock(&dh->dh_lock);
 }
