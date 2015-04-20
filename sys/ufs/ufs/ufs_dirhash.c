@@ -154,9 +154,6 @@ static void
 ufsdirhash_hold(struct dirhash *dh)
 {
 
-	KASSERT(dh != NULL, ("%s: dh == NULL",
-	    __func__));
-
 	refcount_acquire(&dh->dh_refcount);
 }
 
@@ -164,13 +161,9 @@ static void
 ufsdirhash_drop(struct dirhash *dh)
 {
 
-	KASSERT(dh != NULL, ("%s: dh == NULL",
-	    __func__));
-
 	if (refcount_release(&dh->dh_refcount)) {
 		sx_destroy(&dh->dh_lock);
 		free(dh, M_DIRHASH);
-		dh = NULL;
 	}
 }
 
@@ -180,9 +173,6 @@ ufsdirhash_drop(struct dirhash *dh)
 static void
 ufsdirhash_release(struct dirhash *dh)
 {
-
-	KASSERT(dh != NULL, ("%s: dh == NULL"
-	    __func__));
 
 	sx_unlock(&dh->dh_lock);
 }
@@ -254,14 +244,6 @@ ufsdirhash_create(struct inode *ip)
 		}
 		VI_UNLOCK(vp);
 		ufsdirhash_drop(dh);
-
-		/*
-		 * If the dirhash structure was freed by ufsdirhash_drop
-		 * then break out from the loop to prevent use-after-free,
-		 * and return NULL.
-		 */
-		if (dh == NULL)
-			break;
 
 		/* If the hash is still valid we've succeeded. */
 		if (dh->dh_hash != NULL)
