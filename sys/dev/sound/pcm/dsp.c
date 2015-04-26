@@ -43,6 +43,11 @@
 
 SND_DECLARE_FILE("$FreeBSD$");
 
+static int dsp_basename_clone = 1;
+SYSCTL_INT(_hw_snd, OID_AUTO, basename_clone, CTLFLAG_RWTUN,
+    &dsp_basename_clone, 0,
+    "DSP basename cloning (0: Disable; 1: Enabled)");
+
 struct dsp_cdevinfo {
 	struct pcm_channel *rdch, *wrch;
 	struct pcm_channel *volch;
@@ -2338,9 +2343,10 @@ dsp_clone(void *arg,
 			devname = devcmp;
 		devhw = dsp_cdevs[i].hw;
 		devcmax = dsp_cdevs[i].max - 1;
-		if (strcmp(name, devcmp) == 0)
-			unit = snd_unit;
-		else if (dsp_stdclone(name, devcmp, devsep,
+		if (strcmp(name, devcmp) == 0) {
+			if (dsp_basename_clone != 0)
+				unit = snd_unit;
+		} else if (dsp_stdclone(name, devcmp, devsep,
 		    dsp_cdevs[i].use_sep, &unit, &cunit) != 0) {
 			unit = -1;
 			cunit = -1;
