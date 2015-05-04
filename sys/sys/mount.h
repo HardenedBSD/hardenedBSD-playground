@@ -355,6 +355,7 @@ void          __mnt_vnode_markerfree_active(struct vnode **mvp, struct mount *);
 #define	MNTK_LOOKUP_EXCL_DOTDOT	0x00000800
 #define	MNTK_MARKER		0x00001000
 #define	MNTK_UNMAPPED_BUFS	0x00002000
+#define	MNTK_USES_BCACHE	0x00004000 /* FS uses the buffer cache. */
 #define MNTK_NOASYNC	0x00800000	/* disable async */
 #define MNTK_UNMOUNT	0x01000000	/* unmount in progress */
 #define	MNTK_MWAIT	0x02000000	/* waiting for unmount to finish */
@@ -858,9 +859,9 @@ int	vfs_filteropt(struct vfsoptlist *, const char **legal);
 void	vfs_opterror(struct vfsoptlist *opts, const char *fmt, ...);
 int	vfs_scanopt(struct vfsoptlist *opts, const char *name, const char *fmt, ...);
 int	vfs_setopt(struct vfsoptlist *opts, const char *name, void *value,
-	    int len);
+	    size_t len);
 int	vfs_setopt_part(struct vfsoptlist *opts, const char *name, void *value,
-	    int len);
+	    size_t len);
 int	vfs_setopts(struct vfsoptlist *opts, const char *name,
 	    const char *value);
 int	vfs_setpublicfs			    /* set publicly exported fs */

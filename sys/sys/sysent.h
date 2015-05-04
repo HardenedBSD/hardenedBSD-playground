@@ -151,15 +151,10 @@ struct sysentvec {
 #define	SV_ABI_UNDEF	255
 
 #ifdef _KERNEL
-extern struct sysentvec aout_sysvec;
 extern struct sysentvec elf_freebsd_sysvec;
 extern struct sysentvec null_sysvec;
 extern struct sysent sysent[];
 extern const char *syscallnames[];
-
-#if defined(__amd64__) || defined(__ia64__)
-extern int i386_read_exec;
-#endif
 
 #define	NO_SYSCALL (-1)
 
