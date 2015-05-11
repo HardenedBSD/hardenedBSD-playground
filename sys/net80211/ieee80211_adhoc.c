@@ -373,7 +373,7 @@ adhoc_input(struct ieee80211_node *ni, struct mbuf *m, int rssi, int nf)
 		 */
 		if (!(type == IEEE80211_FC0_TYPE_MGT &&
 		     (subtype == IEEE80211_FC0_SUBTYPE_BEACON ||
-		      subtype == IEEE80211_FC0_SUBTYPE_PROBE_REQ)) &&
+		      subtype == IEEE80211_FC0_SUBTYPE_PROBE_RESP)) &&
 		    !IEEE80211_ADDR_EQ(bssid, vap->iv_bss->ni_bssid) &&
 		    !IEEE80211_ADDR_EQ(bssid, ifp->if_broadcastaddr)) {
 			/* not interested in */
@@ -735,7 +735,8 @@ adhoc_recv_mgmt(struct ieee80211_node *ni, struct mbuf *m0,
 				ieee80211_probe_curchan(vap, 1);
 				ic->ic_flags_ext &= ~IEEE80211_FEXT_PROBECHAN;
 			}
-			ieee80211_add_scan(vap, &scan, wh, subtype, rssi, nf);
+			ieee80211_add_scan(vap, ic->ic_curchan, &scan, wh,
+			    subtype, rssi, nf);
 			return;
 		}
 		if (scan.capinfo & IEEE80211_CAPINFO_IBSS) {

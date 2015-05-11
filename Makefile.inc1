@@ -1349,6 +1349,10 @@ _dtc= usr.bin/dtc
 _dtc= gnu/usr.bin/dtc
 .endif
 
+.if ${MK_HBSD_EXTRA_SANITIZE} != "no"
+CFLAGS+=	-DHBSD_EXTRA_SANITIZE
+.endif
+
 .if ${MK_KERBEROS} != "no"
 _kerberos5_bootstrap_tools= \
 	kerberos5/tools/make-roken \
@@ -1361,9 +1365,8 @@ _kerberos5_bootstrap_tools= \
 .ORDER: ${_kerberos5_bootstrap_tools:C/^/${_bt}-/g}
 .endif
 
-.if ${MK_HBSD_EXTRA_SANITIZE} != "no"
-CFLAGS+=	-DHBSD_EXTRA_SANITIZE
-.endif
+# Rebuild up-to-date libmd for xinstall
+${_bt}-usr.bin/xinstall: ${_bt}-lib/libmd
 
 bootstrap-tools: .PHONY
 
