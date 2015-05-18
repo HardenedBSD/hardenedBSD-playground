@@ -2,10 +2,10 @@
 
 .include <src.opts.mk>
 
-SUBDIR= csu libgcc libgcov libdialog libregex libreadline
+SUBDIR= csu libgcc libdialog libregex
 
 .if ${MK_GCC} != "no"
-SUBDIR+= libgomp
+SUBDIR+= libgcov libgomp
 .endif
 
 .if ${MK_SSP} != "no"
@@ -14,6 +14,10 @@ SUBDIR+= libssp
 
 .if ${MK_TESTS} != "no"
 SUBDIR+= tests
+.endif
+
+.if ${MK_GDB} != "no"
+SUBDIR+=	libreadline
 .endif
 
 # libsupc++ uses libstdc++ headers, although 'make includes' should
