@@ -614,7 +614,6 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 			if (foffset < 0 ||
 			    (flp->l_start > 0 &&
 			     foffset > OFF_MAX - flp->l_start)) {
-				FILEDESC_SUNLOCK(fdp);
 				error = EOVERFLOW;
 				fdrop(fp, td);
 				break;
@@ -728,7 +727,6 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 			    foffset > OFF_MAX - flp->l_start) ||
 			    (flp->l_start < 0 &&
 			     foffset < OFF_MIN - flp->l_start)) {
-				FILEDESC_SUNLOCK(fdp);
 				error = EOVERFLOW;
 				fdrop(fp, td);
 				break;
