@@ -32,7 +32,7 @@
 #ifndef	_SYS_PAX_H
 #define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	23
+#define	__HardenedBSD_version	24
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
 struct hardening_features {
@@ -112,6 +112,8 @@ void pax_aslr_init_vmspace32(struct proc *p);
 void pax_aslr_init(struct image_params *imgp);
 void pax_aslr_execbase(struct proc *p, u_long *et_dyn_addrp);
 void pax_aslr_mmap(struct proc *p, vm_offset_t *addr, 
+    vm_offset_t orig_addr, int flags);
+void pax_aslr_mmap_map_32bit(struct proc *p, vm_offset_t *addr, 
     vm_offset_t orig_addr, int flags);
 void pax_aslr_rtld(struct proc *p, u_long *addr);
 uint32_t pax_aslr_setup_flags(struct image_params *imgp, uint32_t mode);
