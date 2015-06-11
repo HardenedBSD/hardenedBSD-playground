@@ -870,6 +870,7 @@ MAN+=	\
 	ufoma.4 \
 	uftdi.4 \
 	ugen.4 \
+	ugold.4 \
 	uhci.4 \
 	uhid.4 \
 	uhso.4 \
