@@ -743,7 +743,8 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		arg = arg ? 128 * 1024: 0;
 		/* FALLTHROUGH */
 	case F_READAHEAD:
-		error = fget_unlocked(fdp, fd, NULL, &fp, NULL);
+		error = fget_unlocked(fdp, fd,
+		    cap_rights_init(&rights), &fp, NULL);
 		if (error != 0)
 			break;
 		if (fp->f_type != DTYPE_VNODE) {
@@ -2388,11 +2389,9 @@ fget_unlocked(struct filedesc *fdp, int fd, cap_rights_t *needrightsp,
 		if (fp == NULL)
 			return (EBADF);
 #ifdef CAPABILITIES
-		if (needrightsp != NULL) {
-			error = cap_check(&haverights, needrightsp);
-			if (error != 0)
-				return (error);
-		}
+		error = cap_check(&haverights, needrightsp);
+		if (error != 0)
+			return (error);
 #endif
 	retry:
 		count = fp->f_count;
@@ -2453,11 +2452,9 @@ _fget(struct thread *td, int fd, struct file **fpp, int flags,
 
 	*fpp = NULL;
 	fdp = td->td_proc->p_fd;
-	if (needrightsp != NULL)
-		needrights = *needrightsp;
-	else
-		cap_rights_init(&needrights);
-	error = fget_unlocked(fdp, fd, &needrights, &fp, seqp);
+	if (needrightsp == NULL)
+		needrightsp = cap_rights_init(&needrights);
+	error = fget_unlocked(fdp, fd, needrightsp, &fp, seqp);
 	if (error != 0)
 		return (error);
 	if (fp->f_ops == &badfileops) {
