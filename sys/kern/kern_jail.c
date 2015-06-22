@@ -2322,7 +2322,6 @@ sys_jail_remove(struct thread *td, struct jail_remove_args *uap)
 		}
 		mtx_lock(&pr->pr_mtx);
 	}
-
 	prison_remove_one(pr);
 	return (0);
 }
