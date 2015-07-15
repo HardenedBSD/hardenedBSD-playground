@@ -233,16 +233,16 @@ elf_linux_fixup(register_t **stack_base, struct image_params *imgp)
 	Elf32_Addr *pos;
 	struct linux32_ps_strings *arginfo;
 
-	arginfo = (struct linux32_ps_strings *)LINUX32_PS_STRINGS;
-
 	KASSERT(curthread->td_proc == imgp->proc,
 	    ("unsafe elf_linux_fixup(), should be curproc"));
+
+	arginfo = (struct linux32_ps_strings *)imgp->proc->p_psstrings;
 	base = (Elf32_Addr *)*stack_base;
 	args = (Elf32_Auxargs *)imgp->auxargs;
 	pos = base + (imgp->args->argc + imgp->args->envc + 2);
 
 	AUXARGS_ENTRY_32(pos, LINUX_AT_SYSINFO_EHDR,
-	    imgp->proc->p_sysent->sv_shared_page_base);
+	    imgp->proc->p_shared_page_base);
 	AUXARGS_ENTRY_32(pos, LINUX_AT_SYSINFO, linux32_vsyscall);
 	AUXARGS_ENTRY_32(pos, LINUX_AT_HWCAP, cpu_feature);
 
@@ -858,7 +858,7 @@ linux_copyout_strings(struct image_params *imgp)
 	else
 		execpath_len = 0;
 
-	arginfo = (struct linux32_ps_strings *)LINUX32_PS_STRINGS;
+	arginfo = (struct linux32_ps_strings *)imgp->proc->p_psstrings;
 	destp =	(caddr_t)arginfo - SPARE_USRSPACE -
 	    roundup(sizeof(canary), sizeof(char *)) -
 	    roundup(execpath_len, sizeof(char *)) -

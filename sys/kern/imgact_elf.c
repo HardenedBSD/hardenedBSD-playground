@@ -1041,7 +1041,8 @@ __elfN(freebsd_fixup)(register_t **stack_base, struct image_params *imgp)
 	}
 	if (imgp->sysent->sv_timekeep_base != 0) {
 		AUXARGS_ENTRY(pos, AT_TIMEKEEP,
-		    imgp->sysent->sv_timekeep_base);
+		    imgp->proc->p_shared_page_base +
+		    imgp->sysent->sv_timekeep_off);
 	}
 	AUXARGS_ENTRY(pos, AT_STACKPROT, imgp->sysent->sv_shared_page_obj
 	    != NULL && imgp->stack_prot != 0 ? imgp->stack_prot :
@@ -1247,6 +1248,7 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 
 	compress = (flags & IMGACT_CORE_COMPRESS) != 0;
 	hdr = NULL;
+	tmpbuf = NULL;
 	TAILQ_INIT(&notelst);
 
 	/* Size the program segments. */
@@ -1260,6 +1262,14 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	hdrsize = sizeof(Elf_Ehdr) + sizeof(Elf_Phdr) * (1 + seginfo.count);
 	__elfN(prepare_notes)(td, &notelst, &notesz);
 	coresize = round_page(hdrsize + notesz) + seginfo.size;
+
+	/* Set up core dump parameters. */
+	params.offset = 0;
+	params.active_cred = cred;
+	params.file_cred = NOCRED;
+	params.td = td;
+	params.vp = vp;
+	params.gzs = NULL;
 
 #ifdef RACCT
 	if (racct_enable) {
@@ -1277,15 +1287,6 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 		goto done;
 	}
 
-	/* Set up core dump parameters. */
-	params.offset = 0;
-	params.active_cred = cred;
-	params.file_cred = NOCRED;
-	params.td = td;
-	params.vp = vp;
-	params.gzs = NULL;
-
-	tmpbuf = NULL;
 #ifdef GZIO
 	/* Create a compression stream if necessary. */
 	if (compress) {
@@ -1342,7 +1343,8 @@ done:
 #ifdef GZIO
 	if (compress) {
 		free(tmpbuf, M_TEMP);
-		gzio_fini(params.gzs);
+		if (params.gzs != NULL)
+			gzio_fini(params.gzs);
 	}
 #endif
 	while ((ninfo = TAILQ_FIRST(&notelst)) != NULL) {
@@ -2028,9 +2030,9 @@ __elfN(note_procstat_psstrings)(void *arg, struct sbuf *sb, size_t *sizep)
 		KASSERT(*sizep == size, ("invalid size"));
 		structsize = sizeof(ps_strings);
 #if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
-		ps_strings = PTROUT(p->p_sysent->sv_psstrings);
+		ps_strings = PTROUT(p->p_psstrings);
 #else
-		ps_strings = p->p_sysent->sv_psstrings;
+		ps_strings = p->p_psstrings;
 #endif
 		sbuf_bcat(sb, &structsize, sizeof(structsize));
 		sbuf_bcat(sb, &ps_strings, sizeof(ps_strings));
