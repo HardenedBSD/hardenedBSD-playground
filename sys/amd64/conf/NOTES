@@ -613,6 +613,9 @@ options 	NKPT=31
 # Enable 32-bit runtime support for FreeBSD/i386 binaries.
 options 	COMPAT_FREEBSD32
 
+# Enable 64-bit runtime support for CloudABI binaries.
+options 	COMPAT_CLOUDABI64
+
 # Enable Linux ABI emulation
 #XXX#options 	COMPAT_LINUX
 
