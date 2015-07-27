@@ -385,9 +385,8 @@ device		crypto			# core crypto support
 device		cryptodev		# /dev/crypto for access to h/w
 device		aesni
 
-# Net sec
-options 	IPSEC
-options 	IPFIREWALL
-options 	IPFIREWALL_VERBOSE
-options 	IPFIREWALL_VERBOSE_LIMIT=100
+options        IPFIREWALL
+options        IPFIREWALL_VERBOSE
+options        IPFIREWALL_VERBOSE_LIMIT=100
 
+device		bvmconsole		# for kgdb over bhyve
