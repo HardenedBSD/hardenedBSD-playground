@@ -1734,7 +1734,8 @@ fdallocn(struct thread *td, int minfd, int *fds, int n)
  * release the FILEDESC lock.
  */
 int
-falloc(struct thread *td, struct file **resultfp, int *resultfd, int flags)
+falloc_caps(struct thread *td, struct file **resultfp, int *resultfd, int flags,
+    struct filecaps *fcaps)
 {
 	struct file *fp;
 	int error, fd;
@@ -1743,7 +1744,7 @@ falloc(struct thread *td, struct file **resultfp, int *resultfd, int flags)
 	if (error)
 		return (error);		/* no reference held on error */
 
-	error = finstall(td, fp, &fd, flags, NULL);
+	error = finstall(td, fp, &fd, flags, fcaps);
 	if (error) {
 		fdrop(fp, td);		/* one reference (fp only) */
 		return (error);
