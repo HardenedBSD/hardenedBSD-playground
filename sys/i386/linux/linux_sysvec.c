@@ -251,11 +251,13 @@ elf_linux_fixup(register_t **stack_base, struct image_params *imgp)
 	    ("unsafe elf_linux_fixup(), should be curproc"));
 
 	p = imgp->proc;
-	arginfo = (struct ps_strings *)p->p_sysent->sv_psstrings;
+	arginfo = (struct ps_strings *)p->p_psstrings;
 	uplatform = (Elf32_Addr *)((caddr_t)arginfo - linux_szplatform);
 	args = (Elf32_Auxargs *)imgp->auxargs;
 	pos = *stack_base + (imgp->args->argc + imgp->args->envc + 2);
 
+	AUXARGS_ENTRY(pos, LINUX_AT_SYSINFO_EHDR,
+	    imgp->proc->p_shared_page_base);
 	AUXARGS_ENTRY(pos, LINUX_AT_HWCAP, cpu_feature);
 
 	/*
@@ -311,7 +313,7 @@ linux_copyout_strings(struct image_params *imgp)
 	 * Also deal with signal trampoline code for this exec type.
 	 */
 	p = imgp->proc;
-	arginfo = (struct ps_strings *)p->p_sysent->sv_psstrings;
+	arginfo = (struct ps_strings *)p->p_psstrings;
 	destp = (caddr_t)arginfo - SPARE_USRSPACE - linux_szplatform -
 	    roundup((ARG_MAX - imgp->args->stringspace), sizeof(char *));
 
@@ -516,7 +518,7 @@ linux_rt_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	 * Build context to run handler in.
 	 */
 	regs->tf_esp = (int)fp;
-	regs->tf_eip = p->p_sysent->sv_sigcode_base + linux_sznonrtsigcode;
+	regs->tf_eip = p->p_sigcode_base + linux_sznonrtsigcode;
 	regs->tf_eflags &= ~(PSL_T | PSL_VM | PSL_D);
 	regs->tf_cs = _ucodesel;
 	regs->tf_ds = _udatasel;
@@ -635,7 +637,7 @@ linux_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	 * Build context to run handler in.
 	 */
 	regs->tf_esp = (int)fp;
-	regs->tf_eip = p->p_sysent->sv_sigcode_base;
+	regs->tf_eip = p->p_sigcode_base;
 	regs->tf_eflags &= ~(PSL_T | PSL_VM | PSL_D);
 	regs->tf_cs = _ucodesel;
 	regs->tf_ds = _udatasel;

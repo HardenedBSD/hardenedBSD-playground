@@ -86,7 +86,7 @@ __FBSDID("$FreeBSD$");
  * 	+-------+--------+--------+--------+
  * 	| MIN	|  8 bit | 16 bit |  8 bit |
  * 	+-------+--------+--------+--------+
- * 	| DEF	|  8 bit | 26 bit |  8 bit |
+ * 	| DEF	|  8 bit | 42 bit |  8 bit |
  * 	+-------+--------+--------+--------+
  * 	| MAX   | 21 bit | 42 bit | 21 bit |
  * 	+-------+--------+--------+--------+
@@ -95,7 +95,7 @@ __FBSDID("$FreeBSD$");
  * 	+-------+--------+--------+--------+
  * 	| MIN	|  8 bit | 16 bit |  8 bit |
  * 	+-------+--------+--------+--------+
- * 	| DEF	| 14 bit | 21 bit | 14 bit |
+ * 	| DEF	| 14 bit | 30 bit | 14 bit |
  * 	+-------+--------+--------+--------+
  * 	| MAX   | 21 bit | 42 bit | 21 bit |
  * 	+-------+--------+--------+--------+
@@ -114,8 +114,12 @@ __FBSDID("$FreeBSD$");
 #endif /* PAX_ASLR_DELTA_MMAP_MAX_LEN */
 
 #ifndef PAX_ASLR_DELTA_STACK_LSB
-#define PAX_ASLR_DELTA_STACK_LSB	3
+#define PAX_ASLR_DELTA_STACK_LSB	PAGE_SHIFT
 #endif /* PAX_ASLR_DELTA_STACK_LSB */
+
+#ifndef PAX_ASLR_DELTA_STACK_WITH_GAP_LSB
+#define PAX_ASLR_DELTA_STACK_WITH_GAP_LSB	3
+#endif /* PAX_ASLR_DELTA_STACK_WITH_GAP_LSB */
 
 #ifndef PAX_ASLR_DELTA_STACK_MIN_LEN
 #define PAX_ASLR_DELTA_STACK_MIN_LEN	((sizeof(void *) * NBBY) / 4)
@@ -129,6 +133,10 @@ __FBSDID("$FreeBSD$");
 #define PAX_ASLR_DELTA_EXEC_LSB		PAGE_SHIFT
 #endif /* PAX_ASLR_DELTA_EXEC_LSB */
 
+#ifndef PAX_ASLR_DELTA_VDSO_LSB
+#define PAX_ASLR_DELTA_VDSO_LSB		PAGE_SHIFT
+#endif /* PAX_ASLR_DELTA_VDSO_LSB */
+
 #ifndef PAX_ASLR_DELTA_EXEC_MIN_LEN
 #define PAX_ASLR_DELTA_EXEC_MIN_LEN	((sizeof(void *) * NBBY) / 4)
 #endif /* PAX_ASLR_DELTA_EXEC_MIN_LEN */
@@ -136,6 +144,14 @@ __FBSDID("$FreeBSD$");
 #ifndef PAX_ASLR_DELTA_EXEC_MAX_LEN
 #define PAX_ASLR_DELTA_EXEC_MAX_LEN	(((sizeof(void *) * NBBY) * 2) / 3)
 #endif /* PAX_ASLR_DELTA_EXEC_MAX_LEN */
+
+#ifndef PAX_ASLR_DELTA_VDSO_MIN_LEN
+#define PAX_ASLR_DELTA_VDSO_MIN_LEN	12
+#endif /* PAX_ASLR_DELTA_VDSO_MIN_LEN */
+
+#ifndef PAX_ASLR_DELTA_VDSO_MAX_LEN
+#define PAX_ASLR_DELTA_VDSO_MAX_LEN	22
+#endif /* PAX_ASLR_DELTA_VDSO_MAX_LEN */
 
 /*
  * ASLR default values for native host
@@ -145,11 +161,14 @@ __FBSDID("$FreeBSD$");
 #define PAX_ASLR_DELTA_MMAP_DEF_LEN	30
 #endif /* PAX_ASLR_DELTA_MMAP_DEF_LEN */
 #ifndef PAX_ASLR_DELTA_STACK_DEF_LEN
-#define PAX_ASLR_DELTA_STACK_DEF_LEN	26
+#define PAX_ASLR_DELTA_STACK_DEF_LEN	42
 #endif /* PAX_ASLR_DELTA_STACK_DEF_LEN */
 #ifndef PAX_ASLR_DELTA_EXEC_DEF_LEN
-#define PAX_ASLR_DELTA_EXEC_DEF_LEN	21
+#define PAX_ASLR_DELTA_EXEC_DEF_LEN	30
 #endif /* PAX_ASLR_DELTA_EXEC_DEF_LEN */
+#ifndef PAX_ASLR_DELTA_VDSO_DEF_LEN
+#define PAX_ASLR_DELTA_VDSO_DEF_LEN	20
+#endif /* PAX_ASLR_DELTA_VDSO_DEF_LEN */
 #else /* ! __LP64__ */
 #ifndef PAX_ASLR_DELTA_MMAP_DEF_LEN
 #define PAX_ASLR_DELTA_MMAP_DEF_LEN	14
@@ -160,6 +179,9 @@ __FBSDID("$FreeBSD$");
 #ifndef PAX_ASLR_DELTA_EXEC_DEF_LEN
 #define PAX_ASLR_DELTA_EXEC_DEF_LEN	14
 #endif /* PAX_ASLR_DELTA_EXEC_DEF_LEN */
+#ifndef PAX_ASLR_DELTA_VDSO_DEF_LEN
+#define PAX_ASLR_DELTA_VDSO_DEF_LEN	10
+#endif /* PAX_ASLR_DELTA_VDSO_DEF_LEN */
 #endif /* __LP64__ */
 
 /*
@@ -194,6 +216,10 @@ __FBSDID("$FreeBSD$");
 #define PAX_ASLR_COMPAT_DELTA_EXEC_LSB		PAGE_SHIFT
 #endif /* PAX_ASLR_COMPAT_DELTA_EXEC_LSB */
 
+#ifndef PAX_ASLR_COMPAT_DELTA_VDSO_LSB
+#define PAX_ASLR_COMPAT_DELTA_VDSO_LSB		PAGE_SHIFT
+#endif /* PAX_ASLR_COMPAT_DELTA_VDSO_LSB */
+
 #ifndef PAX_ASLR_COMPAT_DELTA_EXEC_MIN_LEN
 #define PAX_ASLR_COMPAT_DELTA_EXEC_MIN_LEN	((sizeof(int) * NBBY) / 4)
 #endif /* PAX_ASLR_COMPAT_DELTA_EXEC_MAX_LEN */
@@ -201,6 +227,14 @@ __FBSDID("$FreeBSD$");
 #ifndef PAX_ASLR_COMPAT_DELTA_EXEC_MAX_LEN
 #define PAX_ASLR_COMPAT_DELTA_EXEC_MAX_LEN	(((sizeof(int) * NBBY) * 2) / 3)
 #endif /* PAX_ASLR_COMPAT_DELTA_EXEC_MAX_LEN */
+
+#ifndef PAX_ASLR_COMPAT_DELTA_VDSO_MIN_LEN
+#define PAX_ASLR_COMPAT_DELTA_VDSO_MIN_LEN	6
+#endif /* PAX_ASLR_COMPAT_DELTA_VDSO_MAX_LEN */
+
+#ifndef PAX_ASLR_COMPAT_DELTA_VDSO_MAX_LEN
+#define PAX_ASLR_COMPAT_DELTA_VDSO_MAX_LEN	12
+#endif /* PAX_ASLR_COMPAT_DELTA_VDSO_MAX_LEN */
 #endif
 
 FEATURE(aslr, "Address Space Layout Randomization.");
@@ -209,23 +243,27 @@ static int pax_aslr_status = PAX_FEATURE_OPTOUT;
 static int pax_aslr_mmap_len = PAX_ASLR_DELTA_MMAP_DEF_LEN;
 static int pax_aslr_stack_len = PAX_ASLR_DELTA_STACK_DEF_LEN;
 static int pax_aslr_exec_len = PAX_ASLR_DELTA_EXEC_DEF_LEN;
+static int pax_aslr_vdso_len = PAX_ASLR_DELTA_VDSO_DEF_LEN;
 
 #ifdef COMPAT_FREEBSD32
 static int pax_aslr_compat_status = PAX_FEATURE_OPTOUT;
 static int pax_aslr_compat_mmap_len = PAX_ASLR_COMPAT_DELTA_MMAP_MIN_LEN;
 static int pax_aslr_compat_stack_len = PAX_ASLR_COMPAT_DELTA_STACK_MIN_LEN;
 static int pax_aslr_compat_exec_len = PAX_ASLR_COMPAT_DELTA_EXEC_MIN_LEN;
+static int pax_aslr_compat_vdso_len = PAX_ASLR_COMPAT_DELTA_VDSO_MIN_LEN;
 #endif /* COMPAT_FREEBSD32 */
 
 TUNABLE_INT("hardening.pax.aslr.status", &pax_aslr_status);
 TUNABLE_INT("hardening.pax.aslr.mmap_len", &pax_aslr_mmap_len);
 TUNABLE_INT("hardening.pax.aslr.stack_len", &pax_aslr_stack_len);
 TUNABLE_INT("hardening.pax.aslr.exec_len", &pax_aslr_exec_len);
+TUNABLE_INT("hardening.pax.aslr.vdso_len", &pax_aslr_vdso_len);
 #ifdef COMPAT_FREEBSD32
 TUNABLE_INT("hardening.pax.aslr.compat.status", &pax_aslr_compat_status);
 TUNABLE_INT("hardening.pax.aslr.compat.mmap_len", &pax_aslr_compat_mmap_len);
 TUNABLE_INT("hardening.pax.aslr.compat.stack_len", &pax_aslr_compat_stack_len);
 TUNABLE_INT("hardening.pax.aslr.compat.exec_len", &pax_aslr_compat_exec_len);
+TUNABLE_INT("hardening.pax.aslr.compat.vdso_len", &pax_aslr_compat_vdso_len);
 #endif
 
 #ifdef PAX_SYSCTLS
@@ -238,7 +276,7 @@ static int sysctl_pax_aslr_status(SYSCTL_HANDLER_ARGS);
 static int sysctl_pax_aslr_mmap(SYSCTL_HANDLER_ARGS);
 static int sysctl_pax_aslr_stack(SYSCTL_HANDLER_ARGS);
 static int sysctl_pax_aslr_exec(SYSCTL_HANDLER_ARGS);
-
+static int sysctl_pax_aslr_vdso(SYSCTL_HANDLER_ARGS);
 
 SYSCTL_NODE(_hardening_pax, OID_AUTO, aslr, CTLFLAG_RD, 0,
     "Address Space Layout Randomization.");
@@ -268,6 +306,12 @@ SYSCTL_PROC(_hardening_pax_aslr, OID_AUTO, exec_len,
     CTLTYPE_INT|CTLFLAG_RWTUN|CTLFLAG_PRISON|CTLFLAG_SECURE,
     NULL, 0, sysctl_pax_aslr_exec, "I",
     "Number of bits randomized for the PIE exec base. "
+    "32 bit: [6,20] 64 bit: [12,21]");
+
+SYSCTL_PROC(_hardening_pax_aslr, OID_AUTO, vdso_len,
+    CTLTYPE_INT|CTLFLAG_RWTUN|CTLFLAG_PRISON|CTLFLAG_SECURE,
+    NULL, 0, sysctl_pax_aslr_vdso, "I",
+    "Number of bits randomized for the VDSO base. "
     "32 bit: [6,20] 64 bit: [12,21]");
 
 static int
@@ -375,12 +419,38 @@ sysctl_pax_aslr_exec(SYSCTL_HANDLER_ARGS)
 	return (0);
 }
 
+static int
+sysctl_pax_aslr_vdso(SYSCTL_HANDLER_ARGS)
+{
+	struct prison *pr;
+	int err, val;
+
+	pr = pax_get_prison_td(req->td);
+
+	val = pr->pr_hardening.hr_pax_aslr_vdso_len;
+	err = sysctl_handle_int(oidp, &val, sizeof(int), req);
+	if (err || (req->newptr == NULL))
+		return (err);
+
+	if (val < PAX_ASLR_DELTA_VDSO_MIN_LEN ||
+	    val > PAX_ASLR_DELTA_VDSO_MAX_LEN)
+		return (EINVAL);
+
+	if (pr == &prison0)
+		pax_aslr_vdso_len = val;
+
+	pr->pr_hardening.hr_pax_aslr_vdso_len = val;
+
+	return (0);
+}
+
 /* COMPAT_FREEBSD32 and linuxulator. */
 #ifdef COMPAT_FREEBSD32
 static int sysctl_pax_aslr_compat_status(SYSCTL_HANDLER_ARGS);
 static int sysctl_pax_aslr_compat_mmap(SYSCTL_HANDLER_ARGS);
 static int sysctl_pax_aslr_compat_stack(SYSCTL_HANDLER_ARGS);
 static int sysctl_pax_aslr_compat_exec(SYSCTL_HANDLER_ARGS);
+static int sysctl_pax_aslr_compat_vdso(SYSCTL_HANDLER_ARGS);
 
 SYSCTL_NODE(_hardening_pax_aslr, OID_AUTO, compat, CTLFLAG_RD, 0,
     "Setting for COMPAT_FREEBSD32 and linuxulator.");
@@ -410,6 +480,12 @@ SYSCTL_PROC(_hardening_pax_aslr_compat, OID_AUTO, exec_len,
     CTLTYPE_INT|CTLFLAG_RWTUN|CTLFLAG_PRISON,
     NULL, 0, sysctl_pax_aslr_compat_exec, "I",
     "Number of bits randomized for the PIE exec base. "
+    "32 bit: [6,12]");
+
+SYSCTL_PROC(_hardening_pax_aslr_compat, OID_AUTO, vdso_len,
+    CTLTYPE_INT|CTLFLAG_RWTUN|CTLFLAG_PRISON,
+    NULL, 0, sysctl_pax_aslr_compat_vdso, "I",
+    "Number of bits randomized for the VDSO base. "
     "32 bit: [6,12]");
 
 static int
@@ -517,6 +593,31 @@ sysctl_pax_aslr_compat_exec(SYSCTL_HANDLER_ARGS)
 	return (0);
 }
 
+static int
+sysctl_pax_aslr_compat_vdso(SYSCTL_HANDLER_ARGS)
+{
+	struct prison *pr;
+	int err, val;
+
+	pr = pax_get_prison_td(req->td);
+
+	val = pr->pr_hardening.hr_pax_aslr_compat_vdso_len;
+	err = sysctl_handle_int(oidp, &val, sizeof(int), req);
+	if (err || !req->newptr)
+		return (err);
+
+	if (val < PAX_ASLR_COMPAT_DELTA_VDSO_MIN_LEN ||
+	    val > PAX_ASLR_COMPAT_DELTA_VDSO_MAX_LEN)
+		return (EINVAL);
+
+	if (pr == &prison0)
+		pax_aslr_compat_vdso_len = val;
+
+	pr->pr_hardening.hr_pax_aslr_compat_vdso_len = val;
+
+	return (0);
+}
+
 #endif /* COMPAT_FREEBSD32 */
 #endif /* PAX_SYSCTLS */
 
@@ -545,6 +646,7 @@ pax_aslr_sysinit(void)
 	printf("[PAX ASLR] mmap: %d bit\n", pax_aslr_mmap_len);
 	printf("[PAX ASLR] exec base: %d bit\n", pax_aslr_exec_len);
 	printf("[PAX ASLR] stack: %d bit\n", pax_aslr_stack_len);
+	printf("[PAX ASLR] vdso: %d bit\n", pax_aslr_vdso_len);
 }
 SYSINIT(pax_aslr, SI_SUB_PAX, SI_ORDER_SECOND, pax_aslr_sysinit, NULL);
 
@@ -585,7 +687,7 @@ pax_aslr_init_vmspace(struct proc *p)
 
 	arc4rand(&rand_buf, sizeof(rand_buf), 0);
 	vm->vm_aslr_delta_stack = PAX_ASLR_DELTA(rand_buf,
-	    PAX_ASLR_DELTA_STACK_LSB,
+	    PAX_ASLR_DELTA_STACK_WITH_GAP_LSB,
 	    pr->pr_hardening.hr_pax_aslr_stack_len);
 	vm->vm_aslr_delta_stack = ALIGN(vm->vm_aslr_delta_stack);
 
@@ -594,12 +696,31 @@ pax_aslr_init_vmspace(struct proc *p)
 	    PAX_ASLR_DELTA_EXEC_LSB,
 	    pr->pr_hardening.hr_pax_aslr_exec_len);
 
+	arc4rand(&rand_buf, sizeof(rand_buf), 0);
+	rand_buf = PAX_ASLR_DELTA(rand_buf,
+	    PAX_ASLR_DELTA_VDSO_LSB,
+	    pr->pr_hardening.hr_pax_aslr_vdso_len);
+	/*
+	 * XXX Stability fix.
+	 *
+	 * Place the vdso between the stacktop and
+	 * vm_max_user-PAGE_SIZE.
+	 */
+	if (rand_buf >= vm->vm_aslr_delta_stack)
+		rand_buf = rand_buf %
+		    ((unsigned long)vm->vm_aslr_delta_stack &
+		    (-1UL << PAX_ASLR_DELTA_STACK_LSB));
+	rand_buf &= (-1UL << PAX_ASLR_DELTA_VDSO_LSB);
+	vm->vm_aslr_delta_vdso = rand_buf;
+
 	CTR2(KTR_PAX, "%s: vm_aslr_delta_mmap=%p\n",
 	    __func__, (void *)vm->vm_aslr_delta_mmap);
 	CTR2(KTR_PAX, "%s: vm_aslr_delta_stack=%p\n",
 	    __func__, (void *)vm->vm_aslr_delta_stack);
 	CTR2(KTR_PAX, "%s: vm_aslr_delta_exec=%p\n",
 	    __func__, (void *)vm->vm_aslr_delta_exec);
+	CTR2(KTR_PAX, "%s: vm_aslr_delta_vdso=%p\n",
+	    __func__, (void *)vm->vm_aslr_delta_vdso);
 }
 
 #ifdef COMPAT_FREEBSD32
@@ -623,6 +744,7 @@ pax_compat_aslr_sysinit(void)
 	printf("[PAX ASLR (compat)] mmap: %d bit\n", pax_aslr_compat_mmap_len);
 	printf("[PAX ASLR (compat)] exec base: %d bit\n", pax_aslr_compat_exec_len);
 	printf("[PAX ASLR (compat)] stack: %d bit\n", pax_aslr_compat_stack_len);
+	printf("[PAX ASLR (compat)] vdso: %d bit\n", pax_aslr_compat_vdso_len);
 }
 SYSINIT(pax_compat_aslr, SI_SUB_PAX, SI_ORDER_SECOND, pax_compat_aslr_sysinit, NULL);
 
@@ -653,12 +775,19 @@ pax_aslr_init_vmspace32(struct proc *p)
 	    PAX_ASLR_COMPAT_DELTA_EXEC_LSB,
 	    pr->pr_hardening.hr_pax_aslr_compat_exec_len);
 
+	arc4rand(&rand_buf, sizeof(rand_buf), 0);
+	vm->vm_aslr_delta_vdso = PAX_ASLR_DELTA(rand_buf,
+	    PAX_ASLR_COMPAT_DELTA_VDSO_LSB,
+	    pr->pr_hardening.hr_pax_aslr_compat_vdso_len);
+
 	CTR2(KTR_PAX, "%s: vm_aslr_delta_mmap=%p\n",
 	    __func__, (void *)vm->vm_aslr_delta_mmap);
 	CTR2(KTR_PAX, "%s: vm_aslr_delta_stack=%p\n",
 	    __func__, (void *)vm->vm_aslr_delta_stack);
 	CTR2(KTR_PAX, "%s: vm_aslr_delta_exec=%p\n",
 	    __func__, (void *)vm->vm_aslr_delta_exec);
+	CTR2(KTR_PAX, "%s: vm_aslr_delta_vdso=%p\n",
+	    __func__, (void *)vm->vm_aslr_delta_vdso);
 }
 #endif
 
@@ -694,6 +823,8 @@ pax_aslr_init_prison(struct prison *pr)
 		    pax_aslr_stack_len;
 		pr->pr_hardening.hr_pax_aslr_exec_len =
 		    pax_aslr_exec_len;
+		pr->pr_hardening.hr_pax_aslr_vdso_len =
+		    pax_aslr_vdso_len;
 	} else {
 		KASSERT(pr->pr_parent != NULL,
 		   ("%s: pr->pr_parent == NULL", __func__));
@@ -707,6 +838,8 @@ pax_aslr_init_prison(struct prison *pr)
 		    pr_p->pr_hardening.hr_pax_aslr_stack_len;
 		pr->pr_hardening.hr_pax_aslr_exec_len =
 		    pr_p->pr_hardening.hr_pax_aslr_exec_len;
+		pr->pr_hardening.hr_pax_aslr_vdso_len =
+		    pr_p->pr_hardening.hr_pax_aslr_vdso_len;
 	}
 }
 
@@ -730,6 +863,8 @@ pax_aslr_init_prison32(struct prison *pr)
 		    pax_aslr_compat_stack_len;
 		pr->pr_hardening.hr_pax_aslr_compat_exec_len =
 		    pax_aslr_compat_exec_len;
+		pr->pr_hardening.hr_pax_aslr_compat_vdso_len =
+		    pax_aslr_compat_vdso_len;
 	} else {
 		KASSERT(pr->pr_parent != NULL,
 		   ("%s: pr->pr_parent == NULL", __func__));
@@ -743,6 +878,8 @@ pax_aslr_init_prison32(struct prison *pr)
 		    pr_p->pr_hardening.hr_pax_aslr_compat_stack_len;
 		pr->pr_hardening.hr_pax_aslr_compat_exec_len =
 		    pr_p->pr_hardening.hr_pax_aslr_compat_exec_len;
+		pr->pr_hardening.hr_pax_aslr_compat_vdso_len =
+		    pr_p->pr_hardening.hr_pax_aslr_compat_vdso_len;
 	}
 }
 #endif /* COMPAT_FREEBSD32 */
@@ -751,33 +888,90 @@ void
 pax_aslr_mmap(struct proc *p, vm_offset_t *addr, vm_offset_t orig_addr, int flags)
 {
 
-	if (!pax_aslr_active(p))
-		return;
-
-	if (!(flags & MAP_FIXED) && ((orig_addr == 0) || !(flags & MAP_ANON))) {
-		CTR4(KTR_PAX, "%s: applying to %p orig_addr=%p flags=%x\n",
-		    __func__, (void *)*addr, (void *)orig_addr, flags);
+	PROC_LOCK_ASSERT(p, MA_OWNED);
 
 #ifdef MAP_32BIT
-		if (flags & MAP_32BIT) {
-			int len_32bit;
-
-#ifdef COMPAT_FREEBSD32
-			len_32bit = pax_aslr_compat_mmap_len;
+	if (((flags & MAP_32BIT) == MAP_32BIT) || !pax_aslr_active(p))
 #else
-			len_32bit = PAX_ASLR_COMPAT_DELTA_MMAP_MIN_LEN;
+	if (!pax_aslr_active(p))
 #endif
-			*addr += PAX_ASLR_DELTA(arc4random(),
-			    PAX_ASLR_COMPAT_DELTA_MMAP_LSB,
-			    len_32bit);
-		 } else
-#endif /* MAP_32BIT */
-			*addr += p->p_vmspace->vm_aslr_delta_mmap;
+		return;
+
+#ifdef MAP_32BIT
+	KASSERT((flags & MAP_32BIT) != MAP_32BIT,
+	    ("%s: we can't handle MAP_32BIT mapping here", __func__));
+#endif
+	KASSERT((flags & MAP_FIXED) != MAP_FIXED,
+	    ("%s: we can't randomize MAP_FIXED mapping", __func__));
+
+	/*
+	 * From original PaX doc:
+	 *
+	 * PaX applies randomization (delta_mmap) to TASK_UNMAPPED_BASE in bits 12-27
+	 * (16 bits) and ignores the hint for file mappings (unfortunately there is
+	 * a 'feature' in linuxthreads where the thread stack mappings do not specify
+	 * MAP_FIXED but still expect that behaviour so the hint cannot be overriden
+	 * for anonymous mappings).
+	 *
+	 * https://github.com/HardenedBSD/pax-docs-mirror/blob/master/randmmap.txt#L30
+	 */
+	if ((orig_addr == 0) || !(flags & MAP_ANON)) {
+		CTR4(KTR_PAX, "%s: applying to %p orig_addr=%p flags=%x\n",
+		    __func__, (void *)*addr, (void *)orig_addr, flags);
+		*addr += p->p_vmspace->vm_aslr_delta_mmap;
 		CTR2(KTR_PAX, "%s: result %p\n", __func__, (void *)*addr);
 	} else
 		CTR4(KTR_PAX, "%s: not applying to %p orig_addr=%p flags=%x\n",
 		    __func__, (void *)*addr, (void *)orig_addr, flags);
 }
+
+#ifdef MAP_32BIT
+void
+pax_aslr_mmap_map_32bit(struct proc *p, vm_offset_t *addr, vm_offset_t orig_addr, int flags)
+{
+	int len_32bit;
+
+	PROC_LOCK_ASSERT(p, MA_OWNED);
+
+	if (((flags & MAP_32BIT) != MAP_32BIT) || !pax_aslr_active(p))
+		return;
+
+	KASSERT((flags & MAP_32BIT) == MAP_32BIT,
+	    ("%s: we can't handle not MAP_32BIT mapping here", __func__));
+	KASSERT((flags & MAP_FIXED) != MAP_FIXED,
+	    ("%s: we can't randomize MAP_FIXED mapping", __func__));
+
+	/*
+	 * From original PaX doc:
+	 *
+	 * PaX applies randomization (delta_mmap) to TASK_UNMAPPED_BASE in bits 12-27
+	 * (16 bits) and ignores the hint for file mappings (unfortunately there is
+	 * a 'feature' in linuxthreads where the thread stack mappings do not specify
+	 * MAP_FIXED but still expect that behaviour so the hint cannot be overriden
+	 * for anonymous mappings).
+	 *
+	 * https://github.com/HardenedBSD/pax-docs-mirror/blob/master/randmmap.txt#L30
+	 */
+	if ((orig_addr == 0) || !(flags & MAP_ANON)) {
+		CTR4(KTR_PAX, "%s: applying to %p orig_addr=%p flags=%x\n",
+				__func__, (void *)*addr, (void *)orig_addr, flags);
+
+#ifdef COMPAT_FREEBSD32
+		len_32bit = pax_aslr_compat_mmap_len;
+#else
+		len_32bit = PAX_ASLR_COMPAT_DELTA_MMAP_MAX_LEN;
+#endif
+		/*
+		 * XXXOP - use proper pregenerated randoms here, rather than generate
+		 * every time new random. Currently in MAP_32bit case is an ASR, and
+		 * not ASLR.
+		 */
+		*addr += PAX_ASLR_DELTA(arc4random(), PAX_ASLR_COMPAT_DELTA_MMAP_LSB,
+		    len_32bit);
+		CTR2(KTR_PAX, "%s: result %p\n", __func__, (void *)*addr);
+	}
+}
+#endif
 
 void
 pax_aslr_rtld(struct proc *p, vm_offset_t *addr)
@@ -793,41 +987,46 @@ pax_aslr_rtld(struct proc *p, vm_offset_t *addr)
 }
 
 void
-pax_aslr_stack(struct proc *p, uintptr_t *addr)
+pax_aslr_stack(struct proc *p, vm_offset_t *addr)
 {
 	uintptr_t orig_addr;
+	uintptr_t random;
 
 	if (!pax_aslr_active(p))
 		return;
 
 	orig_addr = *addr;
-	*addr -= p->p_vmspace->vm_aslr_delta_stack;
+
+	/*
+	 * Apply the random offset to the mapping.
+	 * This should page aligned.
+	 */
+	random = p->p_vmspace->vm_aslr_delta_stack;
+	random &= (-1UL << PAX_ASLR_DELTA_STACK_LSB);
+	*addr -= random;
+
 	CTR3(KTR_PAX, "%s: orig_addr=%p, new_addr=%p\n",
 	    __func__, (void *)orig_addr, (void *)*addr);
 }
 
 void
-pax_aslr_stack_adjust(struct proc *p, u_long *ssiz)
+pax_aslr_stack_with_gap(struct proc *p, vm_offset_t *addr)
 {
-	struct rlimit rlim_stack;
+	uintptr_t orig_addr;
+	uintptr_t random;
 
 	if (!pax_aslr_active(p))
 		return;
 
-	*ssiz += p->p_vmspace->vm_aslr_delta_stack;
-
+	orig_addr = *addr;
 	/*
-	 * This needed because we currently use
-	 * gap based stack randomization.
+	 * Apply the random gap offset withing the page.
 	 */
-	PROC_LOCK(p);
-	lim_rlimit(p, RLIMIT_STACK, &rlim_stack);
-	PROC_UNLOCK(p);
-	if (*ssiz > rlim_stack.rlim_max)
-		rlim_stack.rlim_max = *ssiz;
-	if (*ssiz > rlim_stack.rlim_cur)
-		rlim_stack.rlim_cur = *ssiz;
-	kern_setrlimit(curthread, RLIMIT_STACK, &rlim_stack);
+	random = p->p_vmspace->vm_aslr_delta_stack;
+	*addr -= random;
+
+	CTR3(KTR_PAX, "%s: orig_addr=%p, new_addr=%p\n",
+	    __func__, (void *)orig_addr, (void *)*addr);
 }
 
 void
@@ -838,6 +1037,21 @@ pax_aslr_execbase(struct proc *p, u_long *et_dyn_addrp)
 		return;
 
 	*et_dyn_addrp += p->p_vmspace->vm_aslr_delta_exec;
+}
+
+void
+pax_aslr_vdso(struct proc *p, vm_offset_t *addr)
+{
+	uintptr_t orig_addr;
+
+	if (!pax_aslr_active(p))
+		return;
+
+	orig_addr = *addr;
+	*addr -= p->p_vmspace->vm_aslr_delta_vdso;
+
+	CTR3(KTR_PAX, "%s: orig_addr=%p, new_addr=%p\n",
+	    __func__, (void *)orig_addr, (void *)*addr);
 }
 
 uint32_t

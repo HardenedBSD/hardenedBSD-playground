@@ -32,7 +32,7 @@
 #ifndef	_SYS_PAX_H
 #define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	23
+#define	__HardenedBSD_version	29
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
 struct hardening_features {
@@ -40,10 +40,12 @@ struct hardening_features {
 	int	 hr_pax_aslr_mmap_len;		/* (p) Number of bits randomized with mmap */
 	int	 hr_pax_aslr_stack_len;		/* (p) Number of bits randomized with stack */
 	int	 hr_pax_aslr_exec_len;		/* (p) Number of bits randomized with the execbase */
+	int	 hr_pax_aslr_vdso_len;		/* (p) Number of bits randomized with the VDSO */
 	int	 hr_pax_aslr_compat_status;	/* (p) PaX ASLR enabled (compat32) */
 	int	 hr_pax_aslr_compat_mmap_len;	/* (p) Number of bits randomized with mmap (compat32) */
 	int	 hr_pax_aslr_compat_stack_len;	/* (p) Number of bits randomized with stack (compat32) */
 	int	 hr_pax_aslr_compat_exec_len;	/* (p) Number of bits randomized with the execbase (compat32) */
+	int	 hr_pax_aslr_compat_vdso_len;	/* (p) Number of bits randomized with the VDSO (compat32) */
 	int	 hr_pax_segvguard_status;       /* (p) PaX segvguard enabled */
 	int	 hr_pax_segvguard_expiry;       /* (p) Number of seconds to expire an entry */
 	int	 hr_pax_segvguard_suspension;   /* (p) Number of seconds to suspend an application */
@@ -113,10 +115,13 @@ void pax_aslr_init(struct image_params *imgp);
 void pax_aslr_execbase(struct proc *p, u_long *et_dyn_addrp);
 void pax_aslr_mmap(struct proc *p, vm_offset_t *addr, 
     vm_offset_t orig_addr, int flags);
+void pax_aslr_mmap_map_32bit(struct proc *p, vm_offset_t *addr, 
+    vm_offset_t orig_addr, int flags);
 void pax_aslr_rtld(struct proc *p, vm_offset_t *addr);
 uint32_t pax_aslr_setup_flags(struct image_params *imgp, uint32_t mode);
-void pax_aslr_stack(struct proc *p, uintptr_t *addr);
-void pax_aslr_stack_adjust(struct proc *p, u_long *ssiz);
+void pax_aslr_stack(struct proc *p, vm_offset_t *addr);
+void pax_aslr_stack_with_gap(struct proc *p, vm_offset_t *addr);
+void pax_aslr_vdso(struct proc *p, vm_offset_t *addr);
 
 /*
  * Log related functions

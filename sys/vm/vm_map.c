@@ -302,6 +302,7 @@ vmspace_alloc(vm_offset_t min, vm_offset_t max, pmap_pinit_t pinit)
 	vm->vm_aslr_delta_mmap = 0;
 	vm->vm_aslr_delta_stack = 0;
 	vm->vm_aslr_delta_exec = 0;
+	vm->vm_aslr_delta_vdso = 0;
 #endif
 
 	return (vm);
@@ -3299,6 +3300,7 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 	vm2->vm_aslr_delta_exec = vm1->vm_aslr_delta_exec;
 	vm2->vm_aslr_delta_mmap = vm1->vm_aslr_delta_mmap;
 	vm2->vm_aslr_delta_stack = vm1->vm_aslr_delta_stack;
+	vm2->vm_aslr_delta_vdso = vm1->vm_aslr_delta_vdso;
 #endif
 	vm_map_lock(old_map);
 	if (old_map->busy)
@@ -3686,7 +3688,8 @@ Retry:
 		return (KERN_NO_SPACE);
 	}
 
-	is_procstack = (addr >= (vm_offset_t)vm->vm_maxsaddr) ? 1 : 0;
+	is_procstack = (addr >= (vm_offset_t)vm->vm_maxsaddr &&
+	    addr < (vm_offset_t)p->p_usrstack) ? 1 : 0;
 
 	/*
 	 * If this is the main process stack, see if we're over the stack
