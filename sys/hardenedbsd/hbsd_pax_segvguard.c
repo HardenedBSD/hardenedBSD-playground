@@ -55,6 +55,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/priv.h>
 #include <sys/fnv_hash.h>
 #include <sys/vnode.h>
+#include <sys/types.h>
 
 #include <sys/mman.h>
 #include <sys/libkern.h>
@@ -86,8 +87,7 @@ struct pax_segvguard_entry {
 	char se_mntpoint[MNAMELEN];
 
 	size_t se_ncrashes;
-	sbintime_t se_expiry;
-	sbintime_t se_suspended;
+	struct callout se_callout;
 	LIST_ENTRY(pax_segvguard_entry) se_entry;
 };
 
@@ -430,73 +430,97 @@ pax_segvguard_active(struct proc *proc)
 	return (true);
 }
 
+static void
+pax_segvguard_cleaner(void *args) {
+	struct pax_segvguard_entry *se = args;
+
+	printf("Entry for inode %u on %s expired and removed for user %d.\n",
+	    se->se_inode, se->se_mntpoint, se->se_uid);
+	LIST_REMOVE(se, se_entry);
+	free(se, M_PAX);
+
+}
+
 static struct pax_segvguard_entry *
 pax_segvguard_add(struct thread *td, struct vnode *vn, sbintime_t sbt)
 {
-	struct pax_segvguard_entry *v;
+	struct pax_segvguard_entry *se;
 	struct pax_segvguard_key *key;
 	struct prison *pr;
-	struct stat sb;
+	struct vattr vat;
 	int error;
 
-	error = vn_stat(vn, &sb, td->td_ucred, NOCRED, curthread);
-	if (error != 0) {
+	if(vn_lock(vn, LK_EXCLUSIVE) != 0)
+		return (NULL);
+
+	error = VOP_GETATTR(vn, &vat, td->td_ucred);
+	VOP_UNLOCK(vn, 0);
+	
+	if (error) {
 		pax_log_segvguard(td->td_proc, PAX_LOG_DEFAULT,
-		    "%s:%d stat error. Bailing.", __func__, __LINE__);
+		    "%s:%d VOP_GETATTR error. Bailing.", __func__, __LINE__);
 
 		return (NULL);
 	}
 
 	pr = pax_get_prison_td(td);
 
-	v = malloc(sizeof(struct pax_segvguard_entry), M_PAX, M_NOWAIT);
-	if (v == NULL)
+	se = malloc(sizeof(struct pax_segvguard_entry), M_PAX, M_NOWAIT);
+	if (se == NULL)
 		return (NULL);
 
-	v->se_inode = sb.st_ino;
-	strncpy(v->se_mntpoint, vn->v_mount->mnt_stat.f_mntonname, MNAMELEN);
+	se->se_inode = vat.va_fileid;
+	strncpy(se->se_mntpoint, vn->v_mount->mnt_stat.f_mntonname, MNAMELEN);
 
-	v->se_uid = td->td_ucred->cr_ruid;
-	v->se_ncrashes = 1;
-	v->se_expiry = sbt + pr->pr_hardening.hr_pax_segvguard_expiry * SBT_1S;
-	v->se_suspended = 0;
+	se->se_uid = td->td_ucred->cr_ruid;
+	se->se_ncrashes = 1;
 
-	key = PAX_SEGVGUARD_KEY(v);
+	key = PAX_SEGVGUARD_KEY(se);
+
+	callout_init_mtx(&se->se_callout, &PAX_SEGVGUARD_HASH(*key)->bucket_mtx, 0);
+
 	PAX_SEGVGUARD_LOCK(PAX_SEGVGUARD_HASH(*key));
-	LIST_INSERT_HEAD(PAX_SEGVGUARD_HASH(*key), v, se_entry);
+	LIST_INSERT_HEAD(PAX_SEGVGUARD_HASH(*key), se, se_entry);
 	PAX_SEGVGUARD_UNLOCK(PAX_SEGVGUARD_HASH(*key));
 
-	return (v);
+	callout_reset(&se->se_callout, pr->pr_hardening.hr_pax_segvguard_expiry * hz,
+	    pax_segvguard_cleaner, se);
+
+	return (se);
 }
 
 static struct pax_segvguard_entry *
 pax_segvguard_lookup(struct thread *td, struct vnode *vn)
 {
-	struct pax_segvguard_entry *v;
+	struct pax_segvguard_entry *se;
 	struct pax_segvguard_key sk;
-	struct stat sb;
+	struct vattr vat;
 	int error;
 
-	error = vn_stat(vn, &sb, td->td_ucred, NOCRED, curthread);
-	if (error != 0) {
+	if(vn_lock(vn, LK_EXCLUSIVE) != 0)
+		return (NULL);
+
+	error = VOP_GETATTR(vn, &vat, td->td_ucred);
+	VOP_UNLOCK(vn, 0);
+
+	if (error) {
 		pax_log_segvguard(td->td_proc, PAX_LOG_DEFAULT,
-		    "%s:%d stat error. Bailing.", __func__, __LINE__);
+		    "%s:%d VOP_GETATTR error. Bailing.", __func__, __LINE__);
 
 		return (NULL);
 	}
 
-	sk.se_inode = sb.st_ino;
+	sk.se_inode = vat.va_fileid;
 	strncpy(sk.se_mntpoint, vn->v_mount->mnt_stat.f_mntonname, MNAMELEN);
 	sk.se_uid = td->td_ucred->cr_ruid;
 
 	PAX_SEGVGUARD_LOCK(PAX_SEGVGUARD_HASH(sk));
-	LIST_FOREACH(v, PAX_SEGVGUARD_HASH(sk), se_entry) {
-		if (v->se_inode == sb.st_ino &&
-		    !strncmp(sk.se_mntpoint, v->se_mntpoint, MNAMELEN) &&
-		    td->td_ucred->cr_ruid == v->se_uid) {
-			PAX_SEGVGUARD_UNLOCK(PAX_SEGVGUARD_HASH(sk));
+	LIST_FOREACH(se, PAX_SEGVGUARD_HASH(sk), se_entry) {
+		if (se->se_inode == vat.va_fileid &&
+		    !strncmp(sk.se_mntpoint, se->se_mntpoint, MNAMELEN) &&
+		    td->td_ucred->cr_ruid == se->se_uid) {
 
-			return (v);
+			return (se);
 		}
 	}
 	PAX_SEGVGUARD_UNLOCK(PAX_SEGVGUARD_HASH(sk));
@@ -504,28 +528,12 @@ pax_segvguard_lookup(struct thread *td, struct vnode *vn)
 	return (NULL);
 }
 
-void
-pax_segvguard_remove(struct thread *td, struct vnode *vn)
-{
-	struct pax_segvguard_entry *v;
-	struct pax_segvguard_key *key;
-
-	v = pax_segvguard_lookup(td, vn);
-
-	if (v != NULL) {
-		key = PAX_SEGVGUARD_KEY(v);
-		PAX_SEGVGUARD_LOCK(PAX_SEGVGUARD_HASH(*key));
-		LIST_REMOVE(v, se_entry);
-		PAX_SEGVGUARD_UNLOCK(PAX_SEGVGUARD_HASH(*key));
-		free(v, M_PAX);
-	}
-
-}
 
 int
 pax_segvguard_segfault(struct thread *td, const char *name)
 {
 	struct pax_segvguard_entry *se;
+	struct pax_segvguard_key *key;
 	struct prison *pr;
 	struct vnode *v;
 	sbintime_t sbt;
@@ -549,27 +557,22 @@ pax_segvguard_segfault(struct thread *td, const char *name)
 	if (se == NULL) {
 		pax_segvguard_add(td, v, sbt);
 	} else {
-		if (se->se_expiry < sbt && se->se_suspended <= sbt) {
-			pax_log_segvguard(td->td_proc, PAX_LOG_DEFAULT,
-			    "[%s (%d)] Suspension expired.", name, td->td_proc->p_pid);
-			se->se_ncrashes = 1;
-			se->se_expiry = sbt + pr->pr_hardening.hr_pax_segvguard_expiry * SBT_1S;
-			se->se_suspended = 0;
-
-			return (0);
-		}
-
+		key = PAX_SEGVGUARD_KEY(se);
 		se->se_ncrashes++;
 
 		if (se->se_ncrashes >= pax_segvguard_maxcrashes) {
-			pax_log_segvguard(td->td_proc, PAX_LOG_DEFAULT,
-			    "[%s (%d)] Suspending execution for %d seconds after %zu crashes.",
+			printf("[%s (%d)] Suspending execution for %d seconds after %zu crashes.\n",
 			    name, td->td_proc->p_pid,
 			    pax_segvguard_suspension, se->se_ncrashes);
-			se->se_suspended = sbt + pr->pr_hardening.hr_pax_segvguard_suspension * SBT_1S;
-			se->se_ncrashes = 0;
-			se->se_expiry = 0;
+
+			if(callout_stop(&se->se_callout) != 0) {
+				callout_schedule(&se->se_callout,
+				    pr->pr_hardening.hr_pax_segvguard_suspension * hz);
+
+			}
 		}
+
+		PAX_SEGVGUARD_UNLOCK(PAX_SEGVGUARD_HASH(*key));
 	}
 
 	return (0);
@@ -579,6 +582,7 @@ int
 pax_segvguard_check(struct thread *td, struct vnode *v, const char *name)
 {
 	struct pax_segvguard_entry *se;
+	struct pax_segvguard_key *key;
 	sbintime_t sbt;
 
 	if (v == NULL)
@@ -592,22 +596,16 @@ pax_segvguard_check(struct thread *td, struct vnode *v, const char *name)
 	se = pax_segvguard_lookup(td, v);
 
 	if (se != NULL) {
-		if (se->se_expiry < sbt && se->se_suspended <= sbt) {
-			pax_log_segvguard(td->td_proc, PAX_LOG_DEFAULT,
-			    "[%s (%d)] Suspension expired.",
-			    name, td->td_proc->p_pid);
-			pax_segvguard_remove(td, v);
+		key = PAX_SEGVGUARD_KEY(se);
 
-			return (0);
-		}
-
-		if (se->se_suspended > sbt) {
-			pax_log_segvguard(td->td_proc, PAX_LOG_DEFAULT,
-			    "[%s (%d)] Preventing execution due to repeated segfaults.",
+		if (se->se_ncrashes >= pax_segvguard_maxcrashes) {
+			printf("[%s (%d)] Preventing execution due to repeated segfaults.\n",
 			    name, td->td_proc->p_pid);
+			PAX_SEGVGUARD_UNLOCK(PAX_SEGVGUARD_HASH(*key));
 
 			return (EPERM);
 		}
+		PAX_SEGVGUARD_UNLOCK(PAX_SEGVGUARD_HASH(*key));
 	}
 
 	return (0);
