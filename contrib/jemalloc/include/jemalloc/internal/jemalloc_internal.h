@@ -32,7 +32,7 @@ static const bool config_debug =
 #endif
     ;
 static const bool have_dss =
-#ifdef JEMALLOC_DSS
+#if defined(JEMALLOC_DSS) && !defined(HARDENEDBSD)
     true
 #else
     false
