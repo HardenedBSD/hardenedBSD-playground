@@ -14,8 +14,7 @@ LDFLAGS+=	-nostdlib
 .if ${MACHINE_CPUARCH} == "amd64"
 CFLAGS+=	-fshort-wchar
 CFLAGS+=	-mno-red-zone
-CFLAGS+=	-mno-mmx -mno-sse
-CFLAGS.clang+=	-mno-aes -mno-avx
+CFLAGS+=	-mno-mmx -mno-sse -mno-aes -mno-avx
 .endif
 
 

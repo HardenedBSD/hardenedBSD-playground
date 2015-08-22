@@ -1195,8 +1195,7 @@ parsebackq(char *out, struct nodelist **pbqlist,
 static char *
 readcstyleesc(char *out)
 {
-	int c, vc, i, n;
-	unsigned int v;
+	int c, v, i, n;
 
 	c = pgetc();
 	switch (c) {
@@ -1311,12 +1310,12 @@ readcstyleesc(char *out)
 	default:
 		  synerror("Bad escape sequence");
 	}
-	vc = (char)v;
+	v = (char)v;
 	/*
 	 * We can't handle NUL bytes.
 	 * POSIX says we should skip till the closing quote.
 	 */
-	if (vc == '\0') {
+	if (v == '\0') {
 		while ((c = pgetc()) != '\'') {
 			if (c == '\\')
 				c = pgetc();
@@ -1333,9 +1332,9 @@ readcstyleesc(char *out)
 		pungetc();
 		return out;
 	}
-	if (SQSYNTAX[vc] == CCTL)
+	if (SQSYNTAX[v] == CCTL)
 		USTPUTC(CTLESC, out);
-	USTPUTC(vc, out);
+	USTPUTC(v, out);
 	return out;
 }
 

@@ -93,7 +93,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/sdt.h>
 #include <sys/signalvar.h>
 #include <sys/smp.h>
-#include <sys/time.h>
 #include <sys/vnode.h>
 #include <sys/vmmeter.h>
 #include <sys/rwlock.h>
@@ -172,7 +171,7 @@ static int vm_pageout_update_period;
 static int defer_swap_pageouts;
 static int disable_swap_pageouts;
 static int lowmem_period = 10;
-static time_t lowmem_uptime;
+static int lowmem_ticks;
 
 #if defined(NO_SWAPPING)
 static int vm_swap_enabled = 0;
@@ -1035,7 +1034,7 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 	 * some.  We rate limit to avoid thrashing.
 	 */
 	if (vmd == &vm_dom[0] && pass > 0 &&
-	    (time_uptime - lowmem_uptime) >= lowmem_period) {
+	    (ticks - lowmem_ticks) / hz >= lowmem_period) {
 		/*
 		 * Decrease registered cache sizes.
 		 */
@@ -1046,7 +1045,7 @@ vm_pageout_scan(struct vm_domain *vmd, int pass)
 		 * drained above.
 		 */
 		uma_reclaim();
-		lowmem_uptime = time_uptime;
+		lowmem_ticks = ticks;
 	}
 
 	/*

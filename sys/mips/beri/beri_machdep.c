@@ -251,7 +251,10 @@ platform_start(__register_t a0, __register_t a1,  __register_t a2,
 	 * Find the dtb passed in by the boot loader (currently fictional).
 	 */
 	kmdp = preload_search_by_type("elf kernel");
-	dtbp = MD_FETCH(kmdp, MODINFOMD_DTBP, vm_offset_t);
+	if (kmdp != NULL)
+		dtbp = MD_FETCH(kmdp, MODINFOMD_DTBP, vm_offset_t);
+	else
+		dtbp = (vm_offset_t)NULL;
 
 #if defined(FDT_DTB_STATIC)
 	/*

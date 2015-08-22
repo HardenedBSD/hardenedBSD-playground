@@ -690,8 +690,11 @@ ram_attach(device_t dev)
 	kmdp = preload_search_by_type("elf kernel");
 	if (kmdp == NULL)
 		kmdp = preload_search_by_type(ELF_KERN_STR);  
-	smapbase = (struct bios_smap *)preload_search_info(kmdp,
-	    MODINFO_METADATA | MODINFOMD_SMAP);
+	if (kmdp != NULL)
+		smapbase = (struct bios_smap *)preload_search_info(kmdp,
+		    MODINFO_METADATA | MODINFOMD_SMAP);
+	else
+		smapbase = NULL;
 	if (smapbase != NULL) {
 		smapsize = *((u_int32_t *)smapbase - 1);
 		smapend = (struct bios_smap *)((uintptr_t)smapbase + smapsize);
