@@ -431,14 +431,14 @@ pax_segvguard_active(struct proc *proc)
 }
 
 static void
-pax_segvguard_cleaner(void *args) {
+pax_segvguard_cleaner(void *args)
+{
 	struct pax_segvguard_entry *se = args;
 
 	printf("Entry for inode %u on %s expired and removed for user %d.\n",
 	    se->se_inode, se->se_mntpoint, se->se_uid);
 	LIST_REMOVE(se, se_entry);
 	free(se, M_PAX);
-
 }
 
 static struct pax_segvguard_entry *
@@ -450,11 +450,14 @@ pax_segvguard_add(struct thread *td, struct vnode *vn, sbintime_t sbt)
 	struct vattr vat;
 	int error;
 
-	if(vn_lock(vn, LK_EXCLUSIVE) != 0)
-		return (NULL);
-
-	error = VOP_GETATTR(vn, &vat, td->td_ucred);
-	VOP_UNLOCK(vn, 0);
+	if (VOP_ISLOCKED(vn) != LK_EXCLUSIVE) {
+		if (vn_lock(vn, LK_SHARED | LK_RETRY) != 0)
+			return (NULL);
+		error = VOP_GETATTR(vn, &vat, td->td_ucred);
+		VOP_UNLOCK(vn, 0);
+	} else {
+		error = VOP_GETATTR(vn, &vat, td->td_ucred);
+	}
 	
 	if (error) {
 		pax_log_segvguard(td->td_proc, PAX_LOG_DEFAULT,
@@ -497,11 +500,14 @@ pax_segvguard_lookup(struct thread *td, struct vnode *vn)
 	struct vattr vat;
 	int error;
 
-	if(vn_lock(vn, LK_EXCLUSIVE) != 0)
-		return (NULL);
-
-	error = VOP_GETATTR(vn, &vat, td->td_ucred);
-	VOP_UNLOCK(vn, 0);
+	if (VOP_ISLOCKED(vn) != LK_EXCLUSIVE) {
+		if (vn_lock(vn, LK_SHARED | LK_RETRY) != 0)
+			return (NULL);
+		error = VOP_GETATTR(vn, &vat, td->td_ucred);
+		VOP_UNLOCK(vn, 0);
+	} else {
+		error = VOP_GETATTR(vn, &vat, td->td_ucred);
+	}
 
 	if (error) {
 		pax_log_segvguard(td->td_proc, PAX_LOG_DEFAULT,
@@ -565,11 +571,9 @@ pax_segvguard_segfault(struct thread *td, const char *name)
 			    name, td->td_proc->p_pid,
 			    pax_segvguard_suspension, se->se_ncrashes);
 
-			if(callout_stop(&se->se_callout) != 0) {
-				callout_schedule(&se->se_callout,
-				    pr->pr_hardening.hr_pax_segvguard_suspension * hz);
-
-			}
+			callout_reset(&se->se_callout,
+			    pr->pr_hardening.hr_pax_segvguard_suspension * hz,
+			    pax_segvguard_cleaner, se);
 		}
 
 		PAX_SEGVGUARD_UNLOCK(PAX_SEGVGUARD_HASH(*key));
