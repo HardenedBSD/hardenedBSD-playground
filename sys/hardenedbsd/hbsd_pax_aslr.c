@@ -793,21 +793,12 @@ try_again:
 	 *
 	 * In future this will change, to place them between the 
 	 * stack and heap.
-<<<<<<< HEAD
 	 */
 
 	/* 
 	 * This check required to handle the case 
 	 * when PAGE_ALIGN(vm->vm_aslr_delta_stack) == 0.
 	 */
-=======
-	 */
-
-	/* 
-	 * This check required to handle the case 
-	 * when PAGE_ALIGN(vm->vm_aslr_delta_stack) == 0.
-	 */
->>>>>>> hardened/current/master
 	if ((vm->vm_aslr_delta_stack & (-1UL << PAX_ASLR_DELTA_VDSO_LSB)) != 0) {
 		if (rand_buf > vm->vm_aslr_delta_stack) {
 			rand_buf = rand_buf %
