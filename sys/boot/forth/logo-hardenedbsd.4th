@@ -1,3 +1,4 @@
+\ Copyright (c) 2006-2015 Devin Teske <dteske@FreeBSD.org>
 \ Copyright (c) 2015 Oliver Pinter <op@HardenedBSD.org>
 \ All rights reserved.
 \ 
@@ -42,7 +43,7 @@
 	s" 7jx0/j28DcHs1oTUiFxDezXj0+bYBAjk" logo+
 	s" M/WeI4vOFPUZQcUiqAhCItlLY/1/YsdU" logo+
 	s" bYCu3JOWsOA/Ctw0oVmHA+jY6Z8RJnsT" logo+
-	s" NTm3YVdJVYQ+O@[36mHardened@[34mBSD@[m2ltoSwVD" logo+
+	s" NTm3YVdJVYQ+O2ltoSw@[36mHardened@[34mBSD@[mVD" logo+
 	s" vji9p89gQvsPgS9hh9ekUCw/0TnSeQ1W" logo+
 	s" NHcmBLfiNO7mU9D4rCxiSQfifcIZzC78" logo+
 	s" mTTg+jGB8NJcpmZ6eMQ9iYmAVsOTZlq+" logo+
