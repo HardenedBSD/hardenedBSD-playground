@@ -86,7 +86,7 @@ main(int argc, const char **argv)
 
 	init_dialog(stdin, stdout);
 	if (!sade_mode)
-		dialog_vars.backtitle = __DECONST(char *, "FreeBSD Installer");
+		dialog_vars.backtitle = __DECONST(char *, "HardenedBSD Installer");
 	dialog_vars.item_help = TRUE;
 	nscroll = i = 0;
 
