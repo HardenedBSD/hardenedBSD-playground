@@ -338,7 +338,7 @@ finalconfig() {
 	exec 3>&1
 	REVISIT=$(dialog --backtitle "HardenedBSD Installer" \
 	    --title "Final Configuration" --no-cancel --menu \
-	    "Setup of your FreeBSD system is nearly complete. You can now modify your configuration choices. After this screen, you will have an opportunity to make more complex changes using a shell." 0 0 0 \
+	    "Setup of your HardenedBSD system is nearly complete. You can now modify your configuration choices. After this screen, you will have an opportunity to make more complex changes using a shell." 0 0 0 \
 		"Exit" "Apply configuration and exit installer" \
 		"Add User" "Add a user to the system" \
 		"Root Password" "Change root password" \
@@ -346,7 +346,7 @@ finalconfig() {
 		"Network" "Networking configuration" \
 		"Services" "Set daemons to run on startup" \
 		"Time Zone" "Set system timezone" \
-		"Handbook" "Install FreeBSD Handbook (requires network)" 2>&1 1>&3)
+		"Handbook" "Install HardenedBSD (FreeBSD) Handbook (requires network)" 2>&1 1>&3)
 	exec 3>&-
 
 	case "$REVISIT" in
