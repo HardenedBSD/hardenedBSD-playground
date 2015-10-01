@@ -38,6 +38,8 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20151001: autoconf hacks...
+OLD_FILES+=usr/share/mk/bsd.hardenedbsd.mk
 # 20150928: unused sgsmsg utility is removed
 OLD_FILES+=usr/bin/sgsmsg
 # 20150926: remove links to removed/unimplemented mbuf(9) macros

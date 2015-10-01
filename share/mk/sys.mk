@@ -413,5 +413,3 @@ __MAKE_SHELL?=/bin/sh
 .include <bsd.cpu.mk>
 
 .endif # ! Posix
-
-.include <bsd.hardenedbsd.mk>
