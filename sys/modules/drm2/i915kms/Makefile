@@ -3,9 +3,16 @@
 .PATH:	${.CURDIR}/../../../dev/drm2/i915
 KMOD	= i915kms
 SRCS	= \
-	i915_debug.c \
-	i915_dma.c \
+	dvo_ch7017.c \
+	dvo_ch7xxx.c \
+	dvo_ivch.c \
+	dvo_ns2501.c \
+	dvo_sil164.c \
+	dvo_tfp410.c \
 	i915_drv.c \
+	i915_dma.c \
+	i915_irq.c \
+	i915_debug.c \
 	i915_gem.c \
 	i915_gem_context.c \
 	i915_gem_execbuffer.c \
@@ -13,13 +20,14 @@ SRCS	= \
 	i915_gem_gtt.c \
 	i915_gem_stolen.c \
 	i915_gem_tiling.c \
-	i915_irq.c \
 	i915_suspend.c \
+	intel_acpi.c \
 	intel_bios.c \
 	intel_crt.c \
 	intel_ddi.c \
 	intel_display.c \
 	intel_dp.c \
+	intel_dvo.c \
 	intel_fb.c \
 	intel_hdmi.c \
 	intel_iic.c \
