@@ -1026,14 +1026,12 @@ int
 i915_gem_check_wedge(struct drm_i915_private *dev_priv,
 		     bool interruptible)
 {
-	DRM_LOCK_ASSERT(dev_priv->dev);
-
 	if (atomic_read(&dev_priv->mm.wedged)) {
 		bool recovery_complete;
 
 		/* Give the error handler a chance to run. */
 		mtx_lock(&dev_priv->error_completion_lock);
-		recovery_complete = (&dev_priv->error_completion) > 0;
+		recovery_complete = dev_priv->error_completion > 0;
 		mtx_unlock(&dev_priv->error_completion_lock);
 
 		/* Non-interruptible callers can't handle -EAGAIN, hence return
@@ -1114,19 +1112,19 @@ static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
 	flags = interruptible ? PCATCH : 0;
 	mtx_lock(&dev_priv->irq_lock);
 	do {
-		while (!EXIT_COND) {
-			end = -msleep_sbt(ring, &dev_priv->irq_lock, flags,
+		if (!EXIT_COND) {
+			end = -msleep_sbt(&ring->irq_queue, &dev_priv->irq_lock, flags,
 			    "915gwr", timeout_sbt, 0, 0);
 			if (end == -EINTR || end == -ERESTART)
 				end = -ERESTARTSYS;
-			if (end == -EWOULDBLOCK)
+			else if (end == -EWOULDBLOCK)
 				end = -ETIMEDOUT;
 		}
 
 		ret = i915_gem_check_wedge(dev_priv, interruptible);
 		if (ret)
 			end = ret;
-	} while (end == -EWOULDBLOCK && wait_forever);
+	} while (end == -ETIMEDOUT && wait_forever);
 	mtx_unlock(&dev_priv->irq_lock);
 
 	getrawmonotonic(&now);
@@ -4465,7 +4463,7 @@ i915_gem_load(struct drm_device *dev)
 		INIT_LIST_HEAD(&dev_priv->fence_regs[i].lru_list);
 	TIMEOUT_TASK_INIT(dev_priv->wq, &dev_priv->mm.retire_work, 0,
 	    i915_gem_retire_work_handler, dev_priv);
-	dev_priv->error_completion = 0;
+	init_completion(dev_priv->error_completion);
 
 	/* On GEN3 we really need to make sure the ARB C3 LP bit is set */
 	if (IS_GEN3(dev)) {

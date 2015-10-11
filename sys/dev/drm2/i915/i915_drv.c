@@ -771,7 +771,7 @@ static int gen6_do_reset(struct drm_device *dev)
 	/* Hold gt_lock across reset to prevent any register access
 	 * with forcewake not set correctly
 	 */
-	sx_xlock(&dev_priv->gt_lock);
+	mtx_lock(&dev_priv->gt_lock);
 
 	/* Reset the chip */
 
@@ -782,7 +782,15 @@ static int gen6_do_reset(struct drm_device *dev)
 	I915_WRITE_NOTRACE(GEN6_GDRST, GEN6_GRDOM_FULL);
 
 	/* Spin waiting for the device to ack the reset request */
-	ret = wait_for((I915_READ_NOTRACE(GEN6_GDRST) & GEN6_GRDOM_FULL) == 0, 500);
+	/*
+	 * NOTE Linux<->FreeBSD: We use _intel_wait_for() instead of
+	 * wait_for(), because we want to set the 4th argument to 0.
+	 * This allows us to use a struct mtx for dev_priv->gt_lock and
+	 * avoid a LOR.
+	 */
+	ret = _intel_wait_for(dev,
+	    (I915_READ_NOTRACE(GEN6_GDRST) & GEN6_GRDOM_FULL) == 0,
+	    500, 0, "915rst");
 
 	/* If reset with a user forcewake, try to restore, otherwise turn it off */
 	if (dev_priv->forcewake_count)
@@ -793,7 +801,7 @@ static int gen6_do_reset(struct drm_device *dev)
 	/* Restore fifo count */
 	dev_priv->gt_fifo_count = I915_READ_NOTRACE(GT_FIFO_FREE_ENTRIES);
 
-	sx_xunlock(&dev_priv->gt_lock);
+	mtx_unlock(&dev_priv->gt_lock);
 	return ret;
 }
 
@@ -1352,13 +1360,13 @@ u##x i915_read##x(struct drm_i915_private *dev_priv, u32 reg) { \
 	if (IS_GEN5(dev_priv->dev)) \
 		ilk_dummy_write(dev_priv); \
 	if (NEEDS_FORCE_WAKE((dev_priv), (reg))) { \
-		sx_xlock(&dev_priv->gt_lock); \
+		mtx_lock(&dev_priv->gt_lock); \
 		if (dev_priv->forcewake_count == 0) \
 			dev_priv->gt.force_wake_get(dev_priv); \
 		val = DRM_READ##x(dev_priv->mmio_map, reg); \
 		if (dev_priv->forcewake_count == 0) \
 			dev_priv->gt.force_wake_put(dev_priv); \
-		sx_xunlock(&dev_priv->gt_lock); \
+		mtx_unlock(&dev_priv->gt_lock); \
 	} else if (IS_VALLEYVIEW(dev_priv->dev) && IS_DISPLAYREG(reg)) { \
 		val = DRM_READ##x(dev_priv->mmio_map, reg + 0x180000);		\
 	} else { \
