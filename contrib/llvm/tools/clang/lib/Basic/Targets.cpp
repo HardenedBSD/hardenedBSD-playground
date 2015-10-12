@@ -264,8 +264,6 @@ protected:
     if (Release == 0U)
       Release = 8;
 
-    Builder.defineMacro("__HardenedBSD__", Twine(Release));
-    Builder.defineMacro("HARDENEDBSD");
     Builder.defineMacro("__FreeBSD__", Twine(Release));
     Builder.defineMacro("__FreeBSD_cc_version", Twine(Release * 100000U + 1U));
     Builder.defineMacro("__KPRINTF_ATTRIBUTE__");
