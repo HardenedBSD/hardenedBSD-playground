@@ -27,7 +27,7 @@
  *	Chris Wilson <chris@chris-wilson.co.uk>
  */
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD");
+__FBSDID("$FreeBSD$");
 
 #include <dev/drm2/drmP.h>
 #include <dev/drm2/i915/intel_drv.h>
@@ -409,7 +409,6 @@ gmbus_xfer(device_t adapter,
 		ret = -ETIMEDOUT;
 	}
 	I915_WRITE(GMBUS0 + reg_offset, 0);
-	ret = ret ?: i;
 	goto out;
 
 clear_err:
