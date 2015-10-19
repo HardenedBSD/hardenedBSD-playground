@@ -27,4 +27,3 @@
 # $FreeBSD$
 
 dd if=/dev/random of=$BSDINSTALL_CHROOT/entropy bs=4096 count=1
-dd if=/dev/random of=$BSDINSTALL_CHROOT/boot/entropy bs=4096 count=1
