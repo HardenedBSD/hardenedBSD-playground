@@ -1,6 +1,6 @@
 /* i915_irq.c -- IRQ support for the I915 -*- linux-c -*-
  */
-/*
+/*-
  * Copyright 2003 Tungsten Graphics, Inc., Cedar Park, Texas.
  * All Rights Reserved.
  *
@@ -731,6 +731,9 @@ static void ivybridge_irq_handler(DRM_IRQ_ARGS)
 
 	I915_WRITE(DEIER, de_ier);
 	POSTING_READ(DEIER);
+
+	CTR3(KTR_DRM, "ivybridge_irq de %x gt %x pm %x", de_iir,
+	    gt_iir, pm_iir);
 }
 
 static void ilk_gt_irq_handler(struct drm_device *dev,
@@ -760,6 +763,9 @@ static void ironlake_irq_handler(DRM_IRQ_ARGS)
 	gt_iir = I915_READ(GTIIR);
 	pch_iir = I915_READ(SDEIIR);
 	pm_iir = I915_READ(GEN6_PMIIR);
+
+	CTR4(KTR_DRM, "ironlake_irq de %x gt %x pch %x pm %x", de_iir,
+	    gt_iir, pch_iir, pm_iir);
 
 	if (de_iir == 0 && gt_iir == 0 && pch_iir == 0 &&
 	    (!IS_GEN6(dev) || pm_iir == 0))
@@ -1224,8 +1230,8 @@ static void i915_capture_error_state(struct drm_device *dev)
 		return;
 	}
 
-	DRM_INFO("capturing error event; look for more information in /debug/dri/%d/i915_error_state\n",
-		 dev->primary->index);
+	DRM_INFO("capturing error event; look for more information in sysctl hw.dri.%d.info.i915_error_state\n",
+		 dev->sysctl_node_idx);
 
 	refcount_init(&error->ref, 1);
 	error->eir = I915_READ(EIR);
@@ -1527,6 +1533,7 @@ static int i915_enable_vblank(struct drm_device *dev, int pipe)
 	if (dev_priv->info->gen == 3)
 		I915_WRITE(INSTPM, _MASKED_BIT_DISABLE(INSTPM_AGPBUSY_DIS));
 	mtx_unlock(&dev_priv->irq_lock);
+	CTR1(KTR_DRM, "i915_enable_vblank %d", pipe);
 
 	return 0;
 }
@@ -1542,6 +1549,7 @@ static int ironlake_enable_vblank(struct drm_device *dev, int pipe)
 	ironlake_enable_display_irq(dev_priv, (pipe == 0) ?
 				    DE_PIPEA_VBLANK : DE_PIPEB_VBLANK);
 	mtx_unlock(&dev_priv->irq_lock);
+	CTR1(KTR_DRM, "ironlake_enable_vblank %d", pipe);
 
 	return 0;
 }
@@ -1557,6 +1565,7 @@ static int ivybridge_enable_vblank(struct drm_device *dev, int pipe)
 	ironlake_enable_display_irq(dev_priv,
 				    DE_PIPEA_VBLANK_IVB << (5 * pipe));
 	mtx_unlock(&dev_priv->irq_lock);
+	CTR1(KTR_DRM, "ivybridge_enable_vblank %d", pipe);
 
 	return 0;
 }
@@ -1598,6 +1607,7 @@ static void i915_disable_vblank(struct drm_device *dev, int pipe)
 			      PIPE_VBLANK_INTERRUPT_ENABLE |
 			      PIPE_START_VBLANK_INTERRUPT_ENABLE);
 	mtx_unlock(&dev_priv->irq_lock);
+	CTR1(KTR_DRM, "i915_disable_vblank %d", pipe);
 }
 
 static void ironlake_disable_vblank(struct drm_device *dev, int pipe)
@@ -1608,6 +1618,7 @@ static void ironlake_disable_vblank(struct drm_device *dev, int pipe)
 	ironlake_disable_display_irq(dev_priv, (pipe == 0) ?
 				     DE_PIPEA_VBLANK : DE_PIPEB_VBLANK);
 	mtx_unlock(&dev_priv->irq_lock);
+	CTR1(KTR_DRM, "ironlake_disable_vblank %d", pipe);
 }
 
 static void ivybridge_disable_vblank(struct drm_device *dev, int pipe)
@@ -1618,6 +1629,7 @@ static void ivybridge_disable_vblank(struct drm_device *dev, int pipe)
 	ironlake_disable_display_irq(dev_priv,
 				     DE_PIPEA_VBLANK_IVB << (pipe * 5));
 	mtx_unlock(&dev_priv->irq_lock);
+	CTR1(KTR_DRM, "ivybridge_disable_vblank %d", pipe);
 }
 
 static void valleyview_disable_vblank(struct drm_device *dev, int pipe)
@@ -1635,6 +1647,7 @@ static void valleyview_disable_vblank(struct drm_device *dev, int pipe)
 		imr |= I915_DISPLAY_PIPE_B_VBLANK_INTERRUPT;
 	I915_WRITE(VLV_IMR, imr);
 	mtx_unlock(&dev_priv->irq_lock);
+	CTR2(KTR_DRM, "%s %d", __func__, pipe);
 }
 
 static u32
@@ -1650,15 +1663,15 @@ static bool i915_hangcheck_ring_idle(struct intel_ring_buffer *ring, bool *err)
 	    i915_seqno_passed(ring->get_seqno(ring, false),
 			      ring_last_seqno(ring))) {
 		/* Issue a wake-up to catch stuck h/w. */
-		sleepq_lock(ring);
-		if (sleepq_sleepcnt(ring, 0) != 0) {
-			sleepq_release(ring);
+		sleepq_lock(&ring->irq_queue);
+		if (sleepq_sleepcnt(&ring->irq_queue, 0) != 0) {
+			sleepq_release(&ring->irq_queue);
 			DRM_ERROR("Hangcheck timer elapsed... %s idle\n",
 				  ring->name);
 			wake_up_all(&ring->irq_queue);
 			*err = true;
 		} else
-			sleepq_release(ring);
+			sleepq_release(&ring->irq_queue);
 		return true;
 	}
 	return false;
@@ -1759,7 +1772,7 @@ void i915_hangcheck_elapsed(void *data)
 
 repeat:
 	/* Reset timer case chip hangs without another request being added */
-        callout_schedule(&dev_priv->hangcheck_timer, DRM_I915_HANGCHECK_PERIOD);
+	callout_schedule(&dev_priv->hangcheck_timer, DRM_I915_HANGCHECK_PERIOD);
 }
 
 /* drm_dma.h hooks
