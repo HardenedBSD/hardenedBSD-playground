@@ -611,9 +611,8 @@ static int __i915_drm_thaw(struct drm_device *dev)
 		intel_fbdev_set_suspend(dev, 0);
 		console_unlock();
 	} else {
-#ifdef __linux__
-		schedule_work(&dev_priv->console_resume_work);
-#endif
+		taskqueue_enqueue(dev_priv->wq,
+		    &dev_priv->console_resume_work);
 	}
 
 	return error;
@@ -863,11 +862,6 @@ int i915_reset(struct drm_device *dev)
 	if (!i915_try_reset)
 		return 0;
 
-#ifdef FREEBSD_WIP
-	/* Previous code in FreeBSD's i915: */
-	if (!sx_try_xlock(&dev->dev_struct_lock))
-		return (-EBUSY);
-#endif /* FREEBSD_WIP */
 	DRM_LOCK(dev);
 
 	i915_gem_reset(dev);

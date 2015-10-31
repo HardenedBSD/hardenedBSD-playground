@@ -52,7 +52,7 @@ eb_create(int size)
 		count >>= 1;
 	eb = malloc(count*sizeof(struct hlist_head) +
 		     sizeof(struct eb_objects),
-		     DRM_I915_GEM, M_NOWAIT | M_ZERO);
+		     DRM_I915_GEM, M_WAITOK | M_ZERO);
 	if (eb == NULL)
 		return eb;
 
@@ -737,6 +737,10 @@ validate_exec_list(struct drm_i915_gem_exec_object2 *exec,
 
 		length = exec[i].relocation_count *
 			sizeof(struct drm_i915_gem_relocation_entry);
+		if (length == 0) {
+			(*map)[i] = NULL;
+			continue;
+		}
 
 		/*
 		 * Since both start and end of the relocation region
@@ -963,7 +967,7 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 		}
 
 		cliprects = malloc(args->num_cliprects * sizeof(*cliprects),
-				    DRM_I915_GEM, M_NOWAIT);
+				    DRM_I915_GEM, M_WAITOK);
 		if (cliprects == NULL) {
 			ret = -ENOMEM;
 			goto pre_mutex_err;
@@ -1167,6 +1171,7 @@ i915_gem_execbuffer(struct drm_device *dev, void *data,
 	}
 
 	/* Copy in the exec list from userland */
+	/* XXXKIB user-controlled malloc size */
 	exec_list = drm_malloc_ab(sizeof(*exec_list), args->buffer_count);
 	exec2_list = drm_malloc_ab(sizeof(*exec2_list), args->buffer_count);
 	if (exec_list == NULL || exec2_list == NULL) {
@@ -1246,11 +1251,9 @@ i915_gem_execbuffer2(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
+	/* XXXKIB user-controllable malloc size */
 	exec2_list = malloc(sizeof(*exec2_list)*args->buffer_count,
-			     DRM_I915_GEM, M_NOWAIT);
-	if (exec2_list == NULL)
-		exec2_list = drm_malloc_ab(sizeof(*exec2_list),
-					   args->buffer_count);
+			     DRM_I915_GEM, M_WAITOK);
 	if (exec2_list == NULL) {
 		DRM_DEBUG("Failed to allocate exec list for %d buffers\n",
 			  args->buffer_count);
@@ -1263,7 +1266,7 @@ i915_gem_execbuffer2(struct drm_device *dev, void *data,
 	if (ret != 0) {
 		DRM_DEBUG("copy %d exec entries failed %d\n",
 			  args->buffer_count, ret);
-		drm_free_large(exec2_list);
+		free(exec2_list, DRM_I915_GEM);
 		return -EFAULT;
 	}
 
@@ -1281,6 +1284,6 @@ i915_gem_execbuffer2(struct drm_device *dev, void *data,
 		}
 	}
 
-	drm_free_large(exec2_list);
+	free(exec2_list, DRM_I915_GEM);
 	return ret;
 }
