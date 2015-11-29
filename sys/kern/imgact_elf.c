@@ -280,8 +280,11 @@ __elfN(get_brandinfo)(struct image_params *imgp, const char *interp,
 		if (hdr->e_machine == bi->machine &&
 		    (hdr->e_ident[EI_OSABI] == bi->brand ||
 		    strncmp((const char *)&hdr->e_ident[OLD_EI_BRAND],
-		    bi->compat_3_brand, strlen(bi->compat_3_brand)) == 0))
-			return (bi);
+		    bi->compat_3_brand, strlen(bi->compat_3_brand)) == 0)) {
+			/* Looks good, but give brand a chance to veto */
+			if (!bi->header_supported || bi->header_supported(imgp))
+				return (bi);
+		}
 	}
 
 	/* No known brand, see if the header is recognized by any brand */
@@ -1074,8 +1077,7 @@ __elfN(freebsd_fixup)(register_t **stack_base, struct image_params *imgp)
 	}
 	if (imgp->sysent->sv_timekeep_base != 0) {
 		AUXARGS_ENTRY(pos, AT_TIMEKEEP,
-		    imgp->proc->p_shared_page_base +
-		    imgp->sysent->sv_timekeep_off);
+		    imgp->proc->p_timekeep_base);
 	}
 	AUXARGS_ENTRY(pos, AT_STACKPROT, imgp->sysent->sv_shared_page_obj
 	    != NULL && imgp->stack_prot != 0 ? imgp->stack_prot :

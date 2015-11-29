@@ -171,7 +171,6 @@ typedef struct {
 	uint32_t 				: 8,
 			update			: 1,
 			sendmarker		: 1,
-			role			: 2,
 			isp_req_ack_active_neg	: 1,
 			isp_data_line_active_neg: 1,
 			isp_cmd_dma_burst_enable: 1,
@@ -282,6 +281,7 @@ typedef struct {
 #define	FABRIC_PORT_ID		0xFFFFFE
 #define	PORT_ANY		0xFFFFFF
 #define	PORT_NONE		0
+#define	VALID_PORT(port)	(port != PORT_NONE && port != PORT_ANY)
 #define	DOMAIN_CONTROLLER_BASE	0xFFFC00
 #define	DOMAIN_CONTROLLER_END	0xFFFCFF
 
@@ -399,8 +399,9 @@ typedef struct {
 	 */
 	uint16_t	prli_word3;		/* PRLI parameters */
 	uint16_t	new_prli_word3;		/* Incoming new PRLI parameters */
-	uint16_t			: 12,
+	uint16_t			: 11,
 			autologin	: 1,	/* F/W does PLOGI/PLOGO */
+			probational	: 1,
 			state		: 3;
 	uint32_t			: 6,
 			is_target	: 1,
@@ -414,14 +415,12 @@ typedef struct {
 	uint32_t	gone_timer;
 } fcportdb_t;
 
-#define	FC_PORTDB_STATE_NIL		0
-#define	FC_PORTDB_STATE_PROBATIONAL	1
-#define	FC_PORTDB_STATE_DEAD		2
-#define	FC_PORTDB_STATE_CHANGED		3
-#define	FC_PORTDB_STATE_NEW		4
-#define	FC_PORTDB_STATE_PENDING_VALID	5
-#define	FC_PORTDB_STATE_ZOMBIE		6
-#define	FC_PORTDB_STATE_VALID		7
+#define	FC_PORTDB_STATE_NIL		0	/* Empty DB slot */
+#define	FC_PORTDB_STATE_DEAD		1	/* Was valid, but no more. */
+#define	FC_PORTDB_STATE_CHANGED		2	/* Was valid, but changed. */
+#define	FC_PORTDB_STATE_NEW		3	/* Logged in, not announced. */
+#define	FC_PORTDB_STATE_ZOMBIE		4	/* Invalid, but announced. */
+#define	FC_PORTDB_STATE_VALID		5	/* Valid */
 
 #define	FC_PORTDB_TGT(isp, bus, pdb)		(int)(lp - FCPARAM(isp, bus)->portdb)
 
@@ -439,10 +438,9 @@ typedef struct {
 	int			isp_loopstate;		/* Loop State */
 	int			isp_topo;		/* Connection Type */
 
-	uint32_t				: 3,
+	uint32_t				: 4,
 				fctape_enabled	: 1,
 				sendmarker	: 1,
-				loop_seen_once	: 1,
 				role		: 2,
 				isp_portid	: 24;	/* S_ID */
 
@@ -491,20 +489,23 @@ typedef struct {
 #define	FW_NON_PART		7
 
 #define	LOOP_NIL		0
-#define	LOOP_TESTING_LINK	1
-#define	LOOP_LTEST_DONE		2
-#define	LOOP_SCANNING_LOOP	3
-#define	LOOP_LSCAN_DONE		4
-#define	LOOP_SCANNING_FABRIC	5
-#define	LOOP_FSCAN_DONE		6
-#define	LOOP_SYNCING_PDB	7
-#define	LOOP_READY		8
+#define	LOOP_HAVE_LINK		1
+#define	LOOP_TESTING_LINK	2
+#define	LOOP_LTEST_DONE		3
+#define	LOOP_SCANNING_LOOP	4
+#define	LOOP_LSCAN_DONE		5
+#define	LOOP_SCANNING_FABRIC	6
+#define	LOOP_FSCAN_DONE		7
+#define	LOOP_SYNCING_PDB	8
+#define	LOOP_READY		9
 
 #define	TOPO_NL_PORT		0
 #define	TOPO_FL_PORT		1
 #define	TOPO_N_PORT		2
 #define	TOPO_F_PORT		3
 #define	TOPO_PTP_STUB		4
+
+#define TOPO_IS_FABRIC(x)	((x) == TOPO_FL_PORT || (x) == TOPO_F_PORT)
 
 /*
  * Soft Structure per host adapter
@@ -1068,8 +1069,7 @@ void isp_prt_endcmd(ispsoftc_t *, XS_T *);
  *	DEFAULT_FRAMESIZE(ispsoftc_t *)		Default Frame Size
  *	DEFAULT_EXEC_THROTTLE(ispsoftc_t *)	Default Execution Throttle
  *
- *	GET_DEFAULT_ROLE(ispsoftc_t *, int)	Get Default Role for a channel
- *	SET_DEFAULT_ROLE(ispsoftc_t *, int, int) Set Default Role for a channel
+ *	DEFAULT_ROLE(ispsoftc_t *, int)		Get Default Role for a channel
  *	DEFAULT_IID(ispsoftc_t *, int)		Default SCSI initiator ID
  *	DEFAULT_LOOPID(ispsoftc_t *, int)	Default FC Loop ID
  *
@@ -1125,14 +1125,6 @@ int isp_notify_ack(ispsoftc_t *, void *);
  * This function externalized acknowledging (success/fail) an ABTS frame
  */
 int isp_acknak_abts(ispsoftc_t *, void *, int);
-
-/*
- * Enable/Disable/Modify a logical unit.
- * (softc, cmd, bus, tgt, lun, cmd_cnt, inotify_cnt)
- */
-#define	DFLT_CMND_CNT	0xff	/* unmonitored */
-#define	DFLT_INOT_CNT	0xff	/* unmonitored */
-int isp_lun_cmd(ispsoftc_t *, int, int, int, int, int);
 
 /*
  * General request queue 'put' routine for target mode entries.
