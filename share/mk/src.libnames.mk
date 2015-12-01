@@ -50,6 +50,7 @@ _INTERNALLIBS=	\
 _LIBRARIES=	\
 		${_PRIVATELIBS} \
 		${_INTERNALLIBS} \
+		80211 \
 		alias \
 		archive \
 		asn1 \
@@ -180,6 +181,7 @@ _DP_geom=	bsdxml sbuf
 _DP_cam=	sbuf
 _DP_casper=	capsicum nv pjdlog
 _DP_capsicum=	nv
+_DP_kvm=	elf
 _DP_pjdlog=	util
 _DP_opie=	md
 _DP_usb=	pthread
