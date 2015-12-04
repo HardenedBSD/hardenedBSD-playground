@@ -9897,7 +9897,6 @@ sctp_chunk_output(struct sctp_inpcb *inp,
 	asoc = &stcb->asoc;
 do_it_again:
 	/* The Nagle algorithm is only applied when handling a send call. */
-	stcb->asoc.trigger_reset = 0;
 	if (from_where == SCTP_OUTPUT_FROM_USR_SEND) {
 		if (sctp_is_feature_on(inp, SCTP_PCB_FLAGS_NODELAY)) {
 			nagle_on = 0;
@@ -9914,7 +9913,8 @@ do_it_again:
 	if ((un_sent <= 0) &&
 	    (TAILQ_EMPTY(&asoc->control_send_queue)) &&
 	    (TAILQ_EMPTY(&asoc->asconf_send_queue)) &&
-	    (asoc->sent_queue_retran_cnt == 0)) {
+	    (asoc->sent_queue_retran_cnt == 0) &&
+	    (asoc->trigger_reset == 0)) {
 		/* Nothing to do unless there is something to be sent left */
 		return;
 	}
@@ -11885,6 +11885,7 @@ sctp_send_stream_reset_out_if_possible(struct sctp_tcb *stcb, int so_locked)
 	uint32_t seq;
 
 	asoc = &stcb->asoc;
+	asoc->trigger_reset = 0;
 	if (asoc->stream_reset_outstanding) {
 		return (EALREADY);
 	}
@@ -12053,7 +12054,7 @@ sctp_send_str_reset_req(struct sctp_tcb *stcb,
 		oldstream = stcb->asoc.strmout;
 		/* get some more */
 		SCTP_MALLOC(stcb->asoc.strmout, struct sctp_stream_out *,
-		    ((stcb->asoc.streamoutcnt + adding_o) * sizeof(struct sctp_stream_out)),
+		    (stcb->asoc.streamoutcnt + adding_o) * sizeof(struct sctp_stream_out),
 		    SCTP_M_STRMO);
 		if (stcb->asoc.strmout == NULL) {
 			uint8_t x;
