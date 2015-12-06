@@ -282,20 +282,21 @@ pax_segvguard_init_prison(struct prison *pr)
 }
 
 uint32_t
-pax_segvguard_setup_flags(struct image_params *imgp, uint32_t mode)
+pax_segvguard_setup_flags(struct image_params *imgp, struct thread *td, uint32_t mode)
 {
 	struct prison *pr;
 	struct vattr vap;
 	uint32_t flags, status;
 	int ret;
 
+	KASSERT(imgp->proc == td->td_proc,
+	    ("%s: imgp->proc != td->td_proc", __func__));
+
 	flags = 0;
 	status = 0;
 
-	PROC_LOCK(imgp->proc);
-	pr = pax_get_prison(imgp->proc);
+	pr = pax_get_prison_td(td);
 	status = pr->pr_hardening.hr_pax_segvguard_status;
-	PROC_UNLOCK(imgp->proc);
 
 	if (status == PAX_FEATURE_DISABLED) {
 		flags &= ~PAX_NOTE_SEGVGUARD;
@@ -316,9 +317,7 @@ pax_segvguard_setup_flags(struct image_params *imgp, uint32_t mode)
 		 * If the program has setuid, enforce the
 		 * segvguard.
 		 */
-		PROC_LOCK(imgp->proc);
 		ret = VOP_GETATTR(imgp->vp, &vap, imgp->proc->p_ucred);
-		PROC_UNLOCK(imgp->proc);
 		if (ret != 0 ||
 		    (vap.va_mode & (S_ISUID | S_ISGID)) != 0 ||
 		    (mode & PAX_NOTE_SEGVGUARD)) {
