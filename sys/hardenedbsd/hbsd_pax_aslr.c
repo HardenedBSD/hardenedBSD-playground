@@ -43,27 +43,17 @@ __FBSDID("$FreeBSD$");
 #include <sys/imgact.h>
 #include <sys/imgact_elf.h>
 #include <sys/jail.h>
-#include <sys/kthread.h>
 #include <sys/ktr.h>
 #include <sys/libkern.h>
-#include <sys/libkern.h>
 #include <sys/mman.h>
-#include <sys/mount.h>
 #include <sys/pax.h>
 #include <sys/proc.h>
-#include <sys/queue.h>
-#include <sys/resourcevar.h>
-#include <sys/stat.h>
-#include <sys/syscallsubr.h>
 #include <sys/sysctl.h>
 #include <sys/sysent.h>
-#include <sys/vnode.h>
 
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
 #include <vm/vm_extern.h>
-
-#include <machine/elf.h>
 
 #ifndef PAX_ASLR_DELTA
 #define	PAX_ASLR_DELTA(delta, lsb, len)	\
@@ -698,16 +688,16 @@ pax_aslr_sysinit(void)
 	case PAX_FEATURE_FORCE_ENABLED:
 		break;
 	default:
-		printf("[PAX ASLR] WARNING, invalid PAX settings in loader.conf!"
+		printf("[HBSD ASLR] WARNING, invalid PAX settings in loader.conf!"
 		    " (pax_aslr_status = %d)\n", pax_aslr_status);
 		pax_aslr_status = PAX_FEATURE_FORCE_ENABLED;
 		break;
 	}
-	printf("[PAX ASLR] status: %s\n", pax_status_str[pax_aslr_status]);
-	printf("[PAX ASLR] mmap: %d bit\n", pax_aslr_mmap_len);
-	printf("[PAX ASLR] exec base: %d bit\n", pax_aslr_exec_len);
-	printf("[PAX ASLR] stack: %d bit\n", pax_aslr_stack_len);
-	printf("[PAX ASLR] vdso: %d bit\n", pax_aslr_vdso_len);
+	printf("[HBSD ASLR] status: %s\n", pax_status_str[pax_aslr_status]);
+	printf("[HBSD ASLR] mmap: %d bit\n", pax_aslr_mmap_len);
+	printf("[HBSD ASLR] exec base: %d bit\n", pax_aslr_exec_len);
+	printf("[HBSD ASLR] stack: %d bit\n", pax_aslr_stack_len);
+	printf("[HBSD ASLR] vdso: %d bit\n", pax_aslr_vdso_len);
 
 	switch (pax_disallow_map32bit_status_global) {
 	case PAX_FEATURE_DISABLED:
@@ -716,12 +706,12 @@ pax_aslr_sysinit(void)
 	case PAX_FEATURE_FORCE_ENABLED:
 		break;
 	default:
-		printf("[PAX ASLR] WARNING, invalid settings in loader.conf!"
+		printf("[HBSD ASLR] WARNING, invalid settings in loader.conf!"
 		    " (hardening.pax.disallow_map32bit.status = %d)\n",
 		    pax_disallow_map32bit_status_global);
 		pax_disallow_map32bit_status_global = PAX_FEATURE_FORCE_ENABLED;
 	}
-	printf("[PAX ASLR] disallow MAP_32BIT mode mmap: %s\n",
+	printf("[HBSD ASLR] disallow MAP_32BIT mode mmap: %s\n",
 	    pax_status_str[pax_disallow_map32bit_status_global]);
 }
 SYSINIT(pax_aslr, SI_SUB_PAX, SI_ORDER_SECOND, pax_aslr_sysinit, NULL);
@@ -838,16 +828,16 @@ pax_compat_aslr_sysinit(void)
 	case PAX_FEATURE_FORCE_ENABLED:
 		break;
 	default:
-		printf("[PAX ASLR (compat)] WARNING, invalid PAX settings in loader.conf! "
+		printf("[HBSD ASLR (compat)] WARNING, invalid PAX settings in loader.conf! "
 		    "(pax_aslr_compat_status = %d)\n", pax_aslr_compat_status);
 		pax_aslr_compat_status = PAX_FEATURE_FORCE_ENABLED;
 		break;
 	}
-	printf("[PAX ASLR (compat)] status: %s\n", pax_status_str[pax_aslr_compat_status]);
-	printf("[PAX ASLR (compat)] mmap: %d bit\n", pax_aslr_compat_mmap_len);
-	printf("[PAX ASLR (compat)] exec base: %d bit\n", pax_aslr_compat_exec_len);
-	printf("[PAX ASLR (compat)] stack: %d bit\n", pax_aslr_compat_stack_len);
-	printf("[PAX ASLR (compat)] vdso: %d bit\n", pax_aslr_compat_vdso_len);
+	printf("[HBSD ASLR (compat)] status: %s\n", pax_status_str[pax_aslr_compat_status]);
+	printf("[HBSD ASLR (compat)] mmap: %d bit\n", pax_aslr_compat_mmap_len);
+	printf("[HBSD ASLR (compat)] exec base: %d bit\n", pax_aslr_compat_exec_len);
+	printf("[HBSD ASLR (compat)] stack: %d bit\n", pax_aslr_compat_stack_len);
+	printf("[HBSD ASLR (compat)] vdso: %d bit\n", pax_aslr_compat_vdso_len);
 }
 SYSINIT(pax_compat_aslr, SI_SUB_PAX, SI_ORDER_SECOND, pax_compat_aslr_sysinit, NULL);
 
@@ -1118,15 +1108,18 @@ pax_aslr_vdso(struct proc *p, vm_offset_t *addr)
 }
 
 uint32_t
-pax_aslr_setup_flags(struct image_params *imgp, uint32_t mode)
+pax_aslr_setup_flags(struct image_params *imgp, struct thread *td, uint32_t mode)
 {
 	struct prison *pr;
 	uint32_t flags, status;
 
+	KASSERT(imgp->proc == td->td_proc,
+	    ("%s: imgp->proc != td->td_proc", __func__));
+
 	flags = 0;
 	status = 0;
 
-	pr = pax_get_prison(imgp->proc);
+	pr = pax_get_prison_td(td);
 	status = pr->pr_hardening.hr_pax_aslr_status;
 
 	if (status == PAX_FEATURE_DISABLED) {
@@ -1162,7 +1155,6 @@ pax_aslr_setup_flags(struct image_params *imgp, uint32_t mode)
 			flags &= ~PAX_NOTE_SHLIBRANDOM;
 			flags |= PAX_NOTE_NOSHLIBRANDOM;
 		}
-
 
 		return (flags);
 	}
@@ -1256,8 +1248,7 @@ pax_disallow_map32bit_active(struct thread *td, int mmap_flags)
 		 */
 		return (false);
 
-	/* XXXOP: pax_get_flags_td(...) here? */
-	pax_get_flags(td->td_proc, &flags);
+	pax_get_flags_td(td, &flags);
 
 	CTR3(KTR_PAX, "%S: pid = %d p_pax = %x",
 	    __func__, td->td_proc->p_pid, flags);
@@ -1272,15 +1263,18 @@ pax_disallow_map32bit_active(struct thread *td, int mmap_flags)
 }
 
 uint32_t
-pax_disallow_map32bit_setup_flags(struct image_params *imgp, uint32_t mode)
+pax_disallow_map32bit_setup_flags(struct image_params *imgp, struct thread *td, uint32_t mode)
 {
 	struct prison *pr;
 	uint32_t flags, status;
 
+	KASSERT(imgp->proc == td->td_proc,
+	    ("%s: imgp->proc != td->td_proc", __func__));
+
 	flags = 0;
 	status = 0;
 
-	pr = pax_get_prison(imgp->proc);
+	pr = pax_get_prison_td(td);
 	status = pr->pr_hardening.hr_pax_disallow_map32bit_status;
 
 	if (status == PAX_FEATURE_DISABLED) {

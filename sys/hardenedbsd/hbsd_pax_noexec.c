@@ -43,7 +43,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/proc.h>
 #include <sys/pax.h>
 #include <sys/sysctl.h>
-#include <sys/queue.h>
 #include <sys/libkern.h>
 #include <sys/jail.h>
 
@@ -98,7 +97,7 @@ sysctl_pax_pageexec_status(SYSCTL_HANDLER_ARGS)
 	struct prison *pr;
 	int err, val;
 
-	pr = pax_get_prison(req->td->td_proc);
+	pr = pax_get_prison_td(req->td);
 
 	val = pr->pr_hardening.hr_pax_pageexec_status;
 	err = sysctl_handle_int(oidp, &val, sizeof(int), req);
@@ -146,7 +145,7 @@ sysctl_pax_mprotect_status(SYSCTL_HANDLER_ARGS)
 	struct prison *pr;
 	int err, val;
 
-	pr = pax_get_prison(req->td->td_proc);
+	pr = pax_get_prison_td(req->td);
 
 	val = pr->pr_hardening.hr_pax_mprotect_status;
 	err = sysctl_handle_int(oidp, &val, sizeof(int), req);
@@ -187,12 +186,12 @@ pax_noexec_sysinit(void)
 	case PAX_FEATURE_FORCE_ENABLED:
 		break;
 	default:
-		printf("[PAX PAGEEXEC] WARNING, invalid PAX settings in loader.conf!"
+		printf("[HBSD PAGEEXEC] WARNING, invalid PAX settings in loader.conf!"
 		    " (hardening.pax.pageexec.status = %d)\n", pax_pageexec_status);
 		pax_pageexec_status = PAX_FEATURE_FORCE_ENABLED;
 		break;
 	}
-	printf("[PAX PAGEEXEC] status: %s\n", pax_status_str[pax_pageexec_status]);
+	printf("[HBSD PAGEEXEC] status: %s\n", pax_status_str[pax_pageexec_status]);
 
 	switch (pax_mprotect_status) {
 	case PAX_FEATURE_DISABLED:
@@ -201,12 +200,12 @@ pax_noexec_sysinit(void)
 	case PAX_FEATURE_FORCE_ENABLED:
 		break;
 	default:
-		printf("[PAX MPROTECT] WARNING, invalid PAX settings in loader.conf!"
+		printf("[HBSD MPROTECT] WARNING, invalid PAX settings in loader.conf!"
 		    " (hardening.pax.mprotect.status = %d)\n", pax_mprotect_status);
 		pax_mprotect_status = PAX_FEATURE_FORCE_ENABLED;
 		break;
 	}
-	printf("[PAX MPROTECT] status: %s\n", pax_status_str[pax_mprotect_status]);
+	printf("[HBSD MPROTECT] status: %s\n", pax_status_str[pax_mprotect_status]);
 }
 SYSINIT(pax_noexec, SI_SUB_PAX, SI_ORDER_SECOND, pax_noexec_sysinit, NULL);
 
@@ -235,15 +234,18 @@ pax_noexec_init_prison(struct prison *pr)
 }
 
 u_int
-pax_pageexec_setup_flags(struct image_params *imgp, u_int mode)
+pax_pageexec_setup_flags(struct image_params *imgp, struct thread *td, uint32_t mode)
 {
 	struct prison *pr;
 	u_int flags, status;
 
+	KASSERT(imgp->proc == td->td_proc,
+	    ("%s: imgp->proc != td->td_proc", __func__));
+
 	flags = 0;
 	status = 0;
 
-	pr = pax_get_prison(imgp->proc);
+	pr = pax_get_prison_td(td);
 	status = pr->pr_hardening.hr_pax_pageexec_status;
 
 	if (status == PAX_FEATURE_DISABLED) {
@@ -358,7 +360,7 @@ pax_mprotect_active(struct proc *p)
 }
 
 u_int
-pax_mprotect_setup_flags(struct image_params *imgp, u_int mode)
+pax_mprotect_setup_flags(struct image_params *imgp, struct thread *td, uint32_t mode)
 {
 	struct prison *pr;
 	u_int flags, status;
@@ -366,7 +368,7 @@ pax_mprotect_setup_flags(struct image_params *imgp, u_int mode)
 	flags = 0;
 	status = 0;
 
-	pr = pax_get_prison(imgp->proc);
+	pr = pax_get_prison_td(td);
 	status = pr->pr_hardening.hr_pax_mprotect_status;
 
 	if (status == PAX_FEATURE_DISABLED) {
