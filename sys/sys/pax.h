@@ -32,7 +32,7 @@
 #ifndef	_SYS_PAX_H
 #define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	35
+#define	__HardenedBSD_version	37
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
 struct hardening_features {
@@ -236,6 +236,6 @@ int pax_ptrace_hardening(struct thread *td);
     (PAX_NOTE_NOPAGEEXEC | PAX_NOTE_NOMPROTECT | \
     PAX_NOTE_NOSEGVGUARD | PAX_NOTE_NOASLR | PAX_NOTE_NOSHLIBRANDOM | \
     PAX_NOTE_NODISALLOWMAP32BIT)
-#define PAX_NOTE_ALL	(PAX_NOTE_ALL_ENABLED | PAX_NOTE_ALL_DISABLED)
+#define PAX_NOTE_ALL	(PAX_NOTE_ALL_ENABLED | PAX_NOTE_ALL_DISABLED | PAX_NOTE_FINALIZED)
 
 #endif /* !_SYS_PAX_H */

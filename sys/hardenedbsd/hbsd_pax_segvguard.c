@@ -40,20 +40,33 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/kernel.h>
+#include <sys/fnv_hash.h>
 #include <sys/imgact.h>
+<<<<<<< HEAD
 #include <sys/stat.h>
 #include <sys/proc.h>
+=======
+#include <sys/imgact_elf.h>
+#include <sys/jail.h>
+#include <sys/libkern.h>
+>>>>>>> origin/hardened/current/master
 #include <sys/mount.h>
 #include <sys/pax.h>
-#include <sys/sysctl.h>
-#include <sys/vnode.h>
+#include <sys/proc.h>
 #include <sys/queue.h>
+<<<<<<< HEAD
 #include <sys/libkern.h>
 #include <sys/jail.h>
 #include <sys/priv.h>
 #include <sys/fnv_hash.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+=======
+#include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <sys/sysent.h>
+#include <sys/vnode.h>
+>>>>>>> origin/hardened/current/master
 
 #define PAX_SEGVGUARD_EXPIRY		(2 * 60)
 #define PAX_SEGVGUARD_SUSPENSION	(10 * 60)
@@ -612,15 +625,15 @@ pax_segvguard_sysinit(void)
 	case PAX_FEATURE_FORCE_ENABLED:
 		break;
 	default:
-		printf("[PAX SEGVGUARD] WARNING, invalid PAX settings in loader.conf!"
+		printf("[HBSD SEGVGUARD] WARNING, invalid PAX settings in loader.conf!"
 		    " (pax_segvguard_status = %d)\n", pax_segvguard_status);
 		pax_segvguard_status = PAX_FEATURE_FORCE_ENABLED;
 		break;
 	}
-	printf("[PAX SEGVGUARD] status: %s\n", pax_status_str[pax_segvguard_status]);
-	printf("[PAX SEGVGUARD] expiry: %d sec\n", pax_segvguard_expiry);
-	printf("[PAX SEGVGUARD] suspension: %d sec\n", pax_segvguard_suspension);
-	printf("[PAX SEGVGUARD] maxcrahes: %d\n", pax_segvguard_maxcrashes);
+	printf("[HBSD SEGVGUARD] status: %s\n", pax_status_str[pax_segvguard_status]);
+	printf("[HBSD SEGVGUARD] expiry: %d sec\n", pax_segvguard_expiry);
+	printf("[HBSD SEGVGUARD] suspension: %d sec\n", pax_segvguard_suspension);
+	printf("[HBSD SEGVGUARD] maxcrahes: %d\n", pax_segvguard_maxcrashes);
 
 	pax_segvguard_hashtbl =
 		malloc(pax_segvguard_hashsize * sizeof(struct pax_segvguard_entryhead),

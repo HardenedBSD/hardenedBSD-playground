@@ -50,6 +50,7 @@ __<bsd.opts.mk>__:
 
 __DEFAULT_YES_OPTIONS = \
     ASSERT_DEBUG \
+    DEBUG_FILES \
     DOCCOMPRESS \
     INCLUDES \
     INSTALLLIB \
@@ -70,8 +71,11 @@ __DEFAULT_NO_OPTIONS = \
     CCACHE_BUILD \
     FAST_DEPEND \
     CTF \
+<<<<<<< HEAD
     DEBUG_FILES \
     DTRACE_HARDENING \
+=======
+>>>>>>> origin/hardened/current/master
     INSTALL_AS_USER \
     STALE_STAGED
 
@@ -105,6 +109,8 @@ MK_${var}:=no
 .if ${MK_STAGING} == "no"
 MK_STALE_STAGED= no
 .endif
+
+.include <bsd.cpu.mk>
 
 .endif # !_WITHOUT_SRCCONF
 
