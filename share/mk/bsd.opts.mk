@@ -71,11 +71,8 @@ __DEFAULT_NO_OPTIONS = \
     CCACHE_BUILD \
     FAST_DEPEND \
     CTF \
-<<<<<<< HEAD
     DEBUG_FILES \
     DTRACE_HARDENING \
-=======
->>>>>>> origin/hardened/current/master
     INSTALL_AS_USER \
     STALE_STAGED
 
