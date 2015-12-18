@@ -32,7 +32,7 @@
 #ifndef	_SYS_PAX_H
 #define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	37
+#define	__HardenedBSD_version	38
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
 struct hardening_features {
@@ -41,6 +41,7 @@ struct hardening_features {
 	int	 hr_pax_aslr_stack_len;		/* (p) Number of bits randomized with stack */
 	int	 hr_pax_aslr_exec_len;		/* (p) Number of bits randomized with the execbase */
 	int	 hr_pax_aslr_vdso_len;		/* (p) Number of bits randomized with the VDSO */
+	int	 hr_pax_aslr_map32bit_len;	/* (p) Number of bits randomized with MAP_32BIT mmap */
 	int	 hr_pax_aslr_compat_status;	/* (p) PaX ASLR enabled (compat32) */
 	int	 hr_pax_aslr_compat_mmap_len;	/* (p) Number of bits randomized with mmap (compat32) */
 	int	 hr_pax_aslr_compat_stack_len;	/* (p) Number of bits randomized with stack (compat32) */
