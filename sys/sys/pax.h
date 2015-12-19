@@ -32,7 +32,7 @@
 #ifndef	_SYS_PAX_H
 #define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	37
+#define	__HardenedBSD_version	38
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
 struct hardening_features {
@@ -41,6 +41,7 @@ struct hardening_features {
 	int	 hr_pax_aslr_stack_len;		/* (p) Number of bits randomized with stack */
 	int	 hr_pax_aslr_exec_len;		/* (p) Number of bits randomized with the execbase */
 	int	 hr_pax_aslr_vdso_len;		/* (p) Number of bits randomized with the VDSO */
+	int	 hr_pax_aslr_map32bit_len;	/* (p) Number of bits randomized with MAP_32BIT mmap */
 	int	 hr_pax_aslr_compat_status;	/* (p) PaX ASLR enabled (compat32) */
 	int	 hr_pax_aslr_compat_mmap_len;	/* (p) Number of bits randomized with mmap (compat32) */
 	int	 hr_pax_aslr_compat_stack_len;	/* (p) Number of bits randomized with stack (compat32) */
@@ -68,6 +69,7 @@ struct prison;
 struct thread;
 struct proc;
 struct vnode;
+struct vm_map_t;
 struct vm_offset_t;
 
 /*
@@ -186,7 +188,7 @@ u_int pax_pageexec_setup_flags(struct image_params *imgp, u_int mode);
 u_int pax_mprotect_setup_flags(struct image_params *imgp, u_int mode);
 void pax_pageexec(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
 void pax_mprotect(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
-int pax_mprotect_enforce(struct proc *p, vm_prot_t old_prot, vm_prot_t new_prot);
+int pax_mprotect_enforce(struct proc *p, vm_map_t map, vm_prot_t old_prot, vm_prot_t new_prot);
 
 /*
  * Hardening related functions

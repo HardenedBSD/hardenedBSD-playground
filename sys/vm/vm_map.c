@@ -305,6 +305,9 @@ vmspace_alloc(vm_offset_t min, vm_offset_t max, pmap_pinit_t pinit)
 	vm->vm_aslr_delta_stack = 0;
 	vm->vm_aslr_delta_exec = 0;
 	vm->vm_aslr_delta_vdso = 0;
+#ifdef __LP64__
+	vm->vm_aslr_delta_map32bit = 0;
+#endif
 #endif
 
 	return (vm);
@@ -2023,11 +2026,8 @@ vm_map_protect(vm_map_t map, vm_offset_t start, vm_offset_t end,
 	while ((current != &map->header) && (current->start < end)) {
 		old_prot = current->protection;
 #ifdef PAX_NOEXEC
-		ret = pax_mprotect_enforce(curthread->td_proc, old_prot, new_prot);
+		ret = pax_mprotect_enforce(curthread->td_proc, map, old_prot, new_prot);
 		if (ret != 0) {
-			pax_log_mprotect(curthread->td_proc, PAX_LOG_P_COMM,
-			    "prevented to introduce new RWX page...");
-			vm_map_unlock(map);
 			return (ret);
 		}
 #endif
@@ -3289,6 +3289,9 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 	vm2->vm_aslr_delta_mmap = vm1->vm_aslr_delta_mmap;
 	vm2->vm_aslr_delta_stack = vm1->vm_aslr_delta_stack;
 	vm2->vm_aslr_delta_vdso = vm1->vm_aslr_delta_vdso;
+#ifdef __LP64__
+	vm2->vm_aslr_delta_map32bit = vm1->vm_aslr_delta_map32bit;
+#endif
 #endif
 	vm_map_lock(old_map);
 	if (old_map->busy)
