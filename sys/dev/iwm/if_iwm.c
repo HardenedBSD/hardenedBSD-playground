@@ -423,9 +423,8 @@ iwm_set_default_calib(struct iwm_softc *sc, const void *data)
 static void
 iwm_fw_info_free(struct iwm_fw_info *fw)
 {
-	firmware_put(fw->fw_rawdata, FIRMWARE_UNLOAD);
-	fw->fw_rawdata = NULL;
-	fw->fw_rawsize = 0;
+	firmware_put(fw->fw_fp, FIRMWARE_UNLOAD);
+	fw->fw_fp = NULL;
 	/* don't touch fw->fw_status */
 	memset(fw->fw_sects, 0, sizeof(fw->fw_sects));
 }
@@ -450,32 +449,30 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 		msleep(&sc->sc_fw, &sc->sc_mtx, 0, "iwmfwp", 0);
 	fw->fw_status = IWM_FW_STATUS_INPROGRESS;
 
-	if (fw->fw_rawdata != NULL)
+	if (fw->fw_fp != NULL)
 		iwm_fw_info_free(fw);
 
 	/*
 	 * Load firmware into driver memory.
-	 * fw_rawdata and fw_rawsize will be set.
+	 * fw_fp will be set.
 	 */
 	IWM_UNLOCK(sc);
 	fwp = firmware_get(sc->sc_fwname);
+	IWM_LOCK(sc);
 	if (fwp == NULL) {
 		device_printf(sc->sc_dev,
 		    "could not read firmware %s (error %d)\n",
 		    sc->sc_fwname, error);
-		IWM_LOCK(sc);
 		goto out;
 	}
-	IWM_LOCK(sc);
-	fw->fw_rawdata = fwp->data;
-	fw->fw_rawsize = fwp->datasize;
+	fw->fw_fp = fwp;
 
 	/*
 	 * Parse firmware contents
 	 */
 
-	uhdr = (const void *)fw->fw_rawdata;
-	if (*(const uint32_t *)fw->fw_rawdata != 0
+	uhdr = (const void *)fw->fw_fp->data;
+	if (*(const uint32_t *)fw->fw_fp->data != 0
 	    || le32toh(uhdr->magic) != IWM_TLV_UCODE_MAGIC) {
 		device_printf(sc->sc_dev, "invalid firmware %s\n",
 		    sc->sc_fwname);
@@ -485,7 +482,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 
 	sc->sc_fwver = le32toh(uhdr->ver);
 	data = uhdr->data;
-	len = fw->fw_rawsize - sizeof(*uhdr);
+	len = fw->fw_fp->datasize - sizeof(*uhdr);
 
 	while (len >= sizeof(tlv)) {
 		size_t tlv_len;
@@ -684,7 +681,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
  out:
 	if (error) {
 		fw->fw_status = IWM_FW_STATUS_NONE;
-		if (fw->fw_rawdata != NULL)
+		if (fw->fw_fp != NULL)
 			iwm_fw_info_free(fw);
 	} else
 		fw->fw_status = IWM_FW_STATUS_DONE;
@@ -956,7 +953,7 @@ iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 
 	error = bus_dma_tag_create(sc->sc_dmat, 1, 0,
 	    BUS_SPACE_MAXADDR_32BIT, BUS_SPACE_MAXADDR, NULL, NULL, MCLBYTES,
-            IWM_MAX_SCATTER - 1, MCLBYTES, 0, NULL, NULL, &ring->data_dmat);
+            IWM_MAX_SCATTER - 2, MCLBYTES, 0, NULL, NULL, &ring->data_dmat);
 	if (error != 0) {
 		device_printf(sc->sc_dev, "could not create TX buf DMA tag\n");
 		goto fail;
@@ -2778,23 +2775,15 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 			return error;
 		}
 		/* Too many DMA segments, linearize mbuf. */
-		MGETHDR(m1, M_NOWAIT, MT_DATA);
+		m1 = m_collapse(m, M_NOWAIT, IWM_MAX_SCATTER - 2);
 		if (m1 == NULL) {
+			device_printf(sc->sc_dev,
+			    "%s: could not defrag mbuf\n", __func__);
 			m_freem(m);
-			return ENOBUFS;
+			return (ENOBUFS);
 		}
-		if (m->m_pkthdr.len > MHLEN) {
-			MCLGET(m1, M_NOWAIT);
-			if (!(m1->m_flags & M_EXT)) {
-				m_freem(m);
-				m_freem(m1);
-				return ENOBUFS;
-			}
-		}
-		m_copydata(m, 0, m->m_pkthdr.len, mtod(m1, void *));
-		m1->m_pkthdr.len = m1->m_len = m->m_pkthdr.len;
-		m_freem(m);
 		m = m1;
+
 		error = bus_dmamap_load_mbuf_sg(ring->data_dmat, data->map, m,
 		    segs, &nsegs, BUS_DMA_NOWAIT);
 		if (error != 0) {
@@ -4965,10 +4954,10 @@ iwm_detach_local(struct iwm_softc *sc, int do_net80211)
 		iwm_free_tx_ring(sc, &sc->txq[i]);
 
 	/* Free firmware */
-	if (fw->fw_rawdata != NULL)
+	if (fw->fw_fp != NULL)
 		iwm_fw_info_free(fw);
 
-	/* free scheduler */
+	/* Free scheduler */
 	iwm_free_sched(sc);
 	if (sc->ict_dma.vaddr != NULL)
 		iwm_free_ict(sc);
