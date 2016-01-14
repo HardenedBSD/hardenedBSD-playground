@@ -6,6 +6,9 @@
 
 LIB=		efi_fdt
 INTERNALLIB=
+WARNS?=		6
+CWARNFLAGS.gcc+=	-Wno-strict-prototypes
+CWARNFLAGS.gcc+=	-Wno-redundant-decls
 
 SRCS=		efi_fdt.c
 

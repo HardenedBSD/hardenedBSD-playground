@@ -31,10 +31,7 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#include "efsys.h"
 #include "efx.h"
-#include "efx_types.h"
-#include "efx_regs.h"
 #include "efx_impl.h"
 
 #if EFSYS_OPT_NVRAM
@@ -45,7 +42,6 @@ static efx_nvram_ops_t	__efx_nvram_falcon_ops = {
 #if EFSYS_OPT_DIAG
 	falcon_nvram_test,		/* envo_test */
 #endif	/* EFSYS_OPT_DIAG */
-	falcon_nvram_size,		/* envo_size */
 	falcon_nvram_get_version,	/* envo_get_version */
 	falcon_nvram_rw_start,		/* envo_rw_start */
 	falcon_nvram_read_chunk,	/* envo_read_chunk */
@@ -53,6 +49,8 @@ static efx_nvram_ops_t	__efx_nvram_falcon_ops = {
 	falcon_nvram_write_chunk,	/* envo_write_chunk */
 	falcon_nvram_rw_finish,		/* envo_rw_finish */
 	falcon_nvram_set_version,	/* envo_set_version */
+	falcon_nvram_type_to_partn,	/* envo_type_to_partn */
+	falcon_nvram_partn_size,	/* envo_partn_size */
 };
 
 #endif	/* EFSYS_OPT_FALCON */
@@ -63,7 +61,6 @@ static efx_nvram_ops_t	__efx_nvram_siena_ops = {
 #if EFSYS_OPT_DIAG
 	siena_nvram_test,		/* envo_test */
 #endif	/* EFSYS_OPT_DIAG */
-	siena_nvram_size,		/* envo_size */
 	siena_nvram_get_version,	/* envo_get_version */
 	siena_nvram_rw_start,		/* envo_rw_start */
 	siena_nvram_read_chunk,		/* envo_read_chunk */
@@ -71,27 +68,30 @@ static efx_nvram_ops_t	__efx_nvram_siena_ops = {
 	siena_nvram_write_chunk,	/* envo_write_chunk */
 	siena_nvram_rw_finish,		/* envo_rw_finish */
 	siena_nvram_set_version,	/* envo_set_version */
+	siena_nvram_type_to_partn,	/* envo_type_to_partn */
+	siena_nvram_partn_size,		/* envo_partn_size */
 };
 
 #endif	/* EFSYS_OPT_SIENA */
 
-#if EFSYS_OPT_HUNTINGTON
+#if EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD
 
-static efx_nvram_ops_t	__efx_nvram_hunt_ops = {
+static efx_nvram_ops_t	__efx_nvram_ef10_ops = {
 #if EFSYS_OPT_DIAG
-	hunt_nvram_test,		/* envo_test */
+	ef10_nvram_test,		/* envo_test */
 #endif	/* EFSYS_OPT_DIAG */
-	hunt_nvram_size,		/* envo_size */
-	hunt_nvram_get_version,		/* envo_get_version */
-	hunt_nvram_rw_start,		/* envo_rw_start */
-	hunt_nvram_read_chunk,		/* envo_read_chunk */
-	hunt_nvram_erase,		/* envo_erase */
-	hunt_nvram_write_chunk,		/* envo_write_chunk */
-	hunt_nvram_rw_finish,		/* envo_rw_finish */
-	hunt_nvram_set_version,		/* envo_set_version */
+	ef10_nvram_get_version,		/* envo_get_version */
+	ef10_nvram_rw_start,		/* envo_rw_start */
+	ef10_nvram_read_chunk,		/* envo_read_chunk */
+	ef10_nvram_erase,		/* envo_erase */
+	ef10_nvram_write_chunk,		/* envo_write_chunk */
+	ef10_nvram_rw_finish,		/* envo_rw_finish */
+	ef10_nvram_set_version,		/* envo_set_version */
+	ef10_nvram_type_to_partn,	/* envo_type_to_partn */
+	ef10_nvram_partn_size,		/* envo_partn_size */
 };
 
-#endif	/* EFSYS_OPT_HUNTINGTON */
+#endif	/* EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD */
 
 	__checkReturn	efx_rc_t
 efx_nvram_init(
@@ -119,9 +119,15 @@ efx_nvram_init(
 
 #if EFSYS_OPT_HUNTINGTON
 	case EFX_FAMILY_HUNTINGTON:
-		envop = (efx_nvram_ops_t *)&__efx_nvram_hunt_ops;
+		envop = (efx_nvram_ops_t *)&__efx_nvram_ef10_ops;
 		break;
 #endif	/* EFSYS_OPT_HUNTINGTON */
+
+#if EFSYS_OPT_MEDFORD
+	case EFX_FAMILY_MEDFORD:
+		envop = (efx_nvram_ops_t *)&__efx_nvram_ef10_ops;
+		break;
+#endif	/* EFSYS_OPT_MEDFORD */
 
 	default:
 		EFSYS_ASSERT(0);
@@ -172,6 +178,7 @@ efx_nvram_size(
 	__out			size_t *sizep)
 {
 	efx_nvram_ops_t *envop = enp->en_envop;
+	uint32_t partn;
 	efx_rc_t rc;
 
 	EFSYS_ASSERT3U(enp->en_magic, ==, EFX_NIC_MAGIC);
@@ -179,13 +186,19 @@ efx_nvram_size(
 
 	EFSYS_ASSERT3U(type, <, EFX_NVRAM_NTYPES);
 
-	if ((rc = envop->envo_size(enp, type, sizep)) != 0)
+	if ((rc = envop->envo_type_to_partn(enp, type, &partn)) != 0)
 		goto fail1;
+
+	if ((rc = envop->envo_partn_size(enp, partn, sizep)) != 0)
+		goto fail2;
 
 	return (0);
 
+fail2:
+	EFSYS_PROBE(fail2);
 fail1:
 	EFSYS_PROBE1(fail1, efx_rc_t, rc);
+	*sizep = 0;
 
 	return (rc);
 }

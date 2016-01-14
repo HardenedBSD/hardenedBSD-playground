@@ -289,7 +289,10 @@ ipid_sysinit(void)
 	for (int i = 0; i < mp_ncpus; i++)
 		arc4rand(zpcpu_get_cpu(V_ip_id, i), sizeof(uint64_t), 0);
 
-	ip_initid(8192);
+#ifdef PAX_HARDENING
+	if (V_ip_do_randomid)
+		ip_initid(8192);
+#endif
 }
 VNET_SYSINIT(ip_id, SI_SUB_PROTO_DOMAIN, SI_ORDER_ANY, ipid_sysinit, NULL);
 
