@@ -190,9 +190,9 @@ int i915_mutex_lock_interruptible(struct drm_device *dev)
 	 * interruptible shall it be. might indeed be if dev_lock is
 	 * changed to sx
 	 */
-	ret = -sx_xlock_sig(&dev->dev_struct_lock);
+	ret = sx_xlock_sig(&dev->dev_struct_lock);
 	if (ret)
-		return ret;
+		return -EINTR;
 
 	WARN_ON(i915_verify_lists(dev));
 	return 0;
@@ -1412,6 +1412,13 @@ static int
 i915_gem_pager_ctor(void *handle, vm_ooffset_t size, vm_prot_t prot,
     vm_ooffset_t foff, struct ucred *cred, u_short *color)
 {
+
+	/*
+	 * NOTE Linux<->FreeBSD: drm_gem_mmap_single() takes care of
+	 * calling drm_gem_object_reference(). That's why we don't
+	 * do this here. i915_gem_pager_dtor(), below, will call
+	 * drm_gem_object_unreference().
+	 */
 
 	*color = 0; /* XXXKIB */
 	return (0);
