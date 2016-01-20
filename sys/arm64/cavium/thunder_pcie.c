@@ -92,7 +92,7 @@ __FBSDID("$FreeBSD$");
 #define	PCI_ADDR_CELL_SIZE	2
 
 struct thunder_pcie_softc {
-	struct pcie_range	ranges[MAX_RANGES_TUPLES];
+	struct pcie_range	ranges[RANGES_TUPLES_MAX];
 	struct rman		mem_rman;
 	struct resource		*res;
 	int			ecam;
@@ -132,7 +132,8 @@ thunder_pcie_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (ofw_bus_is_compatible(dev, "cavium,thunder-pcie")) {
+	if (ofw_bus_is_compatible(dev, "cavium,thunder-pcie") ||
+	    ofw_bus_is_compatible(dev, "cavium,pci-host-thunder-ecam")) {
 		device_set_desc(dev, "Cavium Integrated PCI/PCI-E Controller");
 		return (BUS_PROBE_DEFAULT);
 	}
@@ -180,7 +181,7 @@ thunder_pcie_attach(device_t dev)
 		return (error);
 	}
 
-	for (tuple = 0; tuple < MAX_RANGES_TUPLES; tuple++) {
+	for (tuple = 0; tuple < RANGES_TUPLES_MAX; tuple++) {
 		base = sc->ranges[tuple].phys_base;
 		size = sc->ranges[tuple].size;
 		if ((base == 0) || (size == 0))
@@ -245,8 +246,7 @@ parse_pci_mem_ranges(struct thunder_pcie_softc *sc)
 
 	tuples_count = cells_count /
 	    (pci_addr_cells + parent_addr_cells + size_cells);
-	if ((tuples_count > MAX_RANGES_TUPLES) ||
-	    (tuples_count < MIN_RANGES_TUPLES)) {
+	if (tuples_count > RANGES_TUPLES_MAX) {
 		device_printf(sc->dev,
 		    "Unexpected number of 'ranges' tuples in FDT\n");
 		rv = ENXIO;
@@ -296,7 +296,7 @@ parse_pci_mem_ranges(struct thunder_pcie_softc *sc)
 		}
 
 	}
-	for (; tuple < MAX_RANGES_TUPLES; tuple++) {
+	for (; tuple < RANGES_TUPLES_MAX; tuple++) {
 		/* zero-fill remaining tuples to mark empty elements in array */
 		sc->ranges[tuple].phys_base = 0;
 		sc->ranges[tuple].size = 0;
@@ -571,11 +571,12 @@ static device_method_t thunder_pcie_methods[] = {
 	DEVMETHOD(bus_deactivate_resource,	bus_generic_deactivate_resource),
 	DEVMETHOD(bus_setup_intr,		bus_generic_setup_intr),
 	DEVMETHOD(bus_teardown_intr,		bus_generic_teardown_intr),
-	DEVMETHOD(pcib_map_msi,			thunder_common_map_msi),
-	DEVMETHOD(pcib_alloc_msix,		thunder_common_alloc_msix),
-	DEVMETHOD(pcib_release_msix,		thunder_common_release_msix),
-	DEVMETHOD(pcib_alloc_msi,		thunder_common_alloc_msi),
-	DEVMETHOD(pcib_release_msi,		thunder_common_release_msi),
+
+	DEVMETHOD(pcib_map_msi,			arm_map_msi),
+	DEVMETHOD(pcib_alloc_msix,		arm_alloc_msix),
+	DEVMETHOD(pcib_release_msix,		arm_release_msix),
+	DEVMETHOD(pcib_alloc_msi,		arm_alloc_msi),
+	DEVMETHOD(pcib_release_msi,		arm_release_msi),
 
 	DEVMETHOD_END
 };

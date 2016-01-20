@@ -1,5 +1,5 @@
 /*-
- * Copyright (C) 1992-2015 The FreeBSD Project. All rights reserved.
+ * Copyright (C) 1992-2016 The FreeBSD Project. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,11 +30,11 @@
 
 /* Add a FreeBSD vendor copyright here */
 #define	COPYRIGHT_Vendor \
-	"Copyright (c) 2013-2015 The HardenedBSD Project.\n"
+	"Copyright (c) 2013-2016 The HardenedBSD Project.\n"
 
 /* FreeBSD */
 #define COPYRIGHT_FreeBSD \
-	"Copyright (c) 1992-2015 The FreeBSD Project.\n"
+	"Copyright (c) 1992-2016 The FreeBSD Project.\n"
 
 /* Foundation */
 #define	TRADEMARK_Foundation \

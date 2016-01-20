@@ -96,9 +96,9 @@ dtrace_execexit_func_t	dtrace_fasttrap_exec;
 #endif
 
 SDT_PROVIDER_DECLARE(proc);
-SDT_PROBE_DEFINE1(proc, kernel, , exec, "char *");
-SDT_PROBE_DEFINE1(proc, kernel, , exec__failure, "int");
-SDT_PROBE_DEFINE1(proc, kernel, , exec__success, "char *");
+SDT_PROBE_DEFINE1(proc, , , exec, "char *");
+SDT_PROBE_DEFINE1(proc, , , exec__failure, "int");
+SDT_PROBE_DEFINE1(proc, , , exec__success, "char *");
 
 MALLOC_DEFINE(M_PARGS, "proc-args", "Process arguments");
 
@@ -403,16 +403,6 @@ do_execve(td, args, mac_p)
 	imgp->attr = &attr;
 	imgp->args = args;
 
-#ifdef PAX
-	PROC_LOCK(imgp->proc);
-	error = pax_elf(imgp, 0);
-	if (error) {
-		PROC_UNLOCK(imgp->proc);
-		goto exec_fail;
-	}
-	PROC_UNLOCK(imgp->proc);
-#endif
-
 #ifdef MAC
 	error = mac_execve_enter(imgp, mac_p);
 	if (error)
@@ -431,7 +421,7 @@ do_execve(td, args, mac_p)
 		    | AUDITVNODE1, UIO_SYSSPACE, args->fname, td);
 	}
 
-	SDT_PROBE1(proc, kernel, , exec, args->fname);
+	SDT_PROBE1(proc, , , exec, args->fname);
 
 interpret:
 	if (args->fname != NULL) {
@@ -467,15 +457,10 @@ interpret:
 		imgp->vp = newtextvp;
 	}
 
-#ifdef PAX_SEGVGUARD
-	/*
-	 * XXXOP: check return value
-	 */
-	(void)pax_segvguard_update_flags_if_setuid(imgp, imgp->vp);
-#if 0
+#ifdef PAX
+	error = pax_elf(imgp, td, 0);
 	if (error)
 		goto exec_fail_dealloc;
-#endif
 #endif
 
 	/*
@@ -881,7 +866,7 @@ interpret:
 
 	vfs_mark_atime(imgp->vp, td->td_ucred);
 
-	SDT_PROBE1(proc, kernel, , exec__success, args->fname);
+	SDT_PROBE1(proc, , , exec__success, args->fname);
 
 	VOP_UNLOCK(imgp->vp, 0);
 done1:
@@ -953,7 +938,7 @@ exec_fail:
 	p->p_flag &= ~P_INEXEC;
 	PROC_UNLOCK(p);
 
-	SDT_PROBE1(proc, kernel, , exec__failure, error);
+	SDT_PROBE1(proc, , , exec__failure, error);
 
 done2:
 #ifdef MAC
@@ -980,8 +965,7 @@ int
 exec_map_first_page(imgp)
 	struct image_params *imgp;
 {
-	int rv, i;
-	int initial_pagein;
+	int rv, i, after, initial_pagein;
 	vm_page_t ma[VM_INITIAL_PAGEIN];
 	vm_object_t object;
 
@@ -997,9 +981,18 @@ exec_map_first_page(imgp)
 #endif
 	ma[0] = vm_page_grab(object, 0, VM_ALLOC_NORMAL);
 	if (ma[0]->valid != VM_PAGE_BITS_ALL) {
-		initial_pagein = VM_INITIAL_PAGEIN;
-		if (initial_pagein > object->size)
-			initial_pagein = object->size;
+		if (!vm_pager_has_page(object, 0, NULL, &after)) {
+			vm_page_lock(ma[0]);
+			vm_page_free(ma[0]);
+			vm_page_unlock(ma[0]);
+			vm_page_xunbusy(ma[0]);
+			VM_OBJECT_WUNLOCK(object);
+			return (EIO);
+		}
+		initial_pagein = min(after, VM_INITIAL_PAGEIN);
+		KASSERT(initial_pagein <= object->size,
+		    ("%s: initial_pagein %d object->size %ju",
+		    __func__, initial_pagein, (uintmax_t )object->size));
 		for (i = 1; i < initial_pagein; i++) {
 			if ((ma[i] = vm_page_next(ma[i - 1])) != NULL) {
 				if (ma[i]->valid)
@@ -1014,14 +1007,19 @@ exec_map_first_page(imgp)
 			}
 		}
 		initial_pagein = i;
-		rv = vm_pager_get_pages(object, ma, initial_pagein, 0);
+		rv = vm_pager_get_pages(object, ma, initial_pagein, NULL, NULL);
 		if (rv != VM_PAGER_OK) {
-			vm_page_lock(ma[0]);
-			vm_page_free(ma[0]);
-			vm_page_unlock(ma[0]);
+			for (i = 0; i < initial_pagein; i++) {
+				vm_page_lock(ma[i]);
+				vm_page_free(ma[i]);
+				vm_page_unlock(ma[i]);
+				vm_page_xunbusy(ma[i]);
+			}
 			VM_OBJECT_WUNLOCK(object);
 			return (EIO);
 		}
+		for (i = 1; i < initial_pagein; i++)
+			vm_page_readahead_finish(ma[i]);
 	}
 	vm_page_xunbusy(ma[0]);
 	vm_page_lock(ma[0]);
@@ -1070,6 +1068,8 @@ exec_new_vmspace(imgp, sv)
 	vm_offset_t sv_minuser, stack_addr;
 	vm_map_t map;
 	u_long ssiz;
+	vm_prot_t stackprot;
+	vm_prot_t stackmaxprot;
 
 	imgp->vmspace_destroyed = 1;
 	imgp->sysent = sv;
@@ -1164,10 +1164,12 @@ exec_new_vmspace(imgp, sv)
 	p->p_usrstack = stack_addr;
 	/* Calculate the stack's mapping address.  */
 	stack_addr -= ssiz;
-	error = vm_map_stack(map, stack_addr, (vm_size_t)ssiz,
-	    obj != NULL && imgp->stack_prot != 0 ? imgp->stack_prot :
-		sv->sv_stackprot,
-	    VM_PROT_ALL, MAP_STACK_GROWS_DOWN);
+	stackprot = obj != NULL && imgp->stack_prot != 0 ? imgp->stack_prot : sv->sv_stackprot;
+	stackmaxprot = VM_PROT_ALL;
+#ifdef PAX_NOEXEC
+	pax_noexec_nx(p, &stackprot, &stackmaxprot);
+#endif
+	error = vm_map_stack(map, stack_addr, (vm_size_t)ssiz, stackprot, stackmaxprot, MAP_STACK_GROWS_DOWN);
 	if (error) {
 #ifdef PAX_ASLR
 		pax_log_aslr(p, PAX_LOG_DEFAULT,

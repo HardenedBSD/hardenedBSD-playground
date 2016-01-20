@@ -38,6 +38,7 @@
 __FBSDID("$FreeBSD$");
 
 #include "opt_compat.h"
+#include "opt_pax.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -47,6 +48,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/mutex.h>
+#include <sys/pax.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/refcount.h>
@@ -79,8 +81,6 @@ static void	calcru1(struct proc *p, struct rusage_ext *ruxp,
 static int	donice(struct thread *td, struct proc *chgp, int n);
 static struct uidinfo *uilookup(uid_t uid);
 static void	ruxagg_locked(struct rusage_ext *rux, struct thread *td);
-
-static __inline int	lim_shared(struct plimit *limp);
 
 /*
  * Resource controls and accounting.
@@ -752,7 +752,13 @@ kern_proc_setrlimit(struct thread *td, struct proc *p, u_int which,
 				prot = p->p_sysent->sv_stackprot;
 				size = limp->rlim_cur - oldssiz.rlim_cur;
 				addr = p->p_usrstack - limp->rlim_cur;
-				// XXXOP NOEXEC NX here
+#ifdef PAX_NOEXEC
+				if ((prot & (VM_PROT_WRITE|VM_PROT_EXECUTE)) != VM_PROT_EXECUTE) {
+					prot &= ~VM_PROT_EXECUTE;
+				} else {
+					prot &= ~VM_PROT_WRITE;
+				}
+#endif
 			} else {
 				prot = VM_PROT_NONE;
 				size = oldssiz.rlim_cur - limp->rlim_cur;
@@ -1108,13 +1114,6 @@ lim_hold(struct plimit *limp)
 	return (limp);
 }
 
-static __inline int
-lim_shared(struct plimit *limp)
-{
-
-	return (limp->pl_refcnt > 1);
-}
-
 void
 lim_fork(struct proc *p1, struct proc *p2)
 {
@@ -1145,7 +1144,7 @@ void
 lim_copy(struct plimit *dst, struct plimit *src)
 {
 
-	KASSERT(!lim_shared(dst), ("lim_copy to shared limit"));
+	KASSERT(dst->pl_refcnt <= 1, ("lim_copy to shared limit"));
 	bcopy(src->pl_rlimit, dst->pl_rlimit, sizeof(src->pl_rlimit));
 }
 
