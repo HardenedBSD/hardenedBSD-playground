@@ -267,6 +267,7 @@ MAN=	aac.4 \
 	malo.4 \
 	mcd.4 \
 	md.4 \
+	mdio.4 \
 	me.4 \
 	mem.4 \
 	meteor.4 \
@@ -424,6 +425,8 @@ MAN=	aac.4 \
 	rndtest.4 \
 	route.4 \
 	rp.4 \
+	rtwn.4 \
+	rtwnfw.4 \
 	rue.4 \
 	rum.4 \
 	run.4 \

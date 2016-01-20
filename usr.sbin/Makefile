@@ -33,6 +33,7 @@ SUBDIR=	adduser \
 	getfmac \
 	getpmac \
 	gstat \
+	hbsd-update \
 	i2c \
 	ifmcstat \
 	iostat \
@@ -46,6 +47,7 @@ SUBDIR=	adduser \
 	mixer \
 	mlxcontrol \
 	mountd \
+	mount_smbfs \
 	mpsutil \
 	mptutil \
 	mtest \

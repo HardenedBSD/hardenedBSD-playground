@@ -114,7 +114,7 @@ struct thunder_pem_softc {
 	struct resource		*reg;
 	bus_space_tag_t		reg_bst;
 	bus_space_handle_t	reg_bsh;
-	struct pcie_range	ranges[MAX_RANGES_TUPLES];
+	struct pcie_range	ranges[RANGES_TUPLES_MAX];
 	struct rman		mem_rman;
 	struct rman		io_rman;
 	bus_space_handle_t	pem_sli_base;
@@ -165,11 +165,12 @@ static device_method_t thunder_pem_methods[] = {
 	DEVMETHOD(bus_deactivate_resource,	bus_generic_deactivate_resource),
 	DEVMETHOD(bus_setup_intr,		bus_generic_setup_intr),
 	DEVMETHOD(bus_teardown_intr,		bus_generic_teardown_intr),
-	DEVMETHOD(pcib_map_msi,			thunder_common_map_msi),
-	DEVMETHOD(pcib_alloc_msix,		thunder_common_alloc_msix),
-	DEVMETHOD(pcib_release_msix,		thunder_common_release_msix),
-	DEVMETHOD(pcib_alloc_msi,		thunder_common_alloc_msi),
-	DEVMETHOD(pcib_release_msi,		thunder_common_release_msi),
+
+	DEVMETHOD(pcib_map_msi,			arm_map_msi),
+	DEVMETHOD(pcib_alloc_msix,		arm_alloc_msix),
+	DEVMETHOD(pcib_release_msix,		arm_release_msix),
+	DEVMETHOD(pcib_alloc_msi,		arm_alloc_msi),
+	DEVMETHOD(pcib_release_msi,		arm_release_msi),
 	DEVMETHOD_END
 };
 

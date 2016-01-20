@@ -190,9 +190,9 @@ int i915_mutex_lock_interruptible(struct drm_device *dev)
 	 * interruptible shall it be. might indeed be if dev_lock is
 	 * changed to sx
 	 */
-	ret = -sx_xlock_sig(&dev->dev_struct_lock);
+	ret = sx_xlock_sig(&dev->dev_struct_lock);
 	if (ret)
-		return ret;
+		return -EINTR;
 
 	WARN_ON(i915_verify_lists(dev));
 	return 0;
@@ -1412,6 +1412,13 @@ static int
 i915_gem_pager_ctor(void *handle, vm_ooffset_t size, vm_prot_t prot,
     vm_ooffset_t foff, struct ucred *cred, u_short *color)
 {
+
+	/*
+	 * NOTE Linux<->FreeBSD: drm_gem_mmap_single() takes care of
+	 * calling drm_gem_object_reference(). That's why we don't
+	 * do this here. i915_gem_pager_dtor(), below, will call
+	 * drm_gem_object_unreference().
+	 */
 
 	*color = 0; /* XXXKIB */
 	return (0);
@@ -4052,6 +4059,18 @@ struct drm_i915_gem_object *i915_gem_alloc_object(struct drm_device *dev,
 		return NULL;
 	}
 
+#ifdef FREEBSD_WIP
+	mask = GFP_HIGHUSER | __GFP_RECLAIMABLE;
+	if (IS_CRESTLINE(dev) || IS_BROADWATER(dev)) {
+		/* 965gm cannot relocate objects above 4GiB. */
+		mask &= ~__GFP_HIGHMEM;
+		mask |= __GFP_DMA32;
+	}
+
+	mapping = obj->base.filp->f_path.dentry->d_inode->i_mapping;
+	mapping_set_gfp_mask(mapping, mask);
+#endif /* FREEBSD_WIP */
+
 	i915_gem_object_init(obj, &i915_gem_object_ops);
 
 	obj->base.write_domain = I915_GEM_DOMAIN_CPU;
@@ -4539,6 +4558,12 @@ static void i915_gem_free_phys_object(struct drm_device *dev, int id)
 		i915_gem_detach_phys_object(dev, phys_obj->cur_obj);
 	}
 
+#ifdef FREEBSD_WIP
+#ifdef CONFIG_X86
+	set_memory_wb((unsigned long)phys_obj->handle->vaddr, phys_obj->handle->size / PAGE_SIZE);
+#endif
+#endif /* FREEBSD_WIP */
+
 	drm_pci_free(dev, phys_obj->handle);
 	free(phys_obj, DRM_I915_GEM);
 	dev_priv->mm.phys_objs[id - 1] = NULL;
@@ -4742,7 +4767,7 @@ i915_gem_wire_page(vm_object_t object, vm_pindex_t pindex, bool *fresh)
 	page = vm_page_grab(object, pindex, VM_ALLOC_NORMAL);
 	if (page->valid != VM_PAGE_BITS_ALL) {
 		if (vm_pager_has_page(object, pindex, NULL, NULL)) {
-			rv = vm_pager_get_pages(object, &page, 1, 0);
+			rv = vm_pager_get_pages(object, &page, 1, NULL, NULL);
 			if (rv != VM_PAGER_OK) {
 				vm_page_lock(page);
 				vm_page_free(page);

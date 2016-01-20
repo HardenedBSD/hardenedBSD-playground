@@ -26,6 +26,7 @@ LIBC_ARCH=${MACHINE_CPUARCH}
 LIB=c
 SHLIB_MAJOR= 7
 SHLIB_LDSCRIPT=libc.ldscript
+SHLIB_LDSCRIPT_LINKS=libxnet.so
 WARNS?=	2
 CFLAGS+=-I${LIBC_SRCTOP}/include -I${LIBC_SRCTOP}/../../include
 CFLAGS+=-I${LIBC_SRCTOP}/${LIBC_ARCH}
@@ -82,6 +83,7 @@ NOASM=
 .if ${LIBC_ARCH} != "aarch64" && \
     ${LIBC_ARCH} != "amd64" && \
     ${LIBC_ARCH} != "powerpc64" && \
+    ${LIBC_ARCH} != "riscv" && \
     ${LIBC_ARCH} != "sparc64" && \
     ${MACHINE_ARCH:Mmipsn32*} == "" && \
     ${MACHINE_ARCH:Mmips64*} == ""

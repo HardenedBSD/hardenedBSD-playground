@@ -88,6 +88,7 @@ static struct sysentvec elf64_freebsd_sysvec = {
 	.sv_syscallnames = syscallnames,
 	.sv_schedtail	= NULL,
 	.sv_thread_detach = NULL,
+	.sv_trap	= NULL,
 	.sv_pax_aslr_init = pax_aslr_init_vmspace,
 };
 
