@@ -1336,7 +1336,7 @@ digest_phdr(const Elf_Phdr *phdr, int phnum, caddr_t entry, const char *path)
 	break;
     }
 
-    obj->stack_flags = PF_X | PF_R | PF_W;
+    obj->stack_flags = PF_R | PF_W;
 
     for (ph = phdr;  ph < phlimit;  ph++) {
 	switch (ph->p_type) {
