@@ -213,7 +213,7 @@ ttydev_leave(struct tty *tp)
 
 	ttydisc_close(tp);
 
-	/* Destroy associated buffers already. */
+	/* Free i/o queues now since they might be large. */
 	ttyinq_free(&tp->t_inq);
 	tp->t_inlow = 0;
 	ttyoutq_free(&tp->t_outq);
@@ -1031,10 +1031,15 @@ tty_dealloc(void *arg)
 {
 	struct tty *tp = arg;
 
-	/* Make sure we haven't leaked buffers. */
-	MPASS(ttyinq_getsize(&tp->t_inq) == 0);
-	MPASS(ttyoutq_getsize(&tp->t_outq) == 0);
-
+	/*
+	 * ttyydev_leave() usually frees the i/o queues earlier, but it is
+	 * not always called between queue allocation and here.  The queues
+	 * may be allocated by ioctls on a pty control device without the
+	 * corresponding pty slave device ever being open, or after it is
+	 * closed.
+	 */
+	ttyinq_free(&tp->t_inq);
+	ttyoutq_free(&tp->t_outq);
 	seldrain(&tp->t_inpoll);
 	seldrain(&tp->t_outpoll);
 	knlist_destroy(&tp->t_inpoll.si_note);
@@ -2104,9 +2109,11 @@ static struct {
 };
 
 #define	TTY_FLAG_BITS \
-	"\20\1NOPREFIX\2INITLOCK\3CALLOUT\4OPENED_IN\5OPENED_OUT\6GONE" \
-	"\7OPENCLOSE\10ASYNC\11LITERAL\12HIWAT_IN\13HIWAT_OUT\14STOPPED" \
-	"\15EXCLUDE\16BYPASS\17ZOMBIE\20HOOK"
+	"\20\1NOPREFIX\2INITLOCK\3CALLOUT\4OPENED_IN" \
+	"\5OPENED_OUT\6OPENED_CONS\7GONE\10OPENCLOSE" \
+	"\11ASYNC\12LITERAL\13HIWAT_IN\14HIWAT_OUT" \
+	"\15STOPPED\16EXCLUDE\17BYPASS\20ZOMBIE" \
+	"\21HOOK\22BUSY_IN\23BUSY_OUT"
 
 #define DB_PRINTSYM(name, addr) \
 	db_printf("%s  " #name ": ", sep); \
@@ -2169,9 +2176,9 @@ DB_SHOW_COMMAND(tty, db_show_tty)
 	}
 	tp = (struct tty *)addr;
 
-	db_printf("0x%p: %s\n", tp, tty_devname(tp));
+	db_printf("%p: %s\n", tp, tty_devname(tp));
 	db_printf("\tmtx: %p\n", tp->t_mtx);
-	db_printf("\tflags: %b\n", tp->t_flags, TTY_FLAG_BITS);
+	db_printf("\tflags: 0x%b\n", tp->t_flags, TTY_FLAG_BITS);
 	db_printf("\trevokecnt: %u\n", tp->t_revokecnt);
 
 	/* Buffering mechanisms. */
