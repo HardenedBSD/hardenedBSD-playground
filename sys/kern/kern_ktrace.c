@@ -762,10 +762,13 @@ ktrstruct(name, data, datalen)
 
 	if (!data)
 		datalen = 0;
-	buflen = strlen(name) + 1 + datalen;
+
+	namelen = strlen(name);
+
+	buflen = namelen + 1 + datalen;
 	buf = malloc(buflen, M_KTRACE, M_WAITOK);
 	strcpy(buf, name);
-	bcopy(data, buf + strlen(name) + 1, datalen);
+	bcopy(data, buf + namelen + 1, datalen);
 	if ((req = ktr_getrequest(KTR_STRUCT)) == NULL) {
 		free(buf, M_KTRACE);
 		return;
