@@ -758,6 +758,7 @@ ktrstruct(name, data, datalen)
 {
 	struct ktr_request *req;
 	char *buf = NULL;
+	size_t namelen;
 	size_t buflen;
 
 	if (!data)
