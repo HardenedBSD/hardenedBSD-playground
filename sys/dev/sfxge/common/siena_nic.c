@@ -31,7 +31,6 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#include "efsys.h"
 #include "efx.h"
 #include "efx_impl.h"
 #include "mcdi_mon.h"
@@ -170,6 +169,8 @@ siena_board_cfg(
 
 	encp->enc_hw_tx_insert_vlan_enabled = B_FALSE;
 	encp->enc_fw_assisted_tso_enabled = B_FALSE;
+	encp->enc_fw_assisted_tso_v2_enabled = B_FALSE;
+	encp->enc_allow_set_mac_with_installed_filters = B_TRUE;
 
 	return (0);
 
@@ -418,6 +419,8 @@ siena_nic_init(
 	/* bug17057: Ensure set_link is called */
 	if ((rc = siena_phy_reconfigure(enp)) != 0)
 		goto fail2;
+
+	enp->en_nic_cfg.enc_mcdi_max_payload_length = MCDI_CTL_SDU_LEN_MAX_V1;
 
 	return (0);
 

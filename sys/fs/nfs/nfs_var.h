@@ -283,6 +283,7 @@ void nfsv4_getref(struct nfsv4lock *, int *, void *, struct mount *);
 int nfsv4_getref_nonblock(struct nfsv4lock *);
 int nfsv4_testlock(struct nfsv4lock *);
 int nfsrv_mtostr(struct nfsrv_descript *, char *, int);
+void nfsrv_cleanusergroup(void);
 int nfsrv_checkutf8(u_int8_t *, int);
 int newnfs_sndlock(int *);
 void newnfs_sndunlock(int *);
@@ -305,7 +306,7 @@ void nfscl_reqstart(struct nfsrv_descript *, int, struct nfsmount *,
 nfsuint64 *nfscl_getcookie(struct nfsnode *, off_t off, int);
 void nfscl_fillsattr(struct nfsrv_descript *, struct vattr *,
       vnode_t, int, u_int32_t);
-u_int8_t *nfscl_getmyip(struct nfsmount *, int *);
+u_int8_t *nfscl_getmyip(struct nfsmount *, struct in6_addr *, int *);
 int nfsm_getfh(struct nfsrv_descript *, struct nfsfh **);
 int nfscl_mtofh(struct nfsrv_descript *, struct nfsfh **,
         struct nfsvattr *, int *);

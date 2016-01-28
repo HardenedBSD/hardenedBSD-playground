@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2014, by Shawn Webb <shawn.webb at hardenedbsd.org>
- * Copyright (c) 2014, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2014-2016, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,30 +39,16 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/imgact.h>
 #include <sys/imgact_elf.h>
+#include <sys/jail.h>
+#include <sys/ktr.h>
+#include <sys/libkern.h>
 #include <sys/lock.h>
-#include <sys/mutex.h>
-#include <sys/sysent.h>
-#include <sys/syslimits.h>
-#include <sys/stat.h>
+#include <sys/sx.h>
 #include <sys/pax.h>
 #include <sys/proc.h>
-#include <sys/elf_common.h>
-#include <sys/mount.h>
+#include <sys/stat.h>
 #include <sys/sysctl.h>
-#include <sys/vnode.h>
-#include <sys/queue.h>
-#include <sys/libkern.h>
-#include <sys/jail.h>
-#include <sys/mman.h>
-#include <sys/libkern.h>
-#include <sys/exec.h>
-#include <sys/kthread.h>
 
-#include <vm/pmap.h>
-#include <vm/vm_map.h>
-#include <vm/vm_extern.h>
-
-#include <machine/elf.h>
 
 FEATURE(pax_hardening, "Various hardening features.");
 
@@ -103,11 +89,11 @@ pax_hardening_sysinit(void)
 	case PAX_FEATURE_SIMPLE_ENABLED:
 		break;
 	default:
-		printf("[PAX HARDENING] WARNING, invalid settings in loader.conf!"
+		printf("[HBSD HARDENING] WARNING, invalid settings in loader.conf!"
 		    " (hardening.procfs_harden = %d)\n", pax_procfs_harden_global);
 		pax_procfs_harden_global = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[PAX HARDENING] procfs hardening: %s\n",
+	printf("[HBSD HARDENING] procfs hardening: %s\n",
 	    pax_status_simple_str[pax_procfs_harden_global]);
 
 	switch (pax_randomize_pids_global) {
@@ -115,11 +101,11 @@ pax_hardening_sysinit(void)
 	case PAX_FEATURE_SIMPLE_ENABLED:
 		break;
 	default:
-		printf("[PAX HARDENING] WARNING, invalid settings in loader.conf!"
+		printf("[HBSD HARDENING] WARNING, invalid settings in loader.conf!"
 		    " (hardening.randomize_pids = %d)\n", pax_randomize_pids_global);
 		pax_randomize_pids_global = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[PAX HARDENING] randomize pids: %s\n",
+	printf("[HBSD HARDENING] randomize pids: %s\n",
 	    pax_status_simple_str[pax_randomize_pids_global]);
 
 	switch (pax_init_hardening_global) {
@@ -129,7 +115,7 @@ pax_hardening_sysinit(void)
 	default:
 		pax_init_hardening_global = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[PAX HARDENING] unset insecure init variables: %s\n",
+	printf("[HBSD HARDENING] unset insecure init variables: %s\n",
 	    pax_status_simple_str[pax_init_hardening_global]);
 }
 SYSINIT(pax_hardening, SI_SUB_PAX, SI_ORDER_SECOND, pax_hardening_sysinit, NULL);
@@ -192,17 +178,22 @@ pax_procfs_harden(struct thread *td)
 	return (pr->pr_hardening.hr_pax_procfs_harden ? EPERM : 0);
 }
 
-uint32_t
-pax_hardening_setup_flags(struct image_params *imgp, uint32_t mode)
+pax_flag_t
+pax_hardening_setup_flags(struct image_params *imgp, struct thread *td, pax_flag_t mode)
 {
+#if 0
 	struct prison *pr;
-	uint32_t flags, status;
+#endif
+	pax_flag_t flags;
+	uint32_t status;
+
+	KASSERT(imgp->proc == td->td_proc,
+	    ("%s: imgp->proc != td->td_proc", __func__));
 
 	flags = 0;
 	status = 0;
-
-	pr = pax_get_prison(imgp->proc);
 #if 0
+	pr = pax_get_prison_td(td);
 	status = pr->pr_hardening.hr_pax_FOO_status;
 
 	if (status == PAX_FEATURE_DISABLED) {

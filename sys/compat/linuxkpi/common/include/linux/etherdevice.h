@@ -29,6 +29,28 @@
 
 #include <linux/types.h>
 
+#include <sys/random.h>
+#include <sys/libkern.h>
+
+#define	ETH_MODULE_SFF_8079		1
+#define	ETH_MODULE_SFF_8079_LEN		256
+#define	ETH_MODULE_SFF_8472		2
+#define	ETH_MODULE_SFF_8472_LEN		512
+#define	ETH_MODULE_SFF_8636		3
+#define	ETH_MODULE_SFF_8636_LEN		256
+#define	ETH_MODULE_SFF_8436		4
+#define	ETH_MODULE_SFF_8436_LEN		256
+
+struct ethtool_eeprom {
+	u32	offset;
+	u32	len;
+};
+
+struct ethtool_modinfo {
+	u32	type;
+	u32	eeprom_len;
+};
+
 static inline bool 
 is_zero_ether_addr(const u8 * addr)
 {
@@ -57,6 +79,27 @@ static inline void
 ether_addr_copy(u8 * dst, const u8 * src)
 {
 	memcpy(dst, src, 6);
+}
+
+static inline bool
+ether_addr_equal(const u8 *pa, const u8 *pb)
+{
+	return (memcmp(pa, pb, 6) == 0);
+}
+
+static inline bool
+ether_addr_equal_64bits(const u8 *pa, const u8 *pb)
+{
+	return (memcmp(pa, pb, 6) == 0);
+}
+
+static inline void
+random_ether_addr(u8 * dst)
+{
+	read_random(dst, 6);
+
+	dst[0] &= 0xfe;
+	dst[0] |= 0x02;
 }
 
 #endif					/* _LINUX_ETHERDEVICE */

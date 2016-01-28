@@ -2586,6 +2586,25 @@ device		pps
 device		lpbb
 device		pcfclock
 
+#
+# Etherswitch framework and drivers
+#
+# etherswitch	The etherswitch(4) framework
+# miiproxy	Proxy device for miibus(4) functionality
+# 
+# Switch hardware support:
+# arswitch	Atheros switches
+# ip17x 	IC+ 17x family switches
+# rtl8366r	Realtek RTL8366 switches
+# ukswitch	Multi-PHY switches
+#
+device		etherswitch
+device		miiproxy
+device		arswitch
+device		ip17x
+device		rtl8366rb
+device		ukswitch
+
 # Kernel BOOTP support
 
 options 	BOOTP		# Use BOOTP to obtain IP address/hostname
@@ -2739,6 +2758,9 @@ device		rue
 #
 # Davicom DM9601E USB to fast ethernet. Supports the Corega FEther USB-TXC.
 device		udav
+#
+# RealTek RTL8152 USB to fast ethernet.
+device		ure
 #
 # Moschip MCS7730/MCS7840 USB to fast ethernet. Supports the Sitecom LN030.
 device		mos
@@ -3020,4 +3042,5 @@ options 	PAX_SYSCTLS	# Run-time settings for PAX and Hardening
 options 	PAX_PTRACE_HARDENING
 options 	PAX_PTRACE_HARDENING_GRP=50000
 options 	PAX_INSECURE_MODE	# Allow to override INVARIANTS enforcements
+options 	HBSD_DEBUG
 

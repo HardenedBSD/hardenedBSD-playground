@@ -379,13 +379,16 @@ sctp6_ctlinput(int cmd, struct sockaddr *pktdst, void *d)
 		 * XXX: We assume that when IPV6 is non NULL, M and OFF are
 		 * valid.
 		 */
-		/* check if we can safely examine src and dst ports */
 		struct sctp_inpcb *inp = NULL;
 		struct sctp_tcb *stcb = NULL;
 		struct sctp_nets *net = NULL;
 		struct sockaddr_in6 final;
 
 		if (ip6cp->ip6c_m == NULL)
+			return;
+
+		/* Check if we can safely examine the SCTP header. */
+		if (ip6cp->ip6c_m->m_pkthdr.len < ip6cp->ip6c_off + sizeof(sh))
 			return;
 
 		bzero(&sh, sizeof(sh));
@@ -946,7 +949,7 @@ sctp6_connect(struct socket *so, struct sockaddr *addr, struct thread *p)
 		return (EALREADY);
 	}
 	/* We are GOOD to go */
-	stcb = sctp_aloc_assoc(inp, addr, &error, 0, vrf_id, p);
+	stcb = sctp_aloc_assoc(inp, addr, &error, 0, vrf_id, inp->sctp_ep.pre_open_stream_count, p);
 	SCTP_ASOC_CREATE_UNLOCK(inp);
 	if (stcb == NULL) {
 		/* Gak! no memory */

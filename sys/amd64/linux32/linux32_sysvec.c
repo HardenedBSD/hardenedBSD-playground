@@ -232,6 +232,7 @@ elf_linux_fixup(register_t **stack_base, struct image_params *imgp)
 	Elf32_Addr *base;
 	Elf32_Addr *pos;
 	struct linux32_ps_strings *arginfo;
+	int issetugid;
 
 	KASSERT(curthread->td_proc == imgp->proc,
 	    ("unsafe elf_linux_fixup(), should be curproc"));
@@ -241,6 +242,7 @@ elf_linux_fixup(register_t **stack_base, struct image_params *imgp)
 	args = (Elf32_Auxargs *)imgp->auxargs;
 	pos = base + (imgp->args->argc + imgp->args->envc + 2);
 
+	issetugid = imgp->proc->p_flag & P_SUGID ? 1 : 0;
 	AUXARGS_ENTRY_32(pos, LINUX_AT_SYSINFO_EHDR,
 	    imgp->proc->p_shared_page_base);
 	AUXARGS_ENTRY_32(pos, LINUX_AT_SYSINFO, linux32_vsyscall);
@@ -263,7 +265,7 @@ elf_linux_fixup(register_t **stack_base, struct image_params *imgp)
 	AUXARGS_ENTRY_32(pos, AT_FLAGS, args->flags);
 	AUXARGS_ENTRY_32(pos, AT_ENTRY, args->entry);
 	AUXARGS_ENTRY_32(pos, AT_BASE, args->base);
-	AUXARGS_ENTRY_32(pos, LINUX_AT_SECURE, 0);
+	AUXARGS_ENTRY_32(pos, LINUX_AT_SECURE, issetugid);
 	AUXARGS_ENTRY_32(pos, AT_UID, imgp->proc->p_ucred->cr_ruid);
 	AUXARGS_ENTRY_32(pos, AT_EUID, imgp->proc->p_ucred->cr_svuid);
 	AUXARGS_ENTRY_32(pos, AT_GID, imgp->proc->p_ucred->cr_rgid);
@@ -315,7 +317,7 @@ linux_rt_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	 */
 	if ((td->td_pflags & TDP_ALTSTACK) && !oonstack &&
 	    SIGISMEMBER(psp->ps_sigonstack, sig)) {
-		fp = (struct l_rt_sigframe *)(td->td_sigstk.ss_sp +
+		fp = (struct l_rt_sigframe *)((uintptr_t)td->td_sigstk.ss_sp +
 		    td->td_sigstk.ss_size - sizeof(struct l_rt_sigframe));
 	} else
 		fp = (struct l_rt_sigframe *)regs->tf_rsp - 1;
@@ -460,7 +462,7 @@ linux_sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	 */
 	if ((td->td_pflags & TDP_ALTSTACK) && !oonstack &&
 	    SIGISMEMBER(psp->ps_sigonstack, sig)) {
-		fp = (struct l_sigframe *)(td->td_sigstk.ss_sp +
+		fp = (struct l_sigframe *)((uintptr_t)td->td_sigstk.ss_sp +
 		    td->td_sigstk.ss_size - sizeof(struct l_sigframe));
 	} else
 		fp = (struct l_sigframe *)regs->tf_rsp - 1;
@@ -1029,7 +1031,7 @@ struct sysentvec elf_linux_sysvec = {
 	.sv_maxuser	= LINUX32_MAXUSER,
 	.sv_usrstack	= LINUX32_USRSTACK,
 	.sv_psstrings	= LINUX32_PS_STRINGS,
-	.sv_stackprot	= VM_PROT_ALL,
+	.sv_stackprot	= VM_PROT_READ | VM_PROT_WRITE,
 	.sv_copyout_strings = linux_copyout_strings,
 	.sv_setregs	= exec_linux_setregs,
 	.sv_fixlimit	= linux32_fixlimit,
@@ -1042,6 +1044,7 @@ struct sysentvec elf_linux_sysvec = {
 	.sv_shared_page_len = PAGE_SIZE,
 	.sv_schedtail	= linux_schedtail,
 	.sv_thread_detach = linux_thread_detach,
+	.sv_trap	= NULL,	
 	.sv_pax_aslr_init = pax_aslr_init_vmspace32,
 };
 

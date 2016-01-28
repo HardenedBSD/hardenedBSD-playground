@@ -31,7 +31,6 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#include "efsys.h"
 #include "efx.h"
 #include "efx_impl.h"
 
@@ -46,7 +45,8 @@ efx_mcdi_init_rxq(
 	__in		uint32_t target_evq,
 	__in		uint32_t label,
 	__in		uint32_t instance,
-	__in		efsys_mem_t *esmp)
+	__in		efsys_mem_t *esmp,
+	__in		boolean_t disable_scatter)
 {
 	efx_mcdi_req_t req;
 	uint8_t payload[
@@ -71,12 +71,13 @@ efx_mcdi_init_rxq(
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_IN_TARGET_EVQ, target_evq);
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_IN_LABEL, label);
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_IN_INSTANCE, instance);
-	MCDI_IN_POPULATE_DWORD_5(req, INIT_RXQ_IN_FLAGS,
-				    INIT_RXQ_IN_FLAG_BUFF_MODE, 0,
-				    INIT_RXQ_IN_FLAG_HDR_SPLIT, 0,
-				    INIT_RXQ_IN_FLAG_TIMESTAMP, 0,
-				    INIT_RXQ_IN_CRC_MODE, 0,
-				    INIT_RXQ_IN_FLAG_PREFIX, 1);
+	MCDI_IN_POPULATE_DWORD_6(req, INIT_RXQ_IN_FLAGS,
+			    INIT_RXQ_IN_FLAG_BUFF_MODE, 0,
+			    INIT_RXQ_IN_FLAG_HDR_SPLIT, 0,
+			    INIT_RXQ_IN_FLAG_TIMESTAMP, 0,
+			    INIT_RXQ_IN_CRC_MODE, 0,
+			    INIT_RXQ_IN_FLAG_PREFIX, 1,
+			    INIT_RXQ_IN_FLAG_DISABLE_SCATTER, disable_scatter);
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_IN_OWNER_ID, 0);
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_IN_PORT_ID, EVB_PORT_ID_ASSIGNED);
 
@@ -145,13 +146,33 @@ fail1:
 static	__checkReturn	efx_rc_t
 efx_mcdi_rss_context_alloc(
 	__in		efx_nic_t *enp,
+	__in		efx_rx_scale_support_t scale_support,
+	__in		uint32_t num_queues,
 	__out		uint32_t *rss_contextp)
 {
 	efx_mcdi_req_t req;
 	uint8_t payload[MAX(MC_CMD_RSS_CONTEXT_ALLOC_IN_LEN,
 			    MC_CMD_RSS_CONTEXT_ALLOC_OUT_LEN)];
 	uint32_t rss_context;
+	uint32_t context_type;
 	efx_rc_t rc;
+
+	if (num_queues > EFX_MAXRSS) {
+		rc = EINVAL;
+		goto fail1;
+	}
+
+	switch (scale_support) {
+	case EFX_RX_SCALE_EXCLUSIVE:
+		context_type = MC_CMD_RSS_CONTEXT_ALLOC_IN_TYPE_EXCLUSIVE;
+		break;
+	case EFX_RX_SCALE_SHARED:
+		context_type = MC_CMD_RSS_CONTEXT_ALLOC_IN_TYPE_SHARED;
+		break;
+	default:
+		rc = EINVAL;
+		goto fail2;
+	}
 
 	(void) memset(payload, 0, sizeof (payload));
 	req.emr_cmd = MC_CMD_RSS_CONTEXT_ALLOC;
@@ -162,33 +183,36 @@ efx_mcdi_rss_context_alloc(
 
 	MCDI_IN_SET_DWORD(req, RSS_CONTEXT_ALLOC_IN_UPSTREAM_PORT_ID,
 	    EVB_PORT_ID_ASSIGNED);
-	MCDI_IN_SET_DWORD(req, RSS_CONTEXT_ALLOC_IN_TYPE,
-	    MC_CMD_RSS_CONTEXT_ALLOC_IN_TYPE_EXCLUSIVE);
+	MCDI_IN_SET_DWORD(req, RSS_CONTEXT_ALLOC_IN_TYPE, context_type);
 	/* NUM_QUEUES is only used to validate indirection table offsets */
-	MCDI_IN_SET_DWORD(req, RSS_CONTEXT_ALLOC_IN_NUM_QUEUES, 64);
+	MCDI_IN_SET_DWORD(req, RSS_CONTEXT_ALLOC_IN_NUM_QUEUES, num_queues);
 
 	efx_mcdi_execute(enp, &req);
 
 	if (req.emr_rc != 0) {
 		rc = req.emr_rc;
-		goto fail1;
+		goto fail3;
 	}
 
 	if (req.emr_out_length_used < MC_CMD_RSS_CONTEXT_ALLOC_OUT_LEN) {
 		rc = EMSGSIZE;
-		goto fail2;
+		goto fail4;
 	}
 
 	rss_context = MCDI_OUT_DWORD(req, RSS_CONTEXT_ALLOC_OUT_RSS_CONTEXT_ID);
-	if (rss_context == HUNTINGTON_RSS_CONTEXT_INVALID) {
+	if (rss_context == EF10_RSS_CONTEXT_INVALID) {
 		rc = ENOENT;
-		goto fail3;
+		goto fail5;
 	}
 
 	*rss_contextp = rss_context;
 
 	return (0);
 
+fail5:
+	EFSYS_PROBE(fail5);
+fail4:
+	EFSYS_PROBE(fail4);
 fail3:
 	EFSYS_PROBE(fail3);
 fail2:
@@ -211,7 +235,7 @@ efx_mcdi_rss_context_free(
 			    MC_CMD_RSS_CONTEXT_FREE_OUT_LEN)];
 	efx_rc_t rc;
 
-	if (rss_context == HUNTINGTON_RSS_CONTEXT_INVALID) {
+	if (rss_context == EF10_RSS_CONTEXT_INVALID) {
 		rc = EINVAL;
 		goto fail1;
 	}
@@ -255,7 +279,7 @@ efx_mcdi_rss_context_set_flags(
 			    MC_CMD_RSS_CONTEXT_SET_FLAGS_OUT_LEN)];
 	efx_rc_t rc;
 
-	if (rss_context == HUNTINGTON_RSS_CONTEXT_INVALID) {
+	if (rss_context == EF10_RSS_CONTEXT_INVALID) {
 		rc = EINVAL;
 		goto fail1;
 	}
@@ -311,7 +335,7 @@ efx_mcdi_rss_context_set_key(
 			    MC_CMD_RSS_CONTEXT_SET_KEY_OUT_LEN)];
 	efx_rc_t rc;
 
-	if (rss_context == HUNTINGTON_RSS_CONTEXT_INVALID) {
+	if (rss_context == EF10_RSS_CONTEXT_INVALID) {
 		rc = EINVAL;
 		goto fail1;
 	}
@@ -369,7 +393,7 @@ efx_mcdi_rss_context_set_table(
 	uint8_t *req_table;
 	int i, rc;
 
-	if (rss_context == HUNTINGTON_RSS_CONTEXT_INVALID) {
+	if (rss_context == EF10_RSS_CONTEXT_INVALID) {
 		rc = EINVAL;
 		goto fail1;
 	}
@@ -413,12 +437,13 @@ fail1:
 
 
 	__checkReturn	efx_rc_t
-hunt_rx_init(
+ef10_rx_init(
 	__in		efx_nic_t *enp)
 {
 #if EFSYS_OPT_RX_SCALE
 
-	if (efx_mcdi_rss_context_alloc(enp, &enp->en_rss_context) == 0) {
+	if (efx_mcdi_rss_context_alloc(enp, EFX_RX_SCALE_EXCLUSIVE, EFX_MAXRSS,
+		&enp->en_rss_context) == 0) {
 		/*
 		 * Allocated an exclusive RSS context, which allows both the
 		 * indirection table and key to be modified.
@@ -440,35 +465,9 @@ hunt_rx_init(
 	return (0);
 }
 
-#if EFSYS_OPT_RX_HDR_SPLIT
-	__checkReturn	efx_rc_t
-hunt_rx_hdr_split_enable(
-	__in		efx_nic_t *enp,
-	__in		unsigned int hdr_buf_size,
-	__in		unsigned int pld_buf_size)
-{
-	efx_rc_t rc;
-
-	/* FIXME */
-	_NOTE(ARGUNUSED(enp, hdr_buf_size, pld_buf_size))
-	if (B_FALSE) {
-		rc = ENOTSUP;
-		goto fail1;
-	}
-	/* FIXME */
-
-	return (0);
-
-fail1:
-	EFSYS_PROBE1(fail1, efx_rc_t, rc);
-
-	return (rc);
-}
-#endif	/* EFSYS_OPT_RX_HDR_SPLIT */
-
 #if EFSYS_OPT_RX_SCATTER
 	__checkReturn	efx_rc_t
-hunt_rx_scatter_enable(
+ef10_rx_scatter_enable(
 	__in		efx_nic_t *enp,
 	__in		unsigned int buf_size)
 {
@@ -479,7 +478,7 @@ hunt_rx_scatter_enable(
 
 #if EFSYS_OPT_RX_SCALE
 	__checkReturn	efx_rc_t
-hunt_rx_scale_mode_set(
+ef10_rx_scale_mode_set(
 	__in		efx_nic_t *enp,
 	__in		efx_rx_hash_alg_t alg,
 	__in		efx_rx_hash_type_t type,
@@ -519,7 +518,7 @@ fail1:
 
 #if EFSYS_OPT_RX_SCALE
 	__checkReturn	efx_rc_t
-hunt_rx_scale_key_set(
+ef10_rx_scale_key_set(
 	__in		efx_nic_t *enp,
 	__in_ecount(n)	uint8_t *key,
 	__in		size_t n)
@@ -548,7 +547,7 @@ fail1:
 
 #if EFSYS_OPT_RX_SCALE
 	__checkReturn	efx_rc_t
-hunt_rx_scale_tbl_set(
+ef10_rx_scale_tbl_set(
 	__in		efx_nic_t *enp,
 	__in_ecount(n)	unsigned int *table,
 	__in		size_t n)
@@ -575,8 +574,67 @@ fail1:
 }
 #endif /* EFSYS_OPT_RX_SCALE */
 
+
+/*
+ * EF10 RX pseudo-header
+ * ---------------------
+ *
+ * Receive packets are prefixed by an (optional) 14 byte pseudo-header:
+ *
+ *  +00: Toeplitz hash value.
+ *       (32bit little-endian)
+ *  +04: Outer VLAN tag. Zero if the packet did not have an outer VLAN tag.
+ *       (16bit big-endian)
+ *  +06: Inner VLAN tag. Zero if the packet did not have an inner VLAN tag.
+ *       (16bit big-endian)
+ *  +08: Packet Length. Zero if the RX datapath was in cut-through mode.
+ *       (16bit little-endian)
+ *  +10: MAC timestamp. Zero if timestamping is not enabled.
+ *       (32bit little-endian)
+ *
+ * See "The RX Pseudo-header" in SF-109306-TC.
+ */
+
+	__checkReturn	efx_rc_t
+ef10_rx_prefix_pktlen(
+	__in		efx_nic_t *enp,
+	__in		uint8_t *buffer,
+	__out		uint16_t *lengthp)
+{
+	/*
+	 * The RX pseudo-header contains the packet length, excluding the
+	 * pseudo-header. If the hardware receive datapath was operating in
+	 * cut-through mode then the length in the RX pseudo-header will be
+	 * zero, and the packet length must be obtained from the DMA length
+	 * reported in the RX event.
+	 */
+	*lengthp = buffer[8] | (buffer[9] << 8);
+	return (0);
+}
+
+#if EFSYS_OPT_RX_SCALE
+	__checkReturn	uint32_t
+ef10_rx_prefix_hash(
+	__in		efx_nic_t *enp,
+	__in		efx_rx_hash_alg_t func,
+	__in		uint8_t *buffer)
+{
+	switch (func) {
+	case EFX_RX_HASHALG_TOEPLITZ:
+		return (buffer[0] |
+		    (buffer[1] << 8) |
+		    (buffer[2] << 16) |
+		    (buffer[3] << 24));
+
+	default:
+		EFSYS_ASSERT(0);
+		return (0);
+	}
+}
+#endif /* EFSYS_OPT_RX_SCALE */
+
 			void
-hunt_rx_qpost(
+ef10_rx_qpost(
 	__in		efx_rxq_t *erp,
 	__in_ecount(n)	efsys_dma_addr_t *addrp,
 	__in		size_t size,
@@ -614,7 +672,7 @@ hunt_rx_qpost(
 }
 
 			void
-hunt_rx_qpush(
+ef10_rx_qpush(
 	__in	efx_rxq_t *erp,
 	__in	unsigned int added,
 	__inout	unsigned int *pushedp)
@@ -625,7 +683,7 @@ hunt_rx_qpush(
 	efx_dword_t dword;
 
 	/* Hardware has alignment restriction for WPTR */
-	wptr = P2ALIGN(added, HUNTINGTON_RX_WPTR_ALIGN);
+	wptr = P2ALIGN(added, EF10_RX_WPTR_ALIGN);
 	if (pushed == wptr)
 		return;
 
@@ -645,7 +703,7 @@ hunt_rx_qpush(
 }
 
 	__checkReturn	efx_rc_t
-hunt_rx_qflush(
+ef10_rx_qflush(
 	__in	efx_rxq_t *erp)
 {
 	efx_nic_t *enp = erp->er_enp;
@@ -663,7 +721,7 @@ fail1:
 }
 
 		void
-hunt_rx_qenable(
+ef10_rx_qenable(
 	__in	efx_rxq_t *erp)
 {
 	/* FIXME */
@@ -672,7 +730,7 @@ hunt_rx_qenable(
 }
 
 	__checkReturn	efx_rc_t
-hunt_rx_qcreate(
+ef10_rx_qcreate(
 	__in		efx_nic_t *enp,
 	__in		unsigned int index,
 	__in		unsigned int label,
@@ -685,6 +743,7 @@ hunt_rx_qcreate(
 {
 	efx_nic_cfg_t *encp = &(enp->en_nic_cfg);
 	efx_rc_t rc;
+	boolean_t disable_scatter;
 
 	_NOTE(ARGUNUSED(erp))
 
@@ -704,20 +763,22 @@ hunt_rx_qcreate(
 		goto fail2;
 	}
 
-	/*
-	 * FIXME: Siena code handles different queue types (default, header
-	 * split, scatter); we'll need to do something more here later, but
-	 * all that stuff is TBD for now.
-	 */
+	/* Scatter can only be disabled if the firmware supports doing so */
+	if ((type != EFX_RXQ_TYPE_SCATTER) &&
+	    enp->en_nic_cfg.enc_rx_disable_scatter_supported) {
+		disable_scatter = B_TRUE;
+	} else {
+		disable_scatter = B_FALSE;
+	}
 
 	if ((rc = efx_mcdi_init_rxq(enp, n, eep->ee_index, label, index,
-	    esmp)) != 0)
+	    esmp, disable_scatter)) != 0)
 		goto fail3;
 
 	erp->er_eep = eep;
 	erp->er_label = label;
 
-	hunt_ev_rxlabel_init(eep, erp, label);
+	ef10_ev_rxlabel_init(eep, erp, label);
 
 	return (0);
 
@@ -732,14 +793,14 @@ fail1:
 }
 
 		void
-hunt_rx_qdestroy(
+ef10_rx_qdestroy(
 	__in	efx_rxq_t *erp)
 {
 	efx_nic_t *enp = erp->er_enp;
 	efx_evq_t *eep = erp->er_eep;
 	unsigned int label = erp->er_label;
 
-	hunt_ev_rxlabel_fini(eep, label);
+	ef10_ev_rxlabel_fini(eep, label);
 
 	EFSYS_ASSERT(enp->en_rx_qcount != 0);
 	--enp->en_rx_qcount;
@@ -748,7 +809,7 @@ hunt_rx_qdestroy(
 }
 
 		void
-hunt_rx_fini(
+ef10_rx_fini(
 	__in	efx_nic_t *enp)
 {
 #if EFSYS_OPT_RX_SCALE

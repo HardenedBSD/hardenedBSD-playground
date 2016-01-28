@@ -66,6 +66,10 @@ __FBSDID("$FreeBSD$");
 #include <machine/db_machdep.h>
 #endif
 
+#ifdef KDTRACE_HOOKS
+#include <sys/dtrace_bsd.h>
+#endif
+
 extern char fusubailout[];
 extern char cachebailout[];
 
@@ -255,7 +259,7 @@ abort_debug(struct trapframe *tf, u_int fsr, u_int prefetch, bool usermode,
 		userret(td, tf);
 	} else {
 #ifdef KDB
-		kdb_trap(T_BREAKPOINT, 0, tf);
+		kdb_trap((prefetch) ? T_BREAKPOINT : T_WATCHPOINT, 0, tf);
 #else
 		printf("No debugger in kernel.\n");
 #endif
@@ -332,14 +336,10 @@ abort_handler(struct trapframe *tf, int prefetch)
 
 #ifdef ARM_NEW_PMAP
 	rv = pmap_fault(PCPU_GET(curpmap), far, fsr, idx, usermode);
-	if (rv == 0) {
+	if (rv == KERN_SUCCESS)
 		return;
-	} else if (rv == EFAULT) {
-
-		call_trapsignal(td, SIGSEGV, SEGV_MAPERR, far);
-		userret(td, tf);
-		return;
-	}
+	if (rv == KERN_INVALID_ADDRESS)
+		goto nogo;
 #endif
 	/*
 	 * Now, when we handled imprecise and debug aborts, the rest of
@@ -448,7 +448,6 @@ abort_handler(struct trapframe *tf, int prefetch)
 	 */
 
 	/* fusubailout is used by [fs]uswintr to avoid page faulting. */
-	pcb = td->td_pcb;
 	if (__predict_false(pcb->pcb_onfault == fusubailout)) {
 		tf->tf_r0 = EFAULT;
 		tf->tf_pc = (register_t)pcb->pcb_onfault;
@@ -561,6 +560,13 @@ abort_fatal(struct trapframe *tf, u_int idx, u_int fsr, u_int far,
 	const char *rw_mode;
 
 	usermode = TRAPF_USERMODE(tf);
+#ifdef KDTRACE_HOOKS
+	if (!usermode) {
+		if (dtrace_trap_func != NULL && (*dtrace_trap_func)(tf, far))
+			return (0);
+	}
+#endif
+
 	mode = usermode ? "user" : "kernel";
 	rw_mode  = fsr & FSR_WNR ? "write" : "read";
 	disable_interrupts(PSR_I|PSR_F);

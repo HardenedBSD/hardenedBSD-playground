@@ -7,6 +7,7 @@ SUBDIR=	adduser \
 	arp \
 	binmiscctl \
 	bsdconfig \
+	camdd \
 	cdcontrol \
 	chkgrp \
 	chown \
@@ -32,6 +33,7 @@ SUBDIR=	adduser \
 	getfmac \
 	getpmac \
 	gstat \
+	hbsd-update \
 	i2c \
 	ifmcstat \
 	iostat \
@@ -45,6 +47,7 @@ SUBDIR=	adduser \
 	mixer \
 	mlxcontrol \
 	mountd \
+	mount_smbfs \
 	mpsutil \
 	mptutil \
 	mtest \
@@ -192,7 +195,9 @@ SUBDIR.${MK_TIMED}+=	timed
 SUBDIR.${MK_TOOLCHAIN}+=	config
 SUBDIR.${MK_TOOLCHAIN}+=	crunch
 SUBDIR.${MK_UNBOUND}+=	unbound
+.if !(${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} >= 50200)
 SUBDIR.${MK_USB}+=	uathload
+.endif
 SUBDIR.${MK_USB}+=	uhsoctl
 SUBDIR.${MK_USB}+=	usbconfig
 SUBDIR.${MK_USB}+=	usbdump

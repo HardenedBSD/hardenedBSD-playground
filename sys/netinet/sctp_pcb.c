@@ -2256,7 +2256,6 @@ sctp_findassociation_addr(struct mbuf *m, int offset,
     struct sctphdr *sh, struct sctp_chunkhdr *ch,
     struct sctp_inpcb **inp_p, struct sctp_nets **netp, uint32_t vrf_id)
 {
-	int find_tcp_pool;
 	struct sctp_tcb *stcb;
 	struct sctp_inpcb *inp;
 
@@ -2268,21 +2267,13 @@ sctp_findassociation_addr(struct mbuf *m, int offset,
 			return (stcb);
 		}
 	}
-	find_tcp_pool = 0;
-	if ((ch->chunk_type != SCTP_INITIATION) &&
-	    (ch->chunk_type != SCTP_INITIATION_ACK) &&
-	    (ch->chunk_type != SCTP_COOKIE_ACK) &&
-	    (ch->chunk_type != SCTP_COOKIE_ECHO)) {
-		/* Other chunk types go to the tcp pool. */
-		find_tcp_pool = 1;
-	}
 	if (inp_p) {
 		stcb = sctp_findassociation_addr_sa(src, dst, inp_p, netp,
-		    find_tcp_pool, vrf_id);
+		    1, vrf_id);
 		inp = *inp_p;
 	} else {
 		stcb = sctp_findassociation_addr_sa(src, dst, &inp, netp,
-		    find_tcp_pool, vrf_id);
+		    1, vrf_id);
 	}
 	SCTPDBG(SCTP_DEBUG_PCB1, "stcb:%p inp:%p\n", (void *)stcb, (void *)inp);
 	if (stcb == NULL && inp) {
@@ -4160,6 +4151,7 @@ try_again:
 struct sctp_tcb *
 sctp_aloc_assoc(struct sctp_inpcb *inp, struct sockaddr *firstaddr,
     int *error, uint32_t override_tag, uint32_t vrf_id,
+    uint16_t o_streams,
     struct thread *p
 )
 {
@@ -4318,7 +4310,7 @@ sctp_aloc_assoc(struct sctp_inpcb *inp, struct sockaddr *firstaddr,
 	/* setup back pointer's */
 	stcb->sctp_ep = inp;
 	stcb->sctp_socket = inp->sctp_socket;
-	if ((err = sctp_init_asoc(inp, stcb, override_tag, vrf_id))) {
+	if ((err = sctp_init_asoc(inp, stcb, override_tag, vrf_id, o_streams))) {
 		/* failed */
 		SCTP_TCB_LOCK_DESTROY(stcb);
 		SCTP_TCB_SEND_LOCK_DESTROY(stcb);

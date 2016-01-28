@@ -17,10 +17,10 @@
     ..
     lib
         clang
-            3.7.0
+            3.7.1
                 include
-			sanitizer
-			..
+                    sanitizer
+                    ..
                 ..
                 lib
                     freebsd
@@ -499,6 +499,12 @@
         info
         ..
         keys
+            hbsd-update
+                revoked
+                ..
+                trusted
+                ..
+            ..
             pkg
                 revoked
                 ..
@@ -1099,8 +1105,6 @@
             ..
             man9
             ..
-        ..
-        mdocml
         ..
         misc
             fonts
