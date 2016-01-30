@@ -631,17 +631,20 @@ tdfx_query_update(u_int cmd, struct tdfx_pio_data *piod)
 	 * at once to the ports */
 	switch (piod->size) {
 		case 1:
-			copyin(piod->value, &ret_byte, 1);
+			if (copyin(piod->value, &ret_byte, 1))
+				return -EFAULT;
 			preval = ret_byte << (8 * (piod->port & 0x3));
 			mask = 0xff << (8 * (piod->port & 0x3));
 			break;
 		case 2:
-			copyin(piod->value, &ret_word, 2);
+			if (copyin(piod->value, &ret_word, 2))
+				return -EFAULT;
 			preval = ret_word << (8 * (piod->port & 0x3));
 			mask = 0xffff << (8 * (piod->port & 0x3));
 			break;
 		case 4:
-			copyin(piod->value, &ret_dword, 4);
+			if (copyin(piod->value, &ret_dword, 4))
+				return -EFAULT;
 			preval = ret_dword;
 			mask = ~0;
 			break;
