@@ -710,7 +710,8 @@ tdfx_do_pio_wt(struct tdfx_pio_data *piod)
 	}
 
 	/* Write the data to the intended port */
-	copyin(piod->value, &ret_byte, sizeof(u_int8_t));
+	if (copyin(piod->value, &ret_byte, sizeof(u_int8_t)))
+		return -EFAULT;
 	workport = piod->port;
 	outb(workport, ret_byte);
 	return 0;
