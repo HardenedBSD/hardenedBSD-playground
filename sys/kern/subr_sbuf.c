@@ -186,7 +186,7 @@ sbuf_extend(struct sbuf *s, int addlen)
  * big enough to hold at least length characters.
  */
 static struct sbuf *
-sbuf_newbuf(struct sbuf *s, char *buf, int length, int flags)
+sbuf_newbuf(struct sbuf *s, char *buf, ssize_t length, int flags)
 {
 
 	memset(s, 0, sizeof(*s));
@@ -219,7 +219,7 @@ sbuf_newbuf(struct sbuf *s, char *buf, int length, int flags)
  * big enough to hold at least length characters.
  */
 struct sbuf *
-sbuf_new(struct sbuf *s, char *buf, int length, int flags)
+sbuf_new(struct sbuf *s, char *buf, ssize_t length, int flags)
 {
 
 	KASSERT(length >= 0,
