@@ -223,7 +223,7 @@ sbuf_new(struct sbuf *s, char *buf, ssize_t length, int flags)
 {
 
 	KASSERT(length >= 0,
-	    ("attempt to create an sbuf of negative length (%d)", length));
+	    ("attempt to create an sbuf of negative length (%zd)", length));
 	KASSERT((flags & ~SBUF_USRFLAGMSK) == 0,
 	    ("%s called with invalid flags", __func__));
 
