@@ -70,7 +70,7 @@ __BEGIN_DECLS
 /*
  * API functions
  */
-struct sbuf	*sbuf_new(struct sbuf *, char *, int, int);
+struct sbuf	*sbuf_new(struct sbuf *, char *, ssize_t, int);
 #define		 sbuf_new_auto()				\
 	sbuf_new(NULL, NULL, 0, SBUF_AUTOEXTEND)
 int		 sbuf_get_flags(struct sbuf *);
