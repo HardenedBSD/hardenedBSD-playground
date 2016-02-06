@@ -811,7 +811,7 @@ zfs_create_diskpart()
 		fi
 
 		#
-		# 2. Add small freebsd-boot partition labeled `boot#'
+		# 2. Add small freebsd-boot or efi partition
 		#
 		if [ "$ZFSBOOT_BOOT_TYPE" = "UEFI" ]; then
 			f_eval_catch $funcname gpart \
