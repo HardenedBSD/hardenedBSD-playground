@@ -119,9 +119,7 @@ sys_fork(struct thread *td, struct fork_args *uap)
 
 /* ARGUSED */
 int
-sys_pdfork(td, uap)
-	struct thread *td;
-	struct pdfork_args *uap;
+sys_pdfork(struct thread *td, struct pdfork_args *uap)
 {
 	struct fork_req fr;
 	int error, fd, pid;
@@ -1056,10 +1054,10 @@ fork_exit(void (*callout)(void *, struct trapframe *), void *arg,
 	 * Check if a kernel thread misbehaved and returned from its main
 	 * function.
 	 */
-	if (p->p_flag & P_KTHREAD) {
+	if (p->p_flag & P_KPROC) {
 		printf("Kernel thread \"%s\" (pid %d) exited prematurely.\n",
 		    td->td_name, p->p_pid);
-		kproc_exit(0);
+		kthread_exit();
 	}
 	mtx_assert(&Giant, MA_NOTOWNED);
 
