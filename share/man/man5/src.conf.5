@@ -650,9 +650,9 @@ Set to build bootloaders without Forth support.
 Set to build
 .Nm libc
 without floating-point support.
-.It Va WITHOUT_FREEBSD_UPDATE
-.\" from FreeBSD: head/tools/build/options/WITHOUT_FREEBSD_UPDATE 183242 2008-09-21 22:02:26Z sam
-Set to not build
+.It Va WITH_FREEBSD_UPDATE
+.\" from FreeBSD: head/tools/build/options/WITH_FREEBSD_UPDATE
+Set to build
 .Xr freebsd-update 8 .
 .It Va WITHOUT_FTP
 .\" from FreeBSD: head/tools/build/options/WITHOUT_FTP 278192 2015-02-04 10:19:32Z ngie
@@ -762,6 +762,12 @@ Set to not build libgssapi.
 Set to not build
 .Xr hastd 8
 and related utilities.
+.It Va WITHOUT_HBSD_UPDATE
+.\" from HardenedBSD: head/tools/build/options/WITHOUT_HBSD_UPDATE
+Set to not build
+.Xr hbsd-update 8
+and
+.Xr hbsd-update-build 8 .
 .It Va WITH_HESIOD
 .\" from FreeBSD: head/tools/build/options/WITH_HESIOD 156932 2006-03-21 07:50:50Z ru
 Set to build Hesiod support.
@@ -922,9 +928,9 @@ Set to not build programs that support a legacy PC console; e.g.,
 .Xr kbdcontrol 8
 and
 .Xr vidcontrol 8 .
-.It Va WITHOUT_LIB32
-.\" from FreeBSD: head/tools/build/options/WITHOUT_LIB32 274664 2014-11-18 17:06:48Z imp
-On 64-bit platforms, set to not build 32-bit library set and a
+.It Va WITH_LIB32
+.\" from HardenedBSD: head/tools/build/options/WITH_LIB32
+On 64-bit platforms, set to build 32-bit library set and a
 .Nm ld-elf32.so.1
 runtime linker.
 .It Va WITHOUT_LIBCPLUSPLUS
@@ -1193,8 +1199,8 @@ Set to not build
 .Xr pmccontrol 8
 and related programs.
 .It Va WITHOUT_PORTSNAP
-.\" from FreeBSD: head/tools/build/options/WITHOUT_PORTSNAP 183242 2008-09-21 22:02:26Z sam
-Set to not build or install
+.\" from FreeBSD: head/tools/build/options/WITH_PORTSNAP
+Set to build or install
 .Xr portsnap 8
 and related files.
 .It Va WITHOUT_PPP

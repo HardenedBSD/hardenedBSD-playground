@@ -69,6 +69,14 @@ static int pax_check_conflicting_modes(const pax_flag_t mode);
 CTASSERT((sizeof((struct proc *)NULL)->p_pax) == sizeof(pax_flag_t));
 CTASSERT((sizeof((struct thread *)NULL)->td_pax) == sizeof(pax_flag_t));
 
+/*
+ * The PAX_HARDENING_{,NO}SHLIBRANDOM flags are
+ * used from rtld.
+ */
+CTASSERT(PAX_NOTE_SHLIBRANDOM == PAX_HARDENING_SHLIBRANDOM);
+CTASSERT(PAX_NOTE_NOSHLIBRANDOM == PAX_HARDENING_NOSHLIBRANDOM);
+
+
 SYSCTL_NODE(_hardening, OID_AUTO, pax, CTLFLAG_RD, 0,
     "PaX (exploit mitigation) features.");
 
@@ -80,7 +88,6 @@ const char *pax_status_str[] = {
 	[PAX_FEATURE_OPTIN] = "opt-in",
 	[PAX_FEATURE_OPTOUT] = "opt-out",
 	[PAX_FEATURE_FORCE_ENABLED] = "force enabled",
-	[PAX_FEATURE_UNKNOWN_STATUS] = "UNKNOWN -> changed to \"force enabled\""
 };
 
 const char *pax_status_simple_str[] = {
@@ -288,10 +295,6 @@ pax_elf(struct image_params *imgp, struct thread *td, pax_flag_t mode)
 	flags |= pax_segvguard_setup_flags(imgp, td, mode);
 #endif
 
-#ifdef PAX_HARDENING
-	flags |= pax_hardening_setup_flags(imgp, td, mode);
-#endif
-
 	CTR3(KTR_PAX, "%s : flags = %x mode = %x",
 	    __func__, flags, mode);
 
@@ -345,7 +348,7 @@ pax_sysinit(void)
 {
 
 	printf("HBSD: initialize and check HardenedBSD features (version %"PRIu64").\n",
-	    __HardenedBSD_version);
+	    (uint64_t)__HardenedBSD_version);
 }
 SYSINIT(pax, SI_SUB_PAX, SI_ORDER_FIRST, pax_sysinit, NULL);
 
@@ -370,7 +373,6 @@ pax_init_prison(struct prison *pr)
 	pax_hardening_init_prison(pr);
 	pax_noexec_init_prison(pr);
 	pax_segvguard_init_prison(pr);
-	pax_ptrace_hardening_init_prison(pr);
 
 #ifdef COMPAT_FREEBSD32
 	pax_aslr_init_prison32(pr);

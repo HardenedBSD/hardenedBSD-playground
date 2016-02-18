@@ -32,31 +32,41 @@
 #ifndef	_SYS_PAX_H
 #define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	40UL
+#define	__HardenedBSD_version	41UL
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
-struct hardening_features {
-	int	 hr_pax_aslr_status;		/* (p) PaX ASLR enabled */
-	int	 hr_pax_aslr_mmap_len;		/* (p) Number of bits randomized with mmap */
-	int	 hr_pax_aslr_stack_len;		/* (p) Number of bits randomized with stack */
-	int	 hr_pax_aslr_exec_len;		/* (p) Number of bits randomized with the execbase */
-	int	 hr_pax_aslr_vdso_len;		/* (p) Number of bits randomized with the VDSO */
-	int	 hr_pax_aslr_map32bit_len;	/* (p) Number of bits randomized with MAP_32BIT mmap */
-	int	 hr_pax_aslr_compat_status;	/* (p) PaX ASLR enabled (compat32) */
-	int	 hr_pax_aslr_compat_mmap_len;	/* (p) Number of bits randomized with mmap (compat32) */
-	int	 hr_pax_aslr_compat_stack_len;	/* (p) Number of bits randomized with stack (compat32) */
-	int	 hr_pax_aslr_compat_exec_len;	/* (p) Number of bits randomized with the execbase (compat32) */
-	int	 hr_pax_aslr_compat_vdso_len;	/* (p) Number of bits randomized with the VDSO (compat32) */
-	int	 hr_pax_segvguard_status;       /* (p) PaX segvguard enabled */
-	int	 hr_pax_segvguard_expiry;       /* (p) Number of seconds to expire an entry */
-	int	 hr_pax_segvguard_suspension;   /* (p) Number of seconds to suspend an application */
-	int	 hr_pax_segvguard_maxcrashes;   /* (p) Maximum number of crashes before suspending application */
-	int	 hr_pax_pageexec_status;	/* (p) Remove WX pages from user-space */
-	int	 hr_pax_mprotect_status;	/* (p) Enforce W^X mappings */
-	int	 hr_pax_disallow_map32bit_status;	/* (p) MAP_32BIT protection (amd64 only) */
-	int	 hr_pax_procfs_harden;		/* (p) Harden procfs */
-	int	 hr_pax_ptrace_hardening_status;	/* (p) Disallow unprivileged ptrace */
-	gid_t	 hr_pax_ptrace_hardening_gid;	/* (p) Allowed ptrace users group */
+struct hbsd_features {
+	struct hbsd_aslr {
+		int	 status;	/* (p) PaX ASLR enabled */
+		int	 mmap_len;	/* (p) num of bits randomized with mmap */
+		int	 stack_len;	/* (p) num of bits randomized with stack */
+		int	 exec_len;	/* (p) num of bits randomized with execbase */
+		int	 vdso_len;	/* (p) num of bits randomized with VDSO */
+		int	 map32bit_len;	/* (p) num of bits randomized with MAP_32BIT mmap */
+		int	 compat_status;	/* (p) PaX ASLR enabled (compat32) */
+		int	 compat_mmap_len; /* (p) num of bits randomized with mmap (compat32) */
+		int	 compat_stack_len;/* (p) num of bits randomized with stack (compat32) */
+		int	 compat_exec_len; /* (p) num of bits randomized with execbase (compat32) */
+		int	 compat_vdso_len; /* (p) num of bits randomized with VDSO (compat32) */
+		int	 disallow_map32bit_status; /* (p) MAP_32BIT protection (__LP64__ only) */
+	} aslr;
+	struct hbsd_segvguard {
+		int	 status;       /* (p) PaX segvguard enabled */
+		int	 expiry;       /* (p) num of seconds to expire an entry */
+		int	 suspension;   /* (p) num of seconds to suspend an application */
+		int	 maxcrashes;   /* (p) Maximum number of crashes before suspending application */
+	} segvguard;
+	struct hbsd_noexec {
+		int	 pageexec_status;	/* (p) Remove WX pages from user-space */
+		int	 mprotect_status;	/* (p) Enforce W^X mappings */
+	} noexec;
+	struct hbsd_hardening {
+		int	 procfs_harden;		/* (p) Harden procfs */
+	} hardening;
+	struct hbsd_log {
+		int	log;		/* (p) Per-jail logging status */
+		int	ulog;		/* (p) Per-jail user visible logging status */
+	} log;
 };
 #endif
 
@@ -80,7 +90,6 @@ typedef	uint32_t	pax_flag_t;
 #define	PAX_FEATURE_OPTIN		1
 #define	PAX_FEATURE_OPTOUT		2
 #define	PAX_FEATURE_FORCE_ENABLED	3
-#define	PAX_FEATURE_UNKNOWN_STATUS	4
 
 extern const char *pax_status_str[];
 
@@ -125,6 +134,7 @@ void pax_aslr_stack(struct proc *p, vm_offset_t *addr);
 void pax_aslr_stack_with_gap(struct proc *p, vm_offset_t *addr);
 void pax_aslr_vdso(struct proc *p, vm_offset_t *addr);
 pax_flag_t pax_disallow_map32bit_setup_flags(struct image_params *imgp, struct thread *td, pax_flag_t mode);
+bool pax_disallow_map32bit_active(struct thread *td, int mmap_flags);
 
 /*
  * Log related functions
@@ -139,6 +149,7 @@ typedef	uint64_t	pax_log_settings_t;
 #define	PAX_LOG_NO_P_PAX	0x00000008
 #define	PAX_LOG_NO_INDENT	0x00000010
 
+void pax_log_init_prison(struct prison *pr);
 void pax_printf_flags(struct proc *p, pax_log_settings_t flags);
 void pax_printf_flags_td(struct thread *td, pax_log_settings_t flags);
 void pax_db_printf_flags(struct proc *p, pax_log_settings_t flags);
@@ -155,9 +166,6 @@ void pax_log_mprotect(struct proc *, pax_log_settings_t flags, const char *fmt, 
 void pax_ulog_mprotect(const char *fmt, ...) __printflike(1, 2);
 void pax_log_segvguard(struct proc *, pax_log_settings_t flags, const char *fmt, ...) __printflike(3, 4);
 void pax_ulog_segvguard(const char *fmt, ...) __printflike(1, 2);
-void pax_log_ptrace_hardening(struct proc *, pax_log_settings_t flags, const char *fmt, ...) __printflike(3, 4);
-void pax_ulog_ptrace_hardening(const char *fmt, ...) __printflike(1, 2);
-
 
 /*
  * SegvGuard related functions
@@ -198,22 +206,7 @@ void pax_hardening_init_prison(struct prison *pr);
 #else
 #define	pax_hardening_init_prison(pr)	do {} while (0)
 #endif
-bool pax_disallow_map32bit_active(struct thread *td, int mmap_flags);
-int pax_mprotect_exec_harden(struct thread *td);
 int pax_procfs_harden(struct thread *td);
-pax_flag_t pax_hardening_setup_flags(struct image_params *imgp, struct thread *td, pax_flag_t mode);
-
-/*
- * ptrace hardening related functions
- */
-#if defined(PAX_PTRACE_HARDENING) || defined(PAX_PTRACE_HARDENING_GRP)
-void pax_ptrace_hardening_init_prison(struct prison *pr);
-#else
-#define	pax_ptrace_hardening_init_prison(pr)	do {} while (0)
-#endif
-int pax_ptrace_hardening(struct thread *td);
-
-#endif /* _KERNEL */
 
 #define	PAX_NOTE_PAGEEXEC	0x00000001
 #define	PAX_NOTE_NOPAGEEXEC	0x00000002
@@ -239,5 +232,10 @@ int pax_ptrace_hardening(struct thread *td);
     PAX_NOTE_NOSEGVGUARD | PAX_NOTE_NOASLR | PAX_NOTE_NOSHLIBRANDOM | \
     PAX_NOTE_NODISALLOWMAP32BIT)
 #define PAX_NOTE_ALL	(PAX_NOTE_ALL_ENABLED | PAX_NOTE_ALL_DISABLED | PAX_NOTE_FINALIZED)
+
+#endif /* _KERNEL */
+
+#define	PAX_HARDENING_SHLIBRANDOM	0x00000100
+#define	PAX_HARDENING_NOSHLIBRANDOM	0x00000200
 
 #endif /* !_SYS_PAX_H */
