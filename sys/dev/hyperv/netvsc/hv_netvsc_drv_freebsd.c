@@ -100,7 +100,6 @@ __FBSDID("$FreeBSD$");
 #include <machine/bus.h>
 #include <machine/resource.h>
 #include <machine/frame.h>
-#include <machine/vmparam.h>
 
 #include <sys/bus.h>
 #include <sys/rman.h>
@@ -176,7 +175,7 @@ struct hn_txdesc {
  * later.  UDP checksum offloading doesn't work on earlier
  * Windows releases.
  */
-#define HN_CSUM_ASSIST_WIN8	(CSUM_TCP)
+#define HN_CSUM_ASSIST_WIN8	(CSUM_IP | CSUM_TCP)
 #define HN_CSUM_ASSIST		(CSUM_IP | CSUM_UDP | CSUM_TCP)
 
 #define HN_LRO_LENLIM_DEF		(25 * ETHERMTU)
@@ -269,6 +268,10 @@ static int hn_use_txdesc_bufring = 1;
 SYSCTL_INT(_hw_hn, OID_AUTO, use_txdesc_bufring, CTLFLAG_RD,
     &hn_use_txdesc_bufring, 0, "Use buf_ring for TX descriptors");
 
+static int hn_bind_tx_taskq = -1;
+SYSCTL_INT(_hw_hn, OID_AUTO, bind_tx_taskq, CTLFLAG_RDTUN,
+    &hn_bind_tx_taskq, 0, "Bind TX taskqueue to the specified cpu");
+
 /*
  * Forward declarations
  */
@@ -294,8 +297,8 @@ static int hn_create_tx_ring(struct hn_softc *, int);
 static void hn_destroy_tx_ring(struct hn_tx_ring *);
 static int hn_create_tx_data(struct hn_softc *);
 static void hn_destroy_tx_data(struct hn_softc *);
-static void hn_start_taskfunc(void *xsc, int pending);
-static void hn_txeof_taskfunc(void *xsc, int pending);
+static void hn_start_taskfunc(void *, int);
+static void hn_start_txeof_taskfunc(void *, int);
 static void hn_stop_tx_tasks(struct hn_softc *);
 static int hn_encap(struct hn_tx_ring *, struct hn_txdesc *, struct mbuf **);
 static void hn_create_rx_data(struct hn_softc *sc);
@@ -383,8 +386,20 @@ netvsc_attach(device_t dev)
 	if (hn_tx_taskq == NULL) {
 		sc->hn_tx_taskq = taskqueue_create("hn_tx", M_WAITOK,
 		    taskqueue_thread_enqueue, &sc->hn_tx_taskq);
-		taskqueue_start_threads(&sc->hn_tx_taskq, 1, PI_NET, "%s tx",
-		    device_get_nameunit(dev));
+		if (hn_bind_tx_taskq >= 0) {
+			int cpu = hn_bind_tx_taskq;
+			cpuset_t cpu_set;
+
+			if (cpu > mp_ncpus - 1)
+				cpu = mp_ncpus - 1;
+			CPU_SETOF(cpu, &cpu_set);
+			taskqueue_start_threads_cpuset(&sc->hn_tx_taskq, 1,
+			    PI_NET, &cpu_set, "%s tx",
+			    device_get_nameunit(dev));
+		} else {
+			taskqueue_start_threads(&sc->hn_tx_taskq, 1, PI_NET,
+			    "%s tx", device_get_nameunit(dev));
+		}
 	} else {
 		sc->hn_tx_taskq = hn_tx_taskq;
 	}
@@ -637,17 +652,10 @@ hn_txdesc_hold(struct hn_txdesc *txd)
 	atomic_add_int(&txd->refs, 1);
 }
 
-/*
- * Send completion processing
- *
- * Note:  It looks like offset 0 of buf is reserved to hold the softc
- * pointer.  The sc pointer is not currently needed in this function, and
- * it is not presently populated by the TX function.
- */
-void
-netvsc_xmit_completion(void *context)
+static void
+hn_tx_done(void *xpkt)
 {
-	netvsc_packet *packet = context;
+	netvsc_packet *packet = xpkt;
 	struct hn_txdesc *txd;
 	struct hn_tx_ring *txr;
 
@@ -655,7 +663,7 @@ netvsc_xmit_completion(void *context)
 	    packet->compl.send.send_completion_tid;
 
 	txr = txd->txr;
-	txr->hn_txeof = 1;
+	txr->hn_has_txeof = 1;
 	hn_txdesc_put(txr, txd);
 }
 
@@ -675,11 +683,11 @@ netvsc_channel_rollup(struct hv_device *device_ctx)
 	}
 #endif
 
-	if (!txr->hn_txeof)
+	if (!txr->hn_has_txeof)
 		return;
 
-	txr->hn_txeof = 0;
-	hn_start_txeof(txr);
+	txr->hn_has_txeof = 0;
+	txr->hn_txeof(txr);
 }
 
 /*
@@ -889,11 +897,73 @@ done:
 	txd->m = m_head;
 
 	/* Set the completion routine */
-	packet->compl.send.on_send_completion = netvsc_xmit_completion;
+	packet->compl.send.on_send_completion = hn_tx_done;
 	packet->compl.send.send_completion_context = packet;
 	packet->compl.send.send_completion_tid = (uint64_t)(uintptr_t)txd;
 
 	return 0;
+}
+
+/*
+ * NOTE:
+ * If this function fails, then txd will be freed, but the mbuf
+ * associated w/ the txd will _not_ be freed.
+ */
+static int
+hn_send_pkt(struct ifnet *ifp, struct hv_device *device_ctx,
+    struct hn_tx_ring *txr, struct hn_txdesc *txd)
+{
+	int error, send_failed = 0;
+
+again:
+	/*
+	 * Make sure that txd is not freed before ETHER_BPF_MTAP.
+	 */
+	hn_txdesc_hold(txd);
+	error = hv_nv_on_send(device_ctx, &txd->netvsc_pkt);
+	if (!error) {
+		ETHER_BPF_MTAP(ifp, txd->m);
+		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
+	}
+	hn_txdesc_put(txr, txd);
+
+	if (__predict_false(error)) {
+		int freed;
+
+		/*
+		 * This should "really rarely" happen.
+		 *
+		 * XXX Too many RX to be acked or too many sideband
+		 * commands to run?  Ask netvsc_channel_rollup()
+		 * to kick start later.
+		 */
+		txr->hn_has_txeof = 1;
+		if (!send_failed) {
+			txr->hn_send_failed++;
+			send_failed = 1;
+			/*
+			 * Try sending again after set hn_has_txeof;
+			 * in case that we missed the last
+			 * netvsc_channel_rollup().
+			 */
+			goto again;
+		}
+		if_printf(ifp, "send failed\n");
+
+		/*
+		 * Caller will perform further processing on the
+		 * associated mbuf, so don't free it in hn_txdesc_put();
+		 * only unload it from the DMA map in hn_txdesc_put(),
+		 * if it was loaded.
+		 */
+		txd->m = NULL;
+		freed = hn_txdesc_put(txr, txd);
+		KASSERT(freed != 0,
+		    ("fail to free txd upon send error"));
+
+		txr->hn_send_failed++;
+	}
+	return error;
 }
 
 /*
@@ -914,9 +984,9 @@ hn_start_locked(struct hn_tx_ring *txr, int len)
 		return 0;
 
 	while (!IFQ_DRV_IS_EMPTY(&ifp->if_snd)) {
-		int error, send_failed = 0;
 		struct hn_txdesc *txd;
 		struct mbuf *m_head;
+		int error;
 
 		IFQ_DRV_DEQUEUE(&ifp->if_snd, m_head);
 		if (m_head == NULL)
@@ -928,14 +998,14 @@ hn_start_locked(struct hn_tx_ring *txr, int len)
 			 * dispatch this packet sending (and sending of any
 			 * following up packets) to tx taskqueue.
 			 */
-			IF_PREPEND(&ifp->if_snd, m_head);
+			IFQ_DRV_PREPEND(&ifp->if_snd, m_head);
 			return 1;
 		}
 
 		txd = hn_txdesc_get(txr);
 		if (txd == NULL) {
 			txr->hn_no_txdescs++;
-			IF_PREPEND(&ifp->if_snd, m_head);
+			IFQ_DRV_PREPEND(&ifp->if_snd, m_head);
 			atomic_set_int(&ifp->if_drv_flags, IFF_DRV_OACTIVE);
 			break;
 		}
@@ -945,53 +1015,11 @@ hn_start_locked(struct hn_tx_ring *txr, int len)
 			/* Both txd and m_head are freed */
 			continue;
 		}
-again:
-		/*
-		 * Make sure that txd is not freed before ETHER_BPF_MTAP.
-		 */
-		hn_txdesc_hold(txd);
-		error = hv_nv_on_send(device_ctx, &txd->netvsc_pkt);
-		if (!error) {
-			ETHER_BPF_MTAP(ifp, m_head);
-			if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
-		}
-		hn_txdesc_put(txr, txd);
 
+		error = hn_send_pkt(ifp, device_ctx, txr, txd);
 		if (__predict_false(error)) {
-			int freed;
-
-			/*
-			 * This should "really rarely" happen.
-			 *
-			 * XXX Too many RX to be acked or too many sideband
-			 * commands to run?  Ask netvsc_channel_rollup()
-			 * to kick start later.
-			 */
-			txr->hn_txeof = 1;
-			if (!send_failed) {
-				txr->hn_send_failed++;
-				send_failed = 1;
-				/*
-				 * Try sending again after set hn_txeof;
-				 * in case that we missed the last
-				 * netvsc_channel_rollup().
-				 */
-				goto again;
-			}
-			if_printf(ifp, "send failed\n");
-
-			/*
-			 * This mbuf will be prepended, don't free it
-			 * in hn_txdesc_put(); only unload it from the
-			 * DMA map in hn_txdesc_put(), if it was loaded.
-			 */
-			txd->m = NULL;
-			freed = hn_txdesc_put(txr, txd);
-			KASSERT(freed != 0,
-			    ("fail to free txd upon send error"));
-
-			txr->hn_send_failed++;
-			IF_PREPEND(&ifp->if_snd, m_head);
+			/* txd is freed, but m_head is not */
+			IFQ_DRV_PREPEND(&ifp->if_snd, m_head);
 			atomic_set_int(&ifp->if_drv_flags, IFF_DRV_OACTIVE);
 			break;
 		}
@@ -1539,7 +1567,7 @@ hn_start(struct ifnet *ifp)
 			return;
 	}
 do_sched:
-	taskqueue_enqueue(txr->hn_tx_taskq, &txr->hn_start_task);
+	taskqueue_enqueue(txr->hn_tx_taskq, &txr->hn_tx_task);
 }
 
 static void
@@ -1561,7 +1589,7 @@ hn_start_txeof(struct hn_tx_ring *txr)
 		mtx_unlock(&txr->hn_tx_lock);
 		if (sched) {
 			taskqueue_enqueue(txr->hn_tx_taskq,
-			    &txr->hn_start_task);
+			    &txr->hn_tx_task);
 		}
 	} else {
 do_sched:
@@ -2087,8 +2115,8 @@ hn_create_tx_ring(struct hn_softc *sc, int id)
 #endif
 
 	txr->hn_tx_taskq = sc->hn_tx_taskq;
-	TASK_INIT(&txr->hn_start_task, 0, hn_start_taskfunc, txr);
-	TASK_INIT(&txr->hn_txeof_task, 0, hn_txeof_taskfunc, txr);
+	TASK_INIT(&txr->hn_tx_task, 0, hn_start_taskfunc, txr);
+	TASK_INIT(&txr->hn_txeof_task, 0, hn_start_txeof_taskfunc, txr);
 
 	txr->hn_direct_tx_size = hn_direct_tx_size;
 	if (hv_vmbus_protocal_version >= HV_VMBUS_VERSION_WIN8_1)
@@ -2101,6 +2129,8 @@ hn_create_tx_ring(struct hn_softc *sc, int id)
 	 * transmission.  This one gives the best performance so far.
 	 */
 	txr->hn_sched_tx = 1;
+
+	txr->hn_txeof = hn_start_txeof; /* TODO: if_transmit */
 
 	parent_dtag = bus_get_dma_tag(sc->hn_dev);
 
@@ -2260,6 +2290,11 @@ hn_destroy_tx_ring(struct hn_tx_ring *txr)
 		bus_dma_tag_destroy(txr->hn_tx_data_dtag);
 	if (txr->hn_tx_rndis_dtag != NULL)
 		bus_dma_tag_destroy(txr->hn_tx_rndis_dtag);
+
+#ifdef HN_USE_TXDESC_BUFRING
+	buf_ring_free(txr->hn_txdesc_br, M_NETVSC);
+#endif
+
 	free(txr->hn_txdesc, M_NETVSC);
 	txr->hn_txdesc = NULL;
 
@@ -2378,7 +2413,7 @@ hn_start_taskfunc(void *xtxr, int pending __unused)
 }
 
 static void
-hn_txeof_taskfunc(void *xtxr, int pending __unused)
+hn_start_txeof_taskfunc(void *xtxr, int pending __unused)
 {
 	struct hn_tx_ring *txr = xtxr;
 
@@ -2396,7 +2431,7 @@ hn_stop_tx_tasks(struct hn_softc *sc)
 	for (i = 0; i < sc->hn_tx_ring_cnt; ++i) {
 		struct hn_tx_ring *txr = &sc->hn_tx_ring[i];
 
-		taskqueue_drain(txr->hn_tx_taskq, &txr->hn_start_task);
+		taskqueue_drain(txr->hn_tx_taskq, &txr->hn_tx_task);
 		taskqueue_drain(txr->hn_tx_taskq, &txr->hn_txeof_task);
 	}
 }
@@ -2409,7 +2444,18 @@ hn_tx_taskq_create(void *arg __unused)
 
 	hn_tx_taskq = taskqueue_create("hn_tx", M_WAITOK,
 	    taskqueue_thread_enqueue, &hn_tx_taskq);
-	taskqueue_start_threads(&hn_tx_taskq, 1, PI_NET, "hn tx");
+	if (hn_bind_tx_taskq >= 0) {
+		int cpu = hn_bind_tx_taskq;
+		cpuset_t cpu_set;
+
+		if (cpu > mp_ncpus - 1)
+			cpu = mp_ncpus - 1;
+		CPU_SETOF(cpu, &cpu_set);
+		taskqueue_start_threads_cpuset(&hn_tx_taskq, 1, PI_NET,
+		    &cpu_set, "hn tx");
+	} else {
+		taskqueue_start_threads(&hn_tx_taskq, 1, PI_NET, "hn tx");
+	}
 }
 SYSINIT(hn_txtq_create, SI_SUB_DRIVERS, SI_ORDER_FIRST,
     hn_tx_taskq_create, NULL);
