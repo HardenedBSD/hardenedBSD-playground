@@ -875,7 +875,7 @@ static void i915_get_extra_instdone(struct drm_device *dev,
 		instdone[1] = I915_READ(INSTDONE1);
 		break;
 	default:
-		DRM_ERROR("Unsupported platform\n");
+		WARN_ONCE(1, "Unsupported platform\n");
 	case 7:
 		instdone[0] = I915_READ(GEN7_INSTDONE_1);
 		instdone[1] = I915_READ(GEN7_SC_INSTDONE);
@@ -1190,7 +1190,7 @@ static void i915_gem_record_rings(struct drm_device *dev,
 		error->ring[i].num_requests = count;
 		error->ring[i].requests =
 			malloc(count*sizeof(struct drm_i915_error_request),
-				DRM_I915_GEM, M_NOWAIT);
+				DRM_I915_GEM, M_WAITOK);
 		if (error->ring[i].requests == NULL) {
 			error->ring[i].num_requests = 0;
 			continue;
