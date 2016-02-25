@@ -531,8 +531,8 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 	    rtld_die();
 	max_stack_flags = obj->stack_flags;
 	if ((max_stack_flags & PF_X) == PF_X)
-		if ((stack_prot & PROT_EXEC) == 0)
-			max_stack_flags &= ~(PF_X);
+	    if ((stack_prot & PROT_EXEC) == 0)
+	        max_stack_flags &= ~(PF_X);
     } else {				/* Main program already loaded. */
 	const Elf_Phdr *phdr;
 	int phnum;
@@ -2444,9 +2444,9 @@ do_load_object(int fd, const char *name, char *path, struct stat *sbp,
     obj_loads++;
     linkmap_add(obj);	/* for GDB & dlinfo() */
     max_stack_flags |= obj->stack_flags;
-	if ((max_stack_flags & PF_X) == PF_X)
-		if ((stack_prot & PROT_EXEC) == 0)
-			max_stack_flags &= ~(PF_X);
+    if ((max_stack_flags & PF_X) == PF_X)
+        if ((stack_prot & PROT_EXEC) == 0)
+            max_stack_flags &= ~(PF_X);
 
     dbg("  %p .. %p: %s", obj->mapbase,
          obj->mapbase + obj->mapsize - 1, obj->path);
