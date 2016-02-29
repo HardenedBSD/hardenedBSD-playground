@@ -10,7 +10,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libc \
 	lib/libcasper/libcasper \
-	lib/libcasper/services \
+	lib/libcasper/services/cap_dns \
 	lib/libcompiler_rt \
 	lib/libipsec \
 	lib/libnv \

@@ -64,7 +64,7 @@ MKDEPCMD?=	CC='${_MKDEPCC}' mkdep
 .if ${MK_DIRDEPS_BUILD} == "no"
 .MAKE.DEPENDFILE= ${DEPENDFILE}
 .endif
-CLEANDEPENDFILES=	${DEPENDFILE} ${DEPENDFILE}.*
+CLEANDEPENDFILES+=	${DEPENDFILE} ${DEPENDFILE}.*
 
 # Keep `tags' here, before SRCS are mangled below for `depend'.
 .if !target(tags) && defined(SRCS) && !defined(NO_TAGS)
@@ -83,7 +83,7 @@ tags: ${SRCS}
 # Skip reading .depend when not needed to speed up tree-walks
 # and simple lookups.
 .if !empty(.MAKEFLAGS:M-V${_V_READ_DEPEND}) || make(obj) || make(clean*) || \
-    make(install*)
+    make(install*) || make(analyze)
 _SKIP_READ_DEPEND=	1
 .if ${MK_DIRDEPS_BUILD} == "no"
 .MAKE.DEPENDFILE=	/dev/null

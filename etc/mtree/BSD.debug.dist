@@ -13,10 +13,12 @@
             ..
         ..
         lib
-            geom
-            ..
             casper
             ..
+            geom
+            ..
+        ..
+        libexec
         ..
         sbin
         ..
