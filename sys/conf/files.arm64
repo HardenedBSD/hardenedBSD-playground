@@ -2,6 +2,11 @@
 arm/arm/devmap.c		standard
 arm/arm/generic_timer.c		standard
 arm/arm/pmu.c			standard
+arm/broadcom/bcm2835/bcm2835_dma.c   optional	soc_brcm_bcm2837
+arm/broadcom/bcm2835/bcm2835_intr.c  optional	soc_brcm_bcm2837
+arm/broadcom/bcm2835/bcm2835_mbox.c  optional	soc_brcm_bcm2837
+arm/broadcom/bcm2835/bcm2835_sdhci.c optional	soc_brcm_bcm2837 sdhci
+arm/broadcom/bcm2835/bcm2836.c	optional	soc_brcm_bcm2837
 arm64/acpica/acpi_machdep.c	optional	acpi
 arm64/acpica/OsdEnvironment.c	optional	acpi
 arm64/acpica/acpi_wakeup.c	optional	acpi
@@ -63,6 +68,7 @@ dev/acpica/acpi_if.m		optional	acpi
 dev/ahci/ahci_generic.c		optional ahci fdt
 dev/hwpmc/hwpmc_arm64.c		optional	hwpmc
 dev/hwpmc/hwpmc_arm64_md.c	optional	hwpmc
+dev/mbox/mbox_if.m		standard
 dev/mmc/host/dwmmc.c		optional	dwmmc
 dev/mmc/host/dwmmc_hisi.c	optional	dwmmc soc_hisi_hi6220
 dev/ofw/ofw_cpu.c		optional	fdt
