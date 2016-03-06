@@ -97,6 +97,7 @@ SUBDIR=	\
 	${_dpt} \
 	${_drm} \
 	${_drm2} \
+	${_dtb} \
 	dummynet \
 	${_ed} \
 	${_elink} \
@@ -516,6 +517,7 @@ _cxgb=		cxgb
 .endif
 
 .if ${MACHINE_CPUARCH} == "aarch64"
+_dtb=		dtb
 _em=		em
 _igb=		igb
 .endif
