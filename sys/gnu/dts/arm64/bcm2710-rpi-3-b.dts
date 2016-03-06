@@ -158,6 +158,7 @@
 / {
 	chosen {
 		bootargs = "8250.nr_uarts=1";
+		stdout = &uart0;
 	};
 };
 

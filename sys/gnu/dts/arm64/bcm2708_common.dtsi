@@ -18,7 +18,6 @@
 		i2s  = &i2s;
 		spi0 = &spi0;
 		i2c0 = &i2c0;
-		uart1 = &uart1;
 		mmc = &mmc;
 		i2c1 = &i2c1;
 		i2c2 = &i2c2;
@@ -48,7 +47,7 @@
 
 		dma: dma@7e007000 {
 			compatible = "brcm,bcm2835-dma";
-			reg = <0x7e007000 0xf00>;
+			reg = <0x3f007000 0xf00>;
 			interrupts = <1 16>,
 				     <1 17>,
 				     <1 18>,
@@ -68,28 +67,28 @@
 
 		intc: interrupt-controller@7e00b200 {
 			compatible = "brcm,bcm2708-armctrl-ic";
-			reg = <0x7e00b200 0x200>;
+			reg = <0x3f00b200 0x200>;
 			interrupt-controller;
 			#interrupt-cells = <2>;
 		};
 
 		mailbox: mailbox@7e00b800 {
 			compatible = "brcm,bcm2835-mbox";
-			reg = <0x7e00b880 0x40>;
+			reg = <0x3f00b880 0x40>;
 			interrupts = <0 1>;
 			#mbox-cells = <0>;
 		};
 
 		watchdog: watchdog@7e100000 {
 			compatible = "brcm,bcm2835-pm-wdt";
-			reg = <0x7e100000 0x28>;
+			reg = <0x3f100000 0x28>;
 			status = "disabled";
 		};
 
 		cprman: cprman@7e101000 {
 			compatible = "brcm,bcm2835-cprman";
 			#clock-cells = <1>;
-			reg = <0x7e101000 0x2000>;
+			reg = <0x3f101000 0x2000>;
 
 			/* CPRMAN derives everything from the platform's
 			 * oscillator.
@@ -100,13 +99,13 @@
 
 		random: rng@7e104000 {
 			compatible = "brcm,bcm2835-rng";
-			reg = <0x7e104000 0x10>;
+			reg = <0x3f104000 0x10>;
 			status = "disabled";
 		};
 
 		gpio: gpio@7e200000 {
 			compatible = "brcm,bcm2835-gpio";
-			reg = <0x7e200000 0xb4>;
+			reg = <0x3f200000 0xb4>;
 			interrupts = <2 17>, <2 18>;
 
 			gpio-controller;
@@ -118,7 +117,7 @@
 
 		uart0: uart@7e201000 {
 			compatible = "arm,pl011", "arm,primecell";
-			reg = <0x7e201000 0x1000>;
+			reg = <0x3f201000 0x1000>;
 			interrupts = <2 25>;
 			clocks = <&clk_uart0 &clk_apb_p>;
 			clock-names = "uartclk","apb_pclk";
@@ -129,7 +128,7 @@
 
 		sdhost: sdhost@7e202000 {
 			compatible = "brcm,bcm2835-sdhost";
-			reg = <0x7e202000 0x100>;
+			reg = <0x3f202000 0x100>;
 			interrupts = <2 24>;
 			clocks = <&clk_core>;
 			dmas = <&dma 13>,
@@ -142,8 +141,8 @@
 
 		i2s: i2s@7e203000 {
 			compatible = "brcm,bcm2708-i2s";
-			reg = <0x7e203000 0x24>,
-			      <0x7e101098 0x08>;
+			reg = <0x3f203000 0x24>,
+			      <0x3f101098 0x08>;
 
 			//dmas = <&dma 2>,
 			//       <&dma 3>;
@@ -153,7 +152,7 @@
 
 		spi0: spi@7e204000 {
 			compatible = "brcm,bcm2835-spi";
-			reg = <0x7e204000 0x1000>;
+			reg = <0x3f204000 0x1000>;
 			interrupts = <2 22>;
 			clocks = <&clk_core>;
 			#address-cells = <1>;
@@ -171,7 +170,7 @@
 
 		i2c0: i2c@7e205000 {
 			compatible = "brcm,bcm2708-i2c";
-			reg = <0x7e205000 0x1000>;
+			reg = <0x3f205000 0x1000>;
 			interrupts = <2 21>;
 			clocks = <&clk_core>;
 			#address-cells = <1>;
@@ -181,25 +180,15 @@
 
 		pwm: pwm@7e20c000 {
 			compatible = "brcm,bcm2835-pwm";
-			reg = <0x7e20c000 0x28>;
+			reg = <0x3f20c000 0x28>;
 			clocks = <&clk_pwm>;
 			#pwm-cells = <2>;
 			status = "disabled";
 		};
 
-		uart1: uart@7e215040 {
-			compatible = "brcm,bcm2835-aux-uart", "ns16550";
-			reg = <0x7e215040 0x40>;
-			interrupts = <1 29>;
-			clocks = <&clk_uart1>;
-			reg-shift = <2>;
-			no-loopback-test;
-			status = "disabled";
-	        };
-
 		mmc: mmc@7e300000 {
 			compatible = "brcm,bcm2835-mmc";
-			reg = <0x7e300000 0x100>;
+			reg = <0x3f300000 0x100>;
 			interrupts = <2 30>;
 			clocks = <&clk_mmc>;
 			dmas = <&dma 11>,
@@ -211,7 +200,7 @@
 
 		i2c1: i2c@7e804000 {
 			compatible = "brcm,bcm2708-i2c";
-			reg = <0x7e804000 0x1000>;
+			reg = <0x3f804000 0x1000>;
 			interrupts = <2 21>;
 			clocks = <&clk_core>;
 			#address-cells = <1>;
@@ -224,7 +213,7 @@
 			// Careless use may break (really) your display.
 			// Caveat emptor.
 			compatible = "brcm,bcm2708-i2c";
-			reg = <0x7e805000 0x1000>;
+			reg = <0x3f805000 0x1000>;
 			interrupts = <2 21>;
 			clocks = <&clk_core>;
 			#address-cells = <1>;
@@ -234,7 +223,7 @@
 
 		smi: smi@7e600000 {
 			compatible = "brcm,bcm2835-smi";
-			reg = <0x7e600000 0x44>, <0x7e1010b0 0x8>;
+			reg = <0x3f600000 0x44>, <0x7e1010b0 0x8>;
 			interrupts = <2 16>;
 			brcm,smi-clock-source = <6>;
 			brcm,smi-clock-divisor = <4>;
@@ -245,8 +234,8 @@
 
 		usb: usb@7e980000 {
 			compatible = "brcm,bcm2708-usb";
-			reg = <0x7e980000 0x10000>,
-			      <0x7e006000 0x1000>;
+			reg = <0x3f980000 0x10000>,
+			      <0x3f006000 0x1000>;
 			interrupts = <2 0>,
 				     <1 9>;
 		};
@@ -268,7 +257,7 @@
 
 		vchiq: vchiq {
 			compatible = "brcm,bcm2835-vchiq";
-			reg = <0x7e00b840 0xf>;
+			reg = <0x3f00b840 0xf>;
 			interrupts = <0 2>;
 			cache-line-size = <32>;
 			firmware = <&firmware>;
