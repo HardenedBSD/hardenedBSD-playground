@@ -7,6 +7,7 @@ arm/broadcom/bcm2835/bcm2835_intr.c  optional	soc_brcm_bcm2837
 arm/broadcom/bcm2835/bcm2835_mbox.c  optional	soc_brcm_bcm2837
 arm/broadcom/bcm2835/bcm2835_sdhci.c optional	soc_brcm_bcm2837 sdhci
 arm/broadcom/bcm2835/bcm2836.c	optional	soc_brcm_bcm2837
+arm/broadcom/bcm2835/bcm283x_dwc_fdt.c optional	soc_brcm_bcm2837 dwcotg fdt
 arm64/acpica/acpi_machdep.c	optional	acpi
 arm64/acpica/OsdEnvironment.c	optional	acpi
 arm64/acpica/acpi_wakeup.c	optional	acpi

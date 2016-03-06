@@ -61,7 +61,7 @@ bcm283x_dwc_otg_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (!ofw_bus_is_compatible(dev, "broadcom,bcm2835-usb"))
+	if (!ofw_bus_is_compatible(dev, "brcm,bcm2708-usb"))
 		return (ENXIO);
 
 	device_set_desc(dev, "DWC OTG 2.0 integrated USB controller (bcm283x)");

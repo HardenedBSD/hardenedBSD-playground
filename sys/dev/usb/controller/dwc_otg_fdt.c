@@ -121,7 +121,7 @@ dwc_otg_attach(device_t dev)
 	sc->sc_otg.sc_io_hdl = rman_get_bushandle(sc->sc_otg.sc_io_res);
 	sc->sc_otg.sc_io_size = rman_get_size(sc->sc_otg.sc_io_res);
 
-	rid = 0;
+	rid = 1;
 	sc->sc_otg.sc_irq_res =
 	    bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid, RF_ACTIVE);
 	if (sc->sc_otg.sc_irq_res == NULL)
@@ -181,7 +181,7 @@ dwc_otg_detach(device_t dev)
 	}
 	/* free IRQ channel, if any */
 	if (sc->sc_otg.sc_irq_res) {
-		bus_release_resource(dev, SYS_RES_IRQ, 0,
+		bus_release_resource(dev, SYS_RES_IRQ, 1,
 		    sc->sc_otg.sc_irq_res);
 		sc->sc_otg.sc_irq_res = NULL;
 	}
