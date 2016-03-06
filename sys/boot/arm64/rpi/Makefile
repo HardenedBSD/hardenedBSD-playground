@@ -3,6 +3,7 @@
 .include <src.opts.mk>
 
 PROG=		fbsdboot.sym
+BINDIR?=	/boot
 INTERNALPROG=
 SSP_CFLAGS=
 MAN=
