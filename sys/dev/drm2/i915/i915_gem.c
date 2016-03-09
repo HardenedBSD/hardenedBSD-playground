@@ -2567,50 +2567,7 @@ i915_gem_retire_work_handler(void *arg, int pending)
 	if (idle)
 		intel_mark_idle(dev);
 
-	ret = i915_mutex_lock_interruptible(dev);
-	if (ret)
-		return ret;
-
-	obj = to_intel_bo(drm_gem_object_lookup(dev, file, args->bo_handle));
-	if (&obj->base == NULL) {
-		DRM_UNLOCK(dev);
-		return -ENOENT;
-	}
-
-	/* Need to make sure the object gets inactive eventually. */
-	ret = i915_gem_object_flush_active(obj);
-	if (ret)
-		goto out;
-
-	if (obj->active) {
-		seqno = obj->last_read_seqno;
-		ring = obj->ring;
-	}
-
-	if (seqno == 0)
-		 goto out;
-
-	/* Do this after OLR check to make sure we make forward progress polling
-	 * on this IOCTL with a 0 timeout (like busy ioctl)
-	 */
-	if (!args->timeout_ns) {
-		ret = -ETIMEDOUT;
-		goto out;
-	}
-
-	drm_gem_object_unreference(&obj->base);
 	DRM_UNLOCK(dev);
-
-	ret = __wait_seqno(ring, seqno, true, timeout);
-	if (timeout) {
-		args->timeout_ns = timeout->tv_sec * 1000000 + timeout->tv_nsec;
-	}
-	return ret;
-
-out:
-	drm_gem_object_unreference(&obj->base);
-	DRM_UNLOCK(dev);
-	return ret;
 }
 
 /**
