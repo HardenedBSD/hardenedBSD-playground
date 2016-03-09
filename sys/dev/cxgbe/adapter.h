@@ -671,13 +671,6 @@ struct sge_nm_txq {
 #endif
 
 struct sge {
-	int timer_val[SGE_NTIMERS];
-	int counter_val[SGE_NCOUNTERS];
-	int fl_starve_threshold;
-	int fl_starve_threshold2;
-	int eq_s_qpp;
-	int iq_s_qpp;
-
 	int nrxq;	/* total # of Ethernet rx queues */
 	int ntxq;	/* total # of Ethernet tx tx queues */
 #ifdef TCP_OFFLOAD
@@ -710,8 +703,6 @@ struct sge {
 	struct sge_iq **iqmap;	/* iq->cntxt_id to iq mapping */
 	struct sge_eq **eqmap;	/* eq->cntxt_id to eq mapping */
 
-	int pad_boundary;
-	int pack_boundary;
 	int8_t safe_hwidx1;	/* may not have room for metadata */
 	int8_t safe_hwidx2;	/* with room for metadata and maybe more */
 	struct sw_zone_info sw_zone_info[SW_ZONE_SIZES];
@@ -743,6 +734,8 @@ struct adapter {
 
 	unsigned int pf;
 	unsigned int mbox;
+	unsigned int vpd_busy;
+	unsigned int vpd_flag;
 
 	/* Interrupt information */
 	int intr_type;
@@ -758,9 +751,9 @@ struct adapter {
 	struct sge sge;
 	int lro_timeout;
 
-	struct taskqueue *tq[NCHAN];	/* General purpose taskqueues */
+	struct taskqueue *tq[MAX_NCHAN];	/* General purpose taskqueues */
 	struct port_info *port[MAX_NPORTS];
-	uint8_t chan_map[NCHAN];
+	uint8_t chan_map[MAX_NCHAN];
 
 #ifdef TCP_OFFLOAD
 	void *tom_softc;	/* (struct tom_data *) */
@@ -791,6 +784,7 @@ struct adapter {
 	char cfg_file[32];
 	u_int cfcsum;
 	struct adapter_params params;
+	const struct chip_params *chip_params;
 	struct t4_virt_res vres;
 
 	uint16_t linkcaps;
@@ -810,7 +804,7 @@ struct adapter {
 	TAILQ_HEAD(, sge_fl) sfl;
 	struct callout sfl_callout;
 
-	struct mtx regwin_lock;	/* for indirect reads and memory windows */
+	struct mtx reg_lock;	/* for indirect register access */
 
 	an_handler_t an_handler __aligned(CACHE_LINE_SIZE);
 	fw_msg_handler_t fw_msg_handler[7];	/* NUM_FW6_TYPES */
@@ -1032,6 +1026,17 @@ tx_resume_threshold(struct sge_eq *eq)
 
 	/* not quite the same as qsize / 4, but this will do. */
 	return (eq->sidx / 4);
+}
+
+static inline int
+t4_use_ldst(struct adapter *sc)
+{
+
+#ifdef notyet
+	return (sc->flags & FW_OK || !sc->use_bd);
+#else
+	return (0);
+#endif
 }
 
 /* t4_main.c */

@@ -1441,8 +1441,10 @@ i915_gem_pager_ctor(void *handle, vm_ooffset_t size, vm_prot_t prot,
 	 *     4. drm_gem_vm_close(): ref-- (for the initial vma)
 	 *
 	 * On FreeBSD, i915_gem_pager_ctor() is called once during the
-	 * creation of the mapping. i915_gem_pager_dtor() is called when
-	 * the mapping is taken down. So the only sequence is:
+	 * creation of the mapping. No callback is called when the
+	 * mapping is shared during a fork(). i915_gem_pager_dtor() is
+	 * called when the last reference to the mapping is dropped. So
+	 * the only sequence is:
 	 *     1. drm_gem_mmap_single(): ref++
 	 *     2. i915_gem_pager_ctor(): <noop>
 	 *     3. i915_gem_pager_dtor(): ref--
@@ -1480,8 +1482,13 @@ i915_gem_pager_fault(vm_object_t vm_obj, vm_ooffset_t offset, int prot,
 	struct drm_device *dev = obj->base.dev;
 	drm_i915_private_t *dev_priv = dev->dev_private;
 	vm_page_t page, oldpage;
-	int cause, ret, pinned;
+	int ret = 0;
+#ifdef FREEBSD_WIP
 	bool write = (prot & VM_PROT_WRITE) != 0;
+#else
+	bool write = true;
+#endif /* FREEBSD_WIP */
+	bool pinned;
 
 	vm_object_pip_add(vm_obj, 1);
 
@@ -1506,15 +1513,14 @@ i915_gem_pager_fault(vm_object_t vm_obj, vm_ooffset_t offset, int prot,
 		oldpage = NULL;
 	VM_OBJECT_WUNLOCK(vm_obj);
 retry:
-	cause = ret = pinned = 0;
+	ret = 0;
+	pinned = 0;
 	page = NULL;
 
 	if (i915_intr_pf) {
 		ret = i915_mutex_lock_interruptible(dev);
-		if (ret != 0) {
-			cause = 10;
+		if (ret != 0)
 			goto out;
-		}
 	} else
 		DRM_LOCK(dev);
 
@@ -1539,23 +1545,17 @@ retry:
 
 	/* Now bind it into the GTT if needed */
 	ret = i915_gem_object_pin(obj, 0, true, false);
-	if (ret) {
-		cause = 20;
+	if (ret)
 		goto unlock;
-	}
 	pinned = 1;
 
 	ret = i915_gem_object_set_to_gtt_domain(obj, write);
-	if (ret) {
-		cause = 40;
+	if (ret)
 		goto unpin;
-	}
 
 	ret = i915_gem_object_get_fence(obj);
-	if (ret) {
-		cause = 50;
+	if (ret)
 		goto unpin;
-	}
 
 	obj->fault_mappable = true;
 
@@ -1566,7 +1566,6 @@ retry:
 	    (uintmax_t)(dev_priv->mm.gtt_base_addr + obj->gtt_offset + offset)));
 	if (page == NULL) {
 		VM_OBJECT_WUNLOCK(vm_obj);
-		cause = 60;
 		ret = -EFAULT;
 		goto unpin;
 	}
@@ -1618,8 +1617,8 @@ unlock:
 	DRM_UNLOCK(dev);
 out:
 	KASSERT(ret != 0, ("i915_gem_pager_fault: wrong return"));
-	CTR5(KTR_DRM, "fault_fail %p %jx %x err %d %d", gem_obj, offset, prot,
-	    -ret, cause);
+	CTR4(KTR_DRM, "fault_fail %p %jx %x err %d", gem_obj, offset, prot,
+	    -ret);
 	if (ret == -EAGAIN || ret == -EIO || ret == -EINTR) {
 		kern_yield(PRI_USER);
 		goto retry;
@@ -2568,7 +2567,50 @@ i915_gem_retire_work_handler(void *arg, int pending)
 	if (idle)
 		intel_mark_idle(dev);
 
+	ret = i915_mutex_lock_interruptible(dev);
+	if (ret)
+		return ret;
+
+	obj = to_intel_bo(drm_gem_object_lookup(dev, file, args->bo_handle));
+	if (&obj->base == NULL) {
+		DRM_UNLOCK(dev);
+		return -ENOENT;
+	}
+
+	/* Need to make sure the object gets inactive eventually. */
+	ret = i915_gem_object_flush_active(obj);
+	if (ret)
+		goto out;
+
+	if (obj->active) {
+		seqno = obj->last_read_seqno;
+		ring = obj->ring;
+	}
+
+	if (seqno == 0)
+		 goto out;
+
+	/* Do this after OLR check to make sure we make forward progress polling
+	 * on this IOCTL with a 0 timeout (like busy ioctl)
+	 */
+	if (!args->timeout_ns) {
+		ret = -ETIMEDOUT;
+		goto out;
+	}
+
+	drm_gem_object_unreference(&obj->base);
 	DRM_UNLOCK(dev);
+
+	ret = __wait_seqno(ring, seqno, true, timeout);
+	if (timeout) {
+		args->timeout_ns = timeout->tv_sec * 1000000 + timeout->tv_nsec;
+	}
+	return ret;
+
+out:
+	drm_gem_object_unreference(&obj->base);
+	DRM_UNLOCK(dev);
+	return ret;
 }
 
 /**
@@ -4049,7 +4091,7 @@ struct drm_i915_gem_object *i915_gem_alloc_object(struct drm_device *dev,
 {
 	struct drm_i915_gem_object *obj;
 
-	obj = malloc(sizeof(*obj), DRM_I915_GEM, M_NOWAIT | M_ZERO);
+	obj = malloc(sizeof(*obj), DRM_I915_GEM, M_WAITOK | M_ZERO);
 	if (obj == NULL)
 		return NULL;
 
@@ -4520,7 +4562,7 @@ static int i915_gem_init_phys_object(struct drm_device *dev,
 		return 0;
 
 	phys_obj = malloc(sizeof(struct drm_i915_gem_phys_object),
-	    DRM_I915_GEM, M_NOWAIT | M_ZERO);
+	    DRM_I915_GEM, M_WAITOK | M_ZERO);
 	if (!phys_obj)
 		return -ENOMEM;
 
