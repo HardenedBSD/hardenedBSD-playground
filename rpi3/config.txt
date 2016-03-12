@@ -1,0 +1,11 @@
+disable_commandline_tags=1
+device_tree_address=0x100000
+device_tree=bcm2710.dtb
+kernel=fbsdboot.bin
+kernel_old=1
+gpu_mem=64
+init_uart_clock=3000000
+init_uart_baud=115200
+arm_control=0x200
+kernel_address=0
+initramfs kernel 0x200000

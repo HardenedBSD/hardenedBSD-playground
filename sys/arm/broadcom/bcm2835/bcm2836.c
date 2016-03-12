@@ -148,7 +148,7 @@ bcm2836_mask_irq(uintptr_t irq)
 #endif
 	int i;
 
-	if (irq < MAILBOX0_IRQ) {
+	if (irq < MAILBOX0_IRQ || irq > (MAILBOX0_IRQ + 4)) {
 		for (i = 0; i < 4; i++) {
 			reg = bus_read_4(softc->sc_mem,
 			    ARM_LOCAL_INT_TIMER(i));

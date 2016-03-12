@@ -676,6 +676,13 @@ add_fdt_mem_regions(struct mem_region *mr, int mrcnt, vm_paddr_t *physmap,
 {
 
 	for (int i = 0; i < mrcnt; i++) {
+		/* Hack up reserve space for the firmware */
+		if (mr[i].mr_start == 0) {
+			if (mr[i].mr_size <= 0x100000)
+				continue;
+			mr[i].mr_start += 0x100000;
+			mr[i].mr_size -= 0x100000;
+		}
 		if (!add_physmap_entry(mr[i].mr_start, mr[i].mr_size, physmap,
 		    physmap_idxp))
 			break;

@@ -437,8 +437,23 @@ nexus_ofw_map_intr(device_t dev, device_t child, phandle_t iparent, int icells,
 			irq += 32; /* SPI */
 		else
 			irq += 16; /* PPI */
-	} else
+	} else if (icells == 2) {
+		irq = intr[1];
+		switch(intr[0]) {
+		case 3:
+			irq += 32;
+		case 2:
+			irq += 32;
+		case 1:
+			irq += 8;
+		case 0:
+			break;
+		default:
+			panic("Unknown bank %d\n", intr[0]);
+		}
+	} else {
 		irq = intr[0];
+	}
 
 	return (irq);
 }

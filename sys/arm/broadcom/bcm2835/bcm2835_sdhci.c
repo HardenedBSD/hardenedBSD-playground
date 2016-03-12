@@ -69,7 +69,7 @@ __FBSDID("$FreeBSD$");
 #endif
 
 static int bcm2835_sdhci_hs = 1;
-static int bcm2835_sdhci_pio_mode = 0;
+static int bcm2835_sdhci_pio_mode = 1;
 
 TUNABLE_INT("hw.bcm2835.sdhci.hs", &bcm2835_sdhci_hs);
 TUNABLE_INT("hw.bcm2835.sdhci.pio_mode", &bcm2835_sdhci_pio_mode);
@@ -93,6 +93,12 @@ struct bcm_sdhci_softc {
 	int			dmamap_seg_count;
 	int			dmamap_seg_index;
 	int			dmamap_status;
+};
+
+static struct ofw_compat_data compat_data[] = {
+	{ "broadcom,bcm2835-sdhci",	true },
+	{ "brcm,bcm2835-mmc",		true },
+	{ NULL,				false },
 };
 
 static int bcm_sdhci_probe(device_t);
@@ -126,7 +132,7 @@ bcm_sdhci_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (!ofw_bus_is_compatible(dev, "broadcom,bcm2835-sdhci"))
+	if (!ofw_bus_search_compatible(dev, compat_data)->ocd_data)
 		return (ENXIO);
 
 	device_set_desc(dev, "Broadcom 2708 SDHCI controller");
@@ -239,8 +245,13 @@ bcm_sdhci_attach(device_t dev)
 		goto fail;
 	}
 
+#ifdef __arm__
 	sc->sc_sdhci_buffer_phys = BUS_SPACE_PHYSADDR(sc->sc_mem_res, 
 	    SDHCI_BUFFER);
+#else /* __aarch64__ */
+	sc->sc_sdhci_buffer_phys = rman_get_start(sc->sc_mem_res) +
+	    SDHCI_BUFFER;
+#endif
 
 	bus_generic_probe(dev);
 	bus_generic_attach(dev);
@@ -545,7 +556,7 @@ bcm_sdhci_read_dma(device_t dev, struct sdhci_slot *slot)
 	    slot->curcmd->data->len - slot->offset);
 
 	KASSERT((left & 3) == 0,
-	    ("%s: len = %d, not word-aligned", __func__, left));
+	    ("%s: len = %zu, not word-aligned", __func__, left));
 
 	if (bus_dmamap_load(sc->sc_dma_tag, sc->sc_dma_map, 
 	    (uint8_t *)slot->curcmd->data->data + slot->offset, left, 
@@ -574,7 +585,7 @@ bcm_sdhci_write_dma(device_t dev, struct sdhci_slot *slot)
 	    slot->curcmd->data->len - slot->offset);
 
 	KASSERT((left & 3) == 0,
-	    ("%s: len = %d, not word-aligned", __func__, left));
+	    ("%s: len = %zu, not word-aligned", __func__, left));
 
 	if (bus_dmamap_load(sc->sc_dma_tag, sc->sc_dma_map,
 	    (uint8_t *)slot->curcmd->data->data + slot->offset, left, 
