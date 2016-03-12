@@ -1,19 +1,19 @@
 #!/bin/sh
 
 # Comment out the following when you have cehcked the following settings
-echo "You need to set check the script settings" ; exit 1;
+#echo "You need to set check the script settings" ; exit 1;
 
 # Where to find the Raspberry Pi 3 firmware
-FIRMWAREDIR=/path/to/firmware
+FIRMWAREDIR=${HOME}/rpi3/firmware/boot
 
 # Set this based on how many CPUs you have
-JFLAG=-j4
+JFLAG=-j$(sysctl -n hw.ncpu)
 
 # Where to put you're build objects, you need write access
-export MAKEOBJDIRPREFIX=${HOME}/obj
+export MAKEOBJDIRPREFIX=${HOME}/rpi3/obj
 
 # Where to install to
-DEST=${MAKEOBJDIRPREFIX}/rpi3
+DEST=${MAKEOBJDIRPREFIX}/stage
 
 set -e
 
