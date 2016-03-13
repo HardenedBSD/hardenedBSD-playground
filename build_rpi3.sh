@@ -54,6 +54,10 @@ mcopy -i ${DEST}/fat.img ${FIRMWAREDIR}/start.elf ::
 mcopy -i ${DEST}/fat.img ${FIRMWAREDIR}/start_cd.elf ::
 mcopy -i ${DEST}/fat.img ${FIRMWAREDIR}/start_x.elf ::
 
+dd if=/dev/urandom of=${DEST}/root/boot/entropy bs=4096 count=1
+chown root:wheel ${DEST}/root/boot/entropy
+chmod 000 ${DEST}/root/boot/entropy
+
 mkimg -s mbr -p fat16b:=${DEST}/fat.img -p freebsd:=${DEST}/ufs_part.img \
     -o ${DEST}/rpi3.img
 
