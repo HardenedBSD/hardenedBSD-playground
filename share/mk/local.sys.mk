@@ -23,6 +23,10 @@ MAKE_PRINT_VAR_ON_ERROR += .MAKE.MAKEFILES .PATH
 .endif
 .endif
 
+.if !empty(.OBJDIR)
+OBJTOP?= ${.OBJDIR:S,${.CURDIR},,}${SRCTOP}
+.endif
+
 .include "src.sys.mk"
 
 .if ${.MAKE.MODE:Mmeta*} != ""
@@ -33,9 +37,9 @@ META_COOKIE=		${COOKIE.${.TARGET}:U${.OBJDIR}/${.TARGET}}
 META_COOKIE_RM=		@rm -f ${META_COOKIE}
 META_COOKIE_TOUCH=	@touch ${META_COOKIE}
 CLEANFILES+=		${META_TARGETS}
-_meta_dep_before:	.USEBEFORE
+_meta_dep_before:	.USEBEFORE .NOTMAIN
 	${META_COOKIE_RM}
-_meta_dep_after:	.USE
+_meta_dep_after:	.USE .NOTMAIN
 	${META_COOKIE_TOUCH}
 # Attach this to a target to allow it to benefit from meta mode's
 # not rerunning a command if it doesn't need to be considering its

@@ -386,11 +386,7 @@ vnode_if_typedef.h:
 .endif
 
 # Build _if.[ch] from _if.m, and clean them when we're done.
-# This is duplicated in sys/modules/Makefile.
-.if !defined(__MPATH)
-__MPATH!=find ${SYSDIR:tA}/ -name \*_if.m
-.export __MPATH
-.endif
+# __MPATH defined in config.mk
 _MFILES=${__MPATH:T:O}
 _MPATH=${__MPATH:H:O:u}
 .PATH.m: ${_MPATH}
@@ -462,11 +458,6 @@ cleanilinks:
 OBJS_DEPEND_GUESS+= ${SRCS:M*.h}
 
 .include <bsd.dep.mk>
-
-.if ${MK_FAST_DEPEND} == "no" && !exists(${.OBJDIR}/${DEPENDFILE})
-${OBJS}: ${OBJS_DEPEND_GUESS}
-.endif
-
 .include <bsd.clang-analyze.mk>
 .include <bsd.obj.mk>
 .include "kern.mk"
