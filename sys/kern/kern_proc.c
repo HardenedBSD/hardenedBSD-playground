@@ -855,7 +855,7 @@ fill_kinfo_aggregate(struct proc *p, struct kinfo_proc *kp)
 	FOREACH_THREAD_IN_PROC(p, td) {
 		thread_lock(td);
 		kp->ki_pctcpu += sched_pctcpu(td);
-		kp->ki_estcpu += td->td_estcpu;
+		kp->ki_estcpu += sched_estcpu(td);
 		thread_unlock(td);
 	}
 }
@@ -1101,7 +1101,7 @@ fill_kinfo_thread(struct thread *td, struct kinfo_proc *kp, int preferthread)
 		rufetchtd(td, &kp->ki_rusage);
 		kp->ki_runtime = cputick2usec(td->td_rux.rux_runtime);
 		kp->ki_pctcpu = sched_pctcpu(td);
-		kp->ki_estcpu = td->td_estcpu;
+		kp->ki_estcpu = sched_estcpu(td);
 		kp->ki_cow = td->td_cow;
 	}
 
@@ -1444,7 +1444,7 @@ sysctl_kern_proc(SYSCTL_HANDLER_ARGS)
 			p = LIST_FIRST(&allproc);
 		else
 			p = LIST_FIRST(&zombproc);
-		for (; p != 0; p = LIST_NEXT(p, p_list)) {
+		for (; p != NULL; p = LIST_NEXT(p, p_list)) {
 			/*
 			 * Skip embryonic processes.
 			 */
