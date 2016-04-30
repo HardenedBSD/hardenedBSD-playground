@@ -1247,12 +1247,12 @@ set_line_length(video_adapter_t *adp, int pixel)
     switch (adp->va_info.vi_mem_model) {
     case V_INFO_MM_PLANAR:
 	ppw = 16/(adp->va_info.vi_depth/adp->va_info.vi_planes);
-	count = (pixel + ppw - 1)/ppw/2;
-	bpl = ((pixel + ppw - 1)/ppw/2)*4;
+	count = howmany(pixel, ppw)/2;
+	bpl = (howmany(pixel, ppw)/2)*4;
 	break;
     case V_INFO_MM_PACKED:
 	count = (pixel + 7)/8;
-	bpl = ((pixel + 7)/8)*8;
+	bpl = rounddown(pixel + 7, 8);
 	break;
     case V_INFO_MM_TEXT:
 	count = (pixel + 7)/8;			/* columns */
