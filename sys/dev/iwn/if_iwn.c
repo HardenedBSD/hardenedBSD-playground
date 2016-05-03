@@ -2852,7 +2852,8 @@ iwn_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		sc->calib.state = IWN_CALIB_STATE_INIT;
 
 		/* Wait until we hear a beacon before we transmit */
-		sc->sc_beacon_wait = 1;
+		if (IEEE80211_IS_CHAN_PASSIVE(ic->ic_curchan))
+			sc->sc_beacon_wait = 1;
 
 		if ((error = iwn_auth(sc, vap)) != 0) {
 			device_printf(sc->sc_dev,
@@ -2870,7 +2871,8 @@ iwn_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		}
 
 		/* Wait until we hear a beacon before we transmit */
-		sc->sc_beacon_wait = 1;
+		if (IEEE80211_IS_CHAN_PASSIVE(ic->ic_curchan))
+			sc->sc_beacon_wait = 1;
 
 		/*
 		 * !RUN -> RUN requires setting the association id
@@ -5249,7 +5251,7 @@ iwn_set_link_quality(struct iwn_softc *sc, struct ieee80211_node *ni)
 		 * will not be using MIMO.
 		 *
 		 * Since we're filling linkq from 0..15 and we're filling
-		 * from the higest MCS rates to the lowest rates, if we
+		 * from the highest MCS rates to the lowest rates, if we
 		 * _are_ doing a dual-stream rate, set mimo to idx+1 (ie,
 		 * the next entry.)  That way if the next entry is a non-MIMO
 		 * entry, we're already pointing at it.
