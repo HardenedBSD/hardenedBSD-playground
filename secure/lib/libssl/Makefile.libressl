@@ -35,7 +35,8 @@ INCSDIR=${INCLUDEDIR}/openssl
 
 CFLAGS+=	-I${LCRYPTO_SRC}/crypto
 
-LIBADD=	crypto
+DPADD=  ${LIBCRYPTO}
+LDADD=  -lcrypto
 
 .include <bsd.lib.mk>
 
