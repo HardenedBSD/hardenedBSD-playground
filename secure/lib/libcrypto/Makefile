@@ -475,5 +475,5 @@ _bn_asmpath=	${LCRYPTO_SRC}/crypto/bn/asm
 	${.CURDIR}/man
 
 .else
-.include Makefile.libressl
+.include "Makefile.libressl"
 .endif
