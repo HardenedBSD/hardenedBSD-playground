@@ -9,7 +9,8 @@ SHLIB_MAJOR=	10
 
 LTLS_SRC=	${LIBRESSL_SRC}/tls
 
-LIBADD= crypto ssl
+DPADD=  ${LIBSSL} ${LIBCRYPTO}
+LDADD=  -lssl -lcrypto
 
 INCS=	tls.h
 
