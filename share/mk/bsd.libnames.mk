@@ -85,6 +85,9 @@ LIBL?=		${DESTDIR}${LIBDIR}/libl.a
 .if ${MK_LDNS} != "no"
 LIBLDNS?=	${DESTDIR}${LIBPRIVATEDIR}/libldns.a
 .endif
+.if ${MK_LIBRESSL} != "no"
+LIBTLS?=	${DESTDIR}${LIBDIR}/libtls.a
+.endif
 LIBLN?=		"don't use LIBLN, use LIBL"
 LIBLZMA?=	${DESTDIR}${LIBDIR}/liblzma.a
 LIBM?=		${DESTDIR}${LIBDIR}/libm.a
