@@ -403,6 +403,7 @@ __DEFAULT_NO_OPTIONS = \
     HESIOD \
     INSTALL_AS_USER \
     LIB32 \
+    LIBRESSL \
     LLDB \
     NAND \
     OFED \
