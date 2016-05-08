@@ -9,7 +9,7 @@ LDADD= -ltls -lssl -lcrypto
 MAN1=	netcat.1
 
 netcat.1:
-	${CP} ${LIBRESSL_SRC}/apps/nc/nc.1 netcat.1
+	cp ${LIBRESSL_SRC}/apps/nc/nc.1 netcat.1
 
 .PATH:	${LIBRESSL_SRC}/apps/nc
 
