@@ -1,5 +1,9 @@
 # $FreeBSD$
 
+.include <bsd.own.mk>
+
+.if ${MK_LIBRESSL} == "no"
+
 PROG=	openssl
 
 DPADD=	${LIBSSL} ${LIBCRYPTO}
@@ -24,3 +28,7 @@ SRCS+=	app_rand.c apps.c asn1pars.c ca.c ciphers.c cms.c crl.c crl2p7.c \
 
 .PATH:	${LCRYPTO_SRC}/apps \
 	${.CURDIR}/man
+
+.else
+.include "Makefile.libressl"
+.endif
