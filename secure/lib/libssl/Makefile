@@ -34,5 +34,5 @@ LDADD=	-lcrypto
 	${.CURDIR}/man
 
 .else
-.include Makefile.libressl
+.include "Makefile.libressl"
 .endif
