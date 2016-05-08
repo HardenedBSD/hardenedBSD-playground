@@ -5,7 +5,7 @@
 PROG=	netcat
 SRCS=	netcat.c atomicio.c socks.c
 DPADD= ${LIBTLS} ${LIBSSL} ${LIBCRYPTO}
-LDADD= tls ssl crypto
+LDADD= -ltls -lssl -lcrypto
 MAN1=	netcat.1
 
 netcat.1:
