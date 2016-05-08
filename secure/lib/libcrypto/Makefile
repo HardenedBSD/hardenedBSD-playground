@@ -1,5 +1,9 @@
 # $FreeBSD$
 
+.include <bsd.own.mk>
+
+.if ${MK_LIBRESSL} == "no"
+
 SHLIBDIR?=	/lib
 SUBDIR=		engines
 
@@ -469,3 +473,7 @@ _bn_asmpath=	${LCRYPTO_SRC}/crypto/bn/asm
 	${LCRYPTO_SRC}/crypto/x509 \
 	${LCRYPTO_SRC}/crypto/x509v3 \
 	${.CURDIR}/man
+
+.else
+.include Makefile.libressl
+.endif
