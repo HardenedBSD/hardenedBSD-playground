@@ -2,8 +2,8 @@
 
 PROG=	openssl
 
-DPADD= ${LIBSSL} ${LIBCRYPTO}
-LDADD= -lssl -lcrypto
+DPADD=  ${LIBSSL} ${LIBCRYPTO}
+LDADD=  -lssl -lcrypto
 
 MAN1=	openssl.1
 

@@ -9,8 +9,8 @@ SHLIB_MAJOR=	10
 
 LTLS_SRC=	${LIBRESSL_SRC}/tls
 
-DPADD=  ${LIBSSL} ${LIBCRYPTO}
-LDADD=  -lssl -lcrypto
+DPADD=	${LIBCRYPTO} ${LIBSSL}
+LDADD=	-lssl -lcrypto
 
 INCS=	tls.h
 
@@ -23,7 +23,7 @@ SRCS=	tls.c \
 	tls_util.c \
 	tls_verify.c
 
-.PATH: ${LTLS_SRC} \
+.PATH:	${LTLS_SRC} \
 	${LIBRESSL_SRC}/include \
 	${LIBRESSL_SRC}/man
 
