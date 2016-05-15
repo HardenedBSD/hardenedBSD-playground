@@ -7,8 +7,6 @@
 SHLIBDIR?=	/lib
 SUBDIR=		engines
 
-.include <bsd.own.mk>
-
 LIB=		crypto
 SHLIB_MAJOR=	7
 ALLOW_SHARED_TEXTREL=
