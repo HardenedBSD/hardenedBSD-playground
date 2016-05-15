@@ -1,3 +1,20 @@
+[20160423] RELRO + BIND_NOW
+__HardenedBSD_version = 46
+
+	Enable RELRO + BIND_NOW for base.
+	Introduce WITHOUT_RELRO and WITHOUT_BIND_NOW.
+	Setting WITHOUT_RELRO also sets WITHOUT_BIND_NOW.
+
+
+[20160408] PIEified base for amd64 and i386
+__HardenedBSD_version = 45
+
+	Remove WANTS_PIE.
+	Default PIE for base for amd64 and i386 only.
+	When PIE is enabled, compile non-static libraries with -fPIC.
+	Default WITH_SHARED_TOOLCHAIN to enabled by default.
+
+
 [20160326] noexec and ASLR changes
 __HardenedBSD_version = 44
 
