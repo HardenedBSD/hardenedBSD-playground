@@ -114,7 +114,7 @@ SUBDIR=	\
 	fdc \
 	fdescfs \
 	${_fe} \
-	${_filemon} \
+	filemon \
 	firewire \
 	firmware \
 	fuse \
@@ -494,7 +494,7 @@ _txp=		txp
 
 .if ${MK_SOURCELESS_UCODE} != "no" && ${MACHINE_CPUARCH} != "arm" && \
 	${MACHINE_ARCH:C/mips(el)?/mips/} != "mips" && \
-	${MACHINE_ARCH} != "powerpc"
+	${MACHINE_ARCH} != "powerpc" && ${MACHINE_CPUARCH} != "riscv"
 _cxgbe=		cxgbe
 .endif
 
@@ -503,7 +503,8 @@ SUBDIR+=	zfs
 .endif
 
 .if ${MACHINE_CPUARCH} != "aarch64" && ${MACHINE_CPUARCH} != "arm" && \
-	${MACHINE_CPUARCH} != "mips" && ${MACHINE_CPUARCH} != "powerpc"
+	${MACHINE_CPUARCH} != "mips" && ${MACHINE_CPUARCH} != "powerpc" && \
+	${MACHINE_CPUARCH} != "riscv"
 _syscons=	syscons
 _vpo=		vpo
 .endif
@@ -542,7 +543,6 @@ _ep=		ep
 _et=		et
 _exca=		exca
 _fe=		fe
-_filemon=	filemon
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
 _ibcore=        ibcore
 .endif

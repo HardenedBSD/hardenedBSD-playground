@@ -50,12 +50,12 @@ struct vmbus_pcpu_data {
 	u_long			*intr_cnt;	/* Hyper-V interrupt counter */
 	struct vmbus_message	*message;	/* shared messages */
 	uint32_t		vcpuid;		/* virtual cpuid */
-	int			event_flag_cnt;	/* # of event flags */
-	union vmbus_event_flags	*event_flag;	/* shared event flags */
+	int			event_flags_cnt;/* # of event flags */
+	struct vmbus_evtflags	*event_flags;	/* shared event flags */
 
 	/* Rarely used fields */
 	struct hyperv_dma	message_dma;	/* busdma glue */
-	struct hyperv_dma	event_flag_dma;	/* busdma glue */
+	struct hyperv_dma	event_flags_dma;/* busdma glue */
 	struct taskqueue	*event_tq;	/* event taskq */
 	struct taskqueue	*message_tq;	/* message taskq */
 	struct task		message_task;	/* message task */
@@ -97,6 +97,7 @@ struct trapframe;
 void	vmbus_on_channel_open(const struct hv_vmbus_channel *);
 void	vmbus_event_proc(struct vmbus_softc *, int);
 void	vmbus_event_proc_compat(struct vmbus_softc *, int);
+void	vmbus_handle_intr(struct trapframe *);
 
 void	vmbus_et_intr(struct trapframe *);
 
