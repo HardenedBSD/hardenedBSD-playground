@@ -119,6 +119,7 @@ FILES=	DAEMON \
 	var \
 	watchdogd \
 	ypbind \
+	ypldap \
 	yppasswdd \
 	ypserv \
 	ypset \
@@ -168,7 +169,7 @@ FILES+=		automountd
 FILES+=		autounmountd
 .endif
 
-.if ${MK_BLACKLIST_SUPPORT} != "no"
+.if ${MK_BLACKLIST} != "no"
 _blacklistd+=	blacklistd
 .endif
 

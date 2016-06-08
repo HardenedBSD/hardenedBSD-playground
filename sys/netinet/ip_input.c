@@ -36,6 +36,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_ipfw.h"
 #include "opt_ipstealth.h"
 #include "opt_ipsec.h"
+#include "opt_pax.h"
 #include "opt_route.h"
 #include "opt_rss.h"
 
@@ -130,7 +131,12 @@ SYSCTL_INT(_net_inet_ip, IPCTL_SENDREDIRECTS, redirect, CTLFLAG_VNET | CTLFLAG_R
  * to the loopback interface instead of the interface where the
  * packets for those addresses are received.
  */
+#ifdef PAX_HARDENING
+static VNET_DEFINE(int, ip_checkinterface) = 1;
+#else
 static VNET_DEFINE(int, ip_checkinterface);
+#endif
+
 #define	V_ip_checkinterface	VNET(ip_checkinterface)
 SYSCTL_INT(_net_inet_ip, OID_AUTO, check_interface, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(ip_checkinterface), 0,
@@ -331,8 +337,15 @@ ip_init(void)
 		    __func__);
 
 	/* Skip initialization of globals for non-default instances. */
-	if (!IS_DEFAULT_VNET(curvnet))
+#ifdef VIMAGE
+	if (!IS_DEFAULT_VNET(curvnet)) {
+		netisr_register_vnet(&ip_nh);
+#ifdef	RSS
+		netisr_register_vnet(&ip_direct_nh);
+#endif
 		return;
+	}
+#endif
 
 	pr = pffindproto(PF_INET, IPPROTO_RAW, SOCK_RAW);
 	if (pr == NULL)
@@ -365,6 +378,11 @@ static void
 ip_destroy(void *unused __unused)
 {
 	int error;
+
+#ifdef	RSS
+	netisr_unregister_vnet(&ip_direct_nh);
+#endif
+	netisr_unregister_vnet(&ip_nh);
 
 	if ((error = pfil_head_unregister(&V_inet_pfil_hook)) != 0)
 		printf("%s: WARNING: unable to unregister pfil hook, "
