@@ -226,12 +226,14 @@ tota [label="TAKATSU Tomonari\ntota@FreeBSD.org\n2009/03/30"]
 trasz [label="Edward Tomasz Napierala\ntrasz@FreeBSD.org\n2007/04/12"]
 trhodes [label="Tom Rhodes\ntrhodes@FreeBSD.org\n2004/07/06"]
 trociny [label="Mikolaj Golub\ntrociny@FreeBSD.org\n2013/10/17"]
+tz [label="Torsten Zuehlsdorff\ntz@FreeBSD.org\n2016/06/04"]
 uqs [label="Ulrich Spoerlein\nuqs@FreeBSD.org\n2012/01/19"]
 vd [label="Vasil Dimov\nvd@FreeBSD.org\n2006/01/19"]
 vg [label="Veniamin Gvozdikov\nvg@FreeBSD.org\n2013/06/11"]
 vsevolod [label="Vsevolod Stakhov\nvsevolod@FreeBSD.org\n2005/07/22"]
 wen [label="Wen Heping\nwen@FreeBSD.org\n2010/12/13"]
 wg [label="William Grzybowski\nwg@FreeBSD.org\n2013/04/01"]
+woodsb02 [label="Ben Woods\nwoodsb02@FreeBSD.org\n2016/05/09"]
 wxs [label="Wesley Shields\nwxs@FreeBSD.org\n2008/01/03"]
 xmj [label="Johannes Jost Meixner\nxmj@FreeBSD.org\n2014/04/07"]
 xride [label="Soeren Straarup\nxride@FreeBSD.org\n2006/09/27"]
@@ -248,6 +250,7 @@ adamw -> ahze
 adamw -> jylefort
 adamw -> mezz
 adamw -> pav
+adamw -> woodsb02
 
 ade -> jpaetzel
 
@@ -411,6 +414,8 @@ jadawin -> wen
 
 joerg -> netchild
 
+junovitch -> tz
+
 knu -> daichi
 knu -> maho
 knu -> nobutaka
@@ -418,6 +423,7 @@ knu -> nork
 
 koobs -> brnrd
 koobs -> kami
+koobs -> woodsb02
 koobs -> xmj
 
 krion -> brooks
@@ -460,6 +466,7 @@ mat -> bmah
 mat -> dvl
 mat -> gordon
 mat -> thierry
+mat -> woodsb02
 
 mezz -> tmclaugh
 
@@ -526,6 +533,8 @@ pgollucci -> swills
 
 philip -> koitsu
 
+pi -> tz
+
 rafan -> chinsan
 
 rakuco -> alonso
@@ -569,6 +578,7 @@ swills -> milki
 swills -> pclin
 swills -> robak
 swills -> rpaulo
+swills -> tz
 swills -> xmj
 
 tabthorpe -> ashish

@@ -36,7 +36,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * Machine dependant functions for kernel setup
+ * Machine dependent functions for kernel setup
  *
  * Created      : 17/09/94
  * Updated	: 18/04/01 updated for new wscons
@@ -96,7 +96,6 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_page.h>
 #include <vm/vm_pager.h>
 
-#include <machine/acle-compat.h>
 #include <machine/armreg.h>
 #include <machine/atags.h>
 #include <machine/cpu.h>
@@ -244,6 +243,10 @@ char atags[LBABI_MAX_COMMAND_LINE * 2];
 uint32_t memstart[LBABI_MAX_BANKS];
 uint32_t memsize[LBABI_MAX_BANKS];
 uint32_t membanks;
+#endif
+#ifdef MULTIDELAY
+static delay_func *delay_impl;
+static void *delay_arg;
 #endif
 
 static uint32_t board_revision;
@@ -414,20 +417,15 @@ arm_vector_init(vm_offset_t va, int which)
 
 	if (va == ARM_VECTORS_HIGH) {
 		/*
-		 * Assume the MD caller knows what it's doing here, and
-		 * really does want the vector page relocated.
+		 * Enable high vectors in the system control reg (SCTLR).
+		 *
+		 * Assume the MD caller knows what it's doing here, and really
+		 * does want the vector page relocated.
 		 *
 		 * Note: This has to be done here (and not just in
 		 * cpu_setup()) because the vector page needs to be
 		 * accessible *before* cpu_startup() is called.
 		 * Think ddb(9) ...
-		 *
-		 * NOTE: If the CPU control register is not readable,
-		 * this will totally fail!  We'll just assume that
-		 * any system that has high vector support has a
-		 * readable CPU control register, for now.  If we
-		 * ever encounter one that does not, we'll have to
-		 * rethink this.
 		 */
 		cpu_control(CPU_CONTROL_VECRELOC, CPU_CONTROL_VECRELOC);
 	}
@@ -551,6 +549,24 @@ arm_generic_initclocks(void)
 #endif
 }
 __weak_reference(arm_generic_initclocks, cpu_initclocks);
+
+#ifdef MULTIDELAY
+void
+arm_set_delay(delay_func *impl, void *arg)
+{
+
+	KASSERT(impl != NULL, ("No DELAY implementation"));
+	delay_impl = impl;
+	delay_arg = arg;
+}
+
+void
+DELAY(int usec)
+{
+
+	delay_impl(usec, delay_arg);
+}
+#endif
 
 int
 fill_regs(struct thread *td, struct reg *regs)

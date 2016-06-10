@@ -303,8 +303,6 @@
             ..
         ..
         dtrace
-            toolkit
-            ..
         ..
         examples
             BSD_daemon
@@ -418,6 +416,8 @@
             tcsh
             ..
             uefisign
+            ..
+            ypldap
             ..
         ..
         firmware

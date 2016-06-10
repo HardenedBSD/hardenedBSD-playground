@@ -1,6 +1,6 @@
 #!/bin/sh
 #-
-# Copyright (c) 2015 HardenedBSD
+# Copyright (c) 2015,2016 HardenedBSD
 # Author: Shawn Webb <shawn.webb@hardenedbsd.org>
 #
 # This work originally sponsored by G2, Inc
@@ -34,10 +34,12 @@ zfsbe=""
 backupkern="kernel.old"
 configfile="/etc/hbsd-update.conf"
 mountpoint="/"
+kernel=""
 
 ignorever=0
 unsigned=0
 verbose=0
+integriforce=1
 
 AWK="/usr/bin/awk"
 BEADM="/usr/local/sbin/beadm"
@@ -65,6 +67,7 @@ usage() {
 	debug_print "\t-h\t\tShow this help screen"
 	debug_print "\t-j jailname\tInstall updates to jail <jailname>"
 	debug_print "\t-K backupkern\tBackup the previous kernel to <backupkern>"
+	debug_print "\t-k kernel\tUse kernel <kernel>"
 	debug_print "\t-t tmpdir\tTemporary directory"
 	debug_print "\t-U\t\tAllow unsigned updates"
 	debug_print "\t-v version\tUse a different version"
@@ -188,7 +191,16 @@ check_pubkey_validity() {
 }
 
 check_set_validity() {
+	local checkfiles
+	local extrafiles
 	checkfiles="base.txz kernel-${kernel}.txz etcupdate.tbz skip.txt"
+	extrafiles="ObsoleteFiles.txt ObsoleteDirs.txt"
+
+	if [ ${integriforce} -gt 0 ]; then
+		if [ -f ${tmpdir}/secadm.integriforce.rules ]; then
+			extrafiles="${extrafiles} secadm.integriforce.rules"
+		fi
+	fi
 
 	${OPENSSL} x509 \
 		-in ${tmpdir}/pubkey.pem \
@@ -202,6 +214,34 @@ check_set_validity() {
 	fi
 
 	for file in ${checkfiles}; do
+		if [ ${verbose} -gt 0 ]; then
+			debug_print "[*] Checking the validity of ${file}"
+		fi
+
+		signedhash=$(${OPENSSL} rsautl \
+			-verify \
+			-in ${tmpdir}/${file}.sig \
+			-pubin \
+			-inkey ${tmpdir}/pubkey.rsa.pem)
+
+		computedhash=$(sha512 -q ${tmpdir}/${file})
+		res=${?}
+		if [ ${res} -gt 0 ]; then
+			return 1
+		fi
+
+		if [ ! "${signedhash}" = "${computedhash}" ]; then
+			debug_print "[-] Hashes don't match for ${file}. Signed: ${signedhash}. Computed ${computedhash}."
+			return 1
+		fi
+	done
+
+	for file in ${extrafiles}; do
+		if [ ! -f ${tmpdir}/${file} ]; then
+			echo "[-] Could not find extra file ${file}. Skipping validity checks."
+			continue
+		fi
+
 		if [ ${verbose} -gt 0 ]; then
 			debug_print "[*] Checking the validity of ${file}"
 		fi
@@ -299,6 +339,37 @@ apply_base() {
 	return 0
 }
 
+set_kernel_config() {
+	local cur_kernel
+
+	if [ ! -z "${kernel}" ]; then
+		if [ ! -f "${tmpdir}/kernel-${kernel}.txz" ]; then
+			echo "[-] Could not find any applicable kernels" >&2
+			return 1
+		fi
+
+		return 0
+	fi
+
+	cur_kernel=$(uname -v)
+	cur_kernel=${cur_kernel##*/}
+	cur_kernel=$(echo "${cur_kernel}" | sed 's/ //g')
+
+	f="${tmpdir}/kernel-${cur_kernel}.txz"
+	if [ -f "${f}" ]; then
+		kernel=${cur_kernel}
+	else
+		kernel="HARDENEDBSD"
+	fi
+
+	if [ ! -f "${tmpdir}/kernel-${kernel}.txz" ]; then
+		echo "[-] Could not find any applicable kernels" >&2
+		return 1
+	fi
+
+	return 0
+}
+
 apply_kernel() {
 	if [ ${verbose} -gt 0 ]; then
 		debug_print "[*] Applying kernel ${kernel}"
@@ -348,6 +419,91 @@ apply_kernel() {
 	res=${?}
 	if [ ${res} -gt 0 ]; then
 		return 1
+	fi
+
+	return 0
+}
+
+apply_integriforce() {
+	local res
+	local f
+
+	debug_print "[*] Applying Integriforce rules"
+
+	f="${mountpoint}/etc/secadm.d/base.integriforce.rules"
+
+	if [ -f ${tmpdir}/secadm.integriforce.rules ]; then
+		if [ ! -d ${mountpoint}/etc/secadm.d ]; then
+			mkdir ${mountpoint}/etc/secadm.d
+			res=${?}
+			if [ ${res} -gt 0 ]; then
+				return 1
+			fi
+		fi
+
+		if [ -f ${mountpoint}/etc/secadm.d/base.integriforce.rules ]; then
+			chflags noschg ${f}
+			res=${?}
+			if [ ${res} -gt 0 ]; then
+				return 1
+			fi
+
+			chmod 0600 ${f}
+			res=${?}
+			if [ ${res} -gt 0 ]; then
+				return 1
+			fi
+		fi
+
+		cp ${tmpdir}/secadm.integriforce.rules ${f}
+		res=${?}
+		if [ ${res} -gt 0 ]; then
+			return 1
+		fi
+
+		chmod 0400 ${f}
+		res=${?}
+		if [ ${res} -gt 0 ]; then
+			return 1
+		fi
+
+		chflags schg ${f}
+		res=${?}
+		if [ ${res} -gt 0 ]; then
+			return 1
+		fi
+	fi
+
+	return 0
+}
+
+remove_obsolete() {
+	if [ ${verbose} -gt 0 ]; then
+		debug_print "[*] Removing obsolete files"
+	fi
+
+	if [ -f ${tmpdir}/ObsoleteFiles.txt ]; then
+		for file in $(cat ${tmpdir}/ObsoleteFiles.txt); do
+			if [ -f ${mountpoint}/${file} ]; then
+				if [ ${verbose} -gt 0 ]; then
+					debug_print "    [+] Removing ${mountpoint}/${file}"
+				fi
+
+				rm -f ${mountpoint}/${file}
+			fi
+		done
+	fi
+
+	if [ -f ${tmpdir}/ObsoleteDirs.txt ]; then
+		for file in $(cat ${tmpdir}/ObsoleteDirs.txt); do
+			if [ -e ${mountpoint}/${file} ]; then
+				if [ ${verbose} -gt 0 ]; then
+					debug_print "    [+] Removing ${mountpoint}/${file}"
+				fi
+
+				rm -rf ${mountpoint}/${file}
+			fi
+		done
 	fi
 
 	return 0
@@ -440,19 +596,37 @@ check_sanity() {
 		exit 1
 	fi
 
-	if [ -z "${kernel}" ]; then
-		debug_print "[-] Missing setting: kernel"
-		exit 1
-	fi
-
 	if [ ! -z "${zfsbe}" ] && [ ! -z "${jailname}" ]; then
 		debug_print "[-] ZFS BE and Jail options are mutually exclusive"
 		exit 1
 	fi
 }
 
+report_version() {
+	local ver
+	ver=$(get_version)
+	if [ ! ${?} -eq 0 ]; then
+		echo "[-] Could not get remote version number" >&2
+		exit 1
+	fi
+
+	if [ -f ${mountpoint}/var/db/hbsd-update/version ]; then
+		echo "[+] Local version: $(cat ${mountpoint}/var/db/hbsd-update/version)"
+	fi
+
+	echo "[+] Remote version: ${ver}"
+
+	exit 0
+}
+
 main() {
-	while getopts 'hiUVb:c:j:K:t:u:v:' opt; do
+	local do_report_version
+	local local_kernel
+
+	do_report_version=0
+	local_kernel=""
+
+	while getopts 'hiCUVb:c:j:K:k:t:u:v:' opt; do
 		case "${opt}" in
 			b)
 				if ! which -s ${BEADM}; then
@@ -465,6 +639,9 @@ main() {
 			c)
 				configfile="${OPTARG}"
 				;;
+			C)
+				do_report_version=1
+				;;
 			i)
 				ignorever=1
 				;;
@@ -473,6 +650,9 @@ main() {
 				;;
 			K)
 				backupkern="${OPTARG}"
+				;;
+			k)
+				local_kernel="${OPTARG}"
 				;;
 			t)
 				tmpdir="${OPTARG}"
@@ -499,6 +679,14 @@ main() {
 		exit 1
 	fi
 
+	if [ ${do_report_version} -gt 0 ]; then
+		report_version
+	fi
+
+	if [ ! -z "${local_kernel}" ]; then
+		kernel=${local_kernel}
+	fi
+
 	if [ -z "${tmpdir}" ]; then
 		get_tmpdir > /dev/null
 	fi
@@ -522,6 +710,13 @@ main() {
 	fi
 
 	fetch_update
+	res=${?}
+	if [ ${res} -gt 0 ]; then
+		cleanup
+		exit 1
+	fi
+
+	set_kernel_config
 	res=${?}
 	if [ ${res} -gt 0 ]; then
 		cleanup
@@ -568,6 +763,24 @@ main() {
 		cleanup
 		destroy_be
 		exit 1
+	fi
+
+	remove_obsolete
+	res=${?}
+	if [ ${res} -gt 0 ]; then
+		cleanup
+		destroy_be
+		exit 1
+	fi
+
+	if [ ${integriforce} -gt 0 ]; then
+		apply_integriforce
+		res=${?}
+		if [ ${res} -gt 0 ]; then
+			cleanup
+			destroy_be
+			exit 1
+		fi
 	fi
 
 	cache_version

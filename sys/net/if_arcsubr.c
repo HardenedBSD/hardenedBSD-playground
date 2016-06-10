@@ -129,7 +129,8 @@ arc_output(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *dst,
 		else if (ifp->if_flags & IFF_NOARP)
 			adst = ntohl(SIN(dst)->sin_addr.s_addr) & 0xFF;
 		else {
-			error = arpresolve(ifp, is_gw, m, dst, &adst, NULL);
+			error = arpresolve(ifp, is_gw, m, dst, &adst, NULL,
+			    NULL);
 			if (error)
 				return (error == EWOULDBLOCK ? 0 : error);
 		}
@@ -170,7 +171,8 @@ arc_output(struct ifnet *ifp, struct mbuf *m, const struct sockaddr *dst,
 		if ((m->m_flags & M_MCAST) != 0)
 			adst = arcbroadcastaddr; /* ARCnet broadcast address */
 		else {
-			error = nd6_resolve(ifp, is_gw, m, dst, &adst, NULL);
+			error = nd6_resolve(ifp, is_gw, m, dst, &adst, NULL,
+			    NULL);
 			if (error != 0)
 				return (error == EWOULDBLOCK ? 0 : error);
 		}
@@ -345,7 +347,7 @@ arc_frag_next(struct ifnet *ifp)
 
 /*
  * Defragmenter. Returns mbuf if last packet found, else
- * NULL. frees imcoming mbuf as necessary.
+ * NULL. frees incoming mbuf as necessary.
  */
 
 static __inline struct mbuf *

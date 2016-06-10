@@ -30,6 +30,7 @@ options 	SOC_ALLWINNER_A10
 options 	HZ=100
 options 	SCHED_4BSD		# 4BSD scheduler
 options 	PLATFORM
+options 	MULTIDELAY
 
 # Debugging for use in -current
 makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
@@ -97,7 +98,7 @@ options 	USB_DEBUG
 #options 	USB_REQ_DEBUG
 #options 	USB_VERBOSE
 #device		uhci
-#device		ohci
+device		ohci
 device		ehci
 
 device		umass

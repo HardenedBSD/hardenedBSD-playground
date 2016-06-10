@@ -29,6 +29,7 @@
 __FBSDID("$FreeBSD$");
 
 #include "opt_kbd.h"
+#include "opt_pax.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -80,7 +81,13 @@ static keyboard_t	**keyboard = &kbd_ini;
 static keyboard_switch_t *kbdsw_ini;
        keyboard_switch_t **kbdsw = &kbdsw_ini;
 
+#ifdef PAX_HARDENING
+/* Only root should be able to change keyboard mapping */
+static int keymap_restrict_change = 4;
+#else
 static int keymap_restrict_change;
+#endif
+
 static SYSCTL_NODE(_hw, OID_AUTO, kbd, CTLFLAG_RD, 0, "kbd");
 SYSCTL_INT(_hw_kbd, OID_AUTO, keymap_restrict_change, CTLFLAG_RW,
     &keymap_restrict_change, 0, "restrict ability to change keymap");
@@ -283,7 +290,7 @@ kbd_unregister(keyboard_t *kbd)
 	return (0);
 }
 
-/* find a funciton table by the driver name */
+/* find a function table by the driver name */
 keyboard_switch_t
 *kbd_get_switch(char *driver)
 {
@@ -996,7 +1003,7 @@ genkbd_commonioctl(keyboard_t *kbd, u_long cmd, caddr_t arg)
 			splx(s);
 			return (error);
 		}
-		kbd->kb_fkeytab[fkeyp->keynum].len = imin(fkeyp->flen, MAXFK);
+		kbd->kb_fkeytab[fkeyp->keynum].len = min(fkeyp->flen, MAXFK);
 		bcopy(fkeyp->keydef, kbd->kb_fkeytab[fkeyp->keynum].str,
 		    kbd->kb_fkeytab[fkeyp->keynum].len);
 		break;

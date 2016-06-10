@@ -69,10 +69,7 @@ ieee80211_regdomain_attach(struct ieee80211com *ic)
 {
 	if (ic->ic_regdomain.regdomain == 0 &&
 	    ic->ic_regdomain.country == CTRY_DEFAULT) {
-		ic->ic_regdomain.country = CTRY_UNITED_STATES;	/* XXX */
 		ic->ic_regdomain.location = ' ';		/* both */
-		ic->ic_regdomain.isocc[0] = 'U';		/* XXX */
-		ic->ic_regdomain.isocc[1] = 'S';		/* XXX */
 		/* NB: driver calls ieee80211_init_channels or similar */
 	}
 	ic->ic_getradiocaps = null_getradiocaps;
@@ -266,7 +263,7 @@ ieee80211_alloc_countryie(struct ieee80211com *ic)
 	 * Indoor/Outdoor portion of country string:
 	 *     'I' indoor only
 	 *     'O' outdoor only
-	 *     ' ' all enviroments
+	 *     ' ' all environments
 	 */
 	ie->cc[2] = (rd->location == 'I' ? 'I' :
 		     rd->location == 'O' ? 'O' : ' ');

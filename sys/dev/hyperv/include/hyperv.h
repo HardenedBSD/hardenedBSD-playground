@@ -121,10 +121,12 @@ typedef uint8_t	hv_bool_uint8_t;
 		    HV_ALIGN_DOWN(addr, PAGE_SIZE)) >> PAGE_SHIFT )
 
 typedef struct hv_guid {
-	 unsigned char data[16];
+	uint8_t data[16];
 } __packed hv_guid;
 
-int snprintf_hv_guid(char *, size_t, const hv_guid *);
+#define HYPERV_GUID_STRLEN	40
+
+int	hyperv_guid2str(const struct hv_guid *, char *, size_t);
 
 #define HV_NIC_GUID							\
 	.data = {0x63, 0x51, 0x61, 0xF8, 0x3E, 0xDF, 0xc5, 0x46,	\
@@ -783,7 +785,7 @@ typedef struct hv_vmbus_channel {
 
 	/*
 	 * From Win8, this field specifies the target virtual process
-	 * on which to deliver the interupt from the host to guest.
+	 * on which to deliver the interrupt from the host to guest.
 	 * Before Win8, all channel interrupts would only be
 	 * delivered on cpu 0. Setting this value to 0 would preserve
 	 * the earlier behavior.

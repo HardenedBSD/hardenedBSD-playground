@@ -16,7 +16,7 @@
 #
 # SUBDIR	A list of subdirectories that should be built as well.
 #		Each of the targets will execute the same target in the
-#		subdirectories. SUBDIR.yes is automatically appeneded
+#		subdirectories. SUBDIR.yes is automatically appended
 #		to this list.
 #
 # +++ targets +++
@@ -72,10 +72,9 @@ DISTRIBUTION?=	base
 distribute: .MAKE
 .for dist in ${DISTRIBUTION}
 	${_+_}cd ${.CURDIR}; \
-	    ${MAKE} install -DNO_SUBDIR DESTDIR=${DISTDIR}/${dist} SHARED=copies
+	    ${MAKE} install installconfig -DNO_SUBDIR DESTDIR=${DISTDIR}/${dist} SHARED=copies
 .endfor
 .endif
-
 # Convenience targets to run 'build${target}' and 'install${target}' when
 # calling 'make ${target}'.
 .for __target in files includes

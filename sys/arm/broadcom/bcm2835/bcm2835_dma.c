@@ -284,7 +284,7 @@ bcm_dma_init(device_t dev)
 
 		/* 
 		 * Least alignment for busdma-allocated stuff is cache 
-		 * line size, so just make sure nothing stupid happend
+		 * line size, so just make sure nothing stupid happened
 		 * and we got properly aligned address
 		 */
 		if ((uintptr_t)cb_virt & 0x1f) {
@@ -545,7 +545,7 @@ bcm_dma_reg_dump(int ch)
  *     ch - channel number
  *     src, dst - source and destination address in
  *         ARM physical memory address space. 
- *     len - amount of bytes to be transfered
+ *     len - amount of bytes to be transferred
  *	  
  * Returns 0 on success, -1 otherwise
  */
