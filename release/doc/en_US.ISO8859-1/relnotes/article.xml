@@ -621,9 +621,8 @@
 	A selection of system daemons, including:
 	<application>fingerd</application>,
 	<application>ftpd</application>,
-	<application>rlogind</application>,
-	<application>rshd</application>, and
-	<application>sshd</application> have been modified to support
+	<application>rlogind</application>, and
+	<application>rshd</application> have been modified to support
 	sending notifications to the <application>blacklistd</application>
 	daemon.</para>
 
@@ -631,6 +630,9 @@
 	the &man.ipfw.4; packet filter has been added to the
 	<application>blacklistd-helper</application> script.</para>
 
+      <para revision="301843" contrib="sponsor" sponsor="&ff;">Support for
+	the &man.ipfilter.4; packet filter has been added to the
+	<application>blacklistd-helper</application> script.</para>
     </sect2>
 
     <sect2 xml:id="userland-installer">

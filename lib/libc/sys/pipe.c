@@ -1,6 +1,10 @@
 /*-
- * Copyright (c) 2006 Wojciech A. Koszek <wkoszek@FreeBSD.org>
+ * Copyright (c) 2016 SRI International
  * All rights reserved.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,60 +27,21 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id$
+ * $FreeBSD$
  */
-/*
- * Skeleton of this file was based on respective code for ARM
- * code written by Olivier Houchard.
- */
-/*
- * XXXMIPS: This file is hacked from arm/... . XXXMIPS here means this file is
- * experimental and was written for MIPS32 port.
- */
-#include "opt_uart.h"
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
-#include <sys/param.h>
-#include <sys/systm.h>
-#include <sys/bus.h>
-#include <sys/cons.h>
+#include <unistd.h>
 
-#include <machine/bus.h>
+__weak_reference(__sys_pipe, pipe);
+__weak_reference(__sys_pipe, _pipe);
 
-#include <dev/uart/uart.h>
-#include <dev/uart/uart_cpu.h>
-
-#include <mips/sentry5/sentry5reg.h>
-
-bus_space_tag_t uart_bus_space_io;
-bus_space_tag_t uart_bus_space_mem;
-
-extern struct uart_ops malta_usart_ops;
-extern struct bus_space malta_bs_tag;
+extern int __sys_pipe2(int fildes[2], int flags);
 
 int
-uart_cpu_eqres(struct uart_bas *b1, struct uart_bas *b2)
+__sys_pipe(int fildes[2])
 {
-	return ((b1->bsh == b2->bsh && b1->bst == b2->bst) ? 1 : 0);
-}
 
-int
-uart_cpu_getdev(int devtype, struct uart_devinfo *di)
-{
-	di->ops = uart_getops(&uart_ns8250_class);
-	di->bas.chan = 0;
-	di->bas.bst = 0;
-	di->bas.regshft = 0;
-	di->bas.rclk = 0;
-	di->baudrate = 115200;
-	di->databits = 8;
-	di->stopbits = 1;
-	di->parity = UART_PARITY_NONE;
-
-	uart_bus_space_io = MIPS_PHYS_TO_KSEG1(SENTRY5_UART1ADR);
-	uart_bus_space_mem = mips_bus_space_generic;
-	di->bas.bsh = MIPS_PHYS_TO_KSEG1(SENTRY5_UART1ADR);
-	return (0);
+	return (__sys_pipe2(fildes, 0));
 }

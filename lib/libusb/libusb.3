@@ -26,7 +26,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd June 17, 2016
+.Dd June 23, 2016
 .Dt LIBUSB 3
 .Os
 .Sh NAME
@@ -521,6 +521,29 @@ if the transfer timed out, LIBUSB_ERROR_PIPE if the control request was not
 supported, LIBUSB_ERROR_OVERFLOW if the device offered more data,
 LIBUSB_ERROR_NO_DEVICE if the device has been disconnected and
 a LIBUSB_ERROR code on other failure.
+.Sh USB STREAMS SUPPORT
+.Ft int
+.Fn libusb_alloc_streams "libusb_device_handle *dev" "uint32_t num_streams" "unsigned char *endpoints" "int num_endpoints"
+This function verifies that the given number of streams using the
+given number of endpoints is allowed and allocates the resources
+needed to use so-called USB streams.
+Currently only a single stream per endpoint is supported to simplify
+the internals of LibUSB.
+This function returns 0 on success or a LIBUSB_ERROR code on failure.
+.Pp
+.Ft int
+.Fn libusb_free_streams "libusb_device_handle *dev" "unsigned char *endpoints" "int num_endpoints"
+This function release resources needed for streams usage.
+Returns 0 on success or a LIBUSB_ERROR code on failure.
+.Pp
+.Ft void
+.Fn libusb_transfer_set_stream_id "struct libusb_transfer *transfer" "uint32_t stream_id"
+This function sets the stream ID for the given USB transfer.
+.Pp
+.Ft uint32_t
+.Fn libusb_transfer_get_stream_id "struct libusb_transfer *transfer"
+This function returns the stream ID for the given USB transfer.
+If no stream ID is used a value of zero is returned.
 .Sh USB EVENTS
 .Ft int
 .Fn libusb_try_lock_events "libusb_context *ctx"
@@ -642,6 +665,47 @@ that libusb uses as an event source.
 Retrive a list of file descriptors that should be polled by your main loop as
 libusb event sources.
 Returns a NULL-terminated list on success or NULL on failure.
+.Pp
+.Ft int
+.Fn libusb_hotplug_register_callback "libusb_context *ctx" "libusb_hotplug_event events" "libusb_hotplug_flag flags" "int vendor_id" "int product_id" "int dev_class" "libusb_hotplug_callback_fn cb_fn" "void *user_data" "libusb_hotplug_callback_handle *handle"
+This function registers a hotplug filter.
+The
+.Fa events
+argument select which events makes the hotplug filter trigger.
+Available event values are LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED and LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT.
+One or more events must be specified.
+The
+.Fa vendor_id ,
+.Fa product_id
+and
+.Fa dev_class
+arguments can be set to LIBUSB_HOTPLUG_MATCH_ANY to match any value in the USB device descriptor.
+Else the specified value is used for matching.
+If the
+.Fa flags
+argument is set to LIBUSB_HOTPLUG_ENUMERATE, all currently attached and matching USB devices will be passed to the hotplug filter, given by the
+.Fa cb_fn
+argument.
+Else the
+.Fa flags
+argument should be set to LIBUSB_HOTPLUG_NO_FLAGS.
+This function returns 0 upon success or a LIBUSB_ERROR code on failure.
+.Pp
+.Ft int
+.Fn libusb_hotplug_callback_fn "libusb_context *ctx" "libusb_device *device" "libusb_hotplug_event event" "void *user_data"
+The hotplug filter function.
+If this function returns non-zero, the filter is removed.
+Else the filter is kept and can receive more events.
+The
+.Fa user_data
+argument is the same as given when the filter was registered.
+The
+.Fa event
+argument can be either of LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED or LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT.
+.Pp
+.Ft void
+.Fn libusb_hotplug_deregister_callback "libusb_context *ctx" "libusb_hotplug_callback_handle handle"
+This function unregisters a hotplug filter.
 .Sh LIBUSB VERSION 0.1 COMPATIBILITY
 The library is also compliant with LibUSB version 0.1.12.
 .Pp

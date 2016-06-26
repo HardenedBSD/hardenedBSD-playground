@@ -93,7 +93,8 @@ PROG_FULL=${PROG}.full
     ${BINDIR} == "/bin" ||\
     ${BINDIR:C%/libexec(/.*)?%/libexec%} == "/libexec" ||\
     ${BINDIR} == "/sbin" ||\
-    ${BINDIR:C%/usr/(bin|bsdinstall|libexec|lpr|sendmail|sm.bin|sbin|tests)(/.*)?%/usr/bin%} == "/usr/bin"\
+    ${BINDIR:C%/usr/(bin|bsdinstall|libexec|lpr|sendmail|sm.bin|sbin|tests)(/.*)?%/usr/bin%} == "/usr/bin" ||\
+    ${BINDIR} == "/usr/lib" \
      )
 DEBUGFILEDIR=	${DEBUGDIR}${BINDIR}
 .else
@@ -205,6 +206,7 @@ CLEANFILES+= ${OBJS}
 .include <bsd.libnames.mk>
 
 .if defined(PROG)
+.if !defined(NO_EXTRADEPEND)
 _EXTRADEPEND:
 .if defined(LDFLAGS) && !empty(LDFLAGS:M-nostdlib)
 .if defined(DPADD) && !empty(DPADD)
@@ -220,6 +222,7 @@ _EXTRADEPEND:
 .endif
 .endif
 .endif
+.endif	# !defined(NO_EXTRADEPEND)
 .endif
 
 .if !target(install)
