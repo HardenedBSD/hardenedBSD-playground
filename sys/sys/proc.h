@@ -180,6 +180,7 @@ struct td_sched;
 struct thread;
 struct trapframe;
 struct turnstile;
+struct socket;
 
 /*
  * XXX: Does this belong in resource.h or resourcevar.h instead?
@@ -340,6 +341,7 @@ struct thread {
 	void		*td_emuldata;	/* Emulator state data */
 	int		td_lastcpu;	/* (t) Last cpu we were on. */
 	int		td_oncpu;	/* (t) Which cpu we are on. */
+	void		*td_lkpi_task;
 };
 
 struct thread0_storage {

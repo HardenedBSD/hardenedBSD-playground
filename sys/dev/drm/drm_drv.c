@@ -1,7 +1,10 @@
-/*-
- * Copyright 1999, 2000 Precision Insight, Inc., Cedar Park, Texas.
- * Copyright 2000 VA Linux Systems, Inc., Sunnyvale, California.
+/*
+ * Created: Fri Jan 19 10:48:35 2001 by faith@acm.org
+ *
+ * Copyright 2001 VA Linux Systems, Inc., Sunnyvale, California.
  * All Rights Reserved.
+ *
+ * Author Rickard E. (Rik) Faith <faith@valinux.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -17,817 +20,934 @@
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
- * VA LINUX SYSTEMS AND/OR ITS SUPPLIERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+ * PRECISION INSIGHT AND/OR ITS SUPPLIERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
  * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
- * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- * OTHER DEALINGS IN THE SOFTWARE.
- *
- * Authors:
- *    Rickard E. (Rik) Faith <faith@valinux.com>
- *    Gareth Hughes <gareth@valinux.com>
- *
+ * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#include <sys/sysent.h>
 
-/** @file drm_drv.c
- * The catch-all file for DRM device support, including module setup/teardown,
- * open/close, and ioctl dispatch.
- */
+#include <linux/debugfs.h>
+#include <linux/fs.h>
+#include <linux/module.h>
+#include <linux/moduleparam.h>
+#include <linux/mount.h>
+#include <linux/slab.h>
+#include <drm/drmP.h>
+#include <drm/drm_core.h>
+#include "drm_legacy.h"
+#include "drm_internal.h"
 
-
-#include <sys/limits.h>
-#include "dev/drm/drmP.h"
-#include "dev/drm/drm.h"
-#include "dev/drm/drm_sarea.h"
-
-#ifdef DRM_DEBUG_DEFAULT_ON
-int drm_debug_flag = 1;
+#if defined(DRM_DEBUG_LOG_ALL) || defined(INVARIANTS)
+unsigned int drm_debug = 0xffffffff;	/* bitmask of DRM_UT_x */
 #else
-int drm_debug_flag = 0;
+unsigned int drm_debug = 0;	/* bitmask of DRM_UT_x */
 #endif
 
-static int drm_load(struct drm_device *dev);
-static void drm_unload(struct drm_device *dev);
-static drm_pci_id_list_t *drm_find_description(int vendor, int device,
-    drm_pci_id_list_t *idlist);
+EXPORT_SYMBOL(drm_debug);
 
-MODULE_VERSION(drm, 1);
-MODULE_DEPEND(drm, agp, 1, 1, 1);
-MODULE_DEPEND(drm, pci, 1, 1, 1);
-MODULE_DEPEND(drm, mem, 1, 1, 1);
+MODULE_AUTHOR(CORE_AUTHOR);
+MODULE_DESCRIPTION(CORE_DESC);
+MODULE_LICENSE("GPL and additional rights");
+MODULE_PARM_DESC(debug, "Enable debug output");
+module_param_named(debug, drm_debug, int, 0600);
 
-static drm_ioctl_desc_t		  drm_ioctls[256] = {
-	DRM_IOCTL_DEF(DRM_IOCTL_VERSION, drm_version, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_UNIQUE, drm_getunique, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_MAGIC, drm_getmagic, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_IRQ_BUSID, drm_irq_by_busid, DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_MAP, drm_getmap, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_CLIENT, drm_getclient, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_STATS, drm_getstats, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_SET_VERSION, drm_setversion, DRM_MASTER|DRM_ROOT_ONLY),
+static DEFINE_SPINLOCK(drm_minor_lock);
+static struct idr drm_minors_idr;
 
-	DRM_IOCTL_DEF(DRM_IOCTL_SET_UNIQUE, drm_setunique, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_BLOCK, drm_noop, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_UNBLOCK, drm_noop, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_AUTH_MAGIC, drm_authmagic, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
+static struct dentry *drm_debugfs_root;
 
-	DRM_IOCTL_DEF(DRM_IOCTL_ADD_MAP, drm_addmap_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_RM_MAP, drm_rmmap_ioctl, DRM_AUTH),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_SET_SAREA_CTX, drm_setsareactx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_SAREA_CTX, drm_getsareactx, DRM_AUTH),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_ADD_CTX, drm_addctx, DRM_AUTH|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_RM_CTX, drm_rmctx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_MOD_CTX, drm_modctx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_GET_CTX, drm_getctx, DRM_AUTH),
-	DRM_IOCTL_DEF(DRM_IOCTL_SWITCH_CTX, drm_switchctx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_NEW_CTX, drm_newctx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_RES_CTX, drm_resctx, DRM_AUTH),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_ADD_DRAW, drm_adddraw, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_RM_DRAW, drm_rmdraw, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_LOCK, drm_lock, DRM_AUTH),
-	DRM_IOCTL_DEF(DRM_IOCTL_UNLOCK, drm_unlock, DRM_AUTH),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_FINISH, drm_noop, DRM_AUTH),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_ADD_BUFS, drm_addbufs, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_MARK_BUFS, drm_markbufs, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_INFO_BUFS, drm_infobufs, DRM_AUTH),
-	DRM_IOCTL_DEF(DRM_IOCTL_MAP_BUFS, drm_mapbufs, DRM_AUTH),
-	DRM_IOCTL_DEF(DRM_IOCTL_FREE_BUFS, drm_freebufs, DRM_AUTH),
-	DRM_IOCTL_DEF(DRM_IOCTL_DMA, drm_dma, DRM_AUTH),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_CONTROL, drm_control, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_AGP_ACQUIRE, drm_agp_acquire_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_AGP_RELEASE, drm_agp_release_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_AGP_ENABLE, drm_agp_enable_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_AGP_INFO, drm_agp_info_ioctl, DRM_AUTH),
-	DRM_IOCTL_DEF(DRM_IOCTL_AGP_ALLOC, drm_agp_alloc_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_AGP_FREE, drm_agp_free_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_AGP_BIND, drm_agp_bind_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_AGP_UNBIND, drm_agp_unbind_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-
-	DRM_IOCTL_DEF(DRM_IOCTL_SG_ALLOC, drm_sg_alloc_ioctl, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_SG_FREE, drm_sg_free, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-	DRM_IOCTL_DEF(DRM_IOCTL_WAIT_VBLANK, drm_wait_vblank, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_MODESET_CTL, drm_modeset_ctl, 0),
-	DRM_IOCTL_DEF(DRM_IOCTL_UPDATE_DRAW, drm_update_draw, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
-};
-
-static struct cdevsw drm_cdevsw = {
-	.d_version =	D_VERSION,
-	.d_open =	drm_open,
-	.d_read =	drm_read,
-	.d_ioctl =	drm_ioctl,
-	.d_poll =	drm_poll,
-	.d_mmap =	drm_mmap,
-	.d_name =	"drm",
-	.d_flags =	D_TRACKCLOSE
-};
-
-static int drm_msi = 1;	/* Enable by default. */
-SYSCTL_NODE(_hw, OID_AUTO, drm, CTLFLAG_RW, NULL, "DRM device");
-SYSCTL_INT(_hw_drm, OID_AUTO, msi, CTLFLAG_RDTUN, &drm_msi, 1,
-    "Enable MSI interrupts for drm devices");
-
-static struct drm_msi_blacklist_entry drm_msi_blacklist[] = {
-	{0x8086, 0x2772}, /* Intel i945G	*/ \
-	{0x8086, 0x27A2}, /* Intel i945GM	*/ \
-	{0x8086, 0x27AE}, /* Intel i945GME	*/ \
-	{0, 0}
-};
-
-static int drm_msi_is_blacklisted(int vendor, int device)
+void drm_err(const char *format, ...)
 {
-	int i = 0;
-	
-	for (i = 0; drm_msi_blacklist[i].vendor != 0; i++) {
-		if ((drm_msi_blacklist[i].vendor == vendor) &&
-		    (drm_msi_blacklist[i].device == device)) {
-			return 1;
+	struct va_format vaf;
+	va_list args;
+
+	va_start(args, format);
+
+	vaf.fmt = format;
+	vaf.va = &args;
+
+	printf("[" DRM_NAME ":%ps] *ERROR* ", __builtin_return_address(0));
+	vprintf(format, args);
+
+	va_end(args);
+}
+EXPORT_SYMBOL(drm_err);
+
+void drm_ut_debug_printk(const char *function_name, const char *format, ...)
+{
+	struct va_format vaf;
+	va_list args;
+	static int stop_count = 0;
+
+	va_start(args, format);
+	vaf.fmt = format;
+	vaf.va = &args;
+
+	if (SCHEDULER_STOPPED() || kdb_active) {
+		printf(" ");
+		return;
+	}
+	if (panicstr != NULL)
+		return;
+	printf("[" DRM_NAME ":%s] ", function_name);
+	vprintf(format, args);
+
+	va_end(args);
+}
+EXPORT_SYMBOL(drm_ut_debug_printk);
+
+struct drm_master *drm_master_create(struct drm_minor *minor)
+{
+	struct drm_master *master;
+
+	master = kzalloc(sizeof(*master), GFP_KERNEL);
+	if (!master)
+		return NULL;
+
+	kref_init(&master->refcount);
+	spin_lock_init(&master->lock.spinlock);
+	init_waitqueue_head(&master->lock.lock_queue);
+	idr_init(&master->magic_map);
+	master->minor = minor;
+
+	return master;
+}
+
+struct drm_master *drm_master_get(struct drm_master *master)
+{
+	kref_get(&master->refcount);
+	return master;
+}
+EXPORT_SYMBOL(drm_master_get);
+
+static void drm_master_destroy(struct kref *kref)
+{
+	struct drm_master *master = container_of(kref, struct drm_master, refcount);
+	struct drm_device *dev = master->minor->dev;
+	struct drm_map_list *r_list, *list_temp;
+
+	mutex_lock(&dev->struct_mutex);
+	if (dev->driver->master_destroy)
+		dev->driver->master_destroy(dev, master);
+
+	list_for_each_entry_safe(r_list, list_temp, &dev->maplist, head) {
+		if (r_list->master == master) {
+			drm_legacy_rmmap_locked(dev, r_list->map);
+			r_list = NULL;
+		}
+	}
+	mutex_unlock(&dev->struct_mutex);
+
+	idr_destroy(&master->magic_map);
+	kfree(master->unique);
+	kfree(master);
+}
+
+void drm_master_put(struct drm_master **master)
+{
+	kref_put(&(*master)->refcount, drm_master_destroy);
+	*master = NULL;
+}
+EXPORT_SYMBOL(drm_master_put);
+
+int drm_setmaster_ioctl(struct drm_device *dev, void *data,
+			struct drm_file *file_priv)
+{
+	int ret = 0;
+
+	mutex_lock(&dev->master_mutex);
+	if (file_priv->is_master)
+		goto out_unlock;
+
+	if (file_priv->minor->master) {
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	if (!file_priv->master) {
+		ret = -EINVAL;
+		goto out_unlock;
+	}
+
+	if (!file_priv->allowed_master) {
+		ret = drm_new_set_master(dev, file_priv);
+		goto out_unlock;
+	}
+
+	file_priv->minor->master = drm_master_get(file_priv->master);
+	file_priv->is_master = 1;
+	if (dev->driver->master_set) {
+		ret = dev->driver->master_set(dev, file_priv, false);
+		if (unlikely(ret != 0)) {
+			file_priv->is_master = 0;
+			drm_master_put(&file_priv->minor->master);
 		}
 	}
 
-	return 0;
+out_unlock:
+	mutex_unlock(&dev->master_mutex);
+	return ret;
 }
 
-int drm_probe(device_t kdev, drm_pci_id_list_t *idlist)
+int drm_dropmaster_ioctl(struct drm_device *dev, void *data,
+			 struct drm_file *file_priv)
 {
-	drm_pci_id_list_t *id_entry;
-	int vendor, device;
-	vendor = pci_get_vendor(kdev);
-	device = pci_get_device(kdev);
+	int ret = -EINVAL;
 
-	if (pci_get_class(kdev) != PCIC_DISPLAY
-	    || pci_get_subclass(kdev) != PCIS_DISPLAY_VGA)
-		return ENXIO;
+	mutex_lock(&dev->master_mutex);
+	if (!file_priv->is_master)
+		goto out_unlock;
 
-	id_entry = drm_find_description(vendor, device, idlist);
-	if (id_entry != NULL) {
-		if (!device_get_desc(kdev)) {
-			DRM_DEBUG("desc : %s\n", device_get_desc(kdev));
-			device_set_desc(kdev, id_entry->name);
-		}
+	if (!file_priv->minor->master)
+		goto out_unlock;
+
+	ret = 0;
+	if (dev->driver->master_drop)
+		dev->driver->master_drop(dev, file_priv, false);
+	drm_master_put(&file_priv->minor->master);
+	file_priv->is_master = 0;
+
+out_unlock:
+	mutex_unlock(&dev->master_mutex);
+	return ret;
+}
+
+/*
+ * DRM Minors
+ * A DRM device can provide several char-dev interfaces on the DRM-Major. Each
+ * of them is represented by a drm_minor object. Depending on the capabilities
+ * of the device-driver, different interfaces are registered.
+ *
+ * Minors can be accessed via dev->$minor_name. This pointer is either
+ * NULL or a valid drm_minor pointer and stays valid as long as the device is
+ * valid. This means, DRM minors have the same life-time as the underlying
+ * device. However, this doesn't mean that the minor is active. Minors are
+ * registered and unregistered dynamically according to device-state.
+ */
+
+static struct drm_minor **drm_minor_get_slot(struct drm_device *dev,
+					     unsigned int type)
+{
+	switch (type) {
+	case DRM_MINOR_LEGACY:
+		return &dev->primary;
+	case DRM_MINOR_RENDER:
+		return &dev->render;
+	case DRM_MINOR_CONTROL:
+		return &dev->control;
+	default:
+		return NULL;
+	}
+}
+
+static int drm_minor_alloc(struct drm_device *dev, unsigned int type)
+{
+	struct drm_minor *minor;
+	unsigned long flags;
+	int r;
+
+	minor = kzalloc(sizeof(*minor), GFP_KERNEL);
+	if (!minor)
+		return -ENOMEM;
+
+	minor->type = type;
+	minor->dev = dev;
+
+	idr_preload(GFP_KERNEL);
+	spin_lock_irqsave(&drm_minor_lock, flags);
+	r = idr_alloc(&drm_minors_idr,
+		      NULL,
+		      64 * type,
+		      64 * (type + 1),
+		      GFP_NOWAIT);
+	spin_unlock_irqrestore(&drm_minor_lock, flags);
+	idr_preload_end();
+
+	if (r < 0)
+		goto err_free;
+
+	minor->index = r;
+
+	minor->kdev = drm_sysfs_minor_alloc(minor);
+	if (IS_ERR(minor->kdev)) {
+		r = PTR_ERR(minor->kdev);
+		goto err_index;
+	}
+
+	*drm_minor_get_slot(dev, type) = minor;
+	return 0;
+
+err_index:
+	spin_lock_irqsave(&drm_minor_lock, flags);
+	idr_remove(&drm_minors_idr, minor->index);
+	spin_unlock_irqrestore(&drm_minor_lock, flags);
+err_free:
+	kfree(minor);
+	return r;
+}
+
+static void drm_minor_free(struct drm_device *dev, unsigned int type)
+{
+	struct drm_minor **slot, *minor;
+	unsigned long flags;
+
+	slot = drm_minor_get_slot(dev, type);
+	minor = *slot;
+	if (!minor)
+		return;
+
+	put_device(minor->kdev);
+
+	spin_lock_irqsave(&drm_minor_lock, flags);
+	idr_remove(&drm_minors_idr, minor->index);
+	spin_unlock_irqrestore(&drm_minor_lock, flags);
+
+	kfree(minor);
+	*slot = NULL;
+}
+
+static int drm_minor_register(struct drm_device *dev, unsigned int type)
+{
+	struct drm_minor *minor;
+	unsigned long flags;
+	int ret;
+
+	DRM_DEBUG("\n");
+
+	minor = *drm_minor_get_slot(dev, type);
+	if (!minor)
 		return 0;
+
+	ret = drm_debugfs_init(minor, minor->index, drm_debugfs_root);
+	if (ret) {
+		DRM_ERROR("DRM: Failed to initialize /sys/kernel/debug/dri.\n");
+		return ret;
 	}
 
-	return ENXIO;
-}
+	ret = device_add(minor->kdev);
+	if (ret)
+		goto err_debugfs;
 
-int drm_attach(device_t kdev, drm_pci_id_list_t *idlist)
-{
-	struct drm_device *dev;
-	drm_pci_id_list_t *id_entry;
-	int unit, msicount;
+	/* replace NULL with @minor so lookups will succeed from now on */
+	spin_lock_irqsave(&drm_minor_lock, flags);
+	idr_replace(&drm_minors_idr, minor, minor->index);
+	spin_unlock_irqrestore(&drm_minor_lock, flags);
 
-	unit = device_get_unit(kdev);
-	dev = device_get_softc(kdev);
-
-	dev->device = kdev;
-	dev->devnode = make_dev(&drm_cdevsw,
-			0,
-			DRM_DEV_UID,
-			DRM_DEV_GID,
-			DRM_DEV_MODE,
-			"dri/card%d", unit);
-	dev->devnode->si_drv1 = dev;
-
-	dev->pci_domain = pci_get_domain(dev->device);
-	dev->pci_bus = pci_get_bus(dev->device);
-	dev->pci_slot = pci_get_slot(dev->device);
-	dev->pci_func = pci_get_function(dev->device);
-
-	dev->pci_vendor = pci_get_vendor(dev->device);
-	dev->pci_device = pci_get_device(dev->device);
-
-	if (drm_core_check_feature(dev, DRIVER_HAVE_IRQ)) {
-		if (drm_msi &&
-		    !drm_msi_is_blacklisted(dev->pci_vendor, dev->pci_device)) {
-			msicount = pci_msi_count(dev->device);
-			DRM_DEBUG("MSI count = %d\n", msicount);
-			if (msicount > 1)
-				msicount = 1;
-
-			if (pci_alloc_msi(dev->device, &msicount) == 0) {
-				DRM_INFO("MSI enabled %d message(s)\n",
-				    msicount);
-				dev->msi_enabled = 1;
-				dev->irqrid = 1;
-			}
-		}
-
-		dev->irqr = bus_alloc_resource_any(dev->device, SYS_RES_IRQ,
-		    &dev->irqrid, RF_SHAREABLE);
-		if (!dev->irqr) {
-			return ENOENT;
-		}
-
-		dev->irq = (int) rman_get_start(dev->irqr);
-	}
-
-	mtx_init(&dev->dev_lock, "drmdev", NULL, MTX_DEF);
-	mtx_init(&dev->irq_lock, "drmirq", NULL, MTX_DEF);
-	mtx_init(&dev->vbl_lock, "drmvbl", NULL, MTX_DEF);
-	mtx_init(&dev->drw_lock, "drmdrw", NULL, MTX_DEF);
-
-	id_entry = drm_find_description(dev->pci_vendor,
-	    dev->pci_device, idlist);
-	dev->id_entry = id_entry;
-
-	return drm_load(dev);
-}
-
-int drm_detach(device_t kdev)
-{
-	struct drm_device *dev;
-
-	dev = device_get_softc(kdev);
-
-	drm_unload(dev);
-
-	if (dev->irqr) {
-		bus_release_resource(dev->device, SYS_RES_IRQ, dev->irqrid,
-		    dev->irqr);
-
-		if (dev->msi_enabled) {
-			pci_release_msi(dev->device);
-			DRM_INFO("MSI released\n");
-		}
-	}
-
+	DRM_DEBUG("new minor registered %d\n", minor->index);
 	return 0;
+
+err_debugfs:
+	drm_debugfs_cleanup(minor);
+	return ret;
 }
 
-#ifndef DRM_DEV_NAME
-#define DRM_DEV_NAME "drm"
-#endif
-
-devclass_t drm_devclass;
-
-drm_pci_id_list_t *drm_find_description(int vendor, int device,
-    drm_pci_id_list_t *idlist)
+static void drm_minor_unregister(struct drm_device *dev, unsigned int type)
 {
-	int i = 0;
-	
-	for (i = 0; idlist[i].vendor != 0; i++) {
-		if ((idlist[i].vendor == vendor) &&
-		    ((idlist[i].device == device) ||
-		    (idlist[i].device == 0))) {
-			return &idlist[i];
+	struct drm_minor *minor;
+	unsigned long flags;
+
+	minor = *drm_minor_get_slot(dev, type);
+	if (!minor || !device_is_registered(minor->kdev))
+		return;
+
+	/* replace @minor with NULL so lookups will fail from now on */
+	spin_lock_irqsave(&drm_minor_lock, flags);
+	idr_replace(&drm_minors_idr, NULL, minor->index);
+	spin_unlock_irqrestore(&drm_minor_lock, flags);
+
+	device_del(minor->kdev);
+	dev_set_drvdata(minor->kdev, NULL); /* safety belt */
+	drm_debugfs_cleanup(minor);
+}
+
+/**
+ * drm_minor_acquire - Acquire a DRM minor
+ * @minor_id: Minor ID of the DRM-minor
+ *
+ * Looks up the given minor-ID and returns the respective DRM-minor object. The
+ * refence-count of the underlying device is increased so you must release this
+ * object with drm_minor_release().
+ *
+ * As long as you hold this minor, it is guaranteed that the object and the
+ * minor->dev pointer will stay valid! However, the device may get unplugged and
+ * unregistered while you hold the minor.
+ *
+ * Returns:
+ * Pointer to minor-object with increased device-refcount, or PTR_ERR on
+ * failure.
+ */
+struct drm_minor *drm_minor_acquire(unsigned int minor_id)
+{
+	struct drm_minor *minor;
+	unsigned long flags;
+
+	spin_lock_irqsave(&drm_minor_lock, flags);
+	minor = idr_find(&drm_minors_idr, minor_id);
+	if (minor)
+		drm_dev_ref(minor->dev);
+	spin_unlock_irqrestore(&drm_minor_lock, flags);
+
+	if (!minor) {
+		return ERR_PTR(-ENODEV);
+	} else if (drm_device_is_unplugged(minor->dev)) {
+		drm_dev_unref(minor->dev);
+		return ERR_PTR(-ENODEV);
+	}
+
+	return minor;
+}
+
+/**
+ * drm_minor_release - Release DRM minor
+ * @minor: Pointer to DRM minor object
+ *
+ * Release a minor that was previously acquired via drm_minor_acquire().
+ */
+void drm_minor_release(struct drm_minor *minor)
+{
+	drm_dev_unref(minor->dev);
+}
+
+/**
+ * DOC: driver instance overview
+ *
+ * A device instance for a drm driver is represented by struct &drm_device. This
+ * is allocated with drm_dev_alloc(), usually from bus-specific ->probe()
+ * callbacks implemented by the driver. The driver then needs to initialize all
+ * the various subsystems for the drm device like memory management, vblank
+ * handling, modesetting support and intial output configuration plus obviously
+ * initialize all the corresponding hardware bits. An important part of this is
+ * also calling drm_dev_set_unique() to set the userspace-visible unique name of
+ * this device instance. Finally when everything is up and running and ready for
+ * userspace the device instance can be published using drm_dev_register().
+ *
+ * There is also deprecated support for initalizing device instances using
+ * bus-specific helpers and the ->load() callback. But due to
+ * backwards-compatibility needs the device instance have to be published too
+ * early, which requires unpretty global locking to make safe and is therefore
+ * only support for existing drivers not yet converted to the new scheme.
+ *
+ * When cleaning up a device instance everything needs to be done in reverse:
+ * First unpublish the device instance with drm_dev_unregister(). Then clean up
+ * any other resources allocated at device initialization and drop the driver's
+ * reference to &drm_device using drm_dev_unref().
+ *
+ * Note that the lifetime rules for &drm_device instance has still a lot of
+ * historical baggage. Hence use the reference counting provided by
+ * drm_dev_ref() and drm_dev_unref() only carefully.
+ *
+ * Also note that embedding of &drm_device is currently not (yet) supported (but
+ * it would be easy to add). Drivers can store driver-private data in the
+ * dev_priv field of &drm_device.
+ */
+
+/**
+ * drm_put_dev - Unregister and release a DRM device
+ * @dev: DRM device
+ *
+ * Called at module unload time or when a PCI device is unplugged.
+ *
+ * Cleans up all DRM device, calling drm_lastclose().
+ *
+ * Note: Use of this function is deprecated. It will eventually go away
+ * completely.  Please use drm_dev_unregister() and drm_dev_unref() explicitly
+ * instead to make sure that the device isn't userspace accessible any more
+ * while teardown is in progress, ensuring that userspace can't access an
+ * inconsistent state.
+ */
+void drm_put_dev(struct drm_device *dev)
+{
+	DRM_DEBUG("\n");
+
+	if (!dev) {
+		DRM_ERROR("cleanup called no dev\n");
+		return;
+	}
+
+	drm_dev_unregister(dev);
+	drm_dev_unref(dev);
+}
+EXPORT_SYMBOL(drm_put_dev);
+
+void drm_unplug_dev(struct drm_device *dev)
+{
+	/* for a USB device */
+	drm_minor_unregister(dev, DRM_MINOR_LEGACY);
+	drm_minor_unregister(dev, DRM_MINOR_RENDER);
+	drm_minor_unregister(dev, DRM_MINOR_CONTROL);
+
+	mutex_lock(&drm_global_mutex);
+
+	drm_device_set_unplugged(dev);
+
+	if (dev->open_count == 0) {
+		drm_put_dev(dev);
+	}
+	mutex_unlock(&drm_global_mutex);
+}
+EXPORT_SYMBOL(drm_unplug_dev);
+
+/*
+ * DRM internal mount
+ * We want to be able to allocate our own "struct address_space" to control
+ * memory-mappings in VRAM (or stolen RAM, ...). However, core MM does not allow
+ * stand-alone address_space objects, so we need an underlying inode. As there
+ * is no way to allocate an independent inode easily, we need a fake internal
+ * VFS mount-point.
+ *
+ * The drm_fs_inode_new() function allocates a new inode, drm_fs_inode_free()
+ * frees it again. You are allowed to use iget() and iput() to get references to
+ * the inode. But each drm_fs_inode_new() call must be paired with exactly one
+ * drm_fs_inode_free() call (which does not have to be the last iput()).
+ * We use drm_fs_inode_*() to manage our internal VFS mount-point and share it
+ * between multiple inode-users. You could, technically, call
+ * iget() + drm_fs_inode_free() directly after alloc and sometime later do an
+ * iput(), but this way you'd end up with a new vfsmount for each inode.
+ */
+
+static int drm_fs_cnt;
+static struct vfsmount *drm_fs_mnt;
+
+static const struct dentry_operations drm_fs_dops = {
+	.d_dname	= simple_dname,
+};
+
+static const struct super_operations drm_fs_sops = {
+	.statfs		= simple_statfs,
+};
+
+static struct dentry *drm_fs_mount(struct file_system_type *fs_type, int flags,
+				   const char *dev_name, void *data)
+{
+	return mount_pseudo(fs_type,
+			    "drm:",
+			    &drm_fs_sops,
+			    &drm_fs_dops,
+			    0x010203ff);
+}
+
+static struct file_system_type drm_fs_type = {
+	.name		= "drm",
+	.owner		= THIS_MODULE,
+	.mount		= drm_fs_mount,
+	.kill_sb	= kill_anon_super,
+};
+
+static struct inode *drm_fs_inode_new(void)
+{
+	struct inode *inode;
+	int r;
+
+	r = simple_pin_fs(&drm_fs_type, &drm_fs_mnt, &drm_fs_cnt);
+	if (r < 0) {
+		DRM_ERROR("Cannot mount pseudo fs: %d\n", r);
+		return ERR_PTR(r);
+	}
+
+	inode = alloc_anon_inode(drm_fs_mnt->mnt_sb);
+	if (IS_ERR(inode))
+		simple_release_fs(&drm_fs_mnt, &drm_fs_cnt);
+
+	return inode;
+}
+
+static void drm_fs_inode_free(struct inode *inode)
+{
+	if (inode) {
+		iput(inode);
+		simple_release_fs(&drm_fs_mnt, &drm_fs_cnt);
+	}
+}
+
+/**
+ * drm_dev_alloc - Allocate new DRM device
+ * @driver: DRM driver to allocate device for
+ * @parent: Parent device object
+ *
+ * Allocate and initialize a new DRM device. No device registration is done.
+ * Call drm_dev_register() to advertice the device to user space and register it
+ * with other core subsystems. This should be done last in the device
+ * initialization sequence to make sure userspace can't access an inconsistent
+ * state.
+ *
+ * The initial ref-count of the object is 1. Use drm_dev_ref() and
+ * drm_dev_unref() to take and drop further ref-counts.
+ *
+ * Note that for purely virtual devices @parent can be NULL.
+ *
+ * RETURNS:
+ * Pointer to new DRM device, or NULL if out of memory.
+ */
+struct drm_device *drm_dev_alloc(struct drm_driver *driver,
+				 struct device *parent)
+{
+	struct drm_device *dev;
+	int ret;
+
+	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	if (!dev)
+		return NULL;
+
+	kref_init(&dev->ref);
+	dev->dev = parent;
+	dev->driver = driver;
+
+	INIT_LIST_HEAD(&dev->filelist);
+	INIT_LIST_HEAD(&dev->ctxlist);
+	INIT_LIST_HEAD(&dev->vmalist);
+	INIT_LIST_HEAD(&dev->maplist);
+	INIT_LIST_HEAD(&dev->vblank_event_list);
+
+	spin_lock_init(&dev->buf_lock);
+	spin_lock_init(&dev->event_lock);
+	mutex_init_nowitness(&dev->struct_mutex);
+	mutex_init_nowitness(&dev->ctxlist_mutex);
+	mutex_init(&dev->master_mutex);
+
+	dev->anon_inode = drm_fs_inode_new();
+	if (IS_ERR(dev->anon_inode)) {
+		ret = PTR_ERR(dev->anon_inode);
+		DRM_ERROR("Cannot allocate anonymous inode: %d\n", ret);
+		goto err_free;
+	}
+
+	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+		ret = drm_minor_alloc(dev, DRM_MINOR_CONTROL);
+		if (ret)
+			goto err_minors;
+
+		WARN_ON(driver->suspend || driver->resume);
+	}
+
+	if (drm_core_check_feature(dev, DRIVER_RENDER)) {
+		ret = drm_minor_alloc(dev, DRM_MINOR_RENDER);
+		if (ret)
+			goto err_minors;
+	}
+
+	ret = drm_minor_alloc(dev, DRM_MINOR_LEGACY);
+	if (ret)
+		goto err_minors;
+
+	if (drm_ht_create(&dev->map_hash, 12))
+		goto err_minors;
+
+	drm_legacy_ctxbitmap_init(dev);
+
+	if (drm_core_check_feature(dev, DRIVER_GEM)) {
+		ret = drm_gem_init(dev);
+		if (ret) {
+			DRM_ERROR("Cannot initialize graphics execution manager (GEM)\n");
+			goto err_ctxbitmap;
 		}
 	}
+
+	if (parent) {
+		ret = drm_dev_set_unique(dev, dev_name(parent));
+		if (ret)
+			goto err_setunique;
+	}
+
+	return dev;
+
+err_setunique:
+	if (drm_core_check_feature(dev, DRIVER_GEM))
+		drm_gem_destroy(dev);
+err_ctxbitmap:
+	drm_legacy_ctxbitmap_cleanup(dev);
+	drm_ht_remove(&dev->map_hash);
+err_minors:
+	drm_minor_free(dev, DRM_MINOR_LEGACY);
+	drm_minor_free(dev, DRM_MINOR_RENDER);
+	drm_minor_free(dev, DRM_MINOR_CONTROL);
+	drm_fs_inode_free(dev->anon_inode);
+err_free:
+	mutex_destroy(&dev->master_mutex);
+	spin_lock_destroy(&dev->buf_lock);
+	spin_lock_destroy(&dev->event_lock);
+
+	kfree(dev);
 	return NULL;
 }
+EXPORT_SYMBOL(drm_dev_alloc);
 
-static int drm_firstopen(struct drm_device *dev)
+static void drm_dev_release(struct kref *ref)
 {
-	drm_local_map_t *map;
-	int i;
+	struct drm_device *dev = container_of(ref, struct drm_device, ref);
 
-	DRM_SPINLOCK_ASSERT(&dev->dev_lock);
+	if (drm_core_check_feature(dev, DRIVER_GEM))
+		drm_gem_destroy(dev);
 
-	/* prebuild the SAREA */
-	i = drm_addmap(dev, 0, SAREA_MAX, _DRM_SHM,
-	    _DRM_CONTAINS_LOCK, &map);
-	if (i != 0)
-		return i;
+	drm_legacy_ctxbitmap_cleanup(dev);
+	drm_ht_remove(&dev->map_hash);
+	drm_fs_inode_free(dev->anon_inode);
 
-	if (dev->driver->firstopen)
-		dev->driver->firstopen(dev);
+	drm_minor_free(dev, DRM_MINOR_LEGACY);
+	drm_minor_free(dev, DRM_MINOR_RENDER);
+	drm_minor_free(dev, DRM_MINOR_CONTROL);
 
-	dev->buf_use = 0;
-
-	if (drm_core_check_feature(dev, DRIVER_HAVE_DMA)) {
-		i = drm_dma_setup(dev);
-		if (i != 0)
-			return i;
-	}
-
-	for (i = 0; i < DRM_HASH_SIZE; i++) {
-		dev->magiclist[i].head = NULL;
-		dev->magiclist[i].tail = NULL;
-	}
-
-	dev->lock.lock_queue = 0;
-	dev->irq_enabled = 0;
-	dev->context_flag = 0;
-	dev->last_context = 0;
-	dev->if_version = 0;
-
-	dev->buf_sigio = NULL;
-
-	DRM_DEBUG("\n");
-
-	return 0;
+	spin_lock_destroy(&dev->buf_lock);
+	spin_lock_destroy(&dev->event_lock);
+	mutex_destroy(&dev->master_mutex);
+	kfree(dev->unique);
+	kfree(dev);
 }
 
-static int drm_lastclose(struct drm_device *dev)
+/**
+ * drm_dev_ref - Take reference of a DRM device
+ * @dev: device to take reference of or NULL
+ *
+ * This increases the ref-count of @dev by one. You *must* already own a
+ * reference when calling this. Use drm_dev_unref() to drop this reference
+ * again.
+ *
+ * This function never fails. However, this function does not provide *any*
+ * guarantee whether the device is alive or running. It only provides a
+ * reference to the object and the memory associated with it.
+ */
+void drm_dev_ref(struct drm_device *dev)
 {
-	drm_magic_entry_t *pt, *next;
-	drm_local_map_t *map, *mapsave;
-	int i;
-
-	DRM_SPINLOCK_ASSERT(&dev->dev_lock);
-
-	DRM_DEBUG("\n");
-
-	if (dev->driver->lastclose != NULL)
-		dev->driver->lastclose(dev);
-
-	if (dev->irq_enabled)
-		drm_irq_uninstall(dev);
-
-	if (dev->unique) {
-		free(dev->unique, DRM_MEM_DRIVER);
-		dev->unique = NULL;
-		dev->unique_len = 0;
-	}
-	/* Clear pid list */
-	for (i = 0; i < DRM_HASH_SIZE; i++) {
-		for (pt = dev->magiclist[i].head; pt; pt = next) {
-			next = pt->next;
-			free(pt, DRM_MEM_MAGIC);
-		}
-		dev->magiclist[i].head = dev->magiclist[i].tail = NULL;
-	}
-
-	DRM_UNLOCK();
-	drm_drawable_free_all(dev);
-	DRM_LOCK();
-
-	/* Clear AGP information */
-	if (dev->agp) {
-		drm_agp_mem_t *entry;
-		drm_agp_mem_t *nexte;
-
-		/* Remove AGP resources, but leave dev->agp intact until
-		 * drm_unload is called.
-		 */
-		for (entry = dev->agp->memory; entry; entry = nexte) {
-			nexte = entry->next;
-			if (entry->bound)
-				drm_agp_unbind_memory(entry->handle);
-			drm_agp_free_memory(entry->handle);
-			free(entry, DRM_MEM_AGPLISTS);
-		}
-		dev->agp->memory = NULL;
-
-		if (dev->agp->acquired)
-			drm_agp_release(dev);
-
-		dev->agp->acquired = 0;
-		dev->agp->enabled  = 0;
-	}
-	if (dev->sg != NULL) {
-		drm_sg_cleanup(dev->sg);
-		dev->sg = NULL;
-	}
-
-	TAILQ_FOREACH_SAFE(map, &dev->maplist, link, mapsave) {
-		if (!(map->flags & _DRM_DRIVER))
-			drm_rmmap(dev, map);
-	}
-
-	drm_dma_takedown(dev);
-	if (dev->lock.hw_lock) {
-		dev->lock.hw_lock = NULL; /* SHM removed */
-		dev->lock.file_priv = NULL;
-		DRM_WAKEUP_INT((void *)&dev->lock.lock_queue);
-	}
-
-	return 0;
+	if (dev)
+		kref_get(&dev->ref);
 }
+EXPORT_SYMBOL(drm_dev_ref);
 
-static int drm_load(struct drm_device *dev)
+/**
+ * drm_dev_unref - Drop reference of a DRM device
+ * @dev: device to drop reference of or NULL
+ *
+ * This decreases the ref-count of @dev by one. The device is destroyed if the
+ * ref-count drops to zero.
+ */
+void drm_dev_unref(struct drm_device *dev)
 {
-	int i, retcode;
+	if (dev)
+		kref_put(&dev->ref, drm_dev_release);
+}
+EXPORT_SYMBOL(drm_dev_unref);
 
-	DRM_DEBUG("\n");
+/**
+ * drm_dev_register - Register DRM device
+ * @dev: Device to register
+ * @flags: Flags passed to the driver's .load() function
+ *
+ * Register the DRM device @dev with the system, advertise device to user-space
+ * and start normal device operation. @dev must be allocated via drm_dev_alloc()
+ * previously.
+ *
+ * Never call this twice on any device!
+ *
+ * NOTE: To ensure backward compatibility with existing drivers method this
+ * function calls the ->load() method after registering the device nodes,
+ * creating race conditions. Usage of the ->load() methods is therefore
+ * deprecated, drivers must perform all initialization before calling
+ * drm_dev_register().
+ *
+ * RETURNS:
+ * 0 on success, negative error code on failure.
+ */
+int drm_dev_register(struct drm_device *dev, unsigned long flags)
+{
+	int ret;
 
-	TAILQ_INIT(&dev->maplist);
-	dev->map_unrhdr = new_unrhdr(1, ((1 << DRM_MAP_HANDLE_BITS) - 1), NULL);
-	if (dev->map_unrhdr == NULL) {
-		DRM_ERROR("Couldn't allocate map number allocator\n");
-		return EINVAL;
+	mutex_lock(&drm_global_mutex);
+
+	ret = drm_minor_register(dev, DRM_MINOR_CONTROL);
+	if (ret)
+		goto err_minors;
+
+	ret = drm_minor_register(dev, DRM_MINOR_RENDER);
+	if (ret)
+		goto err_minors;
+
+	ret = drm_minor_register(dev, DRM_MINOR_LEGACY);
+	if (ret)
+		goto err_minors;
+
+	if (dev->driver->load) {
+		ret = dev->driver->load(dev, flags);
+		if (ret)
+			goto err_minors;
 	}
 
+	ret = 0;
+	goto out_unlock;
 
-	drm_mem_init();
-	drm_sysctl_init(dev);
-	TAILQ_INIT(&dev->files);
+err_minors:
+	drm_minor_unregister(dev, DRM_MINOR_LEGACY);
+	drm_minor_unregister(dev, DRM_MINOR_RENDER);
+	drm_minor_unregister(dev, DRM_MINOR_CONTROL);
+out_unlock:
+	mutex_unlock(&drm_global_mutex);
+	return ret;
+}
+EXPORT_SYMBOL(drm_dev_register);
 
-	dev->counters  = 6;
-	dev->types[0]  = _DRM_STAT_LOCK;
-	dev->types[1]  = _DRM_STAT_OPENS;
-	dev->types[2]  = _DRM_STAT_CLOSES;
-	dev->types[3]  = _DRM_STAT_IOCTLS;
-	dev->types[4]  = _DRM_STAT_LOCKS;
-	dev->types[5]  = _DRM_STAT_UNLOCKS;
+/**
+ * drm_dev_unregister - Unregister DRM device
+ * @dev: Device to unregister
+ *
+ * Unregister the DRM device from the system. This does the reverse of
+ * drm_dev_register() but does not deallocate the device. The caller must call
+ * drm_dev_unref() to drop their final reference.
+ *
+ * This should be called first in the device teardown code to make sure
+ * userspace can't access the device instance any more.
+ */
+void drm_dev_unregister(struct drm_device *dev)
+{
+	struct drm_map_list *r_list, *list_temp;
 
-	for (i = 0; i < DRM_ARRAY_SIZE(dev->counts); i++)
-		atomic_set(&dev->counts[i], 0);
-
-	if (dev->driver->load != NULL) {
-		DRM_LOCK();
-		/* Shared code returns -errno. */
-		retcode = -dev->driver->load(dev,
-		    dev->id_entry->driver_private);
-		if (pci_enable_busmaster(dev->device))
-			DRM_ERROR("Request to enable bus-master failed.\n");
-		DRM_UNLOCK();
-		if (retcode != 0)
-			goto error;
-	}
-
-	if (drm_core_has_AGP(dev)) {
-		if (drm_device_is_agp(dev))
-			dev->agp = drm_agp_init();
-		if (drm_core_check_feature(dev, DRIVER_REQUIRE_AGP) &&
-		    dev->agp == NULL) {
-			DRM_ERROR("Card isn't AGP, or couldn't initialize "
-			    "AGP.\n");
-			retcode = ENOMEM;
-			goto error;
-		}
-		if (dev->agp != NULL && dev->agp->info.ai_aperture_base != 0) {
-			if (drm_mtrr_add(dev->agp->info.ai_aperture_base,
-			    dev->agp->info.ai_aperture_size, DRM_MTRR_WC) == 0)
-				dev->agp->mtrr = 1;
-		}
-	}
-
-	retcode = drm_ctxbitmap_init(dev);
-	if (retcode != 0) {
-		DRM_ERROR("Cannot allocate memory for context bitmap.\n");
-		goto error;
-	}
-
-	dev->drw_unrhdr = new_unrhdr(1, INT_MAX, NULL);
-	if (dev->drw_unrhdr == NULL) {
-		DRM_ERROR("Couldn't allocate drawable number allocator\n");
-		goto error;
-	}
-
-	DRM_INFO("Initialized %s %d.%d.%d %s\n",
-	    dev->driver->name,
-	    dev->driver->major,
-	    dev->driver->minor,
-	    dev->driver->patchlevel,
-	    dev->driver->date);
-
-	return 0;
-
-error:
-	drm_sysctl_cleanup(dev);
-	DRM_LOCK();
 	drm_lastclose(dev);
-	DRM_UNLOCK();
-	destroy_dev(dev->devnode);
 
-	mtx_destroy(&dev->drw_lock);
-	mtx_destroy(&dev->vbl_lock);
-	mtx_destroy(&dev->irq_lock);
-	mtx_destroy(&dev->dev_lock);
+	if (dev->driver->unload)
+		dev->driver->unload(dev);
 
-	return retcode;
-}
-
-static void drm_unload(struct drm_device *dev)
-{
-	int i;
-
-	DRM_DEBUG("\n");
-
-	drm_sysctl_cleanup(dev);
-	destroy_dev(dev->devnode);
-
-	drm_ctxbitmap_cleanup(dev);
-
-	if (dev->agp && dev->agp->mtrr) {
-		int __unused retcode;
-
-		retcode = drm_mtrr_del(0, dev->agp->info.ai_aperture_base,
-		    dev->agp->info.ai_aperture_size, DRM_MTRR_WC);
-		DRM_DEBUG("mtrr_del = %d", retcode);
-	}
+	if (dev->agp)
+		drm_pci_agp_destroy(dev);
 
 	drm_vblank_cleanup(dev);
 
-	DRM_LOCK();
-	drm_lastclose(dev);
-	DRM_UNLOCK();
+	list_for_each_entry_safe(r_list, list_temp, &dev->maplist, head)
+		drm_legacy_rmmap(dev, r_list->map);
 
-	/* Clean up PCI resources allocated by drm_bufs.c.  We're not really
-	 * worried about resource consumption while the DRM is inactive (between
-	 * lastclose and firstopen or unload) because these aren't actually
-	 * taking up KVA, just keeping the PCI resource allocated.
-	 */
-	for (i = 0; i < DRM_MAX_PCI_RESOURCE; i++) {
-		if (dev->pcir[i] == NULL)
-			continue;
-		bus_release_resource(dev->device, SYS_RES_MEMORY,
-		    dev->pcirid[i], dev->pcir[i]);
-		dev->pcir[i] = NULL;
-	}
-
-	if (dev->agp) {
-		free(dev->agp, DRM_MEM_AGPLISTS);
-		dev->agp = NULL;
-	}
-
-	if (dev->driver->unload != NULL) {
-		DRM_LOCK();
-		dev->driver->unload(dev);
-		DRM_UNLOCK();
-	}
-
-	delete_unrhdr(dev->drw_unrhdr);
-	delete_unrhdr(dev->map_unrhdr);
-
-	drm_mem_uninit();
-
-	if (pci_disable_busmaster(dev->device))
-		DRM_ERROR("Request to disable bus-master failed.\n");
-
-	mtx_destroy(&dev->drw_lock);
-	mtx_destroy(&dev->vbl_lock);
-	mtx_destroy(&dev->irq_lock);
-	mtx_destroy(&dev->dev_lock);
+	drm_minor_unregister(dev, DRM_MINOR_LEGACY);
+	drm_minor_unregister(dev, DRM_MINOR_RENDER);
+	drm_minor_unregister(dev, DRM_MINOR_CONTROL);
 }
+EXPORT_SYMBOL(drm_dev_unregister);
 
-int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
-{
-	struct drm_version *version = data;
-	int len;
-
-#define DRM_COPY( name, value )						\
-	len = strlen( value );						\
-	if ( len > name##_len ) len = name##_len;			\
-	name##_len = strlen( value );					\
-	if ( len && name ) {						\
-		if ( DRM_COPY_TO_USER( name, value, len ) )		\
-			return EFAULT;				\
-	}
-
-	version->version_major		= dev->driver->major;
-	version->version_minor		= dev->driver->minor;
-	version->version_patchlevel	= dev->driver->patchlevel;
-
-	DRM_COPY(version->name, dev->driver->name);
-	DRM_COPY(version->date, dev->driver->date);
-	DRM_COPY(version->desc, dev->driver->desc);
-
-	return 0;
-}
-
-int drm_open(struct cdev *kdev, int flags, int fmt, DRM_STRUCTPROC *p)
-{
-	struct drm_device *dev = NULL;
-	int retcode = 0;
-
-	dev = kdev->si_drv1;
-
-	DRM_DEBUG("open_count = %d\n", dev->open_count);
-
-	retcode = drm_open_helper(kdev, flags, fmt, p, dev);
-
-	if (!retcode) {
-		atomic_inc(&dev->counts[_DRM_STAT_OPENS]);
-		DRM_LOCK();
-		device_busy(dev->device);
-		if (!dev->open_count++)
-			retcode = drm_firstopen(dev);
-		DRM_UNLOCK();
-	}
-
-	return retcode;
-}
-
-void drm_close(void *data)
-{
-	struct drm_file *file_priv = data;
-	struct drm_device *dev = file_priv->dev;
-	int retcode = 0;
-
-	DRM_DEBUG("open_count = %d\n", dev->open_count);
-
-	DRM_LOCK();
-
-	if (dev->driver->preclose != NULL)
-		dev->driver->preclose(dev, file_priv);
-
-	/* ========================================================
-	 * Begin inline drm_release
-	 */
-
-	DRM_DEBUG("pid = %d, device = 0x%lx, open_count = %d\n",
-	    DRM_CURRENTPID, (long)dev->device, dev->open_count);
-
-	if (dev->lock.hw_lock && _DRM_LOCK_IS_HELD(dev->lock.hw_lock->lock)
-	    && dev->lock.file_priv == file_priv) {
-		DRM_DEBUG("Process %d dead, freeing lock for context %d\n",
-			  DRM_CURRENTPID,
-			  _DRM_LOCKING_CONTEXT(dev->lock.hw_lock->lock));
-		if (dev->driver->reclaim_buffers_locked != NULL)
-			dev->driver->reclaim_buffers_locked(dev, file_priv);
-
-		drm_lock_free(&dev->lock,
-		    _DRM_LOCKING_CONTEXT(dev->lock.hw_lock->lock));
-		
-				/* FIXME: may require heavy-handed reset of
-                                   hardware at this point, possibly
-                                   processed via a callback to the X
-                                   server. */
-	} else if (dev->driver->reclaim_buffers_locked != NULL &&
-	    dev->lock.hw_lock != NULL) {
-		/* The lock is required to reclaim buffers */
-		for (;;) {
-			if (!dev->lock.hw_lock) {
-				/* Device has been unregistered */
-				retcode = EINTR;
-				break;
-			}
-			if (drm_lock_take(&dev->lock, DRM_KERNEL_CONTEXT)) {
-				dev->lock.file_priv = file_priv;
-				dev->lock.lock_time = jiffies;
-				atomic_inc(&dev->counts[_DRM_STAT_LOCKS]);
-				break;	/* Got lock */
-			}
-			/* Contention */
-			retcode = mtx_sleep((void *)&dev->lock.lock_queue,
-			    &dev->dev_lock, PCATCH, "drmlk2", 0);
-			if (retcode)
-				break;
-		}
-		if (retcode == 0) {
-			dev->driver->reclaim_buffers_locked(dev, file_priv);
-			drm_lock_free(&dev->lock, DRM_KERNEL_CONTEXT);
-		}
-	}
-
-	if (drm_core_check_feature(dev, DRIVER_HAVE_DMA) &&
-	    !dev->driver->reclaim_buffers_locked)
-		drm_reclaim_buffers(dev, file_priv);
-
-	funsetown(&dev->buf_sigio);
-
-	if (dev->driver->postclose != NULL)
-		dev->driver->postclose(dev, file_priv);
-	TAILQ_REMOVE(&dev->files, file_priv, link);
-	free(file_priv, DRM_MEM_FILES);
-
-	/* ========================================================
-	 * End inline drm_release
-	 */
-
-	atomic_inc(&dev->counts[_DRM_STAT_CLOSES]);
-	device_unbusy(dev->device);
-	if (--dev->open_count == 0) {
-		retcode = drm_lastclose(dev);
-	}
-
-	DRM_UNLOCK();
-}
-
-/* drm_ioctl is called whenever a process performs an ioctl on /dev/drm.
+/**
+ * drm_dev_set_unique - Set the unique name of a DRM device
+ * @dev: device of which to set the unique name
+ * @name: unique name
+ *
+ * Sets the unique name of a DRM device using the specified string. Drivers
+ * can use this at driver probe time if the unique name of the devices they
+ * drive is static.
+ *
+ * Return: 0 on success or a negative error code on failure.
  */
-int drm_ioctl(struct cdev *kdev, u_long cmd, caddr_t data, int flags, 
-    DRM_STRUCTPROC *p)
+int drm_dev_set_unique(struct drm_device *dev, const char *name)
 {
-	struct drm_device *dev = drm_get_device_from_kdev(kdev);
-	int retcode = 0;
-	drm_ioctl_desc_t *ioctl;
-	int (*func)(struct drm_device *dev, void *data, struct drm_file *file_priv);
-	int nr = DRM_IOCTL_NR(cmd);
-	int is_driver_ioctl = 0;
-	struct drm_file *file_priv;
+	kfree(dev->unique);
+	dev->unique = kstrdup(name, GFP_KERNEL);
 
-	retcode = devfs_get_cdevpriv((void **)&file_priv);
-	if (retcode != 0) {
-		DRM_ERROR("can't find authenticator\n");
-		return EINVAL;
+	return dev->unique ? 0 : -ENOMEM;
+}
+EXPORT_SYMBOL(drm_dev_set_unique);
+
+/*
+ * DRM Core
+ * The DRM core module initializes all global DRM objects and makes them
+ * available to drivers. Once setup, drivers can probe their respective
+ * devices.
+ * Currently, core management includes:
+ *  - The "DRM-Global" key/value database
+ *  - Global ID management for connectors
+ *  - DRM major number allocation
+ *  - DRM minor management
+ *  - DRM sysfs class
+ *  - DRM debugfs root
+ *
+ * Furthermore, the DRM core provides dynamic char-dev lookups. For each
+ * interface registered on a DRM device, you can request minor numbers from DRM
+ * core. DRM core takes care of major-number management and char-dev
+ * registration. A stub ->open() callback forwards any open() requests to the
+ * registered minor.
+ */
+
+static int drm_stub_open(struct inode *inode, struct file *filp)
+{
+	const struct file_operations *new_fops;
+	struct drm_minor *minor;
+	int err;
+
+	DRM_DEBUG("\n");
+
+	mutex_lock(&drm_global_mutex);
+	minor = drm_minor_acquire(iminor(inode));
+	if (IS_ERR(minor)) {
+		err = PTR_ERR(minor);
+		goto out_unlock;
 	}
 
-	atomic_inc(&dev->counts[_DRM_STAT_IOCTLS]);
-	++file_priv->ioctl_count;
-
-	DRM_DEBUG("pid=%d, cmd=0x%02lx, nr=0x%02x, dev 0x%lx, auth=%d\n",
-	    DRM_CURRENTPID, cmd, nr, (long)dev->device,
-	    file_priv->authenticated);
-
-	switch (cmd) {
-	case FIONBIO:
-	case FIOASYNC:
-		return 0;
-
-	case FIOSETOWN:
-		return fsetown(*(int *)data, &dev->buf_sigio);
-
-	case FIOGETOWN:
-		*(int *) data = fgetown(&dev->buf_sigio);
-		return 0;
+	new_fops = fops_get(minor->dev->driver->fops);
+	if (!new_fops) {
+		err = -ENODEV;
+		goto out_release;
 	}
 
-	if (IOCGROUP(cmd) != DRM_IOCTL_BASE) {
-		DRM_DEBUG("Bad ioctl group 0x%x\n", (int)IOCGROUP(cmd));
-		return EINVAL;
-	}
+	replace_fops(filp, new_fops);
+	if (filp->f_op->open)
+		err = filp->f_op->open(inode, filp);
+	else
+		err = 0;
 
-	ioctl = &drm_ioctls[nr];
-	/* It's not a core DRM ioctl, try driver-specific. */
-	if (ioctl->func == NULL && nr >= DRM_COMMAND_BASE) {
-		/* The array entries begin at DRM_COMMAND_BASE ioctl nr */
-		nr -= DRM_COMMAND_BASE;
-		if (nr > dev->driver->max_ioctl) {
-			DRM_DEBUG("Bad driver ioctl number, 0x%x (of 0x%x)\n",
-			    nr, dev->driver->max_ioctl);
-			return EINVAL;
-		}
-		ioctl = &dev->driver->ioctls[nr];
-		is_driver_ioctl = 1;
-	}
-	func = ioctl->func;
-
-	if (func == NULL) {
-		DRM_DEBUG("no function\n");
-		return EINVAL;
-	}
-
-	if (((ioctl->flags & DRM_ROOT_ONLY) && !DRM_SUSER(p)) ||
-	    ((ioctl->flags & DRM_AUTH) && !file_priv->authenticated) ||
-	    ((ioctl->flags & DRM_MASTER) && !file_priv->master))
-		return EACCES;
-
-	if (is_driver_ioctl) {
-		DRM_LOCK();
-		/* shared code returns -errno */
-		retcode = -func(dev, data, file_priv);
-		DRM_UNLOCK();
-	} else {
-		retcode = func(dev, data, file_priv);
-	}
-
-	if (retcode != 0)
-		DRM_DEBUG("    returning %d\n", retcode);
-
-	return retcode;
+out_release:
+	drm_minor_release(minor);
+out_unlock:
+	mutex_unlock(&drm_global_mutex);
+	return err;
 }
 
-drm_local_map_t *drm_getsarea(struct drm_device *dev)
-{
-	drm_local_map_t *map;
+static const struct file_operations drm_stub_fops = {
+	.owner = THIS_MODULE,
+	.open = drm_stub_open,
+	.llseek = noop_llseek,
+};
 
-	DRM_SPINLOCK_ASSERT(&dev->dev_lock);
-	TAILQ_FOREACH(map, &dev->maplist, link) {
-		if (map->type == _DRM_SHM && (map->flags & _DRM_CONTAINS_LOCK))
-			return map;
+static int __init drm_core_init(void)
+{
+	int ret = -ENOMEM;
+
+	drm_global_init();
+	drm_connector_ida_init();
+	idr_init(&drm_minors_idr);
+
+	if (register_chrdev_p(DRM_MAJOR, "drm", &drm_stub_fops, DRM_DEV_UID, DRM_DEV_GID, DRM_DEV_MODE))
+		goto err_p1;
+
+	ret = drm_sysfs_init();
+	if (ret < 0) {
+		printk(KERN_ERR "DRM: Error creating drm class.\n");
+		goto err_p2;
 	}
 
-	return NULL;
+	drm_debugfs_root = debugfs_create_dir("dri", NULL);
+	if (!drm_debugfs_root) {
+		DRM_ERROR("Cannot create /sys/kernel/debug/dri\n");
+		ret = -1;
+		goto err_p3;
+	}
+
+	DRM_INFO("Initialized %s %d.%d.%d %s\n",
+		 CORE_NAME, CORE_MAJOR, CORE_MINOR, CORE_PATCHLEVEL, CORE_DATE);
+	return 0;
+err_p3:
+	drm_sysfs_destroy();
+err_p2:
+	unregister_chrdev(DRM_MAJOR, "drm");
+
+	idr_destroy(&drm_minors_idr);
+err_p1:
+	return ret;
 }
 
-#if DRM_LINUX
-
-#include <sys/sysproto.h>
-
-MODULE_DEPEND(DRIVER_NAME, linux, 1, 1, 1);
-
-#define LINUX_IOCTL_DRM_MIN		0x6400
-#define LINUX_IOCTL_DRM_MAX		0x64ff
-
-static linux_ioctl_function_t drm_linux_ioctl;
-static struct linux_ioctl_handler drm_handler = {drm_linux_ioctl, 
-    LINUX_IOCTL_DRM_MIN, LINUX_IOCTL_DRM_MAX};
-
-SYSINIT(drm_register, SI_SUB_KLD, SI_ORDER_MIDDLE, 
-    linux_ioctl_register_handler, &drm_handler);
-SYSUNINIT(drm_unregister, SI_SUB_KLD, SI_ORDER_MIDDLE, 
-    linux_ioctl_unregister_handler, &drm_handler);
-
-/* The bits for in/out are switched on Linux */
-#define LINUX_IOC_IN	IOC_OUT
-#define LINUX_IOC_OUT	IOC_IN
-
-static int
-drm_linux_ioctl(DRM_STRUCTPROC *p, struct linux_ioctl_args* args)
+static void __exit drm_core_exit(void)
 {
-	int error;
-	int cmd = args->cmd;
+#ifdef __linux__
+	debugfs_remove(drm_debugfs_root);
+#endif	
+	drm_sysfs_destroy();
 
-	args->cmd &= ~(LINUX_IOC_IN | LINUX_IOC_OUT);
-	if (cmd & LINUX_IOC_IN)
-		args->cmd |= IOC_IN;
-	if (cmd & LINUX_IOC_OUT)
-		args->cmd |= IOC_OUT;
-	
-	error = ioctl(p, (struct ioctl_args *)args);
+	unregister_chrdev(DRM_MAJOR, "drm");
 
-	return error;
+	drm_connector_ida_destroy();
+	idr_destroy(&drm_minors_idr);
 }
-#endif /* DRM_LINUX */
+
+module_init(drm_core_init);
+module_exit(drm_core_exit);

@@ -278,7 +278,7 @@ _sx_slock(struct sx *sx, int opts, const char *file, int line)
 {
 	int error = 0;
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return (0);
 	KASSERT(kdb_active != 0 || !TD_IS_IDLETHREAD(curthread),
 	    ("sx_slock() by idle thread %p on sx %s @ %s:%d",
@@ -301,7 +301,7 @@ sx_try_slock_(struct sx *sx, const char *file, int line)
 {
 	uintptr_t x;
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return (1);
 
 	KASSERT(kdb_active != 0 || !TD_IS_IDLETHREAD(curthread),
@@ -333,7 +333,7 @@ _sx_xlock(struct sx *sx, int opts, const char *file, int line)
 {
 	int error = 0;
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return (0);
 	KASSERT(kdb_active != 0 || !TD_IS_IDLETHREAD(curthread),
 	    ("sx_xlock() by idle thread %p on sx %s @ %s:%d",
@@ -358,7 +358,7 @@ sx_try_xlock_(struct sx *sx, const char *file, int line)
 {
 	int rval;
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return (1);
 
 	KASSERT(kdb_active != 0 || !TD_IS_IDLETHREAD(curthread),
@@ -392,7 +392,7 @@ void
 _sx_sunlock(struct sx *sx, const char *file, int line)
 {
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return;
 	KASSERT(sx->sx_lock != SX_LOCK_DESTROYED,
 	    ("sx_sunlock() of destroyed sx @ %s:%d", file, line));
@@ -407,7 +407,7 @@ void
 _sx_xunlock(struct sx *sx, const char *file, int line)
 {
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return;
 	KASSERT(sx->sx_lock != SX_LOCK_DESTROYED,
 	    ("sx_xunlock() of destroyed sx @ %s:%d", file, line));
@@ -430,7 +430,7 @@ sx_try_upgrade_(struct sx *sx, const char *file, int line)
 	uintptr_t x;
 	int success;
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return (1);
 
 	KASSERT(sx->sx_lock != SX_LOCK_DESTROYED,
@@ -463,7 +463,7 @@ sx_downgrade_(struct sx *sx, const char *file, int line)
 	uintptr_t x;
 	int wakeup_swapper;
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return;
 
 	KASSERT(sx->sx_lock != SX_LOCK_DESTROYED,
@@ -552,7 +552,7 @@ _sx_xlock_hard(struct sx *sx, uintptr_t tid, int opts, const char *file,
 	int64_t all_time = 0;
 #endif
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return (0);
 
 #if defined(ADAPTIVE_SX)
@@ -782,7 +782,7 @@ _sx_xunlock_hard(struct sx *sx, uintptr_t tid, const char *file, int line)
 	uintptr_t x;
 	int queue, wakeup_swapper;
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return;
 
 	MPASS(!(sx->sx_lock & SX_LOCK_SHARED));
@@ -861,7 +861,7 @@ _sx_slock_hard(struct sx *sx, int opts, const char *file, int line)
 	int64_t all_time = 0;
 #endif
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return (0);
 
 #if defined(ADAPTIVE_SX)
@@ -1049,7 +1049,7 @@ _sx_sunlock_hard(struct sx *sx, const char *file, int line)
 	uintptr_t x;
 	int wakeup_swapper;
 
-	if (SCHEDULER_STOPPED())
+	if (SCHEDULER_STOPPED() || kdb_active)
 		return;
 
 	for (;;) {
