@@ -238,6 +238,7 @@ vm_imgact_hold_page(vm_object_t object, vm_ooffset_t offset)
 	pindex = OFF_TO_IDX(offset);
 	m = vm_page_grab(object, pindex, VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY);
 	if (m->valid != VM_PAGE_BITS_ALL) {
+		vm_page_xbusy(m);
 		rv = vm_pager_get_pages(object, &m, 1, NULL, NULL, VM_PROT_READ|VM_PROT_EXECUTE);
 		if (rv != VM_PAGER_OK) {
 			vm_page_lock(m);
