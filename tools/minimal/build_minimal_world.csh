@@ -3,7 +3,7 @@
 setenv TARGET amd64
 setenv MAKEOBJDIRPREFIX /tmp/${TARGET}-objdir
 setenv __MAKE_CONF /dev/null
-setenv DESTDIR /tmp/${TARGET}-kernel
+setenv DESTDIR /tmp/${TARGET}-minimal
 @ __freebsd_mk_jobs = `sysctl -n kern.smp.cpus` + 1
 set current_dir = `pwd`
 set _current_dir = `echo ${current_dir} | sed -e 's|\(.*/\)\(.*\.git\)\(/.*\)*|\2|g'`
