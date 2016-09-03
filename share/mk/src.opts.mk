@@ -44,38 +44,18 @@ __<src.opts.mk>__:
 # These options are used by src the builds
 
 __DEFAULT_YES_OPTIONS = \
-    ACCT \
-    ACPI \
-    AMD \
-    APM \
     AT \
-    ATM \
-    AUDIT \
-    AUTHPF \
-    AUTOFS \
-    BHYVE \
     BIND_NOW \
-    BINUTILS \
     BINUTILS_BOOTSTRAP \
     BLACKLIST \
-    BLUETOOTH \
     BOOT \
-    BOOTPARAMD \
-    BOOTPD \
     BSD_CPIO \
-    BSDINSTALL \
-    BSNMP \
     BZIP2 \
     CALENDAR \
     CAPSICUM \
     CASPER \
-    CCD \
-    CDDL \
-    CPP \
     CROSS_COMPILER \
     CRYPT \
-    CTM \
-    CUSE \
     CXX \
     DICT \
     DMAGENT \
@@ -84,91 +64,56 @@ __DEFAULT_YES_OPTIONS = \
     EE \
     ELFCOPY_AS_OBJCOPY \
     ELFTOOLCHAIN_BOOTSTRAP \
-    EXAMPLES \
-    FDT \
     FILE \
-    FINGER \
-    FLOPPY \
     FMTREE \
     FORTH \
     FP_LIBC \
     FTP \
-    GAMES \
-    GCOV \
-    GDB \
     GNU \
     GNU_GREP_COMPAT \
-    GPIO \
-    GPL_DTC \
     GROFF \
-    HAST \
-    HBSD_UPDATE \
-    HTML \
-    HYPERV \
     ICONV \
     INET \
     INET6 \
     INETD \
-    IPFILTER \
     IPFW \
-    ISCSI \
-    JAIL \
-    KDUMP \
     KVM \
     LDNS \
     LDNS_UTILS \
-    LEGACY_CONSOLE \
     LIBPTHREAD \
     LIBRESSL \
     LIBTHR \
     LOCALES \
-    LOCATE \
-    LPR \
     LS_COLORS \
     LZMA_SUPPORT \
     MAIL \
     MAILWRAPPER \
     MAKE \
     MANDOCDB \
-    NDIS \
     NETCAT \
-    NETGRAPH \
-    NLS_CATALOGS \
     NS_CACHING \
     NTP \
     OPENSSL \
     PAM \
-    PC_SYSINSTALL \
-    PF \
     PKGBOOTSTRAP \
-    PMC \
     PPP \
     QUOTAS \
     RADIUS_SUPPORT \
-    RCMDS \
-    RBOOTD \
-    RCS \
     RELRO \
     RESCUE \
     ROUTED \
     SENDMAIL \
     SETUID_LOGIN \
-    SHAREDOCS \
     SHARED_TOOLCHAIN \
     SHLIBRANDOM \
     SOURCELESS \
     SOURCELESS_HOST \
     SOURCELESS_UCODE \
-    SVNLITE \
-    SYSCONS \
     SYSTEM_COMPILER \
-    TALK \
     TCP_WRAPPERS \
     TCSH \
     TELNET \
-    TESTS \
     TEXTPROC \
-    TFTP \
     TIMED \
     UNBOUND \
     USB \
@@ -177,24 +122,79 @@ __DEFAULT_YES_OPTIONS = \
     VT \
     WIRELESS \
     WPA_SUPPLICANT_EAPOL \
-    ZFS \
     ZONEINFO
 
 __DEFAULT_NO_OPTIONS = \
+    ACCT \
+    ACPI \
+    AMD \
+    APM \
+    ATM \
+    AUDIT \
+    AUTHPF \
+    AUTOFS \
+    BHYVE \
+    BINUTILS \
+    BLUETOOTH \
+    BOOTPARAMD \
+    BOOTPD \
+    BSDINSTALL \
     BSD_GREP \
+    BSNMP \
+    CCD \
+    CDDL \
     CLANG_EXTRAS \
+    CPP \
+    CTM \
+    CUSE \
     DTRACE_TESTS \
     EISA \
+    EXAMPLES \
+    FDT \
+    FINGER \
+    FLOPPY \
     FREEBSD_UPDATE \
+    GAMES \
+    GCOV \
+    GDB \
+    GPIO \
+    GPL_DTC \
+    HAST \
+    HBSD_UPDATE \
     HESIOD \
+    HTML \
+    HYPERV \
+    IPFILTER \
+    ISCSI \
+    JAIL \
+    KDUMP \
+    LEGACY_CONSOLE \
     LIB32 \
     LIBSOFT \
+    LOCATE \
+    LPR \
     NAND \
+    NDIS \
+    NETGRAPH \
+    NLS_CATALOGS \
     OFED \
     OPENLDAP \
+    PC_SYSINSTALL \
+    PF \
+    PMC \
     PORTSNAP \
+    RBOOTD \
+    RCMDS \
+    RCS \
+    SHAREDOCS \
     SORT_THREADS \
     SVN \
+    SVNLITE \
+    SYSCONS \
+    TALK \
+    TESTS \
+    TFTP \
+    ZFS \
 
 
 #
