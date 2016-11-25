@@ -90,13 +90,22 @@ options 	GDB			# Support remote GDB.
 options 	DEADLKRES		# Enable the deadlock resolver
 options 	INVARIANTS		# Enable calls of extra sanity checking
 options 	INVARIANT_SUPPORT	# Extra sanity checks of internal structures, required by INVARIANTS
+#options		DEBUG_MEMGUARD
+#options		DEBUG_REDZONE
 options 	WITNESS			# Enable checks to detect deadlocks and cycles
+options		WITNESS_ALL
 options 	WITNESS_SKIPSPIN	# Don't run witness on spinlocks for speed
 options 	MALLOC_DEBUG_MAXZONES=8	# Separate malloc(9) zones
 
 # Make an SMP-capable kernel by default
 options 	SMP			# Symmetric MultiProcessor Kernel
 options 	DEVICE_NUMA		# I/O Device Affinity
+
+# Enable /dev/input/eventX for input devices
+
+options		EVDEV_SUPPORT
+device		evdev
+device		uinput
 
 # CPU frequency control
 device		cpufreq
@@ -225,7 +234,6 @@ device		ppi			# Parallel port interface device
 device		puc			# Multi I/O cards and multi-channel UARTs
 
 # PCI Ethernet NICs.
-device		bxe			# Broadcom NetXtreme II BCM5771X/BCM578XX 10GbE
 device		de			# DEC/Intel DC21x4x (``Tulip'')
 device		em			# Intel PRO/1000 Gigabit Ethernet Family
 device		igb			# Intel PRO/1000 PCIE Server Gigabit Family
@@ -369,3 +377,4 @@ device		netmap			# netmap(4) support
 
 # The crypto framework is required by IPSEC
 device		crypto			# Required by IPSEC
+

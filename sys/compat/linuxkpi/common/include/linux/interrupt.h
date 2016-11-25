@@ -34,9 +34,9 @@
 #include <linux/device.h>
 #include <linux/pci.h>
 
-#include <sys/bus.h>
-#include <sys/rman.h>
+#include <linux/hardirq.h>
 
+#undef resource
 typedef	irqreturn_t	(*irq_handler_t)(int, void *);
 
 #define	IRQ_RETVAL(x)	((x) != IRQ_NONE)
@@ -53,6 +53,21 @@ struct irq_ent {
 	int		 irq;
 };
 
+struct irqaction {
+	irq_handler_t		handler;
+	void			*dev_id;
+	struct irqaction	*next;
+	irq_handler_t		thread_fn;
+	struct task_struct	*thread;
+	struct irqaction	*secondary;
+	unsigned int		irq;
+	unsigned int		flags;
+	unsigned long		thread_flags;
+	unsigned long		thread_mask;
+	const char		*name;
+};
+
+
 static inline int
 linux_irq_rid(struct device *dev, int irq)
 {
@@ -61,7 +76,7 @@ linux_irq_rid(struct device *dev, int irq)
 	return irq - dev->msix + 1;
 }
 
-extern void linux_irq_handler(void *);
+extern int linux_irq_handler(void *);
 
 static inline struct irq_ent *
 linux_irq_ent(struct device *dev, int irq)
@@ -100,7 +115,7 @@ request_irq(unsigned int irq, irq_handler_t handler, unsigned long flags,
 	irqe->handler = handler;
 	irqe->irq = irq;
 	error = bus_setup_intr(dev->bsddev, res, INTR_TYPE_NET | INTR_MPSAFE,
-	    NULL, linux_irq_handler, irqe, &irqe->tag);
+	    linux_irq_handler, NULL, irqe, &irqe->tag);
 	if (error) {
 		bus_release_resource(dev->bsddev, SYS_RES_IRQ, rid, irqe->res);
 		kfree(irqe);
@@ -147,5 +162,83 @@ free_irq(unsigned int irq, void *device)
 	list_del(&irqe->links);
 	kfree(irqe);
 }
+
+#define resource linux_resource
+
+/* Tasklets --- multithreaded analogue of BHs.
+
+   Main feature differing them of generic softirqs: tasklet
+   is running only on one CPU simultaneously.
+
+   Main feature differing them of BHs: different tasklets
+   may be run simultaneously on different CPUs.
+
+   Properties:
+   * If tasklet_schedule() is called, then tasklet is guaranteed
+     to be executed on some cpu at least once after this.
+   * If the tasklet is already scheduled, but its execution is still not
+     started, it will be executed only once.
+   * If this tasklet is already running on another CPU (or schedule is called
+     from tasklet itself), it is rescheduled for later.
+   * Tasklet is strictly serialized wrt itself, but not
+     wrt another tasklets. If client needs some intertask synchronization,
+     he makes it with spinlocks.
+ */
+
+struct tasklet_struct
+{
+	struct tasklet_struct *next;
+	unsigned long state;
+	atomic_t count;
+	void (*func)(unsigned long);
+	unsigned long data;
+};
+
+#define DECLARE_TASKLET(name, func, data) \
+struct tasklet_struct name = { NULL, 0, ATOMIC_INIT(0), func, data }
+
+#define DECLARE_TASKLET_DISABLED(name, func, data) \
+struct tasklet_struct name = { NULL, 0, ATOMIC_INIT(1), func, data }
+
+
+enum
+{
+	TASKLET_STATE_SCHED,	/* Tasklet is scheduled for execution */
+	TASKLET_STATE_RUN	/* Tasklet is running (SMP only) */
+};
+
+#ifdef CONFIG_SMP
+static inline int tasklet_trylock(struct tasklet_struct *t)
+{
+	return !test_and_set_bit(TASKLET_STATE_RUN, &(t)->state);
+}
+
+static inline void tasklet_unlock(struct tasklet_struct *t)
+{
+	smp_mb__before_atomic();
+	clear_bit(TASKLET_STATE_RUN, &(t)->state);
+}
+
+static inline void tasklet_unlock_wait(struct tasklet_struct *t)
+{
+	while (test_bit(TASKLET_STATE_RUN, &(t)->state)) { barrier(); }
+}
+#else
+#define tasklet_trylock(t) 1
+#define tasklet_unlock_wait(t) do { } while (0)
+#define tasklet_unlock(t) do { } while (0)
+#endif
+
+extern void __tasklet_schedule(struct tasklet_struct *t);
+
+static inline void tasklet_schedule(struct tasklet_struct *t)
+{
+	if (!test_and_set_bit(TASKLET_STATE_SCHED, &t->state))
+		__tasklet_schedule(t);
+}
+
+extern void tasklet_kill(struct tasklet_struct *t);
+extern void tasklet_init(struct tasklet_struct *t,
+			 void (*func)(unsigned long), unsigned long data);
 
 #endif	/* _LINUX_INTERRUPT_H_ */

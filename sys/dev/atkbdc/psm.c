@@ -63,6 +63,7 @@ __FBSDID("$FreeBSD$");
 
 #include "opt_isa.h"
 #include "opt_psm.h"
+#include "opt_evdev.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -89,6 +90,11 @@ __FBSDID("$FreeBSD$");
 
 #ifdef DEV_ISA
 #include <isa/isavar.h>
+#endif
+
+#ifdef EVDEV
+#include <dev/evdev/evdev.h>
+#include <dev/evdev/input.h>
 #endif
 
 #include <dev/atkbdc/atkbdcreg.h>
@@ -416,6 +422,9 @@ struct psm_softc {		/* Driver status information */
 	int		cmdcount;
 	struct sigio	*async;		/* Processes waiting for SIGIO */
 	int		extended_buttons;
+#ifdef	EVDEV
+	struct evdev_dev *evdev;
+#endif
 };
 static devclass_t psm_devclass;
 
@@ -425,6 +434,7 @@ static devclass_t psm_devclass;
 #define	PSM_ASLP		2	/* Waiting for mouse data */
 #define	PSM_SOFTARMED		4	/* Software interrupt armed */
 #define	PSM_NEED_SYNCBITS	8	/* Set syncbits using next data pkt */
+#define	PSM_EV_OPEN		16
 
 /* driver configuration flags (config) */
 #define	PSM_CONFIG_RESOLUTION	0x000f	/* resolution */
@@ -530,12 +540,20 @@ static int	psmattach(device_t);
 static int	psmdetach(device_t);
 static int	psmresume(device_t);
 
-static d_open_t		psmopen;
-static d_close_t	psmclose;
+static d_open_t		psm_cdev_open;
+static d_close_t	psm_cdev_close;
 static d_read_t		psmread;
 static d_write_t	psmwrite;
 static d_ioctl_t	psmioctl;
 static d_poll_t		psmpoll;
+
+static int	psmopen(struct psm_softc *);
+static int	psmclose(struct psm_softc *);
+
+#ifdef EVDEV
+static evdev_open_t	psm_ev_open;
+static evdev_close_t	psm_ev_close;
+#endif
 
 static int	enable_aux_dev(KBDC);
 static int	disable_aux_dev(KBDC);
@@ -666,14 +684,21 @@ static driver_t psm_driver = {
 static struct cdevsw psm_cdevsw = {
 	.d_version =	D_VERSION,
 	.d_flags =	D_NEEDGIANT,
-	.d_open =	psmopen,
-	.d_close =	psmclose,
+	.d_open =	psm_cdev_open,
+	.d_close =	psm_cdev_close,
 	.d_read =	psmread,
 	.d_write =	psmwrite,
 	.d_ioctl =	psmioctl,
 	.d_poll =	psmpoll,
 	.d_name =	PSM_DRIVER_NAME,
 };
+
+#ifdef EVDEV
+static struct evdev_methods psm_ev_methods = {
+	.ev_open = &psm_ev_open,
+	.ev_close = &psm_ev_close,
+};
+#endif
 
 /* device I/O routines */
 static int
@@ -1195,7 +1220,7 @@ reinitialize(struct psm_softc *sc, int doinit)
 	splx(s);
 
 	/* restore the driver state */
-	if ((sc->state & PSM_OPEN) && (err == 0)) {
+	if ((sc->state & (PSM_OPEN | PSM_EV_OPEN)) && (err == 0)) {
 		/* enable the aux device and the port again */
 		err = doopen(sc, c);
 		if (err != 0)
@@ -1583,6 +1608,9 @@ psmattach(device_t dev)
 	struct psm_softc *sc = device_get_softc(dev);
 	int error;
 	int rid;
+#ifdef EVDEV
+	int i;
+#endif
 
 	/* Setup initial state */
 	sc->state = PSM_VALID;
@@ -1606,6 +1634,41 @@ psmattach(device_t dev)
 	sc->dev->si_drv1 = sc;
 	sc->bdev = make_dev(&psm_cdevsw, 0, 0, 0, 0666, "bpsm%d", unit);
 	sc->bdev->si_drv1 = sc;
+
+#ifdef EVDEV
+	sc->evdev = evdev_alloc();
+	evdev_set_name(sc->evdev, model_name(sc->hw.model));
+	evdev_set_serial(sc->evdev, "0");
+	evdev_set_methods(sc->evdev, sc, &psm_ev_methods);
+	evdev_support_prop(sc->evdev, INPUT_PROP_POINTER);
+	evdev_support_event(sc->evdev, EV_SYN);
+	evdev_support_event(sc->evdev, EV_REL);
+	evdev_support_event(sc->evdev, EV_KEY);
+	evdev_support_rel(sc->evdev, REL_X);
+	evdev_support_rel(sc->evdev, REL_Y);
+	/* Advertize extra axises for some models */
+	switch (sc->hw.model) {
+	case MOUSE_MODEL_MOUSEMANPLUS:
+	case MOUSE_MODEL_4D:
+	case MOUSE_MODEL_SYNAPTICS:
+		evdev_support_rel(sc->evdev, REL_HWHEEL);
+		/* FALLTHROUGH */
+	case MOUSE_MODEL_EXPLORER:
+	case MOUSE_MODEL_INTELLI:
+	case MOUSE_MODEL_NET:
+	case MOUSE_MODEL_NETSCROLL:
+	case MOUSE_MODEL_4DPLUS:
+		evdev_support_rel(sc->evdev, REL_WHEEL);
+		break;
+	}
+
+	for (i = 0; i < sc->hw.buttons; i++)
+		evdev_support_key(sc->evdev, BTN_MOUSE + i);
+
+	error = evdev_register(dev, sc->evdev);
+	if (error)
+		return (error);
+#endif
 
 	/* Some touchpad devices need full reinitialization after suspend. */
 	switch (sc->hw.model) {
@@ -1652,7 +1715,7 @@ psmdetach(device_t dev)
 	int rid;
 
 	sc = device_get_softc(dev);
-	if (sc->state & PSM_OPEN)
+	if (sc->state & (PSM_OPEN | PSM_EV_OPEN))
 		return (EBUSY);
 
 	rid = KBDC_RID_AUX;
@@ -1668,13 +1731,47 @@ psmdetach(device_t dev)
 	return (0);
 }
 
+#ifdef EVDEV
 static int
-psmopen(struct cdev *dev, int flag, int fmt, struct thread *td)
+psm_ev_open(struct evdev_dev *evdev, void *ev_softc)
+{
+	struct psm_softc *sc = (struct psm_softc *)ev_softc;
+	int err = 0;
+
+	/* Get device data */
+	if ((sc == NULL) || (sc->state & PSM_VALID) == 0) {
+		/* the device is no longer valid/functioning */
+		return (ENXIO);
+	}
+
+	if (!(sc->state & PSM_OPEN))
+		err = psmopen(sc);
+
+	if (err == 0)
+		sc->state |= PSM_EV_OPEN;
+
+	return (err);
+}
+
+static void
+psm_ev_close(struct evdev_dev *evdev, void *ev_softc)
+{
+	struct psm_softc *sc = (struct psm_softc *)ev_softc;
+
+	sc->state &= ~PSM_EV_OPEN;
+
+	if (sc->state & PSM_OPEN)
+		return;
+
+	psmclose(sc);
+}
+#endif
+
+static int
+psm_cdev_open(struct cdev *dev, int flag, int fmt, struct thread *td)
 {
 	struct psm_softc *sc;
-	int command_byte;
-	int err;
-	int s;
+	int err = 0;
 
 	/* Get device data */
 	sc = dev->si_drv1;
@@ -1686,6 +1783,50 @@ psmopen(struct cdev *dev, int flag, int fmt, struct thread *td)
 	/* Disallow multiple opens */
 	if (sc->state & PSM_OPEN)
 		return (EBUSY);
+
+#ifdef EVDEV
+	/* Already opened by evdev */
+	if (!(sc->state & PSM_EV_OPEN))
+#endif
+		err = psmopen(sc);
+
+	if (err == 0)
+		sc->state |= PSM_OPEN;
+
+	return (err);
+}
+
+static int
+psm_cdev_close(struct cdev *dev, int flag, int fmt, struct thread *td)
+{
+	struct psm_softc *sc;
+	int err = 0;
+
+	/* Get device data */
+	sc = dev->si_drv1;
+	if ((sc == NULL) || (sc->state & PSM_VALID) == 0) {
+		/* the device is no longer valid/functioning */
+		return (ENXIO);
+	}
+
+#ifdef EVDEV
+	/* Still opened by evdev */
+	if (!(sc->state & PSM_EV_OPEN))
+#endif
+		err = psmclose(sc);
+
+	if (err == 0)
+		sc->state &= ~PSM_OPEN;
+
+	return (err);
+}
+
+static int
+psmopen(struct psm_softc *sc)
+{
+	int command_byte;
+	int err;
+	int s;
 
 	device_busy(devclass_get_device(psm_devclass, sc->unit));
 
@@ -1747,17 +1888,13 @@ psmopen(struct cdev *dev, int flag, int fmt, struct thread *td)
 	/* enable the mouse device */
 	err = doopen(sc, command_byte);
 
-	/* done */
-	if (err == 0)
-		sc->state |= PSM_OPEN;
 	kbdc_lock(sc->kbdc, FALSE);
 	return (err);
 }
 
 static int
-psmclose(struct cdev *dev, int flag, int fmt, struct thread *td)
+psmclose(struct psm_softc *sc)
 {
-	struct psm_softc *sc = dev->si_drv1;
 	int stat[3];
 	int command_byte;
 	int s;
@@ -1841,7 +1978,6 @@ psmclose(struct cdev *dev, int flag, int fmt, struct thread *td)
 	}
 
 	/* close is almost always successful */
-	sc->state &= ~PSM_OPEN;
 	kbdc_lock(sc->kbdc, FALSE);
 	device_unbusy(devclass_get_device(psm_devclass, sc->unit));
 	return (0);
@@ -2494,7 +2630,7 @@ psmintr(void *arg)
 		pb = &sc->pqueue[sc->pqueue_end];
 
 		/* discard the byte if the device is not open */
-		if ((sc->state & PSM_OPEN) == 0)
+		if ((sc->state & (PSM_OPEN | PSM_EV_OPEN)) == 0)
 			continue;
 
 		getmicrouptime(&now);

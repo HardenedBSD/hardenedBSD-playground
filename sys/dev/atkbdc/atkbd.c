@@ -76,6 +76,13 @@ static void		atkbd_timeout(void *arg);
 static void		atkbd_shutdown_final(void *v);
 static int		atkbd_reset(KBDC kbdc, int flags, int c);
 
+struct atkbd_args
+{
+	int unit;
+	int irq;
+	device_t dev;
+};
+
 #define HAS_QUIRK(p, q)		(((atkbdc_softc_t *)(p))->quirks & q)
 #define ALLOW_DISABLE_KBD(kbdc)	!HAS_QUIRK(kbdc, KBDC_QUIRK_KEEP_ACTIVATED)
 
@@ -91,7 +98,7 @@ int
 atkbd_probe_unit(device_t dev, int irq, int flags)
 {
 	keyboard_switch_t *sw;
-	int args[2];
+	int args[3];
 	int error;
 
 	sw = kbd_get_switch(ATKBD_DRIVER_NAME);
@@ -100,6 +107,7 @@ atkbd_probe_unit(device_t dev, int irq, int flags)
 
 	args[0] = device_get_unit(device_get_parent(dev));
 	args[1] = irq;
+	args[2] = (int)dev;
 	error = (*sw->probe)(device_get_unit(dev), args, flags);
 	if (error)
 		return error;
@@ -110,8 +118,8 @@ int
 atkbd_attach_unit(device_t dev, keyboard_t **kbd, int irq, int flags)
 {
 	keyboard_switch_t *sw;
+	struct atkbd_args args;
 	atkbd_state_t *state;
-	int args[2];
 	int error;
 	int unit;
 
@@ -121,13 +129,14 @@ atkbd_attach_unit(device_t dev, keyboard_t **kbd, int irq, int flags)
 
 	/* reset, initialize and enable the device */
 	unit = device_get_unit(dev);
-	args[0] = device_get_unit(device_get_parent(dev));
-	args[1] = irq;
+	args.unit = device_get_unit(device_get_parent(dev));
+	args.irq = irq;
+	args.dev = dev;
 	*kbd = NULL;
-	error = (*sw->probe)(unit, args, flags);
+	error = (*sw->probe)(unit, &args, flags);
 	if (error)
 		return error;
-	error = (*sw->init)(unit, kbd, args, flags);
+	error = (*sw->init)(unit, kbd, &args, flags);
 	if (error)
 		return error;
 	(*sw->enable)(*kbd);
@@ -300,7 +309,7 @@ static int
 atkbd_configure(int flags)
 {
 	keyboard_t *kbd;
-	int arg[2];
+	struct atkbd_args args;
 	int i;
 
 	/*
@@ -323,12 +332,13 @@ atkbd_configure(int flags)
 		flags |= i;
 
 	/* probe the default keyboard */
-	arg[0] = -1;
-	arg[1] = -1;
+	args.unit = -1;
+	args.irq = -1;
+	args.dev = NULL;
 	kbd = NULL;
-	if (atkbd_probe(ATKBD_DEFAULT, arg, flags))
+	if (atkbd_probe(ATKBD_DEFAULT, &args, flags))
 		return 0;
-	if (atkbd_init(ATKBD_DEFAULT, &kbd, arg, flags))
+	if (atkbd_init(ATKBD_DEFAULT, &kbd, &args, flags))
 		return 0;
 
 	/* return the number of found keyboards */
@@ -342,7 +352,7 @@ static int
 atkbd_probe(int unit, void *arg, int flags)
 {
 	KBDC kbdc;
-	int *data = (int *)arg;	/* data[0]: controller, data[1]: irq */
+	struct atkbd_args *data = (struct atkbd_args *)arg;
 
 	/* XXX */
 	if (unit == ATKBD_DEFAULT) {
@@ -350,7 +360,7 @@ atkbd_probe(int unit, void *arg, int flags)
 			return 0;
 	}
 
-	kbdc = atkbdc_open(data[0]);
+	kbdc = atkbdc_open(data->unit);
 	if (kbdc == NULL)
 		return ENXIO;
 	if (probe_keyboard(kbdc, flags)) {
@@ -369,9 +379,9 @@ atkbd_init(int unit, keyboard_t **kbdp, void *arg, int flags)
 	keymap_t *keymap;
 	accentmap_t *accmap;
 	fkeytab_t *fkeymap;
+	struct atkbd_args *data = (struct atkbd_args *)arg;
 	int fkeymap_size;
 	int delay[2];
-	int *data = (int *)arg;	/* data[0]: controller, data[1]: irq */
 	int error, needfree;
 #ifdef EVDEV_SUPPORT
 	struct evdev_dev *evdev;
@@ -417,7 +427,7 @@ atkbd_init(int unit, keyboard_t **kbdp, void *arg, int flags)
 	}
 
 	if (!KBD_IS_PROBED(kbd)) {
-		state->kbdc = atkbdc_open(data[0]);
+		state->kbdc = atkbdc_open(data->unit);
 		if (state->kbdc == NULL) {
 			error = ENXIO;
 			goto bad;
@@ -496,6 +506,7 @@ atkbd_init(int unit, keyboard_t **kbdp, void *arg, int flags)
 			error = ENXIO;
 			goto bad;
 		}
+
 		KBD_CONFIG_DONE(kbd);
 	}
 
@@ -836,7 +847,7 @@ next_code:
 			break;
 		}
 	}
-
+	
 	/* return the key code in the K_CODE mode */
 	if (state->ks_mode == K_CODE)
 		return (keycode | (scancode & 0x80));
@@ -1081,6 +1092,27 @@ atkbd_ioctl(keyboard_t *kbd, u_long cmd, caddr_t arg)
 	splx(s);
 	return 0;
 }
+
+#ifdef EVDEV
+static int
+atkbd_ev_open(struct evdev_dev *evdev, void *softc)
+{
+	keyboard_t *kbd = (keyboard_t *)softc;
+	struct atkbd_state *state = kbd->kb_data;
+
+	state->ks_evdev_opened = true;
+	return (0);
+}
+
+static void
+atkbd_ev_close(struct evdev_dev *evdev, void *softc)
+{
+	keyboard_t *kbd = (keyboard_t *)softc;
+	struct atkbd_state *state = kbd->kb_data;
+
+	state->ks_evdev_opened = false;
+}
+#endif /* EVDEV */
 
 /* lock the access to the keyboard */
 static int

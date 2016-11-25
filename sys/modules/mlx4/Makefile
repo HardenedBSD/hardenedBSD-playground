@@ -27,6 +27,7 @@ SRCS=	device_if.h bus_if.h vnode_if.h pci_if.h \
 
 CFLAGS+= -I${.CURDIR}/../../ofed/include
 CFLAGS+= -I${.CURDIR}/../../compat/linuxkpi/common/include
+CFLAGS+= -I${.CURDIR}/../../contrib/ck/include
 
 .include <bsd.kmod.mk>
 

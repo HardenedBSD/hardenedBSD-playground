@@ -1371,9 +1371,12 @@ retry:
 					VM_WAIT;
 					VM_OBJECT_WLOCK(uobj);
 					goto retry;
-				}
-				rv = vm_pager_get_pages(uobj, &m, 1, NULL,
-				    NULL);
+				} else if (m->valid != VM_PAGE_BITS_ALL)
+					rv = vm_pager_get_pages(uobj, &m, 1,
+					    NULL, NULL, VM_PROT_READ|VM_PROT_WRITE);
+				else
+					/* A cached page was reactivated. */
+					rv = VM_PAGER_OK;
 				vm_page_lock(m);
 				if (rv == VM_PAGER_OK) {
 					vm_page_deactivate(m);

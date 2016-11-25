@@ -55,6 +55,7 @@ __FBSDID("$FreeBSD$");
 #endif
 
 #include <machine/cpufunc.h>
+#include <machine/cpu.h>
 
 CTASSERT(LOCK_CLASS_MAX == 15);
 
@@ -66,6 +67,7 @@ struct lock_class *lock_classes[LOCK_CLASS_MAX + 1] = {
 	&lock_class_rm_sleepable,
 	&lock_class_rw,
 	&lock_class_lockmgr,
+	&lock_class_mtx_interop,
 };
 
 void
