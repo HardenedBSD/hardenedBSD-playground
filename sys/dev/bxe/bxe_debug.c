@@ -283,7 +283,7 @@ bxe_dump_mbuf_data(struct bxe_softc *sc,
     mtx_unlock(&bxe_prev_mtx);
 }
 
-#ifdef DDB
+#if defined(DDB) && defined(NO_WORKIE_ON_DRM_NEXT)
 
 static void bxe_ddb_usage()
 {
