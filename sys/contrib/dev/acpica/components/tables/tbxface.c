@@ -436,8 +436,9 @@ AcpiPutTable (
     (void) AcpiUtReleaseMutex (ACPI_MTX_TABLES);
     return_VOID;
 }
-
 ACPI_EXPORT_SYMBOL (AcpiPutTable)
+
+
 /*******************************************************************************
  *
  * FUNCTION:    AcpiGetTable
