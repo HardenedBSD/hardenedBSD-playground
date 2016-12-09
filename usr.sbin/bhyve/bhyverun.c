@@ -30,16 +30,23 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
+#ifndef WITHOUT_CAPSICUM
+#include <sys/capsicum.h>
+#endif
 #include <sys/mman.h>
 #include <sys/time.h>
 
 #include <machine/atomic.h>
 #include <machine/segments.h>
 
+#ifndef WITHOUT_CAPSICUM
+#include <capsicum_helpers.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <err.h>
+#include <errno.h>
 #include <libgen.h>
 #include <unistd.h>
 #include <assert.h>
@@ -48,8 +55,12 @@ __FBSDID("$FreeBSD$");
 #include <pthread_np.h>
 #include <sysexits.h>
 #include <stdbool.h>
+#include <termios.h>
 
 #include <machine/vmm.h>
+#ifndef WITHOUT_CAPSICUM
+#include <machine/vmm_dev.h>
+#endif
 #include <vmmapi.h>
 
 #include "bhyverun.h"
@@ -706,6 +717,25 @@ do_open(const char *vmname)
 	struct vmctx *ctx;
 	int error;
 	bool reinit, romboot;
+#ifndef WITHOUT_CAPSICUM
+	cap_rights_t rights;
+	/* keep in sync with machine/vmm_dev.h */
+	u_long cmds[] = {VM_RUN, VM_SUSPEND, VM_REINIT, VM_ALLOC_MEMSEG,
+		VM_GET_MEMSEG, VM_MMAP_MEMSEG, VM_MMAP_MEMSEG, VM_MMAP_GETNEXT,
+		VM_SET_REGISTER, VM_GET_REGISTER, VM_SET_SEGMENT_DESCRIPTOR,
+		VM_GET_SEGMENT_DESCRIPTOR, VM_INJECT_EXCEPTION, VM_LAPIC_IRQ,
+		VM_LAPIC_LOCAL_IRQ, VM_LAPIC_MSI, VM_IOAPIC_ASSERT_IRQ,
+		VM_IOAPIC_DEASSERT_IRQ, VM_IOAPIC_PULSE_IRQ,
+		VM_IOAPIC_PINCOUNT, VM_ISA_ASSERT_IRQ, VM_ISA_DEASSERT_IRQ,
+		VM_ISA_PULSE_IRQ, VM_ISA_SET_IRQ_TRIGGER, VM_SET_CAPABILITY,
+		VM_GET_CAPABILITY, VM_BIND_PPTDEV, VM_UNBIND_PPTDEV,
+		VM_MAP_PPTDEV_MMIO, VM_PPTDEV_MSI, VM_PPTDEV_MSIX,
+		VM_INJECT_NMI, VM_STATS, VM_STAT_DESC, VM_SET_X2APIC_STATE,
+		VM_GET_X2APIC_STATE, VM_GET_HPET_CAPABILITIES, VM_GET_GPA_PMAP,
+		VM_GLA2GPA, VM_ACTIVATE_CPU, VM_GET_CPUS, VM_SET_INTINFO,
+		VM_GET_INTINFO, VM_RTC_WRITE, VM_RTC_READ, VM_RTC_SETTIME,
+		VM_RTC_GETTIME, VM_RESTART_INSTRUCTION}; 
+#endif
 
 	reinit = romboot = false;
 
@@ -744,6 +774,16 @@ do_open(const char *vmname)
 		exit(1);
 	}
 
+#ifndef WITHOUT_CAPSICUM
+	cap_rights_init(&rights, CAP_IOCTL, CAP_MMAP_RWX);
+	if (cap_rights_limit(vm_get_device_fd(ctx), &rights) == -1 &&
+			errno != ENOSYS)
+		errx(EX_OSERR, "Unable to apply rights for sandbox");
+	if (cap_ioctls_limit(vm_get_device_fd(ctx), cmds, nitems(cmds)) == -1 &&
+			errno != ENOSYS)
+		errx(EX_OSERR, "Unable to apply rights for sandbox");
+#endif
+ 
 	if (reinit) {
 		error = vm_reinit(ctx);
 		if (error) {
@@ -951,6 +991,19 @@ main(int argc, char *argv[])
 
 	if (lpc_bootrom())
 		fwctl_init();
+
+#ifndef WITHOUT_CAPSICUM
+	caph_cache_catpages();
+
+	if ((caph_limit_stdout() == -1 || caph_limit_stderr() == -1) && errno != ENOSYS)
+		errx(EX_OSERR, "Unable to apply rights for sandbox");
+
+	if (cap_enter() == -1) {
+		if (errno != ENOSYS)
+			errx(EX_OSERR, "cap_enter() failed");
+		warn("Capsicum unavailable, running without a sandbox");
+	}
+#endif
 
 	/*
 	 * Change the proc title to include the VM name.

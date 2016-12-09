@@ -1416,3 +1416,10 @@ vm_restart_instruction(void *arg, int vcpu)
 
 	return (ioctl(ctx->fd, VM_RESTART_INSTRUCTION, &vcpu));
 }
+
+int
+vm_get_device_fd(struct vmctx *ctx)
+{
+	return ctx->fd;
+}
+

@@ -31,6 +31,9 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
+#ifndef WITHOUT_CAPSICUM
+#include <sys/capsicum.h>
+#endif
 #include <sys/linker_set.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
@@ -2293,11 +2296,21 @@ pci_ahci_init(struct vmctx *ctx, struct pci_devinst *pi, char *opts, int atapi)
 	MD5_CTX mdctx;
 	u_char digest[16];
 	char *next, *next2;
+#ifdef AHCI_DEBUG
+#ifndef WITHOUT_CAPSICUM
+	cap_rights_t rights;
+#endif
+#endif
 
 	ret = 0;
 
 #ifdef AHCI_DEBUG
 	dbg = fopen("/tmp/log", "w+");
+#ifndef WITHOUT_CAPSICUM
+	cap_rights_init(&rights, CAP_WRITE);
+	if (cap_rights_limit(fileno(dbg), &rights) == -1 && errno != ENOSYS)
+		errx(EX_OSERR, "Unable to apply rights for sandbox");
+#endif
 #endif
 
 	sc = calloc(1, sizeof(struct pci_ahci_softc));
