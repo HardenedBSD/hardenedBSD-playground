@@ -38,6 +38,8 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20170102: sysdecode_getfsstat_flags() renamed to sysdecode_getfsstat_mode()
+OLD_FILES+=usr/share/man/man3/sysdecode_getfsstat_flags.3.gz
 # 20170102: librt move to /lib
 OLD_LIBS+=usr/lib/librt.a
 OLD_LIBS+=usr/lib/librt.so
