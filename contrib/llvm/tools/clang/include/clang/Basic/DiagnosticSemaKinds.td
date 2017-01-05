@@ -3375,9 +3375,6 @@ def err_addrof_function_disabled_by_enable_if_attr : Error<
     "non-tautological enable_if conditions">;
 def note_addrof_ovl_candidate_disabled_by_enable_if_attr : Note<
     "candidate function made ineligible by enable_if">;
-def note_ovl_candidate_failed_overload_resolution : Note<
-    "candidate template ignored: couldn't resolve reference to overloaded "
-    "function %0">;
 def note_ovl_candidate_deduced_mismatch : Note<
     "candidate template ignored: deduced type "
     "%diff{$ of %ordinal0 parameter does not match adjusted type $ of argument"
@@ -3921,6 +3918,8 @@ def ext_ms_deref_template_argument: ExtWarn<
 def ext_ms_delayed_template_argument: ExtWarn<
   "using the undeclared type %0 as a default template argument is a "
   "Microsoft extension">, InGroup<MicrosoftTemplate>;
+def err_template_arg_deduced_incomplete_pack : Error<
+  "deduced incomplete pack %0 for template parameter %1">;
 
 // C++ template specialization
 def err_template_spec_unknown_kind : Error<
