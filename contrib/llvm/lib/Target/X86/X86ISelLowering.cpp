@@ -28788,10 +28788,12 @@ static SDValue combineExtractVectorElt(SDNode *N, SelectionDAG &DAG,
   return SDValue();
 }
 
-/// If a vector select has an operand that is -1 or 0, simplify the select to a
-/// bitwise logic operation.
-static SDValue combineVSelectWithAllOnesOrZeros(SDNode *N, SelectionDAG &DAG,
-                                                const X86Subtarget &Subtarget) {
+/// If a vector select has an operand that is -1 or 0, try to simplify the
+/// select to a bitwise logic operation.
+static SDValue
+combineVSelectWithAllOnesOrZeros(SDNode *N, SelectionDAG &DAG,
+                                 TargetLowering::DAGCombinerInfo &DCI,
+                                 const X86Subtarget &Subtarget) {
   SDValue Cond = N->getOperand(0);
   SDValue LHS = N->getOperand(1);
   SDValue RHS = N->getOperand(2);
@@ -28853,18 +28855,28 @@ static SDValue combineVSelectWithAllOnesOrZeros(SDNode *N, SelectionDAG &DAG,
     }
   }
 
-  if (!TValIsAllOnes && !FValIsAllZeros)
+  // vselect Cond, 111..., 000... -> Cond
+  if (TValIsAllOnes && FValIsAllZeros)
+    return DAG.getBitcast(VT, Cond);
+
+  if (!DCI.isBeforeLegalize() && !TLI.isTypeLegal(CondVT))
     return SDValue();
 
-  SDValue Ret;
-  if (TValIsAllOnes && FValIsAllZeros)
-    Ret = Cond;
-  else if (TValIsAllOnes)
-    Ret = DAG.getNode(ISD::OR, DL, CondVT, Cond, DAG.getBitcast(CondVT, RHS));
-  else if (FValIsAllZeros)
-    Ret = DAG.getNode(ISD::AND, DL, CondVT, Cond, DAG.getBitcast(CondVT, LHS));
+  // vselect Cond, 111..., X -> or Cond, X
+  if (TValIsAllOnes) {
+    SDValue CastRHS = DAG.getBitcast(CondVT, RHS);
+    SDValue Or = DAG.getNode(ISD::OR, DL, CondVT, Cond, CastRHS);
+    return DAG.getBitcast(VT, Or);
+  }
 
-  return DAG.getBitcast(VT, Ret);
+  // vselect Cond, X, 000... -> and Cond, X
+  if (FValIsAllZeros) {
+    SDValue CastLHS = DAG.getBitcast(CondVT, LHS);
+    SDValue And = DAG.getNode(ISD::AND, DL, CondVT, Cond, CastLHS);
+    return DAG.getBitcast(VT, And);
+  }
+
+  return SDValue();
 }
 
 static SDValue combineSelectOfTwoConstants(SDNode *N, SelectionDAG &DAG) {
@@ -29353,7 +29365,7 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
     }
   }
 
-  if (SDValue V = combineVSelectWithAllOnesOrZeros(N, DAG, Subtarget))
+  if (SDValue V = combineVSelectWithAllOnesOrZeros(N, DAG, DCI, Subtarget))
     return V;
 
   // If this is a *dynamic* select (non-constant condition) and we can match
@@ -29455,19 +29467,11 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
   return SDValue();
 }
 
-/// Combine brcond/cmov/setcc/.. based on comparing the result of
-/// atomic_load_add to use EFLAGS produced by the addition
-/// directly if possible. For example:
-///
-///   (setcc (cmp (atomic_load_add x, -C) C), COND_E)
-/// becomes:
-///   (setcc (LADD x, -C), COND_E)
-///
-/// and
+/// Combine:
 ///   (brcond/cmov/setcc .., (cmp (atomic_load_add x, 1), 0), COND_S)
-/// becomes:
+/// to:
 ///   (brcond/cmov/setcc .., (LADD x, 1), COND_LE)
-///
+/// i.e., reusing the EFLAGS produced by the LOCKed instruction.
 /// Note that this is only legal for some op/cc combinations.
 static SDValue combineSetCCAtomicArith(SDValue Cmp, X86::CondCode &CC,
                                        SelectionDAG &DAG) {
@@ -29482,7 +29486,7 @@ static SDValue combineSetCCAtomicArith(SDValue Cmp, X86::CondCode &CC,
   if (!Cmp.hasOneUse())
     return SDValue();
 
-  // This applies to variations of the common case:
+  // This only applies to variations of the common case:
   //   (icmp slt x, 0) -> (icmp sle (add x, 1), 0)
   //   (icmp sge x, 0) -> (icmp sgt (add x, 1), 0)
   //   (icmp sle x, 0) -> (icmp slt (sub x, 1), 0)
@@ -29501,9 +29505,8 @@ static SDValue combineSetCCAtomicArith(SDValue Cmp, X86::CondCode &CC,
     return SDValue();
 
   auto *CmpRHSC = dyn_cast<ConstantSDNode>(CmpRHS);
-  if (!CmpRHSC)
+  if (!CmpRHSC || CmpRHSC->getZExtValue() != 0)
     return SDValue();
-  APInt Comparand = CmpRHSC->getAPIntValue();
 
   const unsigned Opc = CmpLHS.getOpcode();
 
@@ -29519,19 +29522,16 @@ static SDValue combineSetCCAtomicArith(SDValue Cmp, X86::CondCode &CC,
   if (Opc == ISD::ATOMIC_LOAD_SUB)
     Addend = -Addend;
 
-  if (Comparand == -Addend) {
-    // No change to CC.
-  } else if (CC == X86::COND_S && Comparand == 0 && Addend == 1) {
+  if (CC == X86::COND_S && Addend == 1)
     CC = X86::COND_LE;
-  } else if (CC == X86::COND_NS && Comparand == 0 && Addend == 1) {
+  else if (CC == X86::COND_NS && Addend == 1)
     CC = X86::COND_G;
-  } else if (CC == X86::COND_G && Comparand == 0 && Addend == -1) {
+  else if (CC == X86::COND_G && Addend == -1)
     CC = X86::COND_GE;
-  } else if (CC == X86::COND_LE && Comparand == 0 && Addend == -1) {
+  else if (CC == X86::COND_LE && Addend == -1)
     CC = X86::COND_L;
-  } else {
+  else
     return SDValue();
-  }
 
   SDValue LockOp = lowerAtomicArithWithLOCK(CmpLHS, DAG);
   DAG.ReplaceAllUsesOfValueWith(CmpLHS.getValue(0),
