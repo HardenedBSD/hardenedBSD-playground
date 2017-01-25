@@ -184,6 +184,18 @@ rtld_tlsdesc_handle(struct tls_data *tlsdesc, int flags)
 	return (tlsdesc->index);
 }
 
+static void
+reloc_tlsdesc(Obj_Entry *obj, const Elf_Rela *rela, Elf_Addr *where)
+{
+	if (ELF_R_SYM(rela->r_info) == 0) {
+		where[0] = (Elf_Addr)_rtld_tlsdesc;
+		where[1] = obj->tlsoffset + rela->r_addend;
+	} else {
+		where[0] = (Elf_Addr)_rtld_tlsdesc_dynamic;
+		where[1] = (Elf_Addr)reloc_tlsdesc_alloc(obj, rela);
+	}
+}
+
 /*
  * Process the PLT relocations.
  */
@@ -204,14 +216,7 @@ reloc_plt(Obj_Entry *obj)
 			*where += (Elf_Addr)obj->relocbase;
 			break;
 		case R_AARCH64_TLSDESC:
-			if (ELF_R_SYM(rela->r_info) == 0) {
-				where[0] = (Elf_Addr)_rtld_tlsdesc;
-				where[1] = obj->tlsoffset + rela->r_addend;
-			} else {
-				where[0] = (Elf_Addr)_rtld_tlsdesc_dynamic;
-				where[1] = (Elf_Addr)reloc_tlsdesc_alloc(obj,
-				    rela);
-			}
+			reloc_tlsdesc(obj, rela, where);
 			break;
 		default:
 			_rtld_error("Unknown relocation type %u in PLT",
@@ -362,6 +367,9 @@ reloc_non_plt(Obj_Entry *obj, Obj_Entry *obj_rtld, int flags,
 				return (-1);
 			}
 			break;
+		case R_AARCH64_TLSDESC:
+			reloc_tlsdesc(obj, rela, where);
+			break;
 		case R_AARCH64_TLS_TPREL64:
 			def = find_symdef(symnum, obj, &defobj, flags, cache,
 			    lockstate);
@@ -387,16 +395,6 @@ reloc_non_plt(Obj_Entry *obj, Obj_Entry *obj_rtld, int flags,
 
 			*where = def->st_value + rela->r_addend +
 			    defobj->tlsoffset;
-			break;
-		case R_AARCH64_TLSDESC:
-			if (ELF_R_SYM(rela->r_info) == 0) {
-				where[0] = (Elf_Addr)_rtld_tlsdesc;
-				where[1] = obj->tlsoffset + rela->r_addend;
-			} else {
-				where[0] = (Elf_Addr)_rtld_tlsdesc_dynamic;
-				where[1] = (Elf_Addr)reloc_tlsdesc_alloc(obj,
-				    rela);
-			}
 			break;
 		case R_AARCH64_RELATIVE:
 			*where = (Elf_Addr)(obj->relocbase + rela->r_addend);
