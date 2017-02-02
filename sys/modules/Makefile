@@ -50,7 +50,6 @@ SUBDIR=	\
 	${_auxio} \
 	${_bce} \
 	bfe \
-	bhnd \
 	bge \
 	bhnd \
 	${_bxe} \
@@ -64,8 +63,6 @@ SUBDIR=	\
 	bwn_pci \
 	${_bytgpio} \
 	cam \
-	${_canbepm} \
-	${_canbus} \
 	${_cardbus} \
 	${_carp} \
 	cas \
@@ -90,7 +87,6 @@ SUBDIR=	\
 	${_crypto} \
 	${_cryptodev} \
 	${_cs} \
-	${_ct} \
 	${_ctau} \
 	ctl \
 	${_cxgb} \
@@ -140,6 +136,8 @@ SUBDIR=	\
 	${_hptnr} \
 	${_hptrr} \
 	hwpmc \
+	${_hwpmc_mips24k} \
+	${_hwpmc_mips74k} \
 	${_hyperv} \
 	i2c \
         ${_ibcore} \
@@ -293,7 +291,6 @@ SUBDIR=	\
 	${_pflog} \
 	${_pfsync} \
 	plip \
-	${_pmc} \
 	${_pms} \
 	ppbus \
 	ppc \
@@ -342,7 +339,6 @@ SUBDIR=	\
 	sk \
 	smbfs \
 	sn \
-	${_snc} \
 	snp \
 	sound \
 	${_speaker} \
@@ -521,6 +517,11 @@ _cxgbe=		cxgbe
 SUBDIR+=	zfs
 .endif
 
+.if ${MACHINE_CPUARCH} == "mips"
+_hwpmc_mips24k=	hwpmc_mips24k
+_hwpmc_mips74k=	hwpmc_mips74k
+.endif
+
 .if ${MACHINE_CPUARCH} != "aarch64" && ${MACHINE_CPUARCH} != "arm" && \
 	${MACHINE_CPUARCH} != "mips" && ${MACHINE_CPUARCH} != "powerpc" && \
 	${MACHINE_CPUARCH} != "riscv"
@@ -593,7 +594,7 @@ _vxge=  	vxge
 _wbwd=		wbwd
 _wi=		wi
 _xe=		xe
-.if ${MACHINE} != "pc98"
+
 _aac=		aac
 _aacraid=	aacraid
 _acpi=		acpi
@@ -674,7 +675,6 @@ _wpifw=		wpifw
 .endif
 _x86bios=	x86bios
 .endif
-.endif
 
 .if ${MACHINE_CPUARCH} == "amd64"
 _efirt=		efirt
@@ -720,7 +720,6 @@ _pcfclock=	pcfclock
 _pst=		pst
 _sbni=		sbni
 _stg=		stg
-.if ${MACHINE} == "i386"
 .if ${MK_EISA} != "no"
 _ahb=		ahb
 .endif
@@ -730,13 +729,6 @@ _ctau=		ctau
 .endif
 _dpt=		dpt
 _ex=		ex
-.elif ${MACHINE} == "pc98"
-_canbepm=	canbepm
-_canbus=	canbus
-_ct=		ct
-_pmc=		pmc
-_snc=		snc
-.endif
 .endif
 
 .if ${MACHINE_CPUARCH} == "arm"
