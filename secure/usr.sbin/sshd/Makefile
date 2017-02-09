@@ -19,6 +19,8 @@ SRCS=	sshd.c auth-rhosts.c auth-passwd.c auth-rsa.c auth-rh-rsa.c \
 	sandbox-solaris.c
 PACKAGE=	ssh
 
+WANT_CFI=	yes
+
 # gss-genr.c really belongs in libssh; see src/secure/lib/libssh/Makefile
 SRCS+=	gss-genr.c
 
