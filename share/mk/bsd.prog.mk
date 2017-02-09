@@ -97,9 +97,6 @@ LDFLAGS+=	-fsanitize=safe-stack
 CFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
 CXXFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
 LDFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
-
-# We must use clang directly as the linker
-LD=		clang
 .endif
 .endif
 
