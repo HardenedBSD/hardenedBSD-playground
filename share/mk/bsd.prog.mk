@@ -88,6 +88,21 @@ LDFLAGS+=	-fsanitize=safe-stack
 .endif # !defined(NOPIE)
 .endif # defined(MK_PIE)
 
+.if defined(WANT_CFI)
+.if ${MK_CFI} != "no"
+.if ${MK_LLD_IS_LD} == "no"
+.error WITH_CFI requires WITH_LLD_IS_LD
+.endif
+
+CFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
+CXXFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
+LDFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
+
+# We must use clang directly as the linker
+LD=		clang
+.endif
+.endif
+
 .if defined(MK_RELRO)
 .if ${MK_RELRO} != "no"
 LDFLAGS+=	-Wl,-z,relro
