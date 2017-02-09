@@ -8,6 +8,8 @@ PACKAGE=	ssh
 CFLAGS+=-I${SSHDIR} -include ssh_namespace.h
 SRCS+=	ssh_namespace.h
 
+WANT_CFI=	yes
+
 LIBADD=	ssh
 
 .if ${MK_LDNS} != "no"
