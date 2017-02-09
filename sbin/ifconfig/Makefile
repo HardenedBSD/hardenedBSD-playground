@@ -6,6 +6,8 @@
 PACKAGE=runtime
 PROG=	ifconfig
 
+WANT_CFI=	yes
+
 SRCS=	ifconfig.c		# base support
 
 #
