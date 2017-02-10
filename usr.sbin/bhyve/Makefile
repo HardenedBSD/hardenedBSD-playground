@@ -5,6 +5,8 @@
 PROG=	bhyve
 PACKAGE=	bhyve
 
+NOCFI=	yes
+
 DEBUG_FLAGS= -g -O0
 
 MAN=	bhyve.8

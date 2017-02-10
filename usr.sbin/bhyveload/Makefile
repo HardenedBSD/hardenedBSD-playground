@@ -5,6 +5,8 @@ SRCS=	bhyveload.c
 MAN=	bhyveload.8
 PACKAGE=	bhyve
 
+NOCFI=	yes
+
 LIBADD=	vmmapi
 
 WARNS?=	3
