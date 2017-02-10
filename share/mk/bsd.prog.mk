@@ -88,7 +88,7 @@ LDFLAGS+=	-fsanitize=safe-stack
 .endif # !defined(NOPIE)
 .endif # defined(MK_PIE)
 
-.if defined(WANT_CFI)
+.if !defined(NOCFI)
 .if ${MK_CFI} != "no"
 .if ${MK_LLD_IS_LD} == "no"
 .error WITH_CFI requires WITH_LLD_IS_LD
