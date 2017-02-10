@@ -4,8 +4,6 @@
 PROG=	arp
 MAN=	arp.4 arp.8
 
-WANT_CFI=	yes
-
 WARNS?=	3
 
 .include <bsd.prog.mk>

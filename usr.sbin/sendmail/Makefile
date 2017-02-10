@@ -8,8 +8,6 @@ SENDMAIL_DIR=${.CURDIR}/../../contrib/sendmail
 SMDIR=	${SENDMAIL_DIR}/src
 .PATH: ${SMDIR}
 
-WANT_CFI=	yes
-
 BINDIR=	${LIBEXECDIR}/sendmail
 
 PROG=	sendmail

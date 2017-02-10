@@ -2,8 +2,6 @@
 
 .include <src.opts.mk>
 
-WANT_CFI=	yes
-
 TCPDUMP_DISTDIR?= ${.CURDIR}/../../../contrib/tcpdump
 .PATH: ${TCPDUMP_DISTDIR}
 

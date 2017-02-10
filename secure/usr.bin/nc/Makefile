@@ -6,8 +6,6 @@ PROG=	nc
 SRCS=	netcat.c atomicio.c socks.c
 LIBADD+= tls ssl crypto
 
-WANT_CFI=	yes
-
 # Reset man-dir set for LibreSSL
 MANDIR=	${SHAREDIR}/man/man
 MAN1=	nc.1

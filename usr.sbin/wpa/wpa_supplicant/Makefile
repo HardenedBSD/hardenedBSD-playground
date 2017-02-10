@@ -4,8 +4,6 @@
 
 .include "${.CURDIR}/../Makefile.inc"
 
-WANT_CFI=	yes
-
 .PATH.c:${WPA_SUPPLICANT_DISTDIR} \
 	${WPA_DISTDIR}/src/drivers
 

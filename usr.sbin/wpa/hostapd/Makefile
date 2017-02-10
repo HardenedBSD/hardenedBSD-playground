@@ -3,8 +3,6 @@
 .include <src.opts.mk>
 .include "${.CURDIR}/../Makefile.inc"
 
-WANT_CFI=	yes
-
 .PATH.c:${HOSTAPD_DISTDIR} \
 	${WPA_DISTDIR}/src/drivers
 
