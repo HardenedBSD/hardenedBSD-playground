@@ -4,6 +4,8 @@ MAN=
 
 .include <src.opts.mk>
 
+MK_CFI=	no
+
 .PATH:	${.CURDIR}/../../../contrib/ntp/ntpd \
 	${.OBJDIR}
 
