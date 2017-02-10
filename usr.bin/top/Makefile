@@ -10,6 +10,8 @@ SRCS+=	sigdesc.h top.local.h
 CFLAGS+= -DHAVE_GETOPT -DHAVE_STRERROR -DORDER
 CFLAGS+= -I${.CURDIR} -I${TOPDIR} -I.
 
+NOCFI=	yes
+
 WARNS?=	0
 
 #
