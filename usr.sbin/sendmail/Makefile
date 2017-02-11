@@ -28,6 +28,8 @@ BINMODE=4555
 BINMODE=2555
 .endif
 
+NOCFI=	yes
+
 # Define the database format to use for aliases et al.
 DBMDEF=	-DNEWDB
 # If you don't want NIS alias/map support, comment out this line
