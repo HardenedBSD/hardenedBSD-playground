@@ -3,4 +3,6 @@
 
 PROG=	tsort
 
+NOCFI=	yes
+
 .include <bsd.prog.mk>
