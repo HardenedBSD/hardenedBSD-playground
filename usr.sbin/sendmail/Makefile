@@ -28,7 +28,7 @@ BINMODE=4555
 BINMODE=2555
 .endif
 
-NOCFI=	yes
+CFI_OVERRIDE=-fno-sanitize=cfi-icall
 
 # Define the database format to use for aliases et al.
 DBMDEF=	-DNEWDB
