@@ -94,9 +94,9 @@ LDFLAGS+=	-fsanitize=safe-stack
 .error WITH_CFI requires WITH_LLD_IS_LD
 .endif
 
-CFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
-CXXFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
-LDFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto
+CFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto ${CFI_OVERRIDE}
+CXXFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto ${CFI_OVERRIDE}
+LDFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto ${CFI_OVERRIDE}
 .endif
 .endif
 
