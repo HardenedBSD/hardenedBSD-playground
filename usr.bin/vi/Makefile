@@ -16,6 +16,8 @@ VIEW=	nview
 
 PROG=	nvi
 
+NOCFI=	yes
+
 CFLAGS+=	-D__REGEX_PRIVATE
 
 LINKS=	${BINDIR}/${VI} ${BINDIR}/${EX} ${BINDIR}/${VI} ${BINDIR}/${VIEW}
