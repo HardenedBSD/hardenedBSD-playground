@@ -16,7 +16,7 @@ VIEW=	nview
 
 PROG=	nvi
 
-NOCFI=	yes
+CFI_OVERRIDE=-fno-sanitize=cfi-icall
 
 CFLAGS+=	-D__REGEX_PRIVATE
 
