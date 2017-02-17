@@ -1,5 +1,5 @@
-/*-
- * Copyright (c) 1999 Matthew N. Dodd <winter@jurai.net>
+/*
+ * Copyright (C) 2017 Michal Meloun
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -23,9 +23,29 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $FreeBSD$
  */
 
-extern int	MCA_system;
+#include <machine/asm.h>
+__FBSDID("$FreeBSD$");
 
-extern int	mca_bus_nmi		(void);
+/*
+ * Due to bug in libcompiler_rt, all symbols declared by
+ * DEFINE_AEABI_FUNCTION_ALIAS() are not hidden. All these but
+ * __aeabi_uidiv_compat and/or __aeabi_idiv_compat  are explicitly
+ * exported from libc and don't causes problems.
+ *
+ * As workaround, export these from libc as compatible symbols,
+ * in global namespace
+ */
+
+ENTRY(__aeabi_uidiv_compat)
+	.symver __aeabi_uidiv_compat, __aeabi_uidiv@
+	b __udivsi3
+END(__aeabi_uidiv_compat)
+
+ENTRY(__aeabi_idiv_compat)
+	.symver __aeabi_idiv_compat, __aeabi_idiv@
+	b __divsi3
+END(__aeabi_idiv_compat)
+
+	.section .note.GNU-stack,"",%progbits

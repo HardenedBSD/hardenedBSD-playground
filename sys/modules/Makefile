@@ -27,7 +27,6 @@ SUBDIR=	\
 	age \
 	${_agp} \
 	aha \
-	${_ahb} \
 	ahci \
 	${_aic} \
 	aic7xxx \
@@ -726,9 +725,6 @@ _pcfclock=	pcfclock
 _pst=		pst
 _sbni=		sbni
 _stg=		stg
-.if ${MK_EISA} != "no"
-_ahb=		ahb
-.endif
 _cm=		cm
 .if ${MK_SOURCELESS_UCODE} != "no"
 _ctau=		ctau
