@@ -303,19 +303,13 @@ x86_mrt2mtrr(int flags, int oldval)
  * Update running CPU(s) MTRRs to match the ranges in the descriptor
  * list.
  *
- * XXX Must be called with interrupts enabled.
+ * Must be called with interrupts enabled.
  */
 static void
 x86_mrstore(struct mem_range_softc *sc)
 {
 
-#ifdef SMP
 	smp_rendezvous(NULL, x86_mrstoreone, NULL, sc);
-#else
-	disable_intr();				/* disable interrupts */
-	x86_mrstoreone(sc);
-	enable_intr();
-#endif
 }
 
 /*
@@ -644,7 +638,11 @@ x86_mrinit(struct mem_range_softc *sc)
 	 * Determine the size of the PhysMask and PhysBase fields in
 	 * the variable range MTRRs.
 	 */
+<<<<<<< HEAD:sys/x86/x86/x86_mem.c
 	mtrr_physmask = ((1UL << cpu_maxphyaddr) - 1) & ~0xfffUL;
+=======
+	mtrr_physmask = (((uint64_t)1 << cpu_maxphyaddr) - 1) & ~0xfffUL;
+>>>>>>> upstream/hardened/current/master:sys/x86/x86/x86_mem.c
 
 	/* If fixed MTRRs supported and enabled. */
 	if ((mtrrcap & MTRR_CAP_FIXED) && (mtrrdef & MTRR_DEF_FIXED_ENABLE)) {
@@ -710,12 +708,13 @@ x86_mrAPinit(struct mem_range_softc *sc)
  * Re-initialise running CPU(s) MTRRs to match the ranges in the descriptor
  * list.
  *
- * XXX Must be called with interrupts enabled.
+ * Must be called with interrupts enabled.
  */
 static void
 x86_mrreinit(struct mem_range_softc *sc)
 {
 
+<<<<<<< HEAD:sys/x86/x86/x86_mem.c
 #ifdef SMP
 	smp_rendezvous(NULL, (void *)x86_mrAPinit, NULL, sc);
 #else
@@ -723,6 +722,9 @@ x86_mrreinit(struct mem_range_softc *sc)
 	x86_mrAPinit(sc);
 	enable_intr();
 #endif
+=======
+	smp_rendezvous(NULL, (void (*)(void *))x86_mrAPinit, NULL, sc);
+>>>>>>> upstream/hardened/current/master:sys/x86/x86/x86_mem.c
 }
 
 static void
@@ -733,6 +735,7 @@ x86_mem_drvinit(void *unused)
 		return;
 	if (!(cpu_feature & CPUID_MTRR))
 		return;
+<<<<<<< HEAD:sys/x86/x86/x86_mem.c
 	if ((cpu_id & 0xf00) != 0x600 && (cpu_id & 0xf00) != 0xf00)
 		return;
 	switch (cpu_vendor_id) {
@@ -743,6 +746,8 @@ x86_mem_drvinit(void *unused)
 	default:
 		return;
 	}
+=======
+>>>>>>> upstream/hardened/current/master:sys/x86/x86/x86_mem.c
 	mem_range_softc.mr_op = &x86_mrops;
 	x86_mrinit(&mem_range_softc);
 }
