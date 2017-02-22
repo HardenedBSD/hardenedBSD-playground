@@ -584,10 +584,21 @@ select_out:
 int
 linux_mremap(struct thread *td, struct linux_mremap_args *args)
 {
+#ifdef HBSD_NOPE
+	/* XXX Shawn Webb (HardenedBSD):
+	 * bsd_args is currently unused. I'd outright delete it, but I
+	 * don't know why it's here in the first place. The drm-next
+	 * folks might be planning to use it later.
+	 *
+	 * It's likely that the drm-next folks aren't hitting an
+	 * "unused variable" compiler error since they're not using
+	 * clang/llvm 4.0.0 like we are.
+	 */
 	struct munmap_args /* {
 		void *addr;
 		size_t len;
 	} */ bsd_args;
+#endif
 	struct mmap_args /* {
 		caddr_t addr;
 		size_t len;
