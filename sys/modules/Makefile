@@ -51,7 +51,6 @@ SUBDIR=	\
 	bfe \
 	bge \
 	bhnd \
-	${_bxe} \
 	${_bios} \
 	${_bktr} \
 	${_bm} \
@@ -97,7 +96,6 @@ SUBDIR=	\
 	${_dpms} \
 	${_dpt} \
 	${_drm} \
-	${_drm2} \
 	dummynet \
 	${_ed} \
 	${_efirt} \
@@ -205,8 +203,8 @@ SUBDIR=	\
 	libiconv \
 	libmbpool \
 	libmchain \
+	${_lindebugfs} \
 	${_linprocfs} \
-	${_linsysfs} \
 	${_linux} \
 	${_linux_common} \
 	${_linux64} \
@@ -562,7 +560,6 @@ _cpufreq=	cpufreq
 _cs=		cs
 _dpms=		dpms
 _drm=		drm
-_drm2=		drm2
 _ed=		ed
 _em=		em
 _ep=		ep
@@ -580,8 +577,8 @@ _iser=		iser
 .endif
 _ix=		ix
 _ixv=		ixv
+_lindebugfs=	lindebugfs
 _linprocfs=	linprocfs
-_linsysfs=	linsysfs
 _linux=		linux
 _nctgpio=	nctgpio
 _ndis=		ndis
@@ -753,7 +750,7 @@ _wi=		wi
 .endif
 
 .if ${MACHINE_ARCH} == "powerpc64"
-_drm2=		drm2
+_drm=		drm
 .endif
 .if ${MACHINE_ARCH} == "powerpc64" || ${MACHINE_ARCH} == "powerpc"
 # Don't build powermac_nvram for powerpcspe, it's never supported.

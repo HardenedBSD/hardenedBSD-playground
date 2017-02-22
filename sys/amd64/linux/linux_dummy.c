@@ -43,7 +43,6 @@ __FBSDID("$FreeBSD$");
 /* DTrace init */
 LIN_SDT_PROVIDER_DECLARE(LINUX_DTRACE);
 
-DUMMY(mincore);
 DUMMY(sendfile);
 DUMMY(syslog);
 DUMMY(setfsuid);

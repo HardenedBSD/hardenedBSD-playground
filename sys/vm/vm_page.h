@@ -125,9 +125,18 @@ typedef uint32_t vm_page_bits_t;
 typedef uint64_t vm_page_bits_t;
 #endif
 
+#ifndef LIST_HEAD_DEF
+#define  LIST_HEAD_DEF
+struct list_head {
+       struct list_head *next;
+       struct list_head *prev;
+};
+#endif
+
 struct vm_page {
 	union {
 		TAILQ_ENTRY(vm_page) q; /* page queue or free list (Q) */
+		struct list_head lq;
 		struct {
 			SLIST_ENTRY(vm_page) ss; /* private slists */
 			void *pv;
@@ -355,11 +364,14 @@ extern struct mtx_padalign pa_lock[];
  *	free
  *		Available for allocation now.
  *
+ *	cache
+ *		Almost available for allocation. Still associated with
+ *		an object, but clean and immediately freeable.
+ *
+ * The following lists are LRU sorted:
+ *
  *	inactive
  *		Low activity, candidates for reclamation.
- *		This list is approximately LRU ordered.
- *
- *	laundry
  *		This is the list of pages that should be
  *		paged out next.
  *
@@ -368,7 +380,7 @@ extern struct mtx_padalign pa_lock[];
  *		out because no swap device is configured.
  *
  *	active
- *		Pages that are "active", i.e., they have been
+ *		Pages that are "active" i.e. they have been
  *		recently referenced.
  *
  */

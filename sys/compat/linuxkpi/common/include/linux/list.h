@@ -58,19 +58,12 @@
 #include <net/if_media.h>
 #include <net/vnet.h>
 
-#include <netinet/in.h>
-#include <netinet/in_pcb.h>
-#include <netinet/in_var.h>
-#include <netinet/tcp_lro.h>
-
-#include <netinet6/in6_var.h>
-#include <netinet6/nd6.h>
-
 #include <vm/vm.h>
 #include <vm/vm_object.h>
 #include <vm/pmap.h>
 
-#define	prefetch(x)
+/* CEM: TODO: Port some of the queue(9) invariants? */
+
 
 #define LINUX_LIST_HEAD_INIT(name) { &(name), &(name) }
 
@@ -141,6 +134,9 @@ static inline void
 linux_list_add(struct list_head *new, struct list_head *prev,
     struct list_head *next)
 {
+	MPASS(new != NULL);
+	MPASS(prev != NULL);
+	MPASS(next != NULL);
 
 	next->prev = new;
 	new->next = next;

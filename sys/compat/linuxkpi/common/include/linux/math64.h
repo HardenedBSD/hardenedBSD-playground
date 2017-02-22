@@ -29,7 +29,7 @@
 #ifndef _LINUX_MATH64_H
 #define	_LINUX_MATH64_H
 
-#include <sys/stdint.h>
+#include <asm/types.h>
 
 #define	do_div(n, base) ({			\
 	uint32_t __base = (base);		\
@@ -50,6 +50,30 @@ static inline uint64_t
 div_u64(uint64_t dividend, uint32_t divisor)
 {
 	return (dividend / divisor);
+}
+
+static inline uint64_t
+div64_u64(uint64_t dividend, uint64_t divisor)
+{
+	return (dividend / divisor);
+}
+static inline int64_t
+div64_s64(int64_t dividend, int64_t divisor)
+{
+	return (dividend / divisor);
+}
+
+static inline int64_t
+div_s64(int64_t dividend, int32_t divisor)
+{
+	return (dividend/divisor);
+}
+
+
+static inline u64 div64_u64_rem(u64 dividend, u64 divisor, u64 *remainder)
+{
+	*remainder = dividend % divisor;
+	return dividend / divisor;
 }
 
 #endif					/* _LINUX_MATH64_H */

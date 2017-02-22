@@ -55,6 +55,74 @@ kthread_should_stop(void)
 	return (atomic_read(&current->kthread_flags) & KTHREAD_SHOULD_STOP_MASK);
 }
 
+bool
+kthread_should_park(void)
+{
+
+	return (atomic_read(&current->kthread_flags) & KTHREAD_SHOULD_PARK_MASK);
+}
+
+int
+kthread_park(struct task_struct *task)
+{
+
+	if (task == NULL)
+		return (-ENOSYS);
+
+	if (atomic_read(&task->kthread_flags) & KTHREAD_IS_PARKED_MASK)
+		goto done;
+
+	atomic_or(KTHREAD_SHOULD_PARK_MASK, &task->kthread_flags);
+
+	if (task == current)
+		goto done;
+
+	wake_up_process(task);
+	wait_for_completion(&task->parked);
+done:
+	return (0);
+}
+
+void
+kthread_unpark(struct task_struct *task)
+{
+
+	if (task == NULL)
+		return;
+
+	atomic_andnot(KTHREAD_SHOULD_PARK_MASK, &task->kthread_flags);
+
+	if (atomic_fetch_andnot(KTHREAD_IS_PARKED_MASK,
+	    &task->kthread_flags) & KTHREAD_IS_PARKED_MASK) {
+		wake_up_state(task, TASK_PARKED);
+	}
+}
+
+void
+kthread_parkme(void)
+{
+	struct task_struct *task = current;
+
+	/* don't park threads without a task struct */
+	if (task == NULL)
+		return;
+
+	atomic_set(&task->state, TASK_PARKED);
+
+	while (atomic_read(&task->kthread_flags) & KTHREAD_SHOULD_PARK_MASK) {
+		if (!(atomic_fetch_or(KTHREAD_IS_PARKED_MASK,
+		      &task->kthread_flags) & KTHREAD_IS_PARKED_MASK)) {
+			complete(&task->parked);
+		}
+		schedule();
+		atomic_set(&task->state, TASK_PARKED);
+	}
+
+	atomic_andnot(KTHREAD_IS_PARKED_MASK, &task->kthread_flags);
+
+	atomic_set(&task->state, TASK_RUNNING);
+}
+
 int
 kthread_stop(struct task_struct *task)	
 {
@@ -65,6 +133,7 @@ kthread_stop(struct task_struct *task)
 	 * kthread_stop():
 	 */
 	atomic_or(KTHREAD_SHOULD_STOP_MASK, &task->kthread_flags);
+	kthread_unpark(task);
 	wake_up_process(task);
 	wait_for_completion(&task->exited);
 
@@ -118,3 +187,29 @@ linux_kthread_fn(void *arg __unused)
 	kthread_exit();
 }
 
+int
+linux_try_to_wake_up(struct task_struct *task, unsigned int state)
+{
+	int retval;
+
+	/*
+	 * To avoid loosing any wakeups this function must be made
+	 * atomic with regard to wakeup by locking the sleep_lock:
+	 */
+	mtx_lock(&task->sleep_lock);
+
+	/* first check if the there are any sleepers */
+	if (atomic_read(&task->state) & state) {
+		if (atomic_xchg(&task->state, TASK_WAKING) != TASK_WAKING) {
+			wakeup_one(task);
+			retval = 1;
+		} else {
+			retval = 0;
+		}
+	} else {
+		retval = 0;
+	}
+	mtx_unlock(&task->sleep_lock);
+
+	return (retval);
+}

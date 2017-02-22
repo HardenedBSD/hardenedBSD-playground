@@ -33,7 +33,11 @@
 #define	_LINUX_COMPILER_H_
 
 #include <sys/cdefs.h>
+#include <sys/types.h>
+#include <sys/systm.h>
+#include <sys/syslog.h>
 
+#include <asm/types.h>
 #define __user
 #define __kernel
 #define __safe
@@ -56,7 +60,13 @@
 #define	__devexit
 #define __exit
 #define	__rcu
-#define	__stringify(x)			#x
+#define __malloc
+
+#define __weak		__attribute__((weak))
+
+
+#define ACCESS_PRIVATE(p, member) ((p)->member)
+
 #define	__attribute_const__		__attribute__((__const__))
 #undef __always_inline
 #define	__always_inline			inline
@@ -68,6 +78,7 @@
 
 #define	uninitialized_var(x)		x = x
 #define	__always_unused			__unused
+#define	__maybe_unused			__unused
 #define	__must_check			__result_use_check
 
 #define	__printf(a,b)			__printflike(a,b)
@@ -77,6 +88,63 @@
 #define	___PASTE(a,b) a##b
 #define	__PASTE(a,b) ___PASTE(a,b)
 
+
+#ifndef PRINT_UNIMPLEMENTED
+#define PRINT_UNIMPLEMENTED 0
+#endif
+
+#define UNIMPLEMENTED_ONCE()			\
+	do {					\
+		static int seen = 0;		\
+									\
+		if (seen == 0 && PRINT_UNIMPLEMENTED) {					\
+			log(LOG_WARNING, "%s not implemented -- see your local kernel hacker\n", __FUNCTION__); \
+			seen = 1;					\
+		}							\
+	} while (0)
+
+#define DODGY_ONCE()			\
+	do {					\
+		static int seen = 0;		\
+									\
+		if (seen == 0 && PRINT_UNIMPLEMENTED) {					\
+			log(LOG_WARNING, "%s is dodgy -- see your local kernel hacker\n", __FUNCTION__); \
+			seen = 1;					\
+		}							\
+	} while (0)
+
+#define UNIMPLEMENTED()	UNIMPLEMENTED_ONCE()
+#define WARN_NOT() 	UNIMPLEMENTED_ONCE()
+#define DODGY() DODGY_ONCE();
+
+#define __READ_ONCE_SIZE                                                \
+({                                                                      \
+        switch (size) {                                                 \
+        case 1: *(__u8 *)res = *(volatile __u8 *)(uintptr_t)p; break;	\
+        case 2: *(__u16 *)res = *(volatile __u16 *)(uintptr_t)p; break;	\
+        case 4: *(__u32 *)res = *(volatile __u32 *)(uintptr_t)p; break;	\
+        case 8: *(__u64 *)res = *(volatile __u64 *)(uintptr_t)p; break;	\
+        default:                                                        \
+                barrier();                                              \
+                __builtin_memcpy((void *)res, (const void *)(uintptr_t)p, size); \
+                barrier();                                              \
+        }                                                               \
+})
+
+static __always_inline
+void __read_once_size(const volatile void *p, void *res, int size)
+{
+        __READ_ONCE_SIZE;
+}
+
+#define __READ_ONCE(x)                                           \
+({                                                                      \
+        union { typeof(x) __val; char __c[1]; } __u;                    \
+        __read_once_size(&(x), __u.__c, sizeof(x));             \
+        __u.__val;                                                      \
+})
+#define READ_ONCE(x) __READ_ONCE(x)
+
 #define	ACCESS_ONCE(x)			(*(volatile __typeof(x) *)&(x))
   
 #define	WRITE_ONCE(x,v) do {		\
@@ -84,14 +152,6 @@
 	ACCESS_ONCE(x) = (v);		\
 	barrier();			\
 } while (0)
-
-#define	READ_ONCE(x) ({			\
-	__typeof(x) __var;		\
-	barrier();			\
-	__var = ACCESS_ONCE(x);		\
-	barrier();			\
-	__var;				\
-})
 
 #define	lockless_dereference(p) READ_ONCE(p)
 

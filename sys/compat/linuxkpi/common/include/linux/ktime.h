@@ -33,7 +33,7 @@
 #include <linux/time.h>
 #include <linux/jiffies.h>
 
-#define ktime_get_ts(x) getnanouptime(x)
+#define ktime_get_ts(x) nanouptime(x)
 
 /* time values in nanoseconds */
 union ktime {
@@ -163,5 +163,15 @@ ktime_get(void)
 	ktime_get_ts(&ts);
 	return (timespec_to_ktime(ts));
 }
+
+static inline ktime_t
+ns_to_ktime(u64 ns)
+{
+	UNIMPLEMENTED();
+	ktime_t ktime_zero = { .tv64 = 0 };
+	return ktime_add_ns(ktime_zero, ns);
+}
+
+#include <linux/timekeeping.h>
 
 #endif	/* _LINUX_KTIME_H */

@@ -43,6 +43,7 @@ int
 linux_alloc_current(struct thread *td, int flags)
 {
 	struct task_struct *ts;
+	struct mm_struct *mm;
 
 	MPASS(td->td_lkpi_task == NULL);
 
@@ -54,7 +55,15 @@ linux_alloc_current(struct thread *td, int flags)
 	ts->task_thread = td;
 	ts->comm = td->td_name;
 	ts->pid = td->td_tid;
-	ts->state = TASK_RUNNING;
+	ts->mm = &ts->bsd_mm;
+	ts->usage.counter = 1;
+	mtx_init(&ts->sleep_lock, "lkpislplock", NULL, MTX_DEF);
+	atomic_set(&ts->state, TASK_RUNNING);
+	mm = ts->mm;
+	init_rwsem(&mm->mmap_sem);
+	mm->mm_count.counter = 1;
+	mm->mm_users.counter = 1;
+	mm->vmspace = td->td_proc->p_vmspace;
 	td->td_lkpi_task = ts;
 	return (0);
 }
@@ -62,6 +71,8 @@ linux_alloc_current(struct thread *td, int flags)
 void
 linux_free_current(struct task_struct *ts)
 {
+
+	mtx_destroy(&ts->sleep_lock);
 	free(ts, M_LINUX_CURRENT);
 }
 

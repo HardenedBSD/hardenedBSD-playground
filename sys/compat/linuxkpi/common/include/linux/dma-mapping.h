@@ -133,7 +133,16 @@ dma_alloc_coherent(struct device *dev, size_t size, dma_addr_t *dma_handle,
 		high = BUS_SPACE_MAXADDR_32BIT;
 	else
 		high = BUS_SPACE_MAXADDR;
+#ifdef __notyet__
+	/* the linux dma-api documentation indicates no alignment
+	 * requirements - users with alignment requirements are
+	 * expected to allocate a dma pool, which in some respects
+	 * is similar to a busdma tag
+	 */
 	align = PAGE_SIZE << get_order(size);
+#else
+	align = PAGE_SIZE;
+#endif	
 	mem = (void *)kmem_alloc_contig(kmem_arena, size, flag, 0, high, align,
 	    0, VM_MEMATTR_DEFAULT);
 	if (mem)
@@ -159,6 +168,72 @@ dma_free_coherent(struct device *dev, size_t size, void *cpu_addr,
 	kmem_free(kmem_arena, (vm_offset_t)cpu_addr, size);
 }
 
+static inline int
+dma_get_sgtable_attrs(struct device *dev, struct sg_table *sgt, void *cpu_addr,
+		      dma_addr_t dma_addr, size_t size, struct dma_attrs *attrs)
+{
+#if 0
+	struct dma_map_ops *ops = get_dma_ops(dev);
+	BUG_ON(!ops);
+	if (ops->get_sgtable)
+		return ops->get_sgtable(dev, sgt, cpu_addr, dma_addr, size,
+					attrs);
+	return dma_common_get_sgtable(dev, sgt, cpu_addr, dma_addr, size);
+#endif
+	UNIMPLEMENTED();
+	return (-ENOMEM);
+}
+
+#define dma_get_sgtable(d, t, v, h, s) dma_get_sgtable_attrs(d, t, v, h, s, NULL)
+
+
+
+static inline void *dma_alloc_wc(struct device *dev, size_t size,
+				 dma_addr_t *dma_addr, gfp_t gfp)
+{
+
+#if 0
+	DEFINE_DMA_ATTRS(attrs);
+	dma_set_attr(DMA_ATTR_WRITE_COMBINE, &attrs);
+	return dma_alloc_attrs(dev, size, dma_addr, gfp, &attrs);
+#endif
+	panic("implement me");
+	return (NULL);
+}
+#ifndef dma_alloc_writecombine
+#define dma_alloc_writecombine dma_alloc_wc
+#endif
+
+static inline void dma_free_wc(struct device *dev, size_t size,
+			       void *cpu_addr, dma_addr_t dma_addr)
+{
+	UNIMPLEMENTED();
+	panic("implement me");
+#if 0
+	DEFINE_DMA_ATTRS(attrs);
+	dma_set_attr(DMA_ATTR_WRITE_COMBINE, &attrs);
+	return dma_free_attrs(dev, size, cpu_addr, dma_addr, &attrs);
+#endif	
+}
+#ifndef dma_free_writecombine
+#define dma_free_writecombine dma_free_wc
+#endif
+
+
+
+static inline int dma_mmap_wc(struct device *dev,
+			      struct vm_area_struct *vma,
+			      void *cpu_addr, dma_addr_t dma_addr,
+			      size_t size)
+{
+#if 0
+	DEFINE_DMA_ATTRS(attrs);
+	dma_set_attr(DMA_ATTR_WRITE_COMBINE, &attrs);
+	return dma_mmap_attrs(dev, vma, cpu_addr, dma_addr, size, &attrs);
+#endif
+	panic("implement me!!!");
+	return (0);
+}
 /* XXX This only works with no iommu. */
 static inline dma_addr_t
 dma_map_single_attrs(struct device *dev, void *ptr, size_t size,

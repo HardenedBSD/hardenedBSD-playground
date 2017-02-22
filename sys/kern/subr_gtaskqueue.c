@@ -52,6 +52,8 @@ static MALLOC_DEFINE(M_GTASKQUEUE, "taskqueue", "Task Queues");
 static void	gtaskqueue_thread_enqueue(void *);
 static void	gtaskqueue_thread_loop(void *arg);
 
+TASKQGROUP_DEFINE(softirq, mp_ncpus, 1);
+
 struct gtaskqueue_busy {
 	struct gtask	*tb_running;
 	TAILQ_ENTRY(gtaskqueue_busy) tb_link;
@@ -576,7 +578,7 @@ taskqgroup_cpu_create(struct taskqgroup *qgroup, int idx, int cpu)
 	LIST_INIT(&qcpu->tgc_tasks);
 	qcpu->tgc_taskq = gtaskqueue_create_fast(NULL, M_WAITOK,
 	    taskqueue_thread_enqueue, &qcpu->tgc_taskq);
-	gtaskqueue_start_threads(&qcpu->tgc_taskq, 1, PI_SOFT,
+	gtaskqueue_start_threads(&qcpu->tgc_taskq, 1, PI_AV,
 	    "%s_%d", qgroup->tqg_name, idx);
 	qcpu->tgc_cpu = cpu;
 }

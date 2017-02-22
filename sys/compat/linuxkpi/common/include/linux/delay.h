@@ -32,8 +32,15 @@
 #ifndef _LINUX_DELAY_H_
 #define	_LINUX_DELAY_H_
 
-#include <linux/jiffies.h>
+#include <sys/cdefs.h>
+#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/pcpu.h>
+
+#include <linux/jiffies.h>
+
+#include <asm/processor.h>
 
 static inline void
 linux_msleep(int ms)
@@ -44,25 +51,97 @@ linux_msleep(int ms)
 #undef msleep
 #define	msleep	linux_msleep
 
-#define	udelay(t)	DELAY(t)
+/* undefined */
+extern void linux_bad_udelay(void);
+
+static inline unsigned long long
+rdtsc_ordered(void)
+{
+	mb();
+	return (rdtsc());
+}
+
+
+static inline void
+delay_tsc(unsigned long __loops)
+{
+	u64 bclock, now, loops = __loops;
+	int cpu;
+
+	critical_enter();
+	cpu = curcpu;
+	bclock = rdtsc_ordered();
+	for (;;) {
+		now = rdtsc_ordered();
+		if ((now - bclock) >= loops)
+			break;
+
+		critical_exit();
+		rep_nop();
+		critical_enter();
+		if (unlikely(cpu != curcpu)) {
+			loops -= (now - bclock);
+			cpu = curcpu;
+			bclock = rdtsc_ordered();
+		}
+	}
+	critical_exit();
+}
+
+
+static inline void
+linux_const_udelay(unsigned long xloops)
+{
+	int d0;
+
+	xloops *= 4;
+	__asm__("mull %%edx"
+		:"=d" (xloops), "=&a" (d0)
+		:"1" (xloops), "0"
+		 (tsc_freq/4));
+
+	delay_tsc(xloops++);
+}
+
+static inline void
+linux_udelay(unsigned long usecs)
+{
+	linux_const_udelay(usecs * 0x000010c7);
+}
+
+/* 0x10c7 is 2**32 / 1000000 (rounded up) */
+#define udelay(n)							\
+	({								\
+		if (__builtin_constant_p(n)) {				\
+			if ((n) / 20000 >= 1)				\
+				 linux_bad_udelay();			\
+			else						\
+				linux_const_udelay(MAX(2, (n)) * 0x10c7ul); \
+		} else {						\
+			linux_udelay(n);				\
+		}							\
+	})
+
+
+
 
 static inline void
 mdelay(unsigned long msecs)
 {
 	while (msecs--)
-		DELAY(1000);
+		udelay(1000);
 }
 
 static inline void
 ndelay(unsigned long x)
 {
-	DELAY(howmany(x, 1000));
+	udelay(howmany(x, 1000));
 }
 
 static inline void
 usleep_range(unsigned long min, unsigned long max)
 {
-	DELAY(min);
+	udelay(max);
 }
 
 #endif	/* _LINUX_DELAY_H_ */

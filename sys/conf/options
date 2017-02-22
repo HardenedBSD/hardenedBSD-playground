@@ -50,8 +50,8 @@ TWA_FLASH_FIRMWARE	opt_twa.h
 # Debugging options.
 ALT_BREAK_TO_DEBUGGER	opt_kdb.h
 BREAK_TO_DEBUGGER	opt_kdb.h
+DDB		opt_global.h
 BUF_TRACKING		opt_global.h
-DDB
 DDB_BUFR_SIZE	opt_ddb.h
 DDB_CAPTURE_DEFAULTBUFSIZE	opt_ddb.h
 DDB_CAPTURE_MAXBUFSIZE	opt_ddb.h
@@ -707,6 +707,7 @@ WITNESS_NO_VNODE	opt_witness.h
 WITNESS_SKIPSPIN	opt_witness.h
 WITNESS_COUNT		opt_witness.h
 OPENSOLARIS_WITNESS	opt_global.h
+WITNESS_ALL		opt_global.h
 
 # options for ACPI support
 ACPI_DEBUG		opt_acpi.h

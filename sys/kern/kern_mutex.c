@@ -137,6 +137,21 @@ struct lock_class lock_class_mtx_spin = {
 #endif
 };
 
+struct lock_class lock_class_mtx_interop = {
+       .lc_name = "interop mutex",
+       .lc_flags = LC_SPINLOCK | LC_SLEEPLOCK | LC_RECURSABLE,
+       .lc_assert = assert_mtx,
+#ifdef DDB
+       .lc_ddb_show = db_show_mtx,
+#endif
+       .lc_lock = lock_spin,
+       .lc_unlock = unlock_spin,
+#ifdef KDTRACE_HOOKS
+       .lc_owner = owner_mtx,
+#endif
+};
+
+
 #ifdef ADAPTIVE_MUTEXES
 static SYSCTL_NODE(_debug, OID_AUTO, mtx, CTLFLAG_RD, NULL, "mtx debugging");
 
@@ -186,7 +201,7 @@ void
 lock_spin(struct lock_object *lock, uintptr_t how)
 {
 
-	panic("spin locks can only use msleep_spin");
+	mtx_lock_spin((struct mtx*)lock);
 }
 
 uintptr_t
@@ -203,8 +218,12 @@ unlock_mtx(struct lock_object *lock)
 uintptr_t
 unlock_spin(struct lock_object *lock)
 {
+	struct mtx *m;
 
-	panic("spin locks can only use msleep_spin");
+	m = (struct mtx *)lock;
+	mtx_assert(m, MA_OWNED | MA_NOTRECURSED);
+	mtx_unlock_spin(m);
+	return (0);
 }
 
 #ifdef KDTRACE_HOOKS

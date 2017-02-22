@@ -2,7 +2,7 @@
  * Copyright (c) 2010 Isilon Systems, Inc.
  * Copyright (c) 2010 iX Systems, Inc.
  * Copyright (c) 2010 Panasas, Inc.
- * Copyright (c) 2013-2015 Mellanox Technologies, Ltd.
+ * Copyright (c) 2013-2017 Mellanox Technologies, Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,9 +34,10 @@
 #include <linux/device.h>
 #include <linux/pci.h>
 
-#include <sys/bus.h>
-#include <sys/rman.h>
+#include <linux/hardirq.h>
 
+struct seq_file;
+#undef resource
 typedef	irqreturn_t	(*irq_handler_t)(int, void *);
 
 #define	IRQ_RETVAL(x)	((x) != IRQ_NONE)
@@ -52,6 +53,21 @@ struct irq_ent {
 	void		*tag;
 	unsigned int	irq;
 };
+
+struct irqaction {
+	irq_handler_t		handler;
+	void			*dev_id;
+	struct irqaction	*next;
+	irq_handler_t		thread_fn;
+	struct task_struct	*thread;
+	struct irqaction	*secondary;
+	unsigned int		irq;
+	unsigned int		flags;
+	unsigned long		thread_flags;
+	unsigned long		thread_mask;
+	const char		*name;
+};
+
 
 static inline int
 linux_irq_rid(struct device *dev, unsigned int irq)
@@ -148,8 +164,10 @@ free_irq(unsigned int irq, void *device)
 	kfree(irqe);
 }
 
+#define resource linux_resource
+
 /*
- * LinuxKPI tasklet support
+ * Tasklet support
  */
 typedef void tasklet_func_t(unsigned long);
 

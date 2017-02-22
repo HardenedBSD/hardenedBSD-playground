@@ -35,6 +35,8 @@
 #include <sys/types.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
+#include <sys/lock.h>
+#include <sys/rwlock.h>
 
 #include <linux/page.h>
 
@@ -77,87 +79,105 @@ page_address(struct page *page)
 	    IDX_TO_OFF(page->pindex)));
 }
 
-static inline unsigned long
-linux_get_page(gfp_t mask)
+/*
+ * Page management for pages having only physical address.
+ */
+extern vm_page_t linux_alloc_pages(gfp_t flags, unsigned int order);
+extern void linux_free_pages(vm_page_t page, unsigned int order);
+
+static inline struct page *
+alloc_page(gfp_t flags)
 {
 
-	return kmem_malloc(kmem_arena, PAGE_SIZE, mask);
+	return (linux_alloc_pages(flags, 0));
 }
 
-#define	get_zeroed_page(mask)	linux_get_page((mask) | M_ZERO)
-#define	alloc_page(mask)	virt_to_page(linux_get_page((mask)))
-#define	__get_free_page(mask)	linux_get_page((mask))
-
-static inline void
-free_page(unsigned long page)
+static inline struct page *
+alloc_pages(gfp_t flags, unsigned int order)
 {
 
-	if (page == 0)
-		return;
-	kmem_free(kmem_arena, page, PAGE_SIZE);
+	return (linux_alloc_pages(flags, order));
 }
 
-static inline void
-__free_page(struct page *m)
+static inline struct page *
+alloc_pages_node(int node_id, gfp_t flags, unsigned int order)
 {
 
-	if (m->object != kmem_object)
-		panic("__free_page:  Freed page %p not allocated via wrappers.",
-		    m);
-	kmem_free(kmem_arena, (vm_offset_t)page_address(m), PAGE_SIZE);
+	return (linux_alloc_pages(flags, order));
 }
 
 static inline void
-__free_pages(struct page *m, unsigned int order)
+__free_pages(struct page *page, unsigned int order)
 {
-	size_t size;
 
-	if (m == NULL)
-		return;
-	size = PAGE_SIZE << order;
-	kmem_free(kmem_arena, (vm_offset_t)page_address(m), size);
+	linux_free_pages(page, order);
 }
 
-static inline void free_pages(uintptr_t addr, unsigned int order)
+static inline void
+__free_page(struct page *page)
 {
-	if (addr == 0)
-		return;
-	__free_pages(virt_to_page((void *)addr), order);
+
+	linux_free_pages(page, 0);
 }
 
 /*
- * Alloc pages allocates directly from the buddy allocator on linux so
- * order specifies a power of two bucket of pages and the results
- * are expected to be aligned on the size as well.
+ * Page management for pages having both virtual and physical address.
  */
-static inline struct page *
-alloc_pages(gfp_t gfp_mask, unsigned int order)
-{
-	unsigned long page;
-	size_t size;
+extern vm_offset_t linux_alloc_kmem(gfp_t flags, unsigned int order);
+extern void linux_free_kmem(vm_offset_t, unsigned int order);
 
-	size = PAGE_SIZE << order;
-	page = kmem_alloc_contig(kmem_arena, size, gfp_mask,
-	    0, ~(vm_paddr_t)0, size, 0, VM_MEMATTR_DEFAULT);
-	if (page == 0)
-		return (NULL);
-        return (virt_to_page(page));
+static inline vm_offset_t
+get_zeroed_page(gfp_t flags)
+{
+
+	return (linux_alloc_kmem(flags | __GFP_ZERO, 0));
 }
 
-static inline uintptr_t __get_free_pages(gfp_t gfp_mask, unsigned int order)
+static inline vm_offset_t
+__get_free_page(gfp_t flags)
 {
-	struct page *page;
 
-	page = alloc_pages(gfp_mask, order);
-	if (page == NULL)
-		return (0);
-	return ((uintptr_t)page_address(page));
+	return (linux_alloc_kmem(flags, 0));
 }
 
-#define alloc_pages_node(node, mask, order)     alloc_pages(mask, order)
+static inline vm_offset_t
+__get_free_pages(gfp_t flags, unsigned int order)
+{
 
-#define kmalloc_node(chunk, mask, node)         kmalloc(chunk, mask)
+	return (linux_alloc_kmem(flags, order));
+}
 
+static inline void
+free_pages(uintptr_t addr, unsigned int order)
+{
+	if (addr == 0)
+		return;
+
+	linux_free_kmem(addr, order);
+}
+
+static inline void
+free_page(uintptr_t addr)
+{
+	if (addr == 0)
+		return;
+
+	linux_free_kmem(addr, 0);
+}
+
+static inline bool
+gfpflags_allow_blocking(const gfp_t gfp_flags)
+{
+	return ((gfp_flags & (M_WAITOK | M_NOWAIT)) == M_WAITOK);
+}
+
+/*
+ * XXX this actually translates to wired
+ *
+ * PG_reserved is set for special pages, which can never be swapped out. Some
+ * of them might not even exist (eg empty_bad_page)...
+ *
+ */
 #define	SetPageReserved(page)	do { } while (0)	/* NOP */
 #define	ClearPageReserved(page)	do { } while (0)	/* NOP */
 
