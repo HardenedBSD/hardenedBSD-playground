@@ -5,8 +5,6 @@
 PROG=	bhyve
 PACKAGE=	bhyve
 
-CFI_OVERRIDE=-fno-sanitize=cfi-icall
-
 DEBUG_FLAGS= -g -O0
 
 MAN=	bhyve.8
