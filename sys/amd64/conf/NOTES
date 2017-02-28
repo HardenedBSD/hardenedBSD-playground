@@ -626,7 +626,6 @@ options 	LINPROCFS
 # and PSEUDOFS)
 options 	LINSYSFS
 
-
 #####################################################################
 # VM OPTIONS
 

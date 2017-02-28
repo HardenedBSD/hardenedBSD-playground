@@ -1,7 +1,10 @@
 /*-
- * Copyright (c) 2016 Michael Zhilin <mizhka@gmail.com>
- *
+ * Copyright (c) 2017 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory under DARPA/AFRL contract FA8750-10-C-0237
+ * ("CTSRD"), as part of the DARPA CRASH research programme.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,59 +26,57 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $FreeBSD$
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+/dts-v1/;
+#include "socfpga_arria10_socdk.dtsi"
 
-#include "opt_uart.h"
+/ {
+	model = "Altera SOCFPGA Arria 10";
+	compatible = "altr,socfpga-arria10", "altr,socfpga";
 
-#include <sys/param.h>
-#include <sys/systm.h>
-#include <sys/bus.h>
-#include <sys/conf.h>
-#include <sys/kernel.h>
-#include <sys/module.h>
-#include <sys/rman.h>
+	/* Reserve first page for secondary CPU trampoline code */
+	memreserve = < 0x00000000 0x1000 >;
 
-#include <machine/bus.h>
-#include <machine/resource.h>
+	soc {
+		/* Local timer */
+		timer@ffffc600 {
+			clock-frequency = <200000000>;
+		};
 
-#include <dev/uart/uart.h>
-#include <dev/uart/uart_bus.h>
-#include <dev/uart/uart_cpu.h>
+		/* Global timer */
+		global_timer: timer@ffffc200 {
+			compatible = "arm,cortex-a9-global-timer";
+			reg = <0xffffc200 0x20>;
+			interrupts = <1 11 0x301>;
+			clock-frequency = <200000000>;
+		};
+	};
 
-#include "uart_if.h"
-#include "bhnd_chipc_if.h"
-
-#include "bcm_machdep.h"
-
-
-static int
-uart_chipc_probe(device_t dev)
-{
-	struct uart_softc 	*sc;
-	u_int			 rclk;
-
-	sc = device_get_softc(dev);
-	sc->sc_class = &uart_ns8250_class;
-
-	rclk = bcm_get_uart_rclk(bcm_get_platform());
-	return (uart_bus_probe(dev, 0, 0, rclk, 0, 0));
-}
-
-static device_method_t uart_chipc_methods[] = {
-	/* Device interface */
-	DEVMETHOD(device_probe,		uart_chipc_probe),
-	DEVMETHOD(device_attach,	uart_bus_attach),
-	DEVMETHOD(device_detach,	uart_bus_detach),
-	{ 0, 0 }
+	chosen {
+		stdin = "serial1";
+		stdout = "serial1";
+	};
 };
 
-static driver_t uart_chipc_driver = {
-	uart_driver_name,
-	uart_chipc_methods,
-	sizeof(struct uart_softc),
+&uart1 {
+	clock-frequency = < 50000000 >;
 };
 
-DRIVER_MODULE(uart, bhnd_chipc, uart_chipc_driver, uart_devclass, 0, 0);
+&mmc {
+	status = "okay";
+	num-slots = <1>;
+	cap-sd-highspeed;
+	broken-cd;
+	bus-width = <4>;
+	bus-frequency = <200000000>;
+};
+
+&i2c1 {
+	lcd@28 {
+		compatible = "newhaven,nhd-0216k3z-nsw-bbw";
+		reg = <0x28>;
+	};
+};
