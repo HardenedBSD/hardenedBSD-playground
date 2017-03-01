@@ -62,6 +62,7 @@
 #if SANITIZER_FREEBSD
 #include <sys/exec.h>
 #include <sys/sysctl.h>
+#include <vm/vm.h>
 #include <vm/vm_param.h>
 #include <vm/pmap.h>
 #include <machine/atomic.h>
@@ -1042,7 +1043,7 @@ uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                        : "memory", "$29" );
   return res;
 }
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) && defined(HBSD_NOT_YET)
 uptr internal_clone(int (*fn)(void *), void *child_stack, int flags, void *arg,
                     int *parent_tidptr, void *newtls, int *child_tidptr) {
   long long res;
@@ -1256,7 +1257,7 @@ void *internal_start_thread(void (*func)(void *), void *arg) { return 0; }
 void internal_join_thread(void *th) {}
 #endif
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) && SANITIZER_LINUX
 // Android headers in the older NDK releases miss this definition.
 struct __sanitizer_esr_context {
   struct _aarch64_ctx head;
@@ -1276,6 +1277,11 @@ static bool Aarch64GetESR(ucontext_t *ucontext, u64 *esr) {
     aux += ctx->size;
   }
   return false;
+}
+#elif defined(__aarch64__) && SANITIZER_FREEBSD
+static bool Aarch64GetESR(ucontext_t *ucontext, u64 *esr) {
+	*esr = ucontext->uc_mcontext.mc_gpregs.gp_esr;
+	return true;
 }
 #endif
 
@@ -1315,10 +1321,17 @@ void GetPcSpBp(void *context, uptr *pc, uptr *sp, uptr *bp) {
   *bp = ucontext->uc_mcontext.arm_fp;
   *sp = ucontext->uc_mcontext.arm_sp;
 #elif defined(__aarch64__)
+#if SANITIZER_FREEBSD
+  ucontext_t *ucontext = (ucontext_t*)context;
+  *pc = ucontext->uc_mcontext.mc_gpregs.gp_elr;
+  *bp = ucontext->uc_mcontext.mc_gpregs.gp_x[29];
+  *sp = ucontext->uc_mcontext.mc_gpregs.gp_sp;
+#else
   ucontext_t *ucontext = (ucontext_t*)context;
   *pc = ucontext->uc_mcontext.pc;
   *bp = ucontext->uc_mcontext.regs[29];
   *sp = ucontext->uc_mcontext.sp;
+#endif
 #elif defined(__hppa__)
   ucontext_t *ucontext = (ucontext_t*)context;
   *pc = ucontext->uc_mcontext.sc_iaoq[0];

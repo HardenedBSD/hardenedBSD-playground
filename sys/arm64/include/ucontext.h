@@ -38,6 +38,7 @@ struct gpregs {
 	__register_t	gp_lr;
 	__register_t	gp_sp;
 	__register_t	gp_elr;
+	__register_t	gp_esr;
 	__uint32_t	gp_spsr;
 	int		gp_pad;
 };

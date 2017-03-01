@@ -3734,6 +3734,7 @@ SanitizerMask FreeBSD::getSupportedSanitizers() const {
   const bool IsX86_64 = getTriple().getArch() == llvm::Triple::x86_64;
   const bool IsMIPS64 = getTriple().getArch() == llvm::Triple::mips64 ||
                         getTriple().getArch() == llvm::Triple::mips64el;
+  const bool IsAarch64 = getTriple().getArch() == llvm::Triple::aarch64;
   SanitizerMask Res = ToolChain::getSupportedSanitizers();
   Res |= SanitizerKind::Address;
   Res |= SanitizerKind::Vptr;
@@ -3741,7 +3742,7 @@ SanitizerMask FreeBSD::getSupportedSanitizers() const {
     Res |= SanitizerKind::Leak;
     Res |= SanitizerKind::Thread;
   }
-  if (IsX86 || IsX86_64) {
+  if (IsAarch64 || IsX86 || IsX86_64) {
     Res |= SanitizerKind::SafeStack;
   }
   return Res;
