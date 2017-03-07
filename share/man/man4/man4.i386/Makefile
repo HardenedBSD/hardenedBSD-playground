@@ -25,7 +25,6 @@ MAN=	aic.4 \
 	pnpbios.4 \
 	sbni.4 \
 	smapi.4 \
-	snc.4 \
 	vpd.4 \
 	vx.4
 
