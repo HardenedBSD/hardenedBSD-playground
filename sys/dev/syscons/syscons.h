@@ -394,6 +394,7 @@ typedef void	sc_term_notify_t(scr_stat *scp, int event);
 #define SC_TE_NOTIFY_VTSWITCH_OUT	1
 typedef int	sc_term_input_t(scr_stat *scp, int c, struct tty *tp);
 typedef const char *sc_term_fkeystr_t(scr_stat *scp, int c);
+typedef void sc_term_set_cursor_t(scr_stat *scp, int col, int row);
 
 typedef struct sc_term_sw {
 	LIST_ENTRY(sc_term_sw)	link;
@@ -412,6 +413,7 @@ typedef struct sc_term_sw {
 	sc_term_notify_t	*te_notify;
 	sc_term_input_t		*te_input;
 	sc_term_fkeystr_t	*te_fkeystr;
+	sc_term_set_cursor_t	*te_set_cursor;
 } sc_term_sw_t;
 
 #define SCTERM_MODULE(name, sw)					\
@@ -581,6 +583,7 @@ void		sc_paste(scr_stat *scp, const u_char *p, int count);
 void		sc_respond(scr_stat *scp, const u_char *p,
 			   int count, int wakeup);
 void		sc_bell(scr_stat *scp, int pitch, int duration);
+int		sc_kattr(void);
 
 /* schistory.c */
 #ifndef SC_NO_HISTORY

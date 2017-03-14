@@ -2348,7 +2348,7 @@ inp_runlock(struct inpcb *inp)
 	INP_RUNLOCK(inp);
 }
 
-#ifdef INVARIANTS
+#ifdef INVARIANT_SUPPORT
 void
 inp_lock_assert(struct inpcb *inp)
 {
@@ -2490,6 +2490,10 @@ db_print_inpflags(int inp_flags)
 	}
 	if (inp_flags & INP_RECVDSTADDR) {
 		db_printf("%sINP_RECVDSTADDR", comma ? ", " : "");
+		comma = 1;
+	}
+	if (inp_flags & INP_ORIGDSTADDR) {
+		db_printf("%sINP_ORIGDSTADDR", comma ? ", " : "");
 		comma = 1;
 	}
 	if (inp_flags & INP_HDRINCL) {

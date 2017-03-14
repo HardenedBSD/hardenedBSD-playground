@@ -464,20 +464,12 @@ void inp_wunlock(struct inpcb *);
 void inp_rlock(struct inpcb *);
 void inp_runlock(struct inpcb *);
 
-#ifdef INVARIANTS
+#ifdef INVARIANT_SUPPORT
 void inp_lock_assert(struct inpcb *);
 void inp_unlock_assert(struct inpcb *);
 #else
-static __inline void
-inp_lock_assert(struct inpcb *inp __unused)
-{
-}
-
-static __inline void
-inp_unlock_assert(struct inpcb *inp __unused)
-{
-}
-
+#define	inp_lock_assert(inp)	do {} while (0)
+#define	inp_unlock_assert(inp)	do {} while (0)
 #endif
 
 void	inp_apply_all(void (*func)(struct inpcb *, void *), void *arg);
@@ -618,6 +610,7 @@ short	inp_so_options(const struct inpcb *inp);
 #define	INP_RECVFLOWID		0x00000100 /* populate recv datagram with flow info */
 #define	INP_RECVRSSBUCKETID	0x00000200 /* populate recv datagram with bucket id */
 #define	INP_RATE_LIMIT_CHANGED	0x00000400 /* rate limit needs attention */
+#define	INP_ORIGDSTADDR		0x00000800 /* receive IP dst address/port */
 
 /*
  * Flags passed to in_pcblookup*() functions.

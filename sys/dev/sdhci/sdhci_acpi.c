@@ -29,7 +29,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/bus.h>
-#include <sys/conf.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/module.h>
@@ -41,16 +40,14 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 #include <machine/resource.h>
-#include <machine/stdarg.h>
 
 #include <contrib/dev/acpica/include/acpi.h>
 #include <dev/acpica/acpivar.h>
 
 #include <dev/mmc/bridge.h>
-#include <dev/mmc/mmcreg.h>
-#include <dev/mmc/mmcbrvar.h>
 
-#include "sdhci.h"
+#include <dev/sdhci/sdhci.h>
+
 #include "mmcbr_if.h"
 #include "sdhci_if.h"
 
@@ -192,7 +189,7 @@ sdhci_acpi_find_device(device_t dev)
 		if ((sdhci_acpi_devices[i].uid != 0) &&
 		    (sdhci_acpi_devices[i].uid != uid))
 			continue;
-		return &sdhci_acpi_devices[i];
+		return (&sdhci_acpi_devices[i]);
 	}
 
 	return (NULL);
@@ -371,5 +368,4 @@ static devclass_t sdhci_acpi_devclass;
 DRIVER_MODULE(sdhci_acpi, acpi, sdhci_acpi_driver, sdhci_acpi_devclass, NULL,
     NULL);
 MODULE_DEPEND(sdhci_acpi, sdhci, 1, 1, 1);
-DRIVER_MODULE(mmc, sdhci_acpi, mmc_driver, mmc_devclass, NULL, NULL);
-MODULE_DEPEND(sdhci_acpi, mmc, 1, 1, 1);
+MMC_DECLARE_BRIDGE(sdhci_acpi);

@@ -1311,6 +1311,7 @@ OLD_FILES+=etc/periodic/daily/800.scrub-zfs
 OLD_LIBS+=lib/libzfs.so.2
 OLD_LIBS+=lib/libzfs_core.so.2
 OLD_LIBS+=lib/libzpool.so.2
+OLD_FILES+=rescue/zdb
 OLD_FILES+=rescue/zfs
 OLD_FILES+=rescue/zpool
 OLD_FILES+=sbin/zfs
@@ -3351,6 +3352,7 @@ OLD_FILES+=usr/share/man/man8/traceroute6.8.gz
 
 .if ${MK_INET6_SUPPORT} == no
 OLD_FILES+=rescue/ping6
+OLD_FILES+=rescue/rtsol
 .endif
 
 .if ${MK_INETD} == no
@@ -3457,6 +3459,8 @@ OLD_FILES+=usr/share/man/man8/natd.8.gz
 .if ${MK_ISCSI} == no
 OLD_FILES+=etc/rc.d/iscsictl
 OLD_FILES+=etc/rc.d/iscsid
+OLD_FILES+=rescue/iscsictl
+OLD_FILES+=rescue/iscsid
 OLD_FILES+=sbin/iscontrol
 OLD_FILES+=usr/bin/iscsictl
 OLD_FILES+=usr/sbin/iscsid
@@ -7244,10 +7248,6 @@ OLD_FILES+=usr/share/man/whatis
 OLD_FILES+=usr/share/openssl/man/whatis
 .endif
 
-.if ${MK_MANDOCDB} != no
-OLD_FILES+=usr/share/man/man1/makewhatis.1.gz
-.endif
-
 .if ${MK_NDIS} == no
 OLD_FILES+=usr/sbin/ndiscvt
 OLD_FILES+=usr/sbin/ndisgen
@@ -7257,6 +7257,7 @@ OLD_FILES+=usr/share/misc/windrv_stub.c
 .endif
 
 .if ${MK_NETCAT} == no
+OLD_FILES+=rescue/nc
 OLD_FILES+=usr/bin/nc
 OLD_FILES+=usr/share/man/man1/nc.1.gz
 .endif
@@ -8056,9 +8057,9 @@ OLD_FILES+=usr/share/man/man8/rwhod.8.gz
 
 .if ${MK_RESCUE} == no
 . if exists(${DESTDIR}${TESTSBASE})
-RESCUE_DIRS!=find ${DESTDIR}/rescue -type d | sed -e 's,^${DESTDIR}/,,'; echo
+RESCUE_DIRS!=find ${DESTDIR}/rescue -type d 2>/dev/null | sed -e 's,^${DESTDIR}/,,'; echo
 OLD_DIRS+=${RESCUE_DIRS}
-RESCUE_FILES!=find ${DESTDIR}/rescue \! -type d | sed -e 's,^${DESTDIR}/,,'; echo
+RESCUE_FILES!=find ${DESTDIR}/rescue \! -type d 2>/dev/null | sed -e 's,^${DESTDIR}/,,'; echo
 OLD_FILES+=${RESCUE_FILES}
 . endif
 .endif

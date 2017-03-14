@@ -132,7 +132,6 @@ __DEFAULT_YES_OPTIONS = \
     MAIL \
     MAILWRAPPER \
     MAKE \
-    MANDOCDB \
     NDIS \
     NETCAT \
     NETGRAPH \
@@ -301,6 +300,13 @@ __DEFAULT_NO_OPTIONS+=SAFESTACK
 __DEFAULT_NO_OPTIONS+=CFI
 .endif
 
+.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || \
+    ${__T} == "powerpc64" || ${__T} == "sparc64"
+__DEFAULT_YES_OPTIONS+=CXGBETOOL
+.else
+__DEFAULT_NO_OPTIONS+=CXGBETOOL
+.endif
+
 .include <bsd.mkopt.mk>
 
 #
@@ -434,6 +440,11 @@ MK_LLDB:=	no
 .if ${MK_CLANG} == "no"
 MK_CLANG_EXTRAS:= no
 MK_CLANG_FULL:= no
+MK_SAFESTACK:=	no
+.endif
+
+.if ${MK_LLD_IS_LD} == "no"
+MK_CFI:=	no
 .endif
 
 #

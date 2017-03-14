@@ -38,10 +38,28 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
-# 2017mmdd: new libc++ import which bumps version from 3.9.1 to 4.0.0.
+# 20170313: move .../sys/geom/eli/... to .../sys/geom/class/eli/...
+OLD_FILES+=usr/tests/sys/geom/eli/pbkdf2/pbkdf2
+OLD_FILES+=usr/tests/sys/geom/eli/pbkdf2/Kyuafile
+OLD_FILES+=usr/tests/sys/geom/eli/Kyuafile
+OLD_DIRS+=usr/tests/sys/geom/eli/pbkdf2
+OLD_DIRS+=usr/tests/sys/geom/eli
+# 20170313: sbin/ipftest and ipresend temporarily disconnected.
+OLD_FILES+=sbin/ipftest
+OLD_FILES+=sbin/ipresend
+# 20170311: Remove WITHOUT_MANDOCDB option
+OLD_FILES+=usr/share/man/man1/makewhatis.1.gz
+# 20170311: remove GNU diff
+OLD_FILES+=usr/share/man/man7/diff.7.gz
+# 20170308: rename some tests
+OLD_FILES+=usr/tests/bin/pwait/pwait
+OLD_FILES+=usr/tests/usr.bin/timeout/timeout
+# 20170307: remove pcap-int.h
+OLD_FILES+=usr/include/pcap-int.h
+# 20170302: new libc++ import which bumps version from 3.9.1 to 4.0.0.
 OLD_FILES+=usr/include/c++/v1/__undef___deallocate
 OLD_FILES+=usr/include/c++/v1/tr1/__undef___deallocate
-# 2017mmdd: new clang import which bumps version from 3.9.1 to 4.0.0.
+# 20170302: new clang import which bumps version from 3.9.1 to 4.0.0.
 OLD_FILES+=usr/lib/clang/3.9.1/include/sanitizer/allocator_interface.h
 OLD_FILES+=usr/lib/clang/3.9.1/include/sanitizer/asan_interface.h
 OLD_FILES+=usr/lib/clang/3.9.1/include/sanitizer/common_interface_defs.h
@@ -2023,10 +2041,11 @@ OLD_FILES+=usr/bin/install-info
 OLD_FILES+=usr/bin/makeinfo
 OLD_FILES+=usr/bin/texindex
 OLD_FILES+=usr/share/info/am-utils.info.gz
-OLD_FILES+=usr/share/info/as-utils.info.gz
+OLD_FILES+=usr/share/info/as.info.gz
 OLD_FILES+=usr/share/info/binutils.info.gz
 OLD_FILES+=usr/share/info/com_err.info.gz
 OLD_FILES+=usr/share/info/diff.info.gz
+OLD_FILES+=usr/share/info/dir
 OLD_FILES+=usr/share/info/gdb.info.gz
 OLD_FILES+=usr/share/info/gdbint.info.gz
 OLD_FILES+=usr/share/info/gperf.info.gz
@@ -2048,6 +2067,7 @@ OLD_FILES+=usr/share/man/man1/makeinfo.1.gz
 OLD_FILES+=usr/share/man/man1/texindex.1.gz
 OLD_FILES+=usr/share/man/man5/info.5.gz
 OLD_FILES+=usr/share/man/man5/texinfo.5.gz
+OLD_DIRS+=usr/share/info
 # 20141231: new clang import which bumps version from 3.4.1 to 3.5.0.
 OLD_FILES+=usr/include/clang/3.4.1/__wmmintrin_aes.h
 OLD_FILES+=usr/include/clang/3.4.1/__wmmintrin_pclmul.h

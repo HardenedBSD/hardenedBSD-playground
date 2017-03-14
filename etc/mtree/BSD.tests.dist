@@ -22,6 +22,8 @@
         ..
         pkill
         ..
+        pwait
+        ..
         sh
             builtins
             ..
@@ -423,10 +425,6 @@
                     ..
                 ..
             ..
-            eli
-                pbkdf2
-                ..
-            ..
         ..
         kern
             acct
@@ -610,6 +608,8 @@
         ..
         cut
         ..
+        diff
+        ..
         dirname
         ..
         file2c
@@ -619,6 +619,8 @@
         gzip
         ..
         ident
+        ..
+        indent
         ..
         join
         ..

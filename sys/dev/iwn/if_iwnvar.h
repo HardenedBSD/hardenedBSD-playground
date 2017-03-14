@@ -206,10 +206,10 @@ struct iwn_ops {
 			    uint16_t);
 	int		(*get_temperature)(struct iwn_softc *);
 	int		(*get_rssi)(struct iwn_softc *, struct iwn_rx_stat *);
-	int		(*set_txpower)(struct iwn_softc *,
-			    struct ieee80211_channel *, int);
+	int		(*set_txpower)(struct iwn_softc *, int);
 	int		(*init_gains)(struct iwn_softc *);
 	int		(*set_gains)(struct iwn_softc *);
+	int		(*rxon_assoc)(struct iwn_softc *, int);
 	int		(*add_node)(struct iwn_softc *, struct iwn_node_info *,
 			    int);
 	void		(*tx_done)(struct iwn_softc *, struct iwn_rx_desc *,

@@ -51,6 +51,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/mutex.h>
+#include <sys/pcpu.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/random.h>
@@ -90,15 +91,7 @@ __FBSDID("$FreeBSD$");
 /* NULL-safe version of "tty_opened()" */
 #define	tty_opened_ns(tp)	((tp) != NULL && tty_opened(tp))
 
-typedef struct default_attr {
-	int		std_color;		/* normal hardware color */
-	int		rev_color;		/* reverse hardware color */
-} default_attr;
-
-static default_attr user_default = {
-    SC_NORM_ATTR,
-    SC_NORM_REV_ATTR,
-};
+static	u_char		sc_kattrtab[MAXCPU];
 
 static	int		sc_console_unit = -1;
 static	int		sc_saver_keyb_only = 1;
@@ -141,6 +134,8 @@ static	int		sc_no_suspend_vtswitch = 0;
 static	int		sc_susp_scr;
 
 static SYSCTL_NODE(_hw, OID_AUTO, syscons, CTLFLAG_RD, 0, "syscons");
+SYSCTL_OPAQUE(_hw_syscons, OID_AUTO, kattr, CTLFLAG_RW,
+    &sc_kattrtab, sizeof(sc_kattrtab), "CU", "kernel console attributes");
 static SYSCTL_NODE(_hw_syscons, OID_AUTO, saver, CTLFLAG_RD, 0, "saver");
 SYSCTL_INT(_hw_syscons_saver, OID_AUTO, keybonly, CTLFLAG_RW,
     &sc_saver_keyb_only, 0, "screen saver interrupted by input only");
@@ -260,6 +255,69 @@ static struct cdevsw consolectl_devsw = {
 	.d_close	= consolectl_close,
 	.d_name		= "consolectl",
 };
+
+/* ec -- emergency console. */
+
+static	u_int	ec_scroffset;
+
+/*
+ * Fake enough of main_console for ec_putc() to work very early on x86 if
+ * the kernel starts in normal color text mode.  On non-x86, scribbling
+ * to the x86 normal color text frame buffer's addresses is unsafe, so
+ * set (likely non-fake) graphics mode to get a null initial ec_putc().
+ */
+static	scr_stat	fake_main_console = {
+#ifndef __sparc64__
+	.scr.vtb_buffer = 0xb8000,
+#endif
+	.xsize = 80,
+	.ysize = 25,
+#if !defined(__amd64__) && !defined(__i386__)
+	.status = GRAPHICS_MODE,
+#endif
+};
+
+#define	main_console	(sc_console == NULL ? fake_main_console : main_console)
+
+static void
+ec_putc(int c)
+{
+#ifndef __sparc64__
+	u_short *scrptr;
+	u_int ind;
+	int attr, column, mysize, width, xsize, yborder, ysize;
+
+	if (main_console.status & GRAPHICS_MODE ||
+	    c < 0 || c > 0xff || c == '\a')
+		return;
+	xsize = main_console.xsize;
+	ysize = main_console.ysize;
+	yborder = ysize / 5;
+	scrptr = (u_short *)main_console.scr.vtb_buffer + xsize * yborder;
+	mysize = xsize * (ysize - 2 * yborder);
+	do {
+		ind = ec_scroffset;
+		column = ind % xsize;
+		width = (c == '\b' ? -1 : c == '\t' ? (column + 8) & ~7 :
+		    c == '\r' ? -column : c == '\n' ? xsize - column : 1);
+		if (width == 0 || (width < 0 && ind < -width))
+			return;
+	} while (atomic_cmpset_rel_int(&ec_scroffset, ind, ind + width) == 0);
+	if (c == '\b' || c == '\r')
+		return;
+	if (c == '\n')
+		ind += xsize;	/* XXX clearing from new pos is not atomic */
+
+	attr = sc_kattr();
+	if (c == '\t' || c == '\n')
+		c = ' ';
+	do
+		scrptr[ind++ % mysize] = (attr << 8) | c;
+	while (--width != 0);
+#endif /* !__sparc64__ */
+}
+
+#undef main_console
 
 int
 sc_probe_unit(int unit, int flags)
@@ -1856,10 +1914,13 @@ sc_cnputc(struct consdev *cd, int c)
     sc_cnputc_log[head % sizeof(sc_cnputc_log)] = c;
 
     /*
-     * If we couldn't open, return to defer output.
+     * If we couldn't open, do special reentrant output and return to defer
+     * normal output.
      */
-    if (!st.scr_opened)
+    if (!st.scr_opened) {
+	ec_putc(c);
 	return;
+    }
 
 #ifndef SC_NO_HISTORY
     if (scp == scp->sc->cur_scp && scp->status & SLKED) {
@@ -2994,8 +3055,16 @@ scinit(int unit, int flags)
     int i;
 
     /* one time initialization */
-    if (init_done == COLD)
+    if (init_done == COLD) {
 	sc_get_bios_values(&bios_value);
+	for (i = 0; i < nitems(sc_kattrtab); i++) {
+#if SC_KERNEL_CONS_ATTR == FG_WHITE
+	    sc_kattrtab[i] = 8 + (i + FG_WHITE) % 8U;
+#else
+	    sc_kattrtab[i] = SC_KERNEL_CONS_ATTR;
+#endif
+	}
+    }
     init_done = WARM;
 
     /*
@@ -3071,21 +3140,9 @@ scinit(int unit, int flags)
 	    init_scp(sc, sc->first_vty, scp);
 	    sc_vtb_init(&scp->vtb, VTB_MEMORY, scp->xsize, scp->ysize,
 			(void *)sc_buffer, FALSE);
-
-	    /* move cursors to the initial positions */
-	    if (col >= scp->xsize)
-		col = 0;
-	    if (row >= scp->ysize)
-		row = scp->ysize - 1;
-	    scp->xpos = col;
-	    scp->ypos = row;
-	    scp->cursor_pos = scp->cursor_oldpos = row*scp->xsize + col;
-
 	    if (sc_init_emulator(scp, SC_DFLT_TERM))
 		sc_init_emulator(scp, "*");
-	    (*scp->tsw->te_default_attr)(scp,
-					 user_default.std_color,
-					 user_default.rev_color);
+	    (*scp->tsw->te_default_attr)(scp, SC_NORM_ATTR, SC_NORM_REV_ATTR);
 	} else {
 	    /* assert(sc_malloc) */
 	    sc->dev = malloc(sizeof(struct tty *)*sc->vtys, M_DEVBUF,
@@ -3104,6 +3161,17 @@ scinit(int unit, int flags)
 	    sc_vtb_copy(&scp->scr, 0, &scp->vtb, 0, scp->xsize*scp->ysize);
 #endif
 
+	/* Sync h/w cursor position to s/w (sc and teken). */
+	if (col >= scp->xsize)
+	    col = 0;
+	if (row >= scp->ysize)
+	    row = scp->ysize - 1;
+	scp->xpos = col;
+	scp->ypos = row;
+	scp->cursor_pos = scp->cursor_oldpos = row*scp->xsize + col;
+	(*scp->tsw->te_set_cursor)(scp, col, row);
+
+	/* Sync BIOS cursor shape to s/w (sc only). */
 	if (bios_value.cursor_end < scp->font_size)
 	    sc->dflt_curs_attr.base = scp->font_size - 
 					  bios_value.cursor_end - 1;
@@ -3499,8 +3567,7 @@ sc_init_emulator(scr_stat *scp, char *name)
     scp->rndr = rndr;
     scp->rndr->init(scp);
 
-    /* XXX */
-    (*sw->te_default_attr)(scp, user_default.std_color, user_default.rev_color);
+    (*sw->te_default_attr)(scp, SC_NORM_ATTR, SC_NORM_REV_ATTR);
     sc_clear_screen(scp);
 
     return 0;
@@ -4006,6 +4073,12 @@ sc_bell(scr_stat *scp, int pitch, int duration)
 	    pitch *= 2;
 	sysbeep(1193182 / pitch, duration);
     }
+}
+
+int
+sc_kattr(void)
+{
+    return (sc_kattrtab[PCPU_GET(cpuid) % nitems(sc_kattrtab)]);
 }
 
 static void

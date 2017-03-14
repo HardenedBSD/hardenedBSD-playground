@@ -13,14 +13,13 @@ MAN=	fstyp.8
 
 WARNS?=	2
 
-.include <src.opts.mk>
 .include <bsd.endian.mk>
 
 .if ${MK_TESTS} != "no" && ${TARGET_ENDIANNESS} == 1234
 SUBDIR+=	tests
 .endif
 
-CFLAGS+=-I${.CURDIR}/../../sys
+CFLAGS+=-I${SRCTOP}/sys
 
 .if ${MK_ZFS} != "no"
 IGNORE_PRAGMA=  YES
