@@ -38,6 +38,17 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20170313: move .../sys/geom/eli/... to .../sys/geom/class/eli/...
+OLD_FILES+=usr/tests/sys/geom/eli/pbkdf2/pbkdf2
+OLD_FILES+=usr/tests/sys/geom/eli/pbkdf2/Kyuafile
+OLD_FILES+=usr/tests/sys/geom/eli/Kyuafile
+OLD_DIRS+=usr/tests/sys/geom/eli/pbkdf2
+OLD_DIRS+=usr/tests/sys/geom/eli
+# 20170313: sbin/ipftest and ipresend temporarily disconnected.
+OLD_FILES+=sbin/ipftest
+OLD_FILES+=sbin/ipresend
+# 20170311: Remove WITHOUT_MANDOCDB option
+OLD_FILES+=usr/share/man/man1/makewhatis.1.gz
 # 20170311: remove GNU diff
 OLD_FILES+=usr/share/man/man7/diff.7.gz
 # 20170308: rename some tests
@@ -2030,10 +2041,11 @@ OLD_FILES+=usr/bin/install-info
 OLD_FILES+=usr/bin/makeinfo
 OLD_FILES+=usr/bin/texindex
 OLD_FILES+=usr/share/info/am-utils.info.gz
-OLD_FILES+=usr/share/info/as-utils.info.gz
+OLD_FILES+=usr/share/info/as.info.gz
 OLD_FILES+=usr/share/info/binutils.info.gz
 OLD_FILES+=usr/share/info/com_err.info.gz
 OLD_FILES+=usr/share/info/diff.info.gz
+OLD_FILES+=usr/share/info/dir
 OLD_FILES+=usr/share/info/gdb.info.gz
 OLD_FILES+=usr/share/info/gdbint.info.gz
 OLD_FILES+=usr/share/info/gperf.info.gz
