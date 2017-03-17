@@ -67,15 +67,14 @@ struct task_struct {
 	struct thread *task_thread;
 	struct mm_struct *mm;
 	linux_task_fn_t *task_fn;
-	atomic_t usage;
 	void   *task_data;
 	int	task_ret;
 	atomic_t usage;
 	atomic_t state;
 	atomic_t kthread_flags;
 	const char *comm;
-	pid_t	pid;
 	struct wait_queue_head *sleep_wq;
+	pid_t	pid;	/* BSD thread ID */
 	int	prio;
 	int	static_prio;
 	int	normal_prio;
@@ -103,37 +102,16 @@ struct task_struct {
 #define	__set_task_state(task, x) do { (task)->state.counter = (x); } while (0)
 
 static inline void
-__put_task_struct(struct task_struct *t)
+get_task_struct(struct task_struct *task)
 {
-	panic("refcounting bug encountered");
-	kfree(t);
+	atomic_inc(&task->usage);
 }
-
-#ifdef __notyet__
-#define	get_task_struct(tsk) do { atomic_inc(&(tsk)->usage); } while(0)
 
 static inline void
-put_task_struct(struct task_struct *t)
+put_task_struct(struct task_struct *task)
 {
-#ifdef notyet
-	if (atomic_dec_and_test(&t->usage))
-		__put_task_struct(t);
-#endif
-}
-
-#endif
-#define	get_task_struct(tsk) PHOLD((tsk)->task_thread->td_proc)
-#define	put_task_struct(tsk) PRELE((tsk)->task_thread->td_proc)
-
-static inline struct task_struct *
-get_pid_task(pid_t pid, enum pid_type type)
-{
-	struct task_struct *result;
-
-	result = pid_task(pid, type);
-	if (result)
-		get_task_struct(result);
-	return (result);
+	if (atomic_dec_and_test(&task->usage))
+		linux_free_current(task);
 }
 
 extern u64 cpu_clock(int cpu);
