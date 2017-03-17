@@ -37,6 +37,7 @@
 #include <sys/sched.h>
 
 #include <linux/types.h>
+#include <linux/compat.h>
 #include <linux/completion.h>
 #include <linux/pid.h>
 #include <linux/slab.h>
@@ -69,9 +70,10 @@ struct task_struct {
 	atomic_t usage;
 	void   *task_data;
 	int	task_ret;
+	atomic_t usage;
 	atomic_t state;
-	const char *comm;
 	atomic_t kthread_flags;
+	const char *comm;
 	pid_t	pid;
 	struct wait_queue_head *sleep_wq;
 	int	prio;
@@ -86,10 +88,12 @@ struct task_struct {
 
 #define	current		((struct task_struct *)curthread->td_lkpi_task)
 
-#define	task_pid(task)		((task)->task_thread->td_proc->p_pid)
-#define	task_pid_nr(task)	((task)->task_thread->td_tid)
-#define	get_pid(x) (x)
-#define	put_pid(x)
+#define	task_pid_group_leader(task) \
+	FIRST_THREAD_IN_PROC((task)->task_thread->td_proc)->td_tid
+#define	task_pid(task)		((task)->pid)
+#define	task_pid_nr(task)	((task)->pid)
+#define	get_pid(x)		(x)
+#define	put_pid(x)		do { } while (0)
 #define	current_euid()	(curthread->td_ucred->cr_uid)
 
 #define	set_current_state(x)	set_task_state(current, x)
