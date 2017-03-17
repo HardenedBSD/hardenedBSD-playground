@@ -205,26 +205,6 @@ compat_alloc_user_space(unsigned long len)
 	return (malloc(len, M_LCINT, M_NOWAIT));
 }
 
-unsigned long
-clear_user(void *uptr, unsigned long len)
-{
-	int i, iter, rem;
-
-	rem = len % 8;
-	iter = len / 8;
-
-	for (i = 0; i < iter; i++) {
-		if (suword64(((uint64_t *)uptr) + iter, 0))
-			return (len);
-	}
-	for (i = 0; i < rem; i++) {
-		if (subyte(((uint8_t *)uptr) + iter*8 + i , 0))
-			return (len);
-	}
-	return (0);
-}
-
-
 int
 kobject_set_name_vargs(struct kobject *kobj, const char *fmt, va_list args)
 {
@@ -1819,13 +1799,6 @@ list_sort(void *priv, struct list_head *head, int (*cmp)(void *priv,
 	for (i = 0; i < count; i++)
 		list_add_tail(ar[i], head);
 	free(ar, M_KMALLOC);
-}
-
-int
-linux_access_ok(int rw, const void *addr, int len)
-{
-
-	return (len == 0 || (uintptr_t)addr <= VM_MAXUSER_ADDRESS);
 }
 
 void

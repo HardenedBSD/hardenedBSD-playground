@@ -62,8 +62,6 @@
 #define	clear_user(...)		linux_clear_user(__VA_ARGS__)
 #define	access_ok(...)		linux_access_ok(__VA_ARGS__)
 
-unsigned long clear_user(void *uptr, unsigned long len);
-
 extern int linux_copyin(const void *uaddr, void *kaddr, size_t len);
 extern int linux_copyout(const void *kaddr, void *uaddr, size_t len);
 extern size_t linux_clear_user(void *uaddr, size_t len);
