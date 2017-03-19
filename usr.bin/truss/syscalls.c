@@ -92,10 +92,17 @@ static struct syscall decoded_syscalls[] = {
 		    { Int, 3 } } },
 	{ .name = "break", .ret_type = 1, .nargs = 1,
 	  .args = { { Ptr, 0 } } },
+	{ .name = "cap_fcntls_get", .ret_type = 1, .nargs = 2,
+	  .args = { { Int, 0 }, { CapFcntlRights | OUT, 1 } } },
+	{ .name = "cap_fcntls_limit", .ret_type = 1, .nargs = 2,
+	  .args = { { Int, 0 }, { CapFcntlRights, 1 } } },
 	{ .name = "chdir", .ret_type = 1, .nargs = 1,
 	  .args = { { Name, 0 } } },
 	{ .name = "chflags", .ret_type = 1, .nargs = 2,
-	  .args = { { Name | IN, 0 }, { Hex, 1 } } },
+	  .args = { { Name | IN, 0 }, { FileFlags, 1 } } },
+	{ .name = "chflagsat", .ret_type = 1, .nargs = 4,
+	  .args = { { Atfd, 0 }, { Name | IN, 1 }, { FileFlags, 2 },
+		    { Atflags, 3 } } },
 	{ .name = "chmod", .ret_type = 1, .nargs = 2,
 	  .args = { { Name, 0 }, { Octal, 1 } } },
 	{ .name = "chown", .ret_type = 1, .nargs = 3,
@@ -121,6 +128,8 @@ static struct syscall decoded_syscalls[] = {
 	{ .name = "faccessat", .ret_type = 1, .nargs = 4,
 	  .args = { { Atfd, 0 }, { Name | IN, 1 }, { Accessmode, 2 },
 		    { Atflags, 3 } } },
+	{ .name = "fchflags", .ret_type = 1, .nargs = 2,
+	  .args = { { Int, 0 }, { FileFlags, 1 } } },
 	{ .name = "fchmod", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { Octal, 1 } } },
 	{ .name = "fchmodat", .ret_type = 1, .nargs = 4,
@@ -132,6 +141,8 @@ static struct syscall decoded_syscalls[] = {
 		    { Atflags, 4 } } },
 	{ .name = "fcntl", .ret_type = 1, .nargs = 3,
 	  .args = { { Int, 0 }, { Fcntl, 1 }, { Fcntlflag, 2 } } },
+	{ .name = "flock", .ret_type = 1, .nargs = 2,
+	  .args = { { Int, 0 }, { Flockop, 1 } } },
 	{ .name = "fstat", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { Stat | OUT, 1 } } },
 	{ .name = "fstatat", .ret_type = 1, .nargs = 4,
@@ -147,6 +158,8 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 }, { Timeval2 | IN, 1 } } },
 	{ .name = "futimesat", .ret_type = 1, .nargs = 3,
 	  .args = { { Atfd, 0 }, { Name | IN, 1 }, { Timeval2 | IN, 2 } } },
+	{ .name = "getfsstat", .ret_type = 1, .nargs = 3,
+	  .args = { { Ptr, 0 }, { Long, 1 }, { Getfsstatmode, 2 } } },
 	{ .name = "getitimer", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { Itimerval | OUT, 2 } } },
 	{ .name = "getpeername", .ret_type = 1, .nargs = 3,
@@ -164,7 +177,7 @@ static struct syscall decoded_syscalls[] = {
 	{ .name = "gettimeofday", .ret_type = 1, .nargs = 2,
 	  .args = { { Timeval | OUT, 0 }, { Ptr, 1 } } },
 	{ .name = "ioctl", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { Ioctl, 1 }, { Hex, 2 } } },
+	  .args = { { Int, 0 }, { Ioctl, 1 }, { Ptr, 2 } } },
 	{ .name = "kevent", .ret_type = 1, .nargs = 6,
 	  .args = { { Int, 0 }, { Kevent, 1 }, { Int, 2 }, { Kevent | OUT, 3 },
 		    { Int, 4 }, { Timespec, 5 } } },
@@ -180,12 +193,16 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 } } },
 	{ .name = "kldstat", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { Ptr, 1 } } },
+	{ .name = "kldsym", .ret_type = 1, .nargs = 3,
+	  .args = { { Int, 0 }, { Kldsymcmd, 1 }, { Ptr, 2 } } },
 	{ .name = "kldunload", .ret_type = 1, .nargs = 1,
 	  .args = { { Int, 0 } } },
+	{ .name = "kldunloadf", .ret_type = 1, .nargs = 2,
+	  .args = { { Int, 0 }, { Kldunloadflags, 1 } } },
 	{ .name = "kse_release", .ret_type = 0, .nargs = 1,
 	  .args = { { Timespec, 0 } } },
 	{ .name = "lchflags", .ret_type = 1, .nargs = 2,
-	  .args = { { Name | IN, 0 }, { Hex, 1 } } },
+	  .args = { { Name | IN, 0 }, { FileFlags, 1 } } },
 	{ .name = "lchmod", .ret_type = 1, .nargs = 2,
 	  .args = { { Name, 0 }, { Octal, 1 } } },
 	{ .name = "lchown", .ret_type = 1, .nargs = 3,
@@ -201,6 +218,8 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Name | IN, 0 }, { Stat | OUT, 1 } } },
 	{ .name = "lutimes", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { Timeval2 | IN, 1 } } },
+	{ .name = "madvise", .ret_type = 1, .nargs = 3,
+	  .args = { { Ptr, 0 }, { Sizet, 1 }, { Madvice, 2 } } },
 	{ .name = "mkdir", .ret_type = 1, .nargs = 2,
 	  .args = { { Name, 0 }, { Octal, 1 } } },
 	{ .name = "mkdirat", .ret_type = 1, .nargs = 3,
@@ -214,16 +233,16 @@ static struct syscall decoded_syscalls[] = {
 	{ .name = "mknodat", .ret_type = 1, .nargs = 4,
 	  .args = { { Atfd, 0 }, { Name, 1 }, { Octal, 2 }, { Int, 3 } } },
 	{ .name = "mmap", .ret_type = 1, .nargs = 6,
-	  .args = { { Ptr, 0 }, { Int, 1 }, { Mprot, 2 }, { Mmapflags, 3 },
+	  .args = { { Ptr, 0 }, { Sizet, 1 }, { Mprot, 2 }, { Mmapflags, 3 },
 		    { Int, 4 }, { QuadHex, 5 } } },
 	{ .name = "modfind", .ret_type = 1, .nargs = 1,
 	  .args = { { Name | IN, 0 } } },
 	{ .name = "mount", .ret_type = 1, .nargs = 4,
 	  .args = { { Name, 0 }, { Name, 1 }, { Int, 2 }, { Ptr, 3 } } },
 	{ .name = "mprotect", .ret_type = 1, .nargs = 3,
-	  .args = { { Ptr, 0 }, { Int, 1 }, { Mprot, 2 } } },
+	  .args = { { Ptr, 0 }, { Sizet, 1 }, { Mprot, 2 } } },
 	{ .name = "munmap", .ret_type = 1, .nargs = 2,
-	  .args = { { Ptr, 0 }, { Int, 1 } } },
+	  .args = { { Ptr, 0 }, { Sizet, 1 } } },
 	{ .name = "nanosleep", .ret_type = 1, .nargs = 1,
 	  .args = { { Timespec, 0 } } },
 	{ .name = "open", .ret_type = 1, .nargs = 3,
@@ -239,19 +258,22 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Ptr, 0 }, { Pipe2, 1 } } },
 	{ .name = "poll", .ret_type = 1, .nargs = 3,
 	  .args = { { Pollfd, 0 }, { Int, 1 }, { Int, 2 } } },
+	{ .name = "posix_fadvise", .ret_type = 1, .nargs = 4,
+	  .args = { { Int, 0 }, { QuadHex, 1 }, { QuadHex, 2 },
+		    { Fadvice, 3 } } },
 	{ .name = "posix_openpt", .ret_type = 1, .nargs = 1,
 	  .args = { { Open, 0 } } },
 	{ .name = "procctl", .ret_type = 1, .nargs = 4,
 	  .args = { { Idtype, 0 }, { Quad, 1 }, { Procctl, 2 }, { Ptr, 3 } } },
 	{ .name = "read", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Int, 2 } } },
+	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Sizet, 2 } } },
 	{ .name = "readlink", .ret_type = 1, .nargs = 3,
-	  .args = { { Name, 0 }, { Readlinkres | OUT, 1 }, { Int, 2 } } },
+	  .args = { { Name, 0 }, { Readlinkres | OUT, 1 }, { Sizet, 2 } } },
 	{ .name = "readlinkat", .ret_type = 1, .nargs = 4,
 	  .args = { { Atfd, 0 }, { Name, 1 }, { Readlinkres | OUT, 2 },
-		    { Int, 3 } } },
+		    { Sizet, 3 } } },
 	{ .name = "recvfrom", .ret_type = 1, .nargs = 6,
-	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Int, 2 }, { Hex, 3 },
+	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Sizet, 2 }, { Hex, 3 },
 		    { Sockaddr | OUT, 4 }, { Ptr | OUT, 5 } } },
 	{ .name = "rename", .ret_type = 1, .nargs = 2,
 	  .args = { { Name, 0 }, { Name, 1 } } },
@@ -265,8 +287,8 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 }, { Fd_set, 1 }, { Fd_set, 2 }, { Fd_set, 3 },
 		    { Timeval, 4 } } },
 	{ .name = "sendto", .ret_type = 1, .nargs = 6,
-	  .args = { { Int, 0 }, { BinString | IN, 1 }, { Int, 2 }, { Hex, 3 },
-		    { Sockaddr | IN, 4 }, { Ptr | IN, 5 } } },
+	  .args = { { Int, 0 }, { BinString | IN, 1 }, { Sizet, 2 }, { Hex, 3 },
+		    { Sockaddr | IN, 4 }, { Int | IN, 5 } } },
 	{ .name = "setitimer", .ret_type = 1, .nargs = 3,
 	  .args = { { Int, 0 }, { Itimerval, 1 }, { Itimerval | OUT, 2 } } },
 	{ .name = "setrlimit", .ret_type = 1, .nargs = 2,
@@ -335,7 +357,7 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Idtype, 0 }, { Quad, 1 }, { ExitStatus | OUT, 2 },
 		    { Waitoptions, 3 }, { Rusage | OUT, 4 }, { Ptr, 5 } } },
 	{ .name = "write", .ret_type = 1, .nargs = 3,
-	  .args = { { Int, 0 }, { BinString | IN, 1 }, { Int, 2 } } },
+	  .args = { { Int, 0 }, { BinString | IN, 1 }, { Sizet, 2 } } },
 
 	/* Linux ABI */
 	{ .name = "linux_access", .ret_type = 1, .nargs = 2,
@@ -354,7 +376,7 @@ static struct syscall decoded_syscalls[] = {
 	{ .name = "linux_open", .ret_type = 1, .nargs = 3,
 	  .args = { { Name, 0 }, { Hex, 1 }, { Octal, 2 } } },
 	{ .name = "linux_readlink", .ret_type = 1, .nargs = 3,
-	  .args = { { Name, 0 }, { Name | OUT, 1 }, { Int, 2 } } },
+	  .args = { { Name, 0 }, { Name | OUT, 1 }, { Sizet, 2 } } },
 	{ .name = "linux_socketcall", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { LinuxSockArgs, 1 } } },
 	{ .name = "linux_stat64", .ret_type = 1, .nargs = 2,
@@ -791,6 +813,18 @@ print_mask_arg(bool (*decoder)(FILE *, int, int *), FILE *fp, int value)
 		fprintf(fp, "|0x%x", rem);
 }
 
+static void
+print_mask_arg32(bool (*decoder)(FILE *, uint32_t, uint32_t *), FILE *fp,
+    uint32_t value)
+{
+	uint32_t rem;
+
+	if (!decoder(fp, value, &rem))
+		fprintf(fp, "0x%x", rem);
+	else if (rem != 0)
+		fprintf(fp, "|0x%x", rem);
+}
+
 #ifndef __LP64__
 /*
  * Add argument padding to subsequent system calls afater a Quad
@@ -1134,6 +1168,9 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 		break;
 	case Long:
 		fprintf(fp, "%ld", args[sc->offset]);
+		break;
+	case Sizet:
+		fprintf(fp, "%zu", (size_t)args[sc->offset]);
 		break;
 	case Name: {
 		/* NULL-terminated string. */
@@ -1831,6 +1868,49 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 	}
 	case Pipe2:
 		print_mask_arg(sysdecode_pipe2_flags, fp, args[sc->offset]);
+		break;
+	case CapFcntlRights: {
+		uint32_t rights;
+
+		if (sc->type & OUT) {
+			if (get_struct(pid, (void *)args[sc->offset], &rights,
+			    sizeof(rights)) == -1) {
+				fprintf(fp, "0x%lx", args[sc->offset]);
+				break;
+			}
+		} else
+			rights = args[sc->offset];
+		print_mask_arg32(sysdecode_cap_fcntlrights, fp, rights);
+		break;
+	}
+	case Fadvice:
+		print_integer_arg(sysdecode_fadvice, fp, args[sc->offset]);
+		break;
+	case FileFlags: {
+		fflags_t rem;
+
+		if (!sysdecode_fileflags(fp, args[sc->offset], &rem))
+			fprintf(fp, "0x%x", rem);
+		else if (rem != 0)
+			fprintf(fp, "|0x%x", rem);
+		break;
+	}
+	case Flockop:
+		print_mask_arg(sysdecode_flock_operation, fp, args[sc->offset]);
+		break;
+	case Getfsstatmode:
+		print_integer_arg(sysdecode_getfsstat_mode, fp,
+		    args[sc->offset]);
+		break;
+	case Kldsymcmd:
+		print_integer_arg(sysdecode_kldsym_cmd, fp, args[sc->offset]);
+		break;
+	case Kldunloadflags:
+		print_integer_arg(sysdecode_kldunload_flags, fp,
+		    args[sc->offset]);
+		break;
+	case Madvice:
+		print_integer_arg(sysdecode_madvice, fp, args[sc->offset]);
 		break;
 
 	case CloudABIAdvice:
