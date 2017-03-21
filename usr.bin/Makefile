@@ -34,7 +34,6 @@ SUBDIR=	alias \
 	csplit \
 	ctlstat \
 	cut \
-	diff \
 	dirname \
 	du \
 	elf2aout \
@@ -51,6 +50,7 @@ SUBDIR=	alias \
 	fsync \
 	gcore \
 	gencat \
+	getaddrinfo \
 	getconf \
 	getent \
 	getopt \

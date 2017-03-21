@@ -2089,7 +2089,7 @@ isp_fibre_init_2400(ispsoftc_t *isp)
 	}
 
 	if (IS_26XX(isp)) {
-		/* We don't support MSI-X yet, so set this unconditionally. */
+		/* Use handshake to reduce global lock congestion. */
 		icbp->icb_fwoptions2 |= ICB2400_OPT2_ENA_IHR;
 		icbp->icb_fwoptions2 |= ICB2400_OPT2_ENA_IHA;
 	}
@@ -2186,6 +2186,12 @@ isp_fibre_init_2400(ispsoftc_t *isp)
 	isp_prt(isp, ISP_LOGDEBUG0, "isp_fibre_init_2400: atioq %04x%04x%04x%04x", DMA_WD3(isp->isp_atioq_dma), DMA_WD2(isp->isp_atioq_dma),
 	    DMA_WD1(isp->isp_atioq_dma), DMA_WD0(isp->isp_atioq_dma));
 #endif
+
+	if (ISP_CAP_MSIX(isp) && isp->isp_nirq >= 2) {
+		icbp->icb_msixresp = 1;
+		if (IS_26XX(isp) && isp->isp_nirq >= 3)
+			icbp->icb_msixatio = 2;
+	}
 
 	isp_prt(isp, ISP_LOGDEBUG0, "isp_fibre_init_2400: fwopt1 0x%x fwopt2 0x%x fwopt3 0x%x", icbp->icb_fwoptions1, icbp->icb_fwoptions2, icbp->icb_fwoptions3);
 
@@ -4524,7 +4530,6 @@ isp_start(XS_T *xs)
 		return (dmaresult);
 	}
 	isp_xs_prt(isp, xs, ISP_LOGDEBUG0, "START cmd cdb[0]=0x%x datalen %ld", XS_CDBP(xs)[0], (long) XS_XFRLEN(xs));
-	isp->isp_nactive++;
 	return (CMD_QUEUED);
 }
 
@@ -5353,9 +5358,6 @@ isp_intr_respq(ispsoftc_t *isp)
 		}
 		isp_destroy_handle(isp, sp->req_handle);
 
-		if (isp->isp_nactive > 0) {
-		    isp->isp_nactive--;
-		}
 		complist[ndone++] = xs;	/* defer completion call until later */
 		ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
 		last_etype = etype;
@@ -5926,9 +5928,6 @@ isp_handle_other_response(ispsoftc_t *isp, int type, isphdr_t *hp, uint32_t *opt
 	void *ptr;
 
 	switch (type) {
-	case RQSTYPE_STATUS_CONT:
-		isp_prt(isp, ISP_LOG_WARN1, "Ignored Continuation Response");
-		return (1);
 	case RQSTYPE_MARKER:
 		isp_prt(isp, ISP_LOG_WARN1, "Marker Response");
 		return (1);
@@ -6529,9 +6528,6 @@ isp_fastpost_complete(ispsoftc_t *isp, uint32_t fph)
 	*XS_STSP(xs) = SCSI_GOOD;
 	if (XS_XFRLEN(xs)) {
 		ISP_DMAFREE(isp, xs, fph);
-	}
-	if (isp->isp_nactive) {
-		isp->isp_nactive--;
 	}
 	isp_done(xs);
 }
@@ -7573,7 +7569,6 @@ isp_reinit(ispsoftc_t *isp, int do_load_defaults)
 	}
 
 cleanup:
-	isp->isp_nactive = 0;
 	isp_clear_commands(isp);
 	if (IS_FC(isp)) {
 		for (i = 0; i < isp->isp_nchan; i++)
