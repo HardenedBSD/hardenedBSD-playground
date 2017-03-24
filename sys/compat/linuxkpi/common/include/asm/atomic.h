@@ -37,7 +37,6 @@
 
 #include <machine/atomic.h>
 #include <linux/types.h>
-#include <asm/cmpxchg.h>
 
 #define	ATOMIC_INIT(x)	{ .counter = (x) }
 
@@ -158,15 +157,6 @@ atomic_cmpxchg(atomic_t *v, int old, int new)
 	return (ret);
 }
 
-<<<<<<< HEAD
-
-/* cmpxchg_relaxed */
-#ifndef cmpxchg_relaxed
-#define  cmpxchg_relaxed		cmpxchg
-#define  cmpxchg_acquire		cmpxchg
-#define  cmpxchg_release		cmpxchg
-#endif
-=======
 #define	cmpxchg(ptr, old, new) ({				\
 	__typeof(*(ptr)) __ret;					\
 								\
@@ -198,7 +188,6 @@ atomic_cmpxchg(atomic_t *v, int old, int new)
 	}							\
 	__ret;							\
 })
->>>>>>> hardened/current/master
 
 #define	cmpxchg_relaxed(...)	cmpxchg(__VA_ARGS__)
 

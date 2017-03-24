@@ -389,12 +389,10 @@ linsysfs_init(PFS_INIT_ARGS)
 	/* /sys/kernel/... */
 	dir = pfs_create_dir(root, "kernel", NULL, NULL, NULL, 0);
 	pfs_create_dir(dir, "debug", debugfs_attr, NULL, NULL, 0);
-	
-	/* /sys/device */
-	dir = pfs_create_dir(root, "devices", NULL, NULL, NULL, 0);
 
 	/* /sys/device/pci0000:00 */
-	linux_root_device.kobj.sd = linux_class_root.sd = pci = pfs_create_dir(dir, "pci0000:00", NULL, NULL, NULL, 0);
+	pci = pfs_create_dir(dir, "pci0000:00", NULL, NULL, NULL, 0);
+	linux_root_device.kobj.sd = linux_class_root.sd = pci;
 
 	/* /sys/dev/... */
 	dir = pfs_create_dir(root, "dev", NULL, NULL, NULL, 0);

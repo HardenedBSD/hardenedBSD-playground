@@ -552,7 +552,7 @@ mmc_send_if_cond(struct mmc_softc *sc, uint8_t vhs)
 	cmd.flags = MMC_RSP_R7 | MMC_CMD_BCR;
 	cmd.data = NULL;
 
-	err = mmc_wait_for_cmd(sc->dev, sc->dev, &cmd, CMD_RETRIES);
+	err = mmc_wait_for_cmd(sc->dev, sc->dev, &cmd, 5*CMD_RETRIES);
 	return (err);
 }
 
