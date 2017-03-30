@@ -138,12 +138,12 @@ AR		?=	ar
 .if defined(%POSIX)
 ARFLAGS		?=	-rv
 .else
-ARFLAGS		?=	-crD
+ARFLAGS		?=	crD
 .endif
 RANLIB		?=	ranlib
-.if !defined(%POSIX)
-RANLIBFLAGS	?=	-D
-.endif
+#.if !defined(%POSIX)
+#RANLIBFLAGS	?=	-D
+#.endif
 
 AS		?=	as
 AFLAGS		?=

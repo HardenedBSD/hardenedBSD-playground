@@ -8,6 +8,7 @@ OBJS+=		Scrt1.o gcrt1.o
 CFLAGS+=	-I${.CURDIR:H}/common \
 		-I${SRCTOP}/lib/libc/include
 CFLAGS+=	-fno-omit-frame-pointer
+NOCFI=		yes
 
 FILES=		${OBJS}
 FILESMODE=	${LIBMODE}

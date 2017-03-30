@@ -97,6 +97,12 @@ LDFLAGS+=	-fsanitize=safe-stack
 CFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto ${CFI_OVERRIDE}
 CXXFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto ${CFI_OVERRIDE}
 LDFLAGS+=	-fsanitize=cfi -fvisibility=hidden -flto ${CFI_OVERRIDE}
+
+.if ${MK_CROSS_DSO_CFI}
+CFLAGS+=	-fsanitize-cfi-cross-dso
+CXXFLAGS+=	-fsanitize-cfi-cross-dso
+LDFLAGS+=	-fsanitize-cfi-cross-dso
+.endif
 .endif
 .endif
 

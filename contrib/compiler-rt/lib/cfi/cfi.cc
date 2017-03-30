@@ -17,6 +17,10 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#ifdef __FreeBSD__
+#define	ElfW	__ElfN
+#endif
+
 typedef ElfW(Phdr) Elf_Phdr;
 typedef ElfW(Ehdr) Elf_Ehdr;
 
@@ -158,6 +162,25 @@ void ShadowBuilder::Install() {
     // Update.
     void *res = mremap((void *)shadow_, GetShadowSize(), GetShadowSize(),
                        MREMAP_MAYMOVE | MREMAP_FIXED, (void *)main_shadow);
+    CHECK(res != MAP_FAILED);
+  } else {
+    // Initial setup.
+    CHECK_EQ(kCfiShadowLimitsStorageSize, GetPageSizeCached());
+    CHECK_EQ(0, GetShadow());
+    cfi_shadow_limits_storage.limits.start = shadow_;
+    MprotectReadOnly((uptr)&cfi_shadow_limits_storage,
+                     sizeof(cfi_shadow_limits_storage));
+    CHECK_EQ(shadow_, GetShadow());
+  }
+}
+#elif SANITIZER_FREEBSD
+void ShadowBuilder::Install() {
+  MprotectReadOnly(shadow_, GetShadowSize());
+  uptr main_shadow = GetShadow();
+  if (main_shadow) {
+    // Update.
+    void *res = mmap((void *)shadow_, GetShadowSize(), PROT_READ,
+		     MAP_ANONYMOUS | MAP_FIXED | MAP_SHARED, -1, 0);
     CHECK(res != MAP_FAILED);
   } else {
     // Initial setup.

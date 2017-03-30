@@ -15,6 +15,10 @@ SUBDIR+=	ubsan_standalone
 SUBDIR+=	ubsan_standalone_cxx
 .endif
 
+.if ${MACHINE_CPUARCH} == "amd64"
+SUBDIR+=	cfi
+.endif
+
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_CPUARCH} == "amd64" || \
     (${MACHINE_CPUARCH} == "arm" && ${MACHINE_ARCH} != "armeb")
 SUBDIR+=	profile
