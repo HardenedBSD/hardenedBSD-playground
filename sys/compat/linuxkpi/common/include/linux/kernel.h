@@ -42,6 +42,7 @@
 #include <sys/stddef.h>
 #include <sys/syslog.h>
 #include <sys/kdb.h>
+#include <sys/time.h>
 
 
 #include <linux/bug.h>
