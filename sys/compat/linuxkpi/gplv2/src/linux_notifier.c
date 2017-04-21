@@ -7,7 +7,6 @@
 #include <linux/reboot.h>
 #include <linux/acpi.h>
 #include <linux/oom.h>
-#include <linux/mmu_notifier.h>
 #include <linux/shrinker.h>
 #include <acpi/button.h>
 #include <linux/rcupdate.h>
@@ -18,15 +17,10 @@
 #define DIPRINTF(...)
 #endif
 
-
 static struct sx shrinker_list_sx;
 SX_SYSINIT(shrinker_list_lock, &shrinker_list_sx, "shrinker list lock");
 
 static LIST_HEAD(shrinker_list);
-
-/*
- * This file will be used to register 
- */
 
 static int
 notifier_chain_register(struct notifier_block **nl,
@@ -330,6 +324,7 @@ linuxkpi_register_eventhandlers(void *arg __unused)
 
 	lowmem_tag = EVENTHANDLER_REGISTER(vm_lowmem, linuxkpi_vm_lowmem, NULL, EVENTHANDLER_PRI_FIRST);
 }
+
 static void
 linuxkpi_deregister_eventhandlers(void *arg __unused)
 {
@@ -337,7 +332,5 @@ linuxkpi_deregister_eventhandlers(void *arg __unused)
 	EVENTHANDLER_DEREGISTER(vm_lowmem, lowmem_tag);
 }
 
-
 SYSINIT(linuxkpi_events, SI_SUB_DRIVERS, SI_ORDER_ANY, linuxkpi_register_eventhandlers, NULL);
 SYSUNINIT(linuxkpi_events, SI_SUB_DRIVERS, SI_ORDER_ANY, linuxkpi_deregister_eventhandlers, NULL);
-

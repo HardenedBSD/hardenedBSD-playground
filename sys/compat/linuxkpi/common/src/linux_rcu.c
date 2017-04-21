@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2017 Hans Petter Selasky
+ * Copyright (c) 2016 Matt Macy (mmacy@nextbsd.org)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,6 +40,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/taskqueue.h>
 #include <sys/kdb.h>
 
+#include <ck_epoch.h>
+
 #include <linux/rcupdate.h>
 #include <linux/srcu.h>
 #include <linux/slab.h>
@@ -55,10 +57,6 @@ __FBSDID("$FreeBSD$");
 #else
 #define	RCU_SKIP(void)	unlikely(SCHEDULER_STOPPED() || kdb_active)
 #endif
-
-struct linux_rcu_cpu_record {
-	struct mtx sync_lock;
-} __aligned(CACHE_LINE_SIZE);
 
 struct callback_head {
 	STAILQ_ENTRY(callback_head) entry;
@@ -79,7 +77,8 @@ struct linux_epoch_record {
 
 /*
  * Verify that "struct rcu_head" is big enough to hold "struct
- * callback_head". This avoids header file pollution in the
+ * callback_head". This has been done to avoid having to add special
+ * compile flags for including ck_epoch.h to all clients of the
  * LinuxKPI.
  */
 CTASSERT(sizeof(struct rcu_head) == sizeof(struct callback_head));
@@ -333,17 +332,6 @@ linux_rcu_barrier(void)
 	linux_synchronize_rcu();
 
 	head = &linux_epoch_head;
-
-	/* wait for callbacks to complete */
-	taskqueue_drain(taskqueue_fast, &head->task);
-}
-
-void
-linux_rcu_barrier(void)
-{
-	struct linux_rcu_head *head = &linux_rcu_head;
-
-	linux_synchronize_rcu();
 
 	/* wait for callbacks to complete */
 	taskqueue_drain(taskqueue_fast, &head->task);

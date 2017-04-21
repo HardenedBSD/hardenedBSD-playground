@@ -40,6 +40,8 @@
 
 #ifdef _KERNEL
 
+#include <sys/vmmeter.h>
+
 /* Domains must be dense (non-sparse) and zero-based. */
 struct mem_affinity {
 	vm_paddr_t start;

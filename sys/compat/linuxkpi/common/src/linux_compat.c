@@ -82,7 +82,6 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_pager.h>
 #include <vm/vm_pageout.h>
 #include <vm/vm_map.h>
-#include "linux_trace.h"
 
 extern u_int cpu_clflush_line_size;
 extern u_int cpu_id;
@@ -98,8 +97,6 @@ MALLOC_DEFINE(M_LCINT, "linuxint", "Linux compat internal");
 
 #undef file
 #undef cdev
-
-static struct vm_area_struct *linux_cdev_handle_find(void *handle);
 
 struct cpuinfo_x86 boot_cpu_data; 
 
@@ -1421,6 +1418,7 @@ linux_complete_common(struct completion *c, int all)
 long
 linux_wait_for_common(struct completion *c, int flags)
 {
+	int error;
 
 	if (unlikely(SKIP_SLEEP()))
 		return (0);
