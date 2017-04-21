@@ -506,7 +506,7 @@ linux_cdev_pager_populate(vm_object_t vm_obj, vm_pindex_t pidx, int fault_type,
 	MPASS(vmap->vm_private_data == vm_obj->handle);
 
 	/* fill out VM fault structure */
-	vmf.virtual_address = (void *)(pidx << PAGE_SHIFT);
+	vmf.virtual_address = (void *)((uintptr_t)pidx << PAGE_SHIFT);
 	vmf.flags = (fault_type & VM_PROT_WRITE) ? FAULT_FLAG_WRITE : 0;
 	vmf.pgoff = 0;
 	vmf.page = NULL;
@@ -1425,25 +1425,33 @@ linux_wait_for_common(struct completion *c, int flags)
 	if (unlikely(SKIP_SLEEP()))
 		return (0);
 
+	DROP_GIANT();
+
 	if (flags != 0)
 		flags = SLEEPQ_INTERRUPTIBLE | SLEEPQ_SLEEP;
 	else
 		flags = SLEEPQ_SLEEP;
+	error = 0;
 	for (;;) {
 		sleepq_lock(c);
 		if (c->done)
 			break;
 		sleepq_add(c, NULL, "completion", flags, 0);
 		if (flags & SLEEPQ_INTERRUPTIBLE) {
-			if (sleepq_wait_sig(c, 0) != 0)
-				return (-ERESTARTSYS);
+			if (sleepq_wait_sig(c, 0) != 0) {
+				error = -ERESTARTSYS;
+				goto intr;
+			}
 		} else
 			sleepq_wait(c, 0);
 	}
 	c->done--;
 	sleepq_release(c);
 
-	return (0);
+intr:
+	PICKUP_GIANT();
+
+	return (error);
 }
 
 /*
@@ -1452,18 +1460,22 @@ linux_wait_for_common(struct completion *c, int flags)
 long
 linux_wait_for_timeout_common(struct completion *c, long timeout, int flags)
 {
-	long end = jiffies + timeout;
+	long end = jiffies + timeout, error;
+	int ret;
 
 	if (SKIP_SLEEP())
 		return (0);
+
+	DROP_GIANT();
 
 	if (flags != 0)
 		flags = SLEEPQ_INTERRUPTIBLE | SLEEPQ_SLEEP;
 	else
 		flags = SLEEPQ_SLEEP;
-	for (;;) {
-		int ret;
 
+	error = 0;
+	ret = 0;
+	for (;;) {
 		sleepq_lock(c);
 		if (c->done)
 			break;
@@ -1476,16 +1488,20 @@ linux_wait_for_timeout_common(struct completion *c, long timeout, int flags)
 		if (ret != 0) {
 			/* check for timeout or signal */
 			if (ret == EWOULDBLOCK)
-				return (0);
+				error = 0;
 			else
-				return (-ERESTARTSYS);
+				error = -ERESTARTSYS;
+			goto intr;
 		}
 	}
 	c->done--;
 	sleepq_release(c);
 
+intr:
+	PICKUP_GIANT();
+
 	/* return how many jiffies are left */
-	return (linux_timer_jiffies_until(end));
+	return (ret != 0 ? error : linux_timer_jiffies_until(end));
 }
 
 int

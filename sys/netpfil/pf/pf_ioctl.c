@@ -1852,6 +1852,8 @@ DIOCGETSTATES_full:
 			counter_u64_zero(V_pf_status.fcounters[i]);
 		for (int i = 0; i < SCNT_MAX; i++)
 			counter_u64_zero(V_pf_status.scounters[i]);
+		for (int i = 0; i < LCNT_MAX; i++)
+			counter_u64_zero(V_pf_status.lcounters[i]);
 		V_pf_status.since = time_second;
 		if (*V_pf_status.ifname)
 			pfi_update_status(V_pf_status.ifname, NULL);
@@ -2428,11 +2430,12 @@ DIOCGETSTATES_full:
 
 #undef ERROUT
 DIOCCHANGEADDR_error:
-		if (newpa->kif)
-			pfi_kif_unref(newpa->kif);
-		PF_RULES_WUNLOCK();
-		if (newpa != NULL)
+		if (newpa != NULL) {
+			if (newpa->kif)
+				pfi_kif_unref(newpa->kif);
 			free(newpa, M_PFRULE);
+		}
+		PF_RULES_WUNLOCK();
 		if (kif != NULL)
 			free(kif, PFI_MTYPE);
 		break;
