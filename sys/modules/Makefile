@@ -103,7 +103,6 @@ SUBDIR=	\
 	${_efirt} \
 	${_elink} \
 	${_em} \
-	en \
 	${_ep} \
 	${_epic} \
 	esp \
@@ -112,7 +111,6 @@ SUBDIR=	\
 	${_ex} \
 	${_exca} \
 	ext2fs \
-	${_fatm} \
 	fdc \
 	fdescfs \
 	${_fe} \
@@ -126,7 +124,6 @@ SUBDIR=	\
 	${_glxiic} \
 	${_glxsb} \
 	gpio \
-	hatm \
 	hifn \
 	hme \
 	${_hpt27xx} \
@@ -285,7 +282,6 @@ SUBDIR=	\
 	ow \
 	${_padlock} \
 	${_padlock_rng} \
-	patm \
 	${_pccard} \
 	${_pcfclock} \
 	pcn \
@@ -376,7 +372,6 @@ SUBDIR=	\
 	uinput \
 	unionfs \
 	usb \
-	utopia \
 	${_vesa} \
 	${_virtio} \
 	vge \
@@ -496,7 +491,6 @@ _pfsync=	pfsync
 
 .if ${MK_SOURCELESS_UCODE} != "no"
 _bce=		bce
-_fatm=		fatm
 _fxp=		fxp
 _ispfw=		ispfw
 _sf=		sf
