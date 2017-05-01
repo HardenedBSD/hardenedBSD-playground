@@ -42,7 +42,7 @@ BSARGS= 	DESTDIR= \
 		-DNO_CPU_CFLAGS MK_WARNS=no MK_CTF=no \
 		MK_CLANG_EXTRAS=yes MK_CLANG_FULL=no \
 		MK_LLDB=no MK_TESTS=no \
-		MK_INCLUDES=yes
+		MK_INCLUDES=yes MK_CFI=no MK_CROSS_DSO_CFI=no
 
 # Need to override these so OBJTOP uses are proper in the non-meta build.
 BSARGS+= OBJTOP=${BTOOLSDIR}${SRCTOP} OBJROOT='$${OBJTOP}/'
