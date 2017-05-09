@@ -106,6 +106,7 @@
 __FBSDID("$FreeBSD$");
 
 #include "opt_wlan.h"
+#include "opt_iwm.h"
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -354,7 +355,7 @@ static int	iwm_mvm_add_int_sta_common(struct iwm_softc *,
                                            struct iwm_int_sta *,
 				           const uint8_t *, uint16_t, uint16_t);
 static int	iwm_mvm_add_aux_sta(struct iwm_softc *);
-static int	iwm_mvm_update_quotas(struct iwm_softc *, struct iwm_node *);
+static int	iwm_mvm_update_quotas(struct iwm_softc *, struct iwm_vap *);
 static int	iwm_auth(struct ieee80211vap *, struct iwm_softc *);
 static int	iwm_assoc(struct ieee80211vap *, struct iwm_softc *);
 static int	iwm_release(struct iwm_softc *, struct iwm_node *);
@@ -1285,6 +1286,7 @@ iwm_stop_device(struct iwm_softc *sc)
 	 */
 	if (vap) {
 		struct iwm_vap *iv = IWM_VAP(vap);
+		iv->phy_ctxt = NULL;
 		iv->is_uploaded = 0;
 	}
 
@@ -1293,9 +1295,9 @@ iwm_stop_device(struct iwm_softc *sc)
 
 	/* stop tx and rx.  tx and rx bits, as usual, are from if_iwn */
 
-	iwm_write_prph(sc, IWM_SCD_TXFACT, 0);
-
 	if (iwm_nic_lock(sc)) {
+		iwm_write_prph(sc, IWM_SCD_TXFACT, 0);
+
 		/* Stop each Tx DMA channel */
 		for (chnl = 0; chnl < IWM_FH_TCSR_CHNL_NUM; chnl++) {
 			IWM_WRITE(sc,
@@ -1323,8 +1325,11 @@ iwm_stop_device(struct iwm_softc *sc)
 
 	if (sc->cfg->device_family == IWM_DEVICE_FAMILY_7000) {
 		/* Power-down device's busmaster DMA clocks */
-		iwm_write_prph(sc, IWM_APMG_CLK_DIS_REG,
-		    IWM_APMG_CLK_VAL_DMA_CLK_RQT);
+		if (iwm_nic_lock(sc)) {
+			iwm_write_prph(sc, IWM_APMG_CLK_DIS_REG,
+			    IWM_APMG_CLK_VAL_DMA_CLK_RQT);
+			iwm_nic_unlock(sc);
+		}
 		DELAY(5);
 	}
 
@@ -1621,8 +1626,6 @@ iwm_trans_pcie_fw_alive(struct iwm_softc *sc, uint32_t scd_base_addr)
 
 	iwm_ict_reset(sc);
 
-	iwm_nic_unlock(sc);
-
 	sc->scd_base_addr = iwm_read_prph(sc, IWM_SCD_SRAM_BASE_ADDR);
 	if (scd_base_addr != 0 &&
 	    scd_base_addr != sc->scd_base_addr) {
@@ -1630,6 +1633,8 @@ iwm_trans_pcie_fw_alive(struct iwm_softc *sc, uint32_t scd_base_addr)
 		    "%s: sched addr mismatch: alive: 0x%x prph: 0x%x\n",
 		    __func__, sc->scd_base_addr, scd_base_addr);
 	}
+
+	iwm_nic_unlock(sc);
 
 	/* reset context data, TX status and translation data */
 	error = iwm_write_mem(sc,
@@ -2590,9 +2595,12 @@ iwm_pcie_load_given_ucode(struct iwm_softc *sc,
 
 	if (image->is_dual_cpus) {
 		/* set CPU2 header address */
-                iwm_write_prph(sc,
-			       IWM_LMPM_SECURE_UCODE_LOAD_CPU2_HDR_ADDR,
-			       IWM_LMPM_SECURE_CPU2_HDR_MEM_SPACE);
+		if (iwm_nic_lock(sc)) {
+			iwm_write_prph(sc,
+				       IWM_LMPM_SECURE_UCODE_LOAD_CPU2_HDR_ADDR,
+				       IWM_LMPM_SECURE_CPU2_HDR_MEM_SPACE);
+			iwm_nic_unlock(sc);
+		}
 
 		/* load to FW the binary sections of CPU2 */
 		ret = iwm_pcie_load_cpu_sections(sc, image, 2,
@@ -2621,7 +2629,11 @@ iwm_pcie_load_given_ucode_8000(struct iwm_softc *sc,
 
 	/* configure the ucode to be ready to get the secured image */
 	/* release CPU reset */
-	iwm_write_prph(sc, IWM_RELEASE_CPU_RESET, IWM_RELEASE_CPU_RESET_BIT);
+	if (iwm_nic_lock(sc)) {
+		iwm_write_prph(sc, IWM_RELEASE_CPU_RESET,
+		    IWM_RELEASE_CPU_RESET_BIT);
+		iwm_nic_unlock(sc);
+	}
 
 	/* load to FW the binary Secured sections of CPU1 */
 	ret = iwm_pcie_load_cpu_sections_8000(sc, image, 1,
@@ -2875,10 +2887,15 @@ iwm_mvm_load_ucode_wait_alive(struct iwm_softc *sc,
 	IWM_LOCK(sc);
 	if (error) {
 		if (sc->cfg->device_family == IWM_DEVICE_FAMILY_8000) {
+			uint32_t a = 0x5a5a5a5a, b = 0x5a5a5a5a;
+			if (iwm_nic_lock(sc)) {
+				a = iwm_read_prph(sc, IWM_SB_CPU_1_STATUS);
+				b = iwm_read_prph(sc, IWM_SB_CPU_2_STATUS);
+				iwm_nic_unlock(sc);
+			}
 			device_printf(sc->sc_dev,
 			    "SecBoot CPU1 Status: 0x%x, CPU2 Status: 0x%x\n",
-			    iwm_read_prph(sc, IWM_SB_CPU_1_STATUS),
-			    iwm_read_prph(sc, IWM_SB_CPU_2_STATUS));
+			    a, b);
 		}
 		sc->cur_ucode = old_type;
 		return error;
@@ -3998,7 +4015,7 @@ iwm_mvm_add_aux_sta(struct iwm_softc *sc)
  */
 
 static int
-iwm_mvm_update_quotas(struct iwm_softc *sc, struct iwm_node *in)
+iwm_mvm_update_quotas(struct iwm_softc *sc, struct iwm_vap *ivp)
 {
 	struct iwm_time_quota_cmd cmd;
 	int i, idx, ret, num_active_macs, quota, quota_rem;
@@ -4009,10 +4026,10 @@ iwm_mvm_update_quotas(struct iwm_softc *sc, struct iwm_node *in)
 	memset(&cmd, 0, sizeof(cmd));
 
 	/* currently, PHY ID == binding ID */
-	if (in) {
-		id = in->in_phyctxt->id;
+	if (ivp) {
+		id = ivp->phy_ctxt->id;
 		KASSERT(id < IWM_MAX_BINDINGS, ("invalid id"));
-		colors[id] = in->in_phyctxt->color;
+		colors[id] = ivp->phy_ctxt->color;
 
 		if (1)
 			n_ifs[id] = 1;
@@ -4137,9 +4154,9 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 			    "%s: failed update phy ctxt\n", __func__);
 			goto out;
 		}
-		in->in_phyctxt = &sc->sc_phyctxt[0];
+		iv->phy_ctxt = &sc->sc_phyctxt[0];
 
-		if ((error = iwm_mvm_binding_update(sc, in)) != 0) {
+		if ((error = iwm_mvm_binding_update(sc, iv)) != 0) {
 			device_printf(sc->sc_dev,
 			    "%s: binding update cmd\n", __func__);
 			goto out;
@@ -4155,6 +4172,12 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 			    "%s: failed to add MAC\n", __func__);
 			goto out;
 		}
+		if ((error = iwm_mvm_power_update_mac(sc)) != 0) {
+			device_printf(sc->sc_dev,
+			    "%s: failed to update power management\n",
+			    __func__);
+			goto out;
+		}
 		if ((error = iwm_mvm_phy_ctxt_changed(sc, &sc->sc_phyctxt[0],
 		    in->in_ni.ni_chan, 1, 1)) != 0) {
 			device_printf(sc->sc_dev,
@@ -4162,9 +4185,9 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 			error = ETIMEDOUT;
 			goto out;
 		}
-		in->in_phyctxt = &sc->sc_phyctxt[0];
+		iv->phy_ctxt = &sc->sc_phyctxt[0];
 
-		if ((error = iwm_mvm_binding_add_vif(sc, in)) != 0) {
+		if ((error = iwm_mvm_binding_add_vif(sc, iv)) != 0) {
 			device_printf(sc->sc_dev,
 			    "%s: binding add cmd\n", __func__);
 			goto out;
@@ -4566,9 +4589,9 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		}
 
 		in = IWM_NODE(vap->iv_bss);
-		iwm_mvm_power_mac_update_mode(sc, in);
 		iwm_mvm_enable_beacon_filter(sc, in);
-		iwm_mvm_update_quotas(sc, in);
+		iwm_mvm_power_update_mac(sc);
+		iwm_mvm_update_quotas(sc, ivp);
 		iwm_setrates(sc, in);
 
 		cmd.data[0] = &in->in_lq;
@@ -4855,6 +4878,7 @@ iwm_init_hw(struct iwm_softc *sc)
 	 * image just loaded
 	 */
 	iwm_stop_device(sc);
+	sc->sc_ps_disabled = FALSE;
 	if ((error = iwm_start_hw(sc)) != 0) {
 		device_printf(sc->sc_dev, "could not initialize hardware\n");
 		return error;
@@ -5738,7 +5762,6 @@ iwm_intr(void *arg)
 		device_printf(sc->sc_dev, "%s: controller panicked, iv_state = %d; "
 		    "restarting\n", __func__, vap->iv_state);
 
-		/* XXX TODO: turn this into a callout/taskqueue */
 		ieee80211_restart_all(ic);
 		return;
 	}
@@ -6106,6 +6129,7 @@ iwm_attach(device_t dev)
 	    IEEE80211_C_STA |
 	    IEEE80211_C_WPA |		/* WPA/RSN */
 	    IEEE80211_C_WME |
+	    IEEE80211_C_PMGT |
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
 	    IEEE80211_C_SHPREAMBLE	/* short preamble supported */
 //	    IEEE80211_C_BGSCAN		/* capable of bg scanning */

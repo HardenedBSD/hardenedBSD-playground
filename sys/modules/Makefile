@@ -352,8 +352,6 @@ SUBDIR=	\
 	sysvipc \
 	tcp \
 	${_ti} \
-	tests/framework \
-	tests/callout_test \
 	tl \
 	tmpfs \
 	${_toecore} \
@@ -510,6 +508,10 @@ _rtwnfw=	rtwnfw
 	${MACHINE_ARCH} != "powerpc" && ${MACHINE_ARCH} != "powerpcspe" && \
 	${MACHINE_CPUARCH} != "riscv"
 _cxgbe=		cxgbe
+.endif
+
+.if ${MK_TESTS} != "no" || defined(ALL_MODULES)
+SUBDIR+=	tests
 .endif
 
 .if ${MK_ZFS} != "no" || defined(ALL_MODULES)
