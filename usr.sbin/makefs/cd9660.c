@@ -103,6 +103,7 @@ __FBSDID("$FreeBSD$");
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <util.h>
 
 #include "makefs.h"
 #include "cd9660.h"
@@ -162,6 +163,7 @@ static cd9660node *cd9660_create_directory(iso9660_disk *, const char *,
     cd9660node *, cd9660node *);
 static cd9660node *cd9660_create_special_directory(iso9660_disk *, u_char,
     cd9660node *);
+static int  cd9660_add_generic_bootimage(iso9660_disk *, const char *);
 
 
 /*
@@ -171,10 +173,8 @@ static cd9660node *cd9660_create_special_directory(iso9660_disk *, u_char,
 static cd9660node *
 cd9660_allocate_cd9660node(void)
 {
-	cd9660node *temp;
+	cd9660node *temp = ecalloc(1, sizeof(*temp));
 
-	if ((temp = calloc(1, sizeof(cd9660node))) == NULL)
-		err(EXIT_FAILURE, "%s: calloc", __func__);
 	TAILQ_INIT(&temp->cn_children);
 	temp->parent = temp->dot_record = temp->dot_dot_record = NULL;
 	temp->ptnext = temp->ptprev = temp->ptlast = NULL;
@@ -185,8 +185,6 @@ cd9660_allocate_cd9660node(void)
 	temp->su_tail_data = NULL;
 	return temp;
 }
-
-int cd9660_defaults_set = 0;
 
 /**
 * Set default values for cd9660 extension to makefs
@@ -234,8 +232,6 @@ cd9660_set_defaults(iso9660_disk *diskStructure)
 
 	strcpy(diskStructure->primaryDescriptor.system_id, "FreeBSD");
 
-	cd9660_defaults_set = 1;
-
 	/* Boot support: Initially disabled */
 	diskStructure->has_generic_bootimage = 0;
 	diskStructure->generic_bootimage = NULL;
@@ -251,12 +247,72 @@ cd9660_set_defaults(iso9660_disk *diskStructure)
 void
 cd9660_prep_opts(fsinfo_t *fsopts)
 {
-	iso9660_disk *diskStructure;
+	iso9660_disk *diskStructure = ecalloc(1, sizeof(*diskStructure));
 
-	if ((diskStructure = calloc(1, sizeof(*diskStructure))) == NULL)
-		err(EXIT_FAILURE, "%s: calloc", __func__);
+#define OPT_STR(letter, name, desc) \
+	{ letter, name, NULL, OPT_STRBUF, 0, 0, desc }
+
+#define OPT_NUM(letter, name, field, min, max, desc) \
+	{ letter, name, &diskStructure->field, \
+	  sizeof(diskStructure->field) == 8 ? OPT_INT64 : \
+	  (sizeof(diskStructure->field) == 4 ? OPT_INT32 : \
+	  (sizeof(diskStructure->field) == 2 ? OPT_INT16 : OPT_INT8)), \
+	  min, max, desc }
+
+#define OPT_BOOL(letter, name, field, desc) \
+	OPT_NUM(letter, name, field, 0, 1, desc)
+
+	const option_t cd9660_options[] = {
+		OPT_NUM('l', "isolevel", isoLevel,
+		    1, 2, "ISO Level"),
+		OPT_NUM('v', "verbose", verbose_level,
+		    0, 2, "Turns on verbose output"),
+
+		OPT_BOOL('h', "help", displayHelp,
+		    "Show help message"),
+		OPT_BOOL('S', "follow-symlinks", follow_sym_links,
+		    "Resolve symlinks in pathnames"),
+		OPT_BOOL('R', "rockridge", rock_ridge_enabled,
+		    "Enable Rock-Ridge extensions"),
+		OPT_BOOL('C', "chrp-boot", chrp_boot,
+		    "Enable CHRP boot"),
+		OPT_BOOL('K', "keep-bad-images", keep_bad_images,
+		    "Keep bad images"),
+		OPT_BOOL('D', "allow-deep-trees", allow_deep_trees,
+		    "Allow trees more than 8 levels"),
+		OPT_BOOL('a', "allow-max-name", allow_max_name,
+		    "Allow 37 char filenames (unimplemented)"),
+		OPT_BOOL('i', "allow-illegal-chars", allow_illegal_chars,
+		    "Allow illegal characters in filenames"),
+		OPT_BOOL('m', "allow-multidot", allow_multidot,
+		    "Allow multiple periods in filenames"),
+		OPT_BOOL('o', "omit-trailing-period", omit_trailing_period,
+		    "Omit trailing periods in filenames"),
+		OPT_BOOL('\0', "allow-lowercase", allow_lowercase,
+		    "Allow lowercase characters in filenames"),
+		OPT_BOOL('\0', "archimedes", archimedes_enabled,
+		    "Enable Archimedes structure"),
+		OPT_BOOL('\0', "no-trailing-padding", include_padding_areas,
+		    "Include padding areas"),
+
+		OPT_STR('A', "applicationid", "Application Identifier"),
+		OPT_STR('P', "publisher", "Publisher Identifier"),
+		OPT_STR('p', "preparer", "Preparer Identifier"),
+		OPT_STR('L', "label", "Disk Label"),
+		OPT_STR('V', "volumeid", "Volume Set Identifier"),
+		OPT_STR('B', "bootimage", "Boot image parameter"),
+		OPT_STR('G', "generic-bootimage", "Generic boot image param"),
+		OPT_STR('\0', "bootimagedir", "Boot image directory"),
+		OPT_STR('\0', "no-emul-boot", "No boot emulation"),
+		OPT_STR('\0', "no-boot", "No boot support"),
+		OPT_STR('\0', "hard-disk-boot", "Boot from hard disk"),
+		OPT_STR('\0', "boot-load-segment", "Boot load segment"),
+
+		{ .name = NULL }
+	};
 
 	fsopts->fs_specific = diskStructure;
+	fsopts->fs_options = copy_opts(cd9660_options);
 
 	cd9660_set_defaults(diskStructure);
 }
@@ -265,6 +321,7 @@ void
 cd9660_cleanup_opts(fsinfo_t *fsopts)
 {
 	free(fsopts->fs_specific);
+	free(fsopts->fs_options);
 }
 
 static int
@@ -301,144 +358,104 @@ cd9660_arguments_set_string(const char *val, const char *fieldtitle, int length,
 int
 cd9660_parse_opts(const char *option, fsinfo_t *fsopts)
 {
-	char *var, *val;
-	int	rv;
+	int	rv, i;
 	iso9660_disk *diskStructure = fsopts->fs_specific;
-
-	/* Set up allowed options - integer options ONLY */
-	option_t cd9660_options[] = {
-		{ "l", &diskStructure->isoLevel, 1, 2, "ISO Level" },
-		{ "isolevel", &diskStructure->isoLevel, 1, 2, "ISO Level" },
-		{ "verbose",  &diskStructure->verbose_level, 0, 2,
-		  "Turns on verbose output" },
-		{ "v", &diskStructure->verbose_level, 0 , 2,
-		  "Turns on verbose output"},
-		{ .name = NULL }
-	};
-
-	/*
-	 * Todo : finish implementing this, and make a function that
-	 * parses them
-	 */
-	/*
-	string_option_t cd9660_string_options[] = {
-		{ "L", "Label", &diskStructure.primaryDescriptor.volume_id, 1, 32, "Disk Label", ISO_STRING_FILTER_DCHARS },
-		{ NULL }
-	}
-	*/
+	option_t *cd9660_options = fsopts->fs_options;
+	char buf[1024];
+	const char *name, *desc;
 
 	assert(option != NULL);
 
 	if (debug & DEBUG_FS_PARSE_OPTS)
-		printf("cd9660_parse_opts: got `%s'\n", option);
+		printf("%s: got `%s'\n", __func__, option);
 
-	if ((var = strdup(option)) == NULL)
-		err(1, "allocating memory for copy of option string");
-	rv = 1;
+	i = set_option(cd9660_options, option, buf, sizeof(buf));
+	if (i == -1)
+		return 0;
 
-	val = strchr(var, '=');
-	if (val != NULL)
-		*val++ = '\0';
+	if (cd9660_options[i].name == NULL)
+		abort();
 
-	/* First handle options with no parameters */
-	if (strcmp(var, "h") == 0) {
-		diskStructure->displayHelp = 1;
-		rv = 1;
-	} else if (CD9660_IS_COMMAND_ARG_DUAL(var, "S", "follow-symlinks")) {
-		/* this is not handled yet */
-		diskStructure->follow_sym_links = 1;
-		rv = 1;
-	} else if (CD9660_IS_COMMAND_ARG_DUAL(var, "L", "label")) {
-		rv = cd9660_arguments_set_string(val, "Disk Label", 32, 'd',
-			diskStructure->primaryDescriptor.volume_id);
-	} else if (CD9660_IS_COMMAND_ARG_DUAL(var, "A", "applicationid")) {
-		rv = cd9660_arguments_set_string(val, "Application Identifier", 128, 'a',
-			diskStructure->primaryDescriptor.application_id);
-	} else if(CD9660_IS_COMMAND_ARG_DUAL(var, "P", "publisher")) {
-		rv = cd9660_arguments_set_string(val, "Publisher Identifier",
-			128, 'a', diskStructure->primaryDescriptor.publisher_id);
-	} else if (CD9660_IS_COMMAND_ARG_DUAL(var, "p", "preparer")) {
-		rv = cd9660_arguments_set_string(val, "Preparer Identifier",
-		    128, 'a', diskStructure->primaryDescriptor.preparer_id);
-	} else if (CD9660_IS_COMMAND_ARG_DUAL(var, "V", "volumeid")) {
-		rv = cd9660_arguments_set_string(val, "Volume Set Identifier",
-		    128, 'a', diskStructure->primaryDescriptor.volume_set_id);
+	name = cd9660_options[i].name;
+	desc = cd9660_options[i].desc;
+	switch (cd9660_options[i].letter) {
+	case 'h':
+	case 'S':
+		rv = 0; /* this is not handled yet */
+		break;
+	case 'L':
+		rv = cd9660_arguments_set_string(buf, desc, 32, 'd',
+		    diskStructure->primaryDescriptor.volume_id);
+		break;
+	case 'A':
+		rv = cd9660_arguments_set_string(buf, desc, 128, 'a',
+		    diskStructure->primaryDescriptor.application_id);
+		break;
+	case 'P':
+		rv = cd9660_arguments_set_string(buf, desc, 128, 'a',
+		    diskStructure->primaryDescriptor.publisher_id);
+		break;
+	case 'p':
+		rv = cd9660_arguments_set_string(buf, desc, 128, 'a',
+		    diskStructure->primaryDescriptor.preparer_id);
+		break;
+	case 'V':
+		rv = cd9660_arguments_set_string(buf, desc, 128, 'a',
+		    diskStructure->primaryDescriptor.volume_set_id);
+		break;
 	/* Boot options */
-	} else if (CD9660_IS_COMMAND_ARG_DUAL(var, "B", "bootimage")) {
-		if (val == NULL)
-			warnx("error: The Boot Image parameter requires a valid boot information string");
-		else
-			rv = cd9660_add_boot_disk(diskStructure, val);
-	} else if (CD9660_IS_COMMAND_ARG(var, "bootimagedir")) {
-		/*
-		 * XXXfvdl this is unused.
-		 */
-		if (val == NULL)
-			errx(1, "error: The Boot Image Directory parameter"
-			     " requires a directory name\n");
-		else {
-			if ((diskStructure->boot_image_directory =
-			     malloc(strlen(val) + 1)) == NULL) {
-				CD9660_MEM_ALLOC_ERROR("cd9660_parse_opts");
-				exit(1);
-			}
-
-			/* BIG TODO: Add the max length function here */
-			cd9660_arguments_set_string(val, "Boot Image Directory",
-			    12 , 'd', diskStructure->boot_image_directory);
-		}
-	} else if (CD9660_IS_COMMAND_ARG_DUAL(var, "G", "generic-bootimage")) {
-		if (val == NULL)
-			warnx("error: The Boot Image parameter requires a valid boot information string");
-		else
-			rv = cd9660_add_generic_bootimage(diskStructure, val);
-	} else if (CD9660_IS_COMMAND_ARG(var, "no-trailing-padding"))
-		diskStructure->include_padding_areas = 0;
-	/* RRIP */
-	else if (CD9660_IS_COMMAND_ARG_DUAL(var, "R", "rockridge"))
-		diskStructure->rock_ridge_enabled = 1;
-	else if (CD9660_IS_COMMAND_ARG_DUAL(var, "A", "archimedes"))
-		diskStructure->archimedes_enabled = 1;
-	else if (CD9660_IS_COMMAND_ARG(var, "chrp-boot"))
-		diskStructure->chrp_boot = 1;
-	else if (CD9660_IS_COMMAND_ARG_DUAL(var, "K", "keep-bad-images"))
-		diskStructure->keep_bad_images = 1;
-	else if (CD9660_IS_COMMAND_ARG(var, "allow-deep-trees"))
-		diskStructure->allow_deep_trees = 1;
-	else if (CD9660_IS_COMMAND_ARG(var, "allow-max-name"))
-		diskStructure->allow_max_name = 1;
-	else if (CD9660_IS_COMMAND_ARG(var, "allow-illegal-chars"))
-		diskStructure->allow_illegal_chars = 1;
-	else if (CD9660_IS_COMMAND_ARG(var, "allow-lowercase"))
-		diskStructure->allow_lowercase = 1;
-	else if (CD9660_IS_COMMAND_ARG(var,"allow-multidot"))
-		diskStructure->allow_multidot = 1;
-	else if (CD9660_IS_COMMAND_ARG(var, "omit-trailing-period"))
-		diskStructure->omit_trailing_period = 1;
-	else if (CD9660_IS_COMMAND_ARG(var, "no-emul-boot") ||
-		 CD9660_IS_COMMAND_ARG(var, "no-boot") ||
-		 CD9660_IS_COMMAND_ARG(var, "hard-disk-boot")) {
-		cd9660_eltorito_add_boot_option(diskStructure, var, 0);
-		
-		/* End of flag variables */
-        } else if (CD9660_IS_COMMAND_ARG(var, "boot-load-segment")) {
-		if (val == NULL) {
-			warnx("Option `%s' doesn't contain a value", var);
-			rv = 0;
-		} else {
-			cd9660_eltorito_add_boot_option(diskStructure, var,
-			    val);
-		}
-	} else {
-		if (val == NULL) {
-			warnx("Option `%s' doesn't contain a value", var);
+	case 'B':
+		if (buf[0] == '\0') {
+			warnx("The Boot Image parameter requires a valid boot"
+			    "information string");
 			rv = 0;
 		} else
-			rv = set_option(cd9660_options, var, val);
+			rv = cd9660_add_boot_disk(diskStructure, buf);
+		break;
+	case 'G':
+		if (buf[0] == '\0') {
+			warnx("The Generic Boot Image parameter requires a"
+			    " valid boot information string");
+			rv = 0;
+		} else
+			rv = cd9660_add_generic_bootimage(diskStructure, buf);
+		break;
+	default:
+		if (strcmp(name, "bootimagedir") == 0) {
+			/*
+			 * XXXfvdl this is unused.
+			 */
+			if (buf[0] == '\0') {
+				warnx("The Boot Image Directory parameter"
+				    " requires a directory name");
+				rv = 0;
+			} else {
+				diskStructure->boot_image_directory =
+				    emalloc(strlen(buf) + 1);
+				/* BIG TODO: Add the max length function here */
+				rv = cd9660_arguments_set_string(buf, desc, 12,
+				    'd', diskStructure->boot_image_directory);
+			}
+		} else if (strcmp(name, "no-emul-boot") == 0 ||
+		    strcmp(name, "no-boot") == 0 ||
+		    strcmp(name, "hard-disk-boot") == 0) {
+			/* RRIP */
+			cd9660_eltorito_add_boot_option(diskStructure, name, 0);
+			rv = 1;
+		} else if (strcmp(name, "boot-load-segment") == 0) {
+			if (buf[0] == '\0') {
+				warnx("Option `%s' doesn't contain a value",
+				    name);
+				rv = 0;
+			} else {
+				cd9660_eltorito_add_boot_option(diskStructure,
+				    name, buf);
+				rv = 1;
+			}
+		} else
+			rv = 1;
 	}
-
-	free(var);
-	return (rv);
+	return rv;
 }
 
 /*
@@ -463,11 +480,11 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 	iso9660_disk *diskStructure = fsopts->fs_specific;
 
 	if (diskStructure->verbose_level > 0)
-		printf("cd9660_makefs: ISO level is %i\n",
+		printf("%s: ISO level is %i\n", __func__,
 		    diskStructure->isoLevel);
 	if (diskStructure->isoLevel < 2 &&
 	    diskStructure->allow_multidot)
-		errx(1, "allow-multidot requires iso level of 2\n");
+		errx(EXIT_FAILURE, "allow-multidot requires iso level of 2");
 
 	assert(image != NULL);
 	assert(dir != NULL);
@@ -482,7 +499,7 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 	}
 
 	if (diskStructure->verbose_level > 0)
-		printf("cd9660_makefs: image %s directory %s root %p\n",
+		printf("%s: image %s directory %s root %p\n", __func__,
 		    image, dir, root);
 
 	/* Set up some constants. Later, these will be defined with options */
@@ -494,12 +511,7 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 	/* Actually, we now need to add the REAL root node, at level 0 */
 
 	real_root = cd9660_allocate_cd9660node();
-	if ((real_root->isoDirRecord =
-		malloc( sizeof(iso_directory_record_cd9660) )) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_makefs");
-		exit(1);
-	}
-
+	real_root->isoDirRecord = emalloc(sizeof(*real_root->isoDirRecord));
 	/* Leave filename blank for root */
 	memset(real_root->isoDirRecord->name, 0,
 	    ISO_FILENAME_MAXLENGTH_WITH_PADDING);
@@ -513,13 +525,13 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 	    &numDirectories, &error);
 
 	if (TAILQ_EMPTY(&real_root->cn_children)) {
-		errx(1, "cd9660_makefs: converted directory is empty. "
-			"Tree conversion failed\n");
+		errx(EXIT_FAILURE, "%s: converted directory is empty. "
+		    "Tree conversion failed", __func__);
 	} else if (error != 0) {
-		errx(1, "cd9660_makefs: tree conversion failed\n");
+		errx(EXIT_FAILURE, "%s: tree conversion failed", __func__);
 	} else {
 		if (diskStructure->verbose_level > 0)
-			printf("cd9660_makefs: tree converted\n");
+			printf("%s: tree converted\n", __func__);
 	}
 
 	/* Add the dot and dot dot records */
@@ -528,7 +540,7 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 	cd9660_setup_root_node(diskStructure);
 
 	if (diskStructure->verbose_level > 0)
-		printf("cd9660_makefs: done converting tree\n");
+		printf("%s: done converting tree\n", __func__);
 
 	/* non-SUSP extensions */
 	if (diskStructure->archimedes_enabled)
@@ -552,7 +564,7 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 		firstAvailableSector = cd9660_setup_boot(diskStructure,
 		    firstAvailableSector);
 		if (firstAvailableSector < 0)
-			errx(1, "setup_boot failed");
+			errx(EXIT_FAILURE, "setup_boot failed");
 	}
 	/* LE first, then BE */
 	diskStructure->primaryLittleEndianTableSector = firstAvailableSector;
@@ -566,8 +578,9 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 	diskStructure->dataFirstSector =
 	    diskStructure->primaryBigEndianTableSector + pathTableSectors;
 	if (diskStructure->verbose_level > 0)
-		printf("cd9660_makefs: Path table conversion complete. "
-		       "Each table is %i bytes, or %" PRIu64 " sectors.\n",
+		printf("%s: Path table conversion complete. "
+		    "Each table is %i bytes, or %" PRIu64 " sectors.\n",
+		    __func__,
 		    diskStructure->pathTableLength, pathTableSectors);
 
 	startoffset = diskStructure->sectorSize*diskStructure->dataFirstSector;
@@ -595,13 +608,14 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 
 	/* Debugging output */
 	if (diskStructure->verbose_level > 0) {
-		printf("cd9660_makefs: Sectors 0-15 reserved\n");
-		printf("cd9660_makefs: Primary path tables starts in sector %"
-		    PRId64 "\n", diskStructure->primaryLittleEndianTableSector);
-		printf("cd9660_makefs: File data starts in sector %"
-		    PRId64 "\n", diskStructure->dataFirstSector);
-		printf("cd9660_makefs: Total sectors: %"
-		    PRId64 "\n", diskStructure->totalSectors);
+		printf("%s: Sectors 0-15 reserved\n", __func__);
+		printf("%s: Primary path tables starts in sector %"
+		    PRId64 "\n", __func__,
+		    diskStructure->primaryLittleEndianTableSector);
+		printf("%s: File data starts in sector %"
+		    PRId64 "\n", __func__, diskStructure->dataFirstSector);
+		printf("%s: Total sectors: %"
+		    PRId64 "\n", __func__, diskStructure->totalSectors);
 	}
 
 	/*
@@ -623,7 +637,7 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 	cd9660_free_structure(real_root);
 
 	if (diskStructure->verbose_level > 0)
-		printf("cd9660_makefs: done\n");
+		printf("%s: done\n", __func__);
 }
 
 /* Generic function pointer - implement later */
@@ -741,11 +755,7 @@ cd9660_setup_volume_descriptors(iso9660_disk *diskStructure)
 	volume_descriptor *temp, *t;
 
 	/* Set up the PVD */
-	if ((temp = malloc(sizeof(volume_descriptor))) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_setup_volume_descriptors");
-		exit(1);
-	}
-
+	temp = emalloc(sizeof(*temp));
 	temp->volumeDescriptorData =
 	   (unsigned char *)&diskStructure->primaryDescriptor;
 	temp->volumeDescriptorData[0] = ISO_VOLUME_DESCRIPTOR_PVD;
@@ -758,19 +768,10 @@ cd9660_setup_volume_descriptors(iso9660_disk *diskStructure)
 	sector++;
 	/* Set up boot support if enabled. BVD must reside in sector 17 */
 	if (diskStructure->is_bootable) {
-		if ((t = malloc(sizeof(volume_descriptor))) == NULL) {
-			CD9660_MEM_ALLOC_ERROR(
-			    "cd9660_setup_volume_descriptors");
-			exit(1);
-		}
-		if ((t->volumeDescriptorData = malloc(2048)) == NULL) {
-			CD9660_MEM_ALLOC_ERROR(
-			    "cd9660_setup_volume_descriptors");
-			exit(1);
-		}
+		t = emalloc(sizeof(*t));
+		t->volumeDescriptorData = ecalloc(1, 2048);
 		temp->next = t;
 		temp = t;
-		memset(t->volumeDescriptorData, 0, 2048);
 		t->sector = 17;
 		if (diskStructure->verbose_level > 0)
 			printf("Setting up boot volume descriptor\n");
@@ -779,17 +780,9 @@ cd9660_setup_volume_descriptors(iso9660_disk *diskStructure)
 	}
 
 	/* Set up the terminator */
-	if ((t = malloc(sizeof(volume_descriptor))) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_setup_volume_descriptors");
-		exit(1);
-	}
-	if ((t->volumeDescriptorData = malloc(2048)) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_setup_volume_descriptors");
-		exit(1);
-	}
-
+	t = emalloc(sizeof(*t));
+	t->volumeDescriptorData = ecalloc(1, 2048);
 	temp->next = t;
-	memset(t->volumeDescriptorData, 0, 2048);
 	t->volumeDescriptorData[0] = ISO_VOLUME_DESCRIPTOR_TERMINATOR;
 	t->next = NULL;
 	t->volumeDescriptorData[6] = 1;
@@ -809,12 +802,7 @@ cd9660_setup_volume_descriptors(iso9660_disk *diskStructure)
 static int
 cd9660_fill_extended_attribute_record(cd9660node *node)
 {
-	if ((node->isoExtAttributes =
-	    malloc(sizeof(struct iso_extended_attributes))) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_fill_extended_attribute_record");
-		exit(1);
-	};
-
+	node->isoExtAttributes = emalloc(sizeof(*node->isoExtAttributes));
 	return 1;
 }
 #endif
@@ -823,15 +811,14 @@ static int
 cd9660_translate_node_common(iso9660_disk *diskStructure, cd9660node *newnode)
 {
 	time_t tstamp = stampst.st_ino ? stampst.st_mtime : time(NULL);
-	int test;
 	u_char flag;
 	char temp[ISO_FILENAME_MAXLENGTH_WITH_PADDING];
 
 	/* Now populate the isoDirRecord structure */
 	memset(temp, 0, ISO_FILENAME_MAXLENGTH_WITH_PADDING);
 
-	test = cd9660_convert_filename(diskStructure, newnode->node->name,
-		temp, !(S_ISDIR(newnode->node->type)));
+	(void)cd9660_convert_filename(diskStructure, newnode->node->name,
+	    temp, !(S_ISDIR(newnode->node->type)));
 
 	flag = ISO_FLAG_CLEAR;
 	if (S_ISDIR(newnode->node->type))
@@ -869,16 +856,10 @@ cd9660_translate_node(iso9660_disk *diskStructure, fsnode *node,
 {
 	if (node == NULL) {
 		if (diskStructure->verbose_level > 0)
-			printf("cd9660_translate_node: NULL node passed, "
-			       "returning\n");
+			printf("%s: NULL node passed, returning\n", __func__);
 		return 0;
 	}
-	if ((newnode->isoDirRecord =
-		malloc(sizeof(iso_directory_record_cd9660))) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_translate_node");
-		return 0;
-	}
-
+	newnode->isoDirRecord = emalloc(sizeof(*newnode->isoDirRecord));
 	/* Set the node pointer */
 	newnode->node = node;
 
@@ -1085,7 +1066,7 @@ cd9660_rename_filename(iso9660_disk *diskStructure, cd9660node *iter, int num,
 	else
 		maxlength = ISO_FILENAME_MAXLENGTH_BEFORE_VERSION;
 
-	tmp = malloc(ISO_FILENAME_MAXLENGTH_WITH_PADDING);
+	tmp = emalloc(ISO_FILENAME_MAXLENGTH_WITH_PADDING);
 
 	while (i < num && iter) {
 		powers = 1;
@@ -1125,7 +1106,7 @@ cd9660_rename_filename(iso9660_disk *diskStructure, cd9660node *iter, int num,
 		 * See if you can spot them all :)
 		 */
 
-		/*
+#if 0
 		if (diskStructure->isoLevel == 1) {
 			numbts = 8 - digits - delete_chars;
 			if (dot < 0) {
@@ -1136,7 +1117,7 @@ cd9660_rename_filename(iso9660_disk *diskStructure, cd9660node *iter, int num,
 				}
 			}
 		}
-		*/
+#endif
 
 		/* (copying just the filename before the '.' */
 		memcpy(tmp, (iter->o_name), numbts);
@@ -1244,7 +1225,7 @@ cd9660_count_collisions(cd9660node *copy)
 	}
 #if 0
 	if ((next = TAILQ_NEXT(iter, cn_next_child)) != NULL) {
-		printf("cd9660_recurse_on_collision: count is %i \n", count);
+		printf("%s: count is %i\n", __func__, count);
 		compare = cd9660_compare_filename(iter->isoDirRecord->name,
 			next->isoDirRecord->name);
 		if (compare == 0) {
@@ -1367,7 +1348,7 @@ cd9660_convert_structure(iso9660_disk *diskStructure, fsnode *root,
 	 * Newer, more efficient method, reduces recursion depth
 	 */
 	if (root == NULL) {
-		warnx("%s: root is null\n", __func__);
+		warnx("%s: root is null", __func__);
 		return;
 	}
 
@@ -1517,16 +1498,14 @@ cd9660_free_structure(cd9660node *root)
  * instead of having the TAILQ_ENTRY as part of the cd9660node,
  * just create a temporary structure
  */
-struct ptq_entry
+static struct ptq_entry
 {
 	TAILQ_ENTRY(ptq_entry) ptq;
 	cd9660node *node;
 } *n;
 
 #define PTQUEUE_NEW(n,s,r,t){\
-	n = malloc(sizeof(struct s));	\
-	if (n == NULL)	\
-		return r; \
+	n = emalloc(sizeof(struct s));	\
 	n->node = t;\
 }
 
@@ -1603,7 +1582,7 @@ cd9660_compute_full_filename(cd9660node *node, char *buf)
 	len = snprintf(buf, len, "%s/%s/%s", node->node->root,
 	    node->node->path, node->node->name);
 	if (len > CD9660MAXPATH)
-		errx(1, "Pathname too long.");
+		errx(EXIT_FAILURE, "Pathname too long.");
 }
 
 /* NEW filename conversion method */
@@ -1978,24 +1957,9 @@ cd9660_create_virtual_entry(iso9660_disk *diskStructure, const char *name,
 	if (temp == NULL)
 		return NULL;
 
-	if ((tfsnode = malloc(sizeof(fsnode))) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_create_virtual_entry");
-		return NULL;
-	}
-
-	/* Assume for now name is a valid length */
-	if ((tfsnode->name = malloc(strlen(name) + 1)) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_create_virtual_entry");
-		return NULL;
-	}
-
-	if ((temp->isoDirRecord =
-	    malloc(sizeof(iso_directory_record_cd9660))) == NULL) {
-		CD9660_MEM_ALLOC_ERROR("cd9660_create_virtual_entry");
-		return NULL;
-	}
-
-	strcpy(tfsnode->name, name);
+	tfsnode = emalloc(sizeof(*tfsnode));
+	tfsnode->name = estrdup(name);
+	temp->isoDirRecord = emalloc(sizeof(*temp->isoDirRecord));
 
 	cd9660_convert_filename(diskStructure, tfsnode->name,
 	    temp->isoDirRecord->name, file);
@@ -2047,8 +2011,7 @@ cd9660_create_file(iso9660_disk *diskStructure, const char *name,
 
 	temp->type = CD9660_TYPE_FILE | CD9660_TYPE_VIRTUAL;
 
-	if ((temp->node->inode = calloc(1, sizeof(fsinode))) == NULL)
-		return NULL;
+	temp->node->inode = ecalloc(1, sizeof(*temp->node->inode));
 	*temp->node->inode = *me->node->inode;
 
 	if (cd9660_translate_node_common(diskStructure, temp) == 0)
@@ -2075,8 +2038,7 @@ cd9660_create_directory(iso9660_disk *diskStructure, const char *name,
 
 	temp->type = CD9660_TYPE_DIR | CD9660_TYPE_VIRTUAL;
 
-	if ((temp->node->inode = calloc(1, sizeof(fsinode))) == NULL)
-		return NULL;
+	temp->node->inode = ecalloc(1, sizeof(*temp->node->inode));
 	*temp->node->inode = *me->node->inode;
 
 	if (cd9660_translate_node_common(diskStructure, temp) == 0)
@@ -2132,7 +2094,7 @@ cd9660_create_special_directory(iso9660_disk *diskStructure, u_char type,
 	return temp;
 }
 
-int
+static int
 cd9660_add_generic_bootimage(iso9660_disk *diskStructure, const char *bootimage)
 {
 	struct stat stbuf;
@@ -2144,10 +2106,7 @@ cd9660_add_generic_bootimage(iso9660_disk *diskStructure, const char *bootimage)
 		return 0;
 	}
 
-	if ((diskStructure->generic_bootimage = strdup(bootimage)) == NULL) {
-		warn("%s: strdup", __func__);
-		return 0;
-	}
+	diskStructure->generic_bootimage = estrdup(bootimage);
 
 	/* Get information about the file */
 	if (lstat(diskStructure->generic_bootimage, &stbuf) == -1)

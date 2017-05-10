@@ -310,6 +310,8 @@
             ttyio
             ..
         ..
+        libcam
+        ..
         libcasper
             services
                 cap_dns
@@ -326,6 +328,8 @@
         ..
         libdevdctl
         ..
+        libkvm
+        ..
         libmp
         ..
         libnv
@@ -333,6 +337,8 @@
         libproc
         ..
         librt
+        ..
+        libsbuf
         ..
         libthr
             dlopen
@@ -606,6 +612,8 @@
         ..
         comm
         ..
+        csplit
+        ..
         cut
         ..
         diff
@@ -637,6 +645,8 @@
         ncal
         ..
         opensm
+        ..
+        pr
         ..
         printf
         ..

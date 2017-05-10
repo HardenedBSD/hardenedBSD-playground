@@ -2290,18 +2290,28 @@ brelse(struct buf *bp)
 		bdirty(bp);
 	}
 	if (bp->b_iocmd == BIO_WRITE && (bp->b_ioflags & BIO_ERROR) &&
+	    (bp->b_error != ENXIO || !LIST_EMPTY(&bp->b_dep)) &&
 	    !(bp->b_flags & B_INVAL)) {
 		/*
-		 * Failed write, redirty.  Must clear BIO_ERROR to prevent
-		 * pages from being scrapped.
+		 * Failed write, redirty.  All errors except ENXIO (which
+		 * means the device is gone) are expected to be potentially
+		 * transient - underlying media might work if tried again
+		 * after EIO, and memory might be available after an ENOMEM.
+		 *
+		 * Do this also for buffers that failed with ENXIO, but have
+		 * non-empty dependencies - the soft updates code might need
+		 * to access the buffer to untangle them.
+		 *
+		 * Must clear BIO_ERROR to prevent pages from being scrapped.
 		 */
 		bp->b_ioflags &= ~BIO_ERROR;
 		bdirty(bp);
 	} else if ((bp->b_flags & (B_NOCACHE | B_INVAL)) ||
 	    (bp->b_ioflags & BIO_ERROR) || (bp->b_bufsize <= 0)) {
 		/*
-		 * Either a failed read I/O or we were asked to free or not
-		 * cache the buffer.
+		 * Either a failed read I/O, or we were asked to free or not
+		 * cache the buffer, or we failed to write to a device that's
+		 * no longer present.
 		 */
 		bp->b_flags |= B_INVAL;
 		if (!LIST_EMPTY(&bp->b_dep))
@@ -2481,7 +2491,8 @@ vfs_vmio_iodone(struct buf *bp)
 	vm_page_t m;
 	vm_object_t obj;
 	struct vnode *vp;
-	int bogus, i, iosize;
+	int i, iosize, resid;
+	bool bogus;
 
 	obj = bp->b_bufobj->bo_object;
 	KASSERT(obj->paging_in_progress >= bp->b_npages,
@@ -2498,12 +2509,10 @@ vfs_vmio_iodone(struct buf *bp)
 	KASSERT(bp->b_offset != NOOFFSET,
 	    ("vfs_vmio_iodone: bp %p has no buffer offset", bp));
 
-	bogus = 0;
+	bogus = false;
 	iosize = bp->b_bcount - bp->b_resid;
 	VM_OBJECT_WLOCK(obj);
 	for (i = 0; i < bp->b_npages; i++) {
-		int resid;
-
 		resid = ((foff + PAGE_SIZE) & ~(off_t)PAGE_MASK) - foff;
 		if (resid > iosize)
 			resid = iosize;
@@ -2513,7 +2522,7 @@ vfs_vmio_iodone(struct buf *bp)
 		 */
 		m = bp->b_pages[i];
 		if (m == bogus_page) {
-			bogus = 1;
+			bogus = true;
 			m = vm_page_lookup(obj, OFF_TO_IDX(foff));
 			if (m == NULL)
 				panic("biodone: page disappeared!");
@@ -4211,10 +4220,11 @@ vfs_drain_busy_pages(struct buf *bp)
 void
 vfs_busy_pages(struct buf *bp, int clear_modify)
 {
-	int i, bogus;
 	vm_object_t obj;
 	vm_ooffset_t foff;
 	vm_page_t m;
+	int i;
+	bool bogus;
 
 	if (!(bp->b_flags & B_VMIO))
 		return;
@@ -4227,7 +4237,7 @@ vfs_busy_pages(struct buf *bp, int clear_modify)
 	vfs_drain_busy_pages(bp);
 	if (bp->b_bufsize != 0)
 		vfs_setdirty_locked_object(bp);
-	bogus = 0;
+	bogus = false;
 	for (i = 0; i < bp->b_npages; i++) {
 		m = bp->b_pages[i];
 
@@ -4256,7 +4266,7 @@ vfs_busy_pages(struct buf *bp, int clear_modify)
 		} else if (m->valid == VM_PAGE_BITS_ALL &&
 		    (bp->b_flags & B_CACHE) == 0) {
 			bp->b_pages[i] = bogus_page;
-			bogus++;
+			bogus = true;
 		}
 		foff = (foff + PAGE_SIZE) & ~(off_t)PAGE_MASK;
 	}
@@ -4759,8 +4769,8 @@ vfs_bio_getpages(struct vnode *vp, vm_page_t *ma, int count,
 	pgsin += pgsin_a;
 	if (rahead != NULL)
 		*rahead = pgsin_a;
-	PCPU_INC(cnt.v_vnodein);
-	PCPU_ADD(cnt.v_vnodepgsin, pgsin);
+	VM_CNT_INC(v_vnodein);
+	VM_CNT_ADD(v_vnodepgsin, pgsin);
 
 	br_flags = (mp != NULL && (mp->mnt_kern_flag & MNTK_UNMAPPED_BUFS)
 	    != 0) ? GB_UNMAPPED : 0;
@@ -4917,9 +4927,12 @@ DB_SHOW_COMMAND(buffer, db_show_buffer)
 	db_printf("b_io_tracking: b_io_tcnt = %u\n", bp->b_io_tcnt);
 
 	i = bp->b_io_tcnt % BUF_TRACKING_SIZE;
-	for (j = 1; j <= BUF_TRACKING_SIZE; j++)
+	for (j = 1; j <= BUF_TRACKING_SIZE; j++) {
+		if (bp->b_io_tracking[BUF_TRACKING_ENTRY(i - j)] == NULL)
+			continue;
 		db_printf(" %2u: %s\n", j,
 		    bp->b_io_tracking[BUF_TRACKING_ENTRY(i - j)]);
+	}
 #elif defined(BUF_TRACKING)
 	db_printf("b_io_tracking: %s\n", bp->b_io_tracking);
 #endif
@@ -4937,6 +4950,8 @@ DB_SHOW_COMMAND(lockedbufs, lockedbufs)
 		if (BUF_ISLOCKED(bp)) {
 			db_show_buffer((uintptr_t)bp, 1, 0, NULL);
 			db_printf("\n");
+			if (db_pager_quit)
+				break;
 		}
 	}
 }

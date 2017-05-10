@@ -120,12 +120,6 @@ typedef struct {
 #define CD9660_MEM_ALLOC_ERROR(_F)	\
     err(EXIT_FAILURE, "%s, %s l. %d", _F, __FILE__, __LINE__)
 
-#define CD9660_IS_COMMAND_ARG_DUAL(var,short,long)\
-		(strcmp((var),(short)) == 0) || (strcmp((var),(long))==0)
-
-#define CD9660_IS_COMMAND_ARG(var,arg)\
-		(strcmp((var),(arg)) == 0)
-
 #define CD9660_TYPE_FILE	0x01
 #define CD9660_TYPE_DIR		0x02
 #define CD9660_TYPE_DOT		0x04
@@ -328,7 +322,6 @@ void			cd9660_time_915(unsigned char *, time_t);
 
 /*** Boot Functions ***/
 int	cd9660_write_generic_bootimage(FILE *);
-int	cd9660_add_generic_bootimage(iso9660_disk *, const char *);
 int	cd9660_write_boot(iso9660_disk *, FILE *);
 int	cd9660_add_boot_disk(iso9660_disk *, const char *);
 int	cd9660_eltorito_add_boot_option(iso9660_disk *, const char *,

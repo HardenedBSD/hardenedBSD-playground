@@ -12,6 +12,7 @@ ident 	ARMADA38X
 options 	SOC_MV_ARMADA38X
 
 makeoptions 	WERROR="-Werror"
+makeoptions 	MODULES_EXTRA="dtb/mv"
 
 options 	MD_ROOT
 #makeoptions 	MFS_IMAGE=/path/to/miniroot
@@ -20,6 +21,8 @@ options 	ROOTDEVNAME=\"/dev/da0s1a\"
 
 options 	SCHED_ULE		# ULE scheduler
 options 	SMP
+
+options		VM_KMEM_SIZE_MAX=0x9CCD000
 
 # Pseudo devices
 device		random
@@ -73,7 +76,8 @@ device		cesa
 device		crypto
 device		cryptodev
 
-#FDT
+# L2 Cache
+device		pl310
+
+# FDT
 options 	FDT
-options 	FDT_DTB_STATIC
-makeoptions 	FDT_DTS_FILE=armada-388-gp.dts

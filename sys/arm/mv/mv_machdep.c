@@ -77,6 +77,7 @@ void armadaxp_l2_init(void);
 int armada38x_win_set_iosync_barrier(void);
 int armada38x_scu_enable(void);
 int armada38x_open_bootrom_win(void);
+int armada38x_mbus_optimization(void);
 #endif
 
 #define MPP_PIN_MAX		68
@@ -244,14 +245,9 @@ platform_late_init(void)
 	/*
 	 * Re-initialise decode windows
 	 */
-#if !defined(SOC_MV_FREY)
 	if (soc_decode_win() != 0)
 		printf("WARNING: could not re-initialise decode windows! "
 		    "Running with existing settings...\n");
-#else
-	/* Disable watchdog and timers */
-	write_cpu_ctrl(CPU_TIMERS_BASE + CPU_TIMER_CONTROL, 0);
-#endif
 #if defined(SOC_MV_ARMADAXP)
 #if !defined(SMP)
 	/* For SMP case it should be initialized after APs are booted */
@@ -264,6 +260,8 @@ platform_late_init(void)
 	/* Set IO Sync Barrier bit for all Mbus devices */
 	if (armada38x_win_set_iosync_barrier() != 0)
 		printf("WARNING: could not map CPU Subsystem registers\n");
+	if (armada38x_mbus_optimization() != 0)
+		printf("WARNING: could not enable mbus optimization\n");
 	if (armada38x_scu_enable() != 0)
 		printf("WARNING: could not enable SCU\n");
 #ifdef SMP

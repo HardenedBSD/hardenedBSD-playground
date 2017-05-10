@@ -41,6 +41,7 @@ __DEFAULT_YES_OPTIONS = \
     PF \
     SOURCELESS_HOST \
     SOURCELESS_UCODE \
+    TESTS \
     USB_GADGET_EXAMPLES \
     ZFS
 
@@ -72,6 +73,10 @@ BROKEN_OPTIONS+= CDDL ZFS SSP
 
 .if ${MACHINE_CPUARCH} == "powerpc" && ${MACHINE_ARCH} == "powerpc"
 BROKEN_OPTIONS+= ZFS
+.endif
+
+.if ${MACHINE_CPUARCH} == "riscv"
+BROKEN_OPTIONS+= FORMAT_EXTENSIONS
 .endif
 
 # Things that don't work because the kernel doesn't have the support

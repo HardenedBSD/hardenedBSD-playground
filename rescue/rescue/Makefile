@@ -102,10 +102,6 @@ CRUNCH_PROGS_sbin= badsect					\
 	restore rcorder route savecore		 		\
 	shutdown spppcontrol swapon sysctl tunefs umount
 
-.if ${MK_ATM} != "no"
-CRUNCH_PROGS_sbin+= atmconfig
-.endif
-
 .if ${MK_CCD} != "no"
 CRUNCH_PROGS_sbin+= ccdconfig
 .endif
@@ -161,10 +157,6 @@ CRUNCH_PROGS_sbin+= bsdlabel fdisk
 CRUNCH_ALIAS_bsdlabel= disklabel
 .endif
 
-CRUNCH_SRCDIR_atm= ${SRCTOP}/sbin/atm/atm
-CRUNCH_SRCDIR_atmconfig= ${SRCTOP}/sbin/atm/atmconfig
-CRUNCH_SRCDIR_fore_dnld= ${SRCTOP}/sbin/atm/fore_dnld
-CRUNCH_SRCDIR_ilmid= ${SRCTOP}/sbin/atm/ilmid
 CRUNCH_SRCDIR_rtquery= ${SRCTOP}/sbin/routed/rtquery
 CRUNCH_SRCDIR_ipf= ${SRCTOP}/sbin/ipf/ipf
 .if ${MK_ZFS} != "no"
@@ -203,6 +195,10 @@ CRUNCH_ALIAS_less= more
 CRUNCH_PROGS_usr.bin+= xz
 CRUNCH_ALIAS_xz= unxz lzma unlzma xzcat lzcat
 
+CRUNCH_PROGS_usr.bin+= zstd
+CRUNCH_ALIAS_zstd= unzstd zstdcat zstdmt
+CRUNCH_LIBS+=	-lprivatezstd
+
 CRUNCH_PROGS_usr.bin+= tar
 CRUNCH_LIBS+= -larchive
 .if ${MK_OPENSSL} != "no"
@@ -211,7 +207,7 @@ CRUNCH_LIBS+= -lcrypto
 CRUNCH_LIBS+= -lmd
 
 .if ${MK_NETCAT} != "no"
-CRUNCH_PROGS_usr.bin= nc
+CRUNCH_PROGS_usr.bin+=	nc
 .endif
 
 .if ${MK_VI} != "no"

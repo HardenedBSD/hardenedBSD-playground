@@ -1290,6 +1290,16 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 		*n_args = 1;
 		break;
 	}
+	/* clock_nanosleep */
+	case 244: {
+		struct clock_nanosleep_args *p = params;
+		iarg[0] = p->clock_id; /* clockid_t */
+		iarg[1] = p->flags; /* int */
+		uarg[2] = (intptr_t) p->rqtp; /* const struct timespec * */
+		uarg[3] = (intptr_t) p->rmtp; /* struct timespec * */
+		*n_args = 4;
+		break;
+	}
 	/* clock_getcpuclockid2 */
 	case 247: {
 		struct clock_getcpuclockid2_args *p = params;
@@ -1612,7 +1622,7 @@ systrace_args(int sysnum, void *params, uint64_t *uarg, int *n_args)
 	case 326: {
 		struct __getcwd_args *p = params;
 		uarg[0] = (intptr_t) p->buf; /* char * */
-		uarg[1] = p->buflen; /* u_int */
+		uarg[1] = p->buflen; /* size_t */
 		*n_args = 2;
 		break;
 	}
@@ -5365,6 +5375,25 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			break;
 		};
 		break;
+	/* clock_nanosleep */
+	case 244:
+		switch(ndx) {
+		case 0:
+			p = "clockid_t";
+			break;
+		case 1:
+			p = "int";
+			break;
+		case 2:
+			p = "userland const struct timespec *";
+			break;
+		case 3:
+			p = "userland struct timespec *";
+			break;
+		default:
+			break;
+		};
+		break;
 	/* clock_getcpuclockid2 */
 	case 247:
 		switch(ndx) {
@@ -5872,7 +5901,7 @@ systrace_entry_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 			p = "userland char *";
 			break;
 		case 1:
-			p = "u_int";
+			p = "size_t";
 			break;
 		default:
 			break;
@@ -9600,6 +9629,11 @@ systrace_return_setargdesc(int sysnum, int ndx, char *desc, size_t descsz)
 		break;
 	/* ffclock_getestimate */
 	case 243:
+		if (ndx == 0 || ndx == 1)
+			p = "int";
+		break;
+	/* clock_nanosleep */
+	case 244:
 		if (ndx == 0 || ndx == 1)
 			p = "int";
 		break;

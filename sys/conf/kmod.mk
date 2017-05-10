@@ -210,7 +210,8 @@ ${PROG}.debug: ${FULLPROG}
 .if ${__KLD_SHARED} == yes
 ${FULLPROG}: ${KMOD}.kld
 .if ${MACHINE_CPUARCH} != "aarch64"
-	${LD} -Bshareable ${_LDFLAGS} -o ${.TARGET} ${KMOD}.kld
+	${LD} -m ${LD_EMULATION} -Bshareable ${_LDFLAGS} -o ${.TARGET} \
+	    ${KMOD}.kld
 .else
 #XXXKIB Relocatable linking in aarch64 ld from binutils 2.25.1 does
 #       not work.  The linker corrupts the references to the external
@@ -218,7 +219,7 @@ ${FULLPROG}: ${KMOD}.kld
 #       and should therefore loose the GOT entry.  The problem seems
 #       to be fixed in the binutils-gdb git HEAD as of 2015-10-04.  Hack
 #       below allows to get partially functioning modules for now.
-	${LD} -Bshareable ${_LDFLAGS} -o ${.TARGET} ${OBJS}
+	${LD} -m ${LD_EMULATION} -Bshareable ${_LDFLAGS} -o ${.TARGET} ${OBJS}
 .endif
 .if !defined(DEBUG_FLAGS)
 	${OBJCOPY} --strip-debug ${.TARGET}
@@ -235,7 +236,7 @@ ${KMOD}.kld: ${OBJS}
 .else
 ${FULLPROG}: ${OBJS}
 .endif
-	${LD} ${_LDFLAGS} -r -d -o ${.TARGET} ${OBJS}
+	${LD} -m ${LD_EMULATION} ${_LDFLAGS} -r -d -o ${.TARGET} ${OBJS}
 .if ${MK_CTF} != "no"
 	${CTFMERGE} ${CTFFLAGS} -o ${.TARGET} ${OBJS}
 .endif
@@ -274,7 +275,7 @@ beforebuild: ${_ILINKS}
 # causes all the modules to be rebuilt when the directory pointed to changes.
 .for _link in ${_ILINKS}
 .if !exists(${.OBJDIR}/${_link})
-${OBJS}: ${_link}
+OBJS_DEPEND_GUESS+=	${_link}
 .endif
 .endfor
 
@@ -451,8 +452,9 @@ acpi_quirks.h: ${SYSDIR}/tools/acpi_quirks2h.awk ${SYSDIR}/dev/acpica/acpi_quirk
 	${AWK} -f ${SYSDIR}/tools/acpi_quirks2h.awk ${SYSDIR}/dev/acpica/acpi_quirks
 .endif
 
-.if !empty(SRCS:Massym.s)
+.if !empty(SRCS:Massym.s) || !empty(DPSRCS:Massym.s)
 CLEANFILES+=	assym.s genassym.o
+DEPENDOBJS+=	genassym.o
 assym.s: genassym.o
 .if defined(KERNBUILDDIR)
 genassym.o: opt_global.h

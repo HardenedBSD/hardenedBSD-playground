@@ -498,6 +498,25 @@ pmap_set_tex(void)
 }
 
 /*
+ * Remap one vm_meattr class to another one. This can be useful as
+ * workaround for SOC errata, e.g. if devices must be accessed using
+ * SO memory class. 
+ */
+void
+pmap_remap_vm_attr(vm_memattr_t old_attr, vm_memattr_t new_attr)
+{
+	int old_idx, new_idx;
+	
+	/* Map VM memattrs to indexes to tex_class table. */
+	old_idx = pte2_attr_tab[(int)old_attr];
+	new_idx = pte2_attr_tab[(int)new_attr];
+	
+	/* Replace TEX attribute and apply it. */
+	tex_class[old_idx] = tex_class[new_idx];
+	pmap_set_tex();
+}
+
+/*
  * KERNBASE must be multiple of NPT2_IN_PG * PTE1_SIZE. In other words,
  * KERNBASE is mapped by first L2 page table in L2 page table page. It
  * meets same constrain due to PT2MAP being placed just under KERNBASE.
@@ -3322,7 +3341,7 @@ pmap_change_pte1(pmap_t pmap, pt1_entry_t *pte1p, vm_offset_t va,
 		act.va = va;
 		act.npte1 = npte1;
 		act.update = PCPU_GET(cpuid);
-		smp_rendezvous_cpus(all_cpus, smp_no_rendevous_barrier,
+		smp_rendezvous_cpus(all_cpus, smp_no_rendezvous_barrier,
 		    pmap_update_pte1_action, NULL, &act);
 		sched_unpin();
 	} else {

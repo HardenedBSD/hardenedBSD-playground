@@ -51,6 +51,7 @@ SUBDIR=	alias \
 	fsync \
 	gcore \
 	gencat \
+	getaddrinfo \
 	getconf \
 	getent \
 	getopt \
@@ -189,7 +190,8 @@ SUBDIR=	alias \
 	xo \
 	xz \
 	xzdec \
-	yes
+	yes \
+	zstd
 
 # NB: keep these sorted by MK_* knobs
 
@@ -300,6 +302,12 @@ SUBDIR.${MK_UTMPX}+=	users
 SUBDIR.${MK_UTMPX}+=	who
 SUBDIR.${MK_SVN}+=	svn
 SUBDIR.${MK_SVNLITE}+=	svn
+
+# These are normally only handled for build-tools.
+.if make(clean*)
+SUBDIR+=	mkcsmapper_static
+SUBDIR+=	mkesdb_static
+.endif
 
 .include <bsd.arch.inc.mk>
 

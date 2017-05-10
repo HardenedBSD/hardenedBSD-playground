@@ -64,7 +64,7 @@ struct cpl_set_tcb_rpl;
 #include "iw_cxgbe.h"
 #include "user.h"
 
-static void creds(struct toepcb *toep, size_t wrsize);
+static int creds(struct toepcb *toep, struct inpcb *inp, size_t wrsize);
 
 
 static void set_state(struct c4iw_qp *qhp, enum c4iw_qp_state state)
@@ -133,6 +133,7 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	int ret;
 	int eqsize;
 	struct wrqe *wr;
+	const int spg_ndesc = sc->params.sge.spg_len / EQ_ESIZE;
 
 	wq->sq.qid = c4iw_get_qpid(rdev, uctx);
 	if (!wq->sq.qid)
@@ -214,8 +215,7 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	res->u.sqrq.op = FW_RI_RES_OP_WRITE;
 
 	/* eqsize is the number of 64B entries plus the status page size. */
-	eqsize = wq->sq.size * T4_SQ_NUM_SLOTS +
-	    (sc->params.sge.spg_len / EQ_ESIZE);
+	eqsize = wq->sq.size * T4_SQ_NUM_SLOTS + spg_ndesc;
 
 	res->u.sqrq.fetchszm_to_iqid = cpu_to_be32(
 		V_FW_RI_RES_WR_HOSTFCMODE(0) |	/* no host cidx updates */
@@ -237,8 +237,7 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	res->u.sqrq.op = FW_RI_RES_OP_WRITE;
 
 	/* eqsize is the number of 64B entries plus the status page size. */
-	eqsize = wq->rq.size * T4_RQ_NUM_SLOTS +
-	    (sc->params.sge.spg_len / EQ_ESIZE);
+	eqsize = wq->rq.size * T4_RQ_NUM_SLOTS + spg_ndesc;
 	res->u.sqrq.fetchszm_to_iqid = cpu_to_be32(
 		V_FW_RI_RES_WR_HOSTFCMODE(0) |	/* no host cidx updates */
 		V_FW_RI_RES_WR_CPRIO(0) |	/* don't keep in chip cache */
@@ -961,6 +960,7 @@ static inline void build_term_codes(struct t4_cqe *err_cqe, u8 *layer_type,
 static void post_terminate(struct c4iw_qp *qhp, struct t4_cqe *err_cqe,
 			   gfp_t gfp)
 {
+	int ret;
 	struct fw_ri_wr *wqe;
 	struct terminate_message *term;
 	struct wrqe *wr;
@@ -991,7 +991,11 @@ static void post_terminate(struct c4iw_qp *qhp, struct t4_cqe *err_cqe,
 		term->ecode = qhp->attr.ecode;
 	} else
 		build_term_codes(err_cqe, &term->layer_etype, &term->ecode);
-        creds(toep, sizeof(*wqe));
+	ret = creds(toep, inp, sizeof(*wqe));
+	if (ret) {
+		free_wrqe(wr);
+		return;
+	}
 	t4_wrq_tx(qhp->rhp->rdev.adap, wr);
 }
 
@@ -1094,7 +1098,11 @@ rdma_fini(struct c4iw_dev *rhp, struct c4iw_qp *qhp, struct c4iw_ep *ep)
 
 	c4iw_init_wr_wait(&ep->com.wr_wait);
 
-        creds(toep, sizeof(*wqe));
+	ret = creds(toep, inp, sizeof(*wqe));
+	if (ret) {
+		free_wrqe(wr);
+		return ret;
+	}
 	t4_wrq_tx(sc, wr);
 
 	ret = c4iw_wait_for_reply(rdev, &ep->com.wr_wait, ep->hwtid,
@@ -1127,13 +1135,17 @@ static void build_rtr_msg(u8 p2p_type, struct fw_ri_init *init)
 	}
 }
 
-static void
-creds(struct toepcb *toep, size_t wrsize)
+static int
+creds(struct toepcb *toep, struct inpcb *inp, size_t wrsize)
 {
 	struct ofld_tx_sdesc *txsd;
 
 	CTR3(KTR_IW_CXGBE, "%s:creB  %p %u", __func__, toep , wrsize);
-	INP_WLOCK(toep->inp);
+	INP_WLOCK(inp);
+	if ((inp->inp_flags & (INP_DROPPED | INP_TIMEWAIT)) != 0) {
+		INP_WUNLOCK(inp);
+		return (EINVAL);
+	}
 	txsd = &toep->txsd[toep->txsd_pidx];
 	txsd->tx_credits = howmany(wrsize, 16);
 	txsd->plen = 0;
@@ -1143,9 +1155,10 @@ creds(struct toepcb *toep, size_t wrsize)
 	if (__predict_false(++toep->txsd_pidx == toep->txsd_total))
 		toep->txsd_pidx = 0;
 	toep->txsd_avail--;
-	INP_WUNLOCK(toep->inp);
+	INP_WUNLOCK(inp);
 	CTR5(KTR_IW_CXGBE, "%s:creE  %p %u %u %u", __func__, toep ,
 	    txsd->tx_credits, toep->tx_credits, toep->txsd_pidx);
+	return (0);
 }
 
 static int rdma_init(struct c4iw_dev *rhp, struct c4iw_qp *qhp)
@@ -1216,7 +1229,11 @@ static int rdma_init(struct c4iw_dev *rhp, struct c4iw_qp *qhp)
 
 	c4iw_init_wr_wait(&ep->com.wr_wait);
 
-	creds(toep, sizeof(*wqe));
+	ret = creds(toep, inp, sizeof(*wqe));
+	if (ret) {
+		free_wrqe(wr);
+		return ret;
+	}
 	t4_wrq_tx(sc, wr);
 
 	ret = c4iw_wait_for_reply(rdev, &ep->com.wr_wait, ep->hwtid,
@@ -1505,7 +1522,7 @@ c4iw_create_qp(struct ib_pd *pd, struct ib_qp_init_attr *attrs,
 	struct c4iw_create_qp_resp uresp;
 	int sqsize, rqsize;
 	struct c4iw_ucontext *ucontext;
-	int ret;
+	int ret, spg_ndesc;
 	struct c4iw_mm_entry *mm1, *mm2, *mm3, *mm4;
 
 	CTR2(KTR_IW_CXGBE, "%s ib_pd %p", __func__, pd);
@@ -1523,12 +1540,13 @@ c4iw_create_qp(struct ib_pd *pd, struct ib_qp_init_attr *attrs,
 	if (attrs->cap.max_inline_data > T4_MAX_SEND_INLINE)
 		return ERR_PTR(-EINVAL);
 
+	spg_ndesc = rhp->rdev.adap->params.sge.spg_len / EQ_ESIZE;
 	rqsize = roundup(attrs->cap.max_recv_wr + 1, 16);
-	if (rqsize > T4_MAX_RQ_SIZE)
+	if (rqsize > T4_MAX_RQ_SIZE(spg_ndesc))
 		return ERR_PTR(-E2BIG);
 
 	sqsize = roundup(attrs->cap.max_send_wr + 1, 16);
-	if (sqsize > T4_MAX_SQ_SIZE)
+	if (sqsize > T4_MAX_SQ_SIZE(spg_ndesc))
 		return ERR_PTR(-E2BIG);
 
 	ucontext = pd->uobject ? to_c4iw_ucontext(pd->uobject->context) : NULL;
@@ -1538,9 +1556,10 @@ c4iw_create_qp(struct ib_pd *pd, struct ib_qp_init_attr *attrs,
 	if (!qhp)
 		return ERR_PTR(-ENOMEM);
 	qhp->wq.sq.size = sqsize;
-	qhp->wq.sq.memsize = (sqsize + 1) * sizeof *qhp->wq.sq.queue;
+	qhp->wq.sq.memsize = (sqsize + spg_ndesc) * sizeof *qhp->wq.sq.queue +
+	    16 * sizeof(__be64);
 	qhp->wq.rq.size = rqsize;
-	qhp->wq.rq.memsize = (rqsize + 1) * sizeof *qhp->wq.rq.queue;
+	qhp->wq.rq.memsize = (rqsize + spg_ndesc) * sizeof *qhp->wq.rq.queue;
 
 	if (ucontext) {
 		qhp->wq.sq.memsize = roundup(qhp->wq.sq.memsize, PAGE_SIZE);

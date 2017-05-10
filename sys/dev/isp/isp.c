@@ -68,7 +68,7 @@ __FBSDID("$FreeBSD$");
 /*
  * Local static data
  */
-static const char notresp[] = "Not RESPONSE in RESPONSE Queue (type 0x%x) @ idx %d (next %d) nlooked %d";
+static const char notresp[] = "Unknown IOCB in RESPONSE Queue (type 0x%x) @ idx %d (next %d)";
 static const char bun[] = "bad underrun (count %d, resid %d, status %s)";
 static const char lipd[] = "Chan %d LIP destroyed %d active commands";
 static const char sacq[] = "unable to acquire scratch area";
@@ -98,8 +98,8 @@ static const uint8_t alpa_map[] = {
 static void isp_parse_async(ispsoftc_t *, uint16_t);
 static void isp_parse_async_fc(ispsoftc_t *, uint16_t);
 static int isp_handle_other_response(ispsoftc_t *, int, isphdr_t *, uint32_t *);
-static void isp_parse_status(ispsoftc_t *, ispstatusreq_t *, XS_T *, long *);
-static void isp_parse_status_24xx(ispsoftc_t *, isp24xx_statusreq_t *, XS_T *, long *);
+static void isp_parse_status(ispsoftc_t *, ispstatusreq_t *, XS_T *, uint32_t *);
+static void isp_parse_status_24xx(ispsoftc_t *, isp24xx_statusreq_t *, XS_T *, uint32_t *);
 static void isp_fastpost_complete(ispsoftc_t *, uint32_t);
 static void isp_scsi_init(ispsoftc_t *);
 static void isp_scsi_channel_init(ispsoftc_t *, int);
@@ -414,11 +414,6 @@ isp_reset(ispsoftc_t *isp, int do_load_defaults)
 			}
 		}
 	}
-
-	/*
-	 * Clear instrumentation
-	 */
-	isp->isp_intcnt = isp->isp_intbogus = 0;
 
 	/*
 	 * Hit the chip over the head with hammer,
@@ -1017,7 +1012,7 @@ isp_reset(ispsoftc_t *isp, int do_load_defaults)
 
 	fwt = isp->isp_fwattr;
 	if (IS_24XX(isp)) {
-		buf = FCPARAM(isp, 0)->isp_scratch;
+		buf = FCPARAM(isp, 0)->isp_scanscratch;
 		ISP_SNPRINTF(buf, ISP_FC_SCRLEN, "Attributes:");
 		if (fwt & ISP2400_FW_ATTR_CLASS2) {
 			fwt ^=ISP2400_FW_ATTR_CLASS2;
@@ -1106,7 +1101,7 @@ isp_reset(ispsoftc_t *isp, int do_load_defaults)
 		}
 		isp_prt(isp, ISP_LOGCONFIG, "%s", buf);
 	} else if (IS_FC(isp)) {
-		buf = FCPARAM(isp, 0)->isp_scratch;
+		buf = FCPARAM(isp, 0)->isp_scanscratch;
 		ISP_SNPRINTF(buf, ISP_FC_SCRLEN, "Attributes:");
 		if (fwt & ISP_FW_ATTR_TMODE) {
 			fwt ^=ISP_FW_ATTR_TMODE;
@@ -1328,7 +1323,6 @@ isp_init(ispsoftc_t *isp)
 	} else {
 		isp_scsi_init(isp);
 	}
-	GET_NANOTIME(&isp->isp_init_time);
 }
 
 static void
@@ -2095,7 +2089,7 @@ isp_fibre_init_2400(ispsoftc_t *isp)
 	}
 
 	if (IS_26XX(isp)) {
-		/* We don't support MSI-X yet, so set this unconditionally. */
+		/* Use handshake to reduce global lock congestion. */
 		icbp->icb_fwoptions2 |= ICB2400_OPT2_ENA_IHR;
 		icbp->icb_fwoptions2 |= ICB2400_OPT2_ENA_IHA;
 	}
@@ -2192,6 +2186,12 @@ isp_fibre_init_2400(ispsoftc_t *isp)
 	isp_prt(isp, ISP_LOGDEBUG0, "isp_fibre_init_2400: atioq %04x%04x%04x%04x", DMA_WD3(isp->isp_atioq_dma), DMA_WD2(isp->isp_atioq_dma),
 	    DMA_WD1(isp->isp_atioq_dma), DMA_WD0(isp->isp_atioq_dma));
 #endif
+
+	if (ISP_CAP_MSIX(isp) && isp->isp_nirq >= 2) {
+		icbp->icb_msixresp = 1;
+		if (IS_26XX(isp) && isp->isp_nirq >= 3)
+			icbp->icb_msixatio = 2;
+	}
 
 	isp_prt(isp, ISP_LOGDEBUG0, "isp_fibre_init_2400: fwopt1 0x%x fwopt2 0x%x fwopt3 0x%x", icbp->icb_fwoptions1, icbp->icb_fwoptions2, icbp->icb_fwoptions3);
 
@@ -2373,7 +2373,6 @@ isp_fc_enable_vp(ispsoftc_t *isp, int chan)
 		    __func__, chan, vp.vp_mod_hdr.rqs_flags, vp.vp_mod_status);
 		return (EIO);
 	}
-	GET_NANOTIME(&isp->isp_init_time);
 	return (0);
 }
 
@@ -2663,7 +2662,8 @@ isp_plogx(ispsoftc_t *isp, int chan, uint16_t handle, uint32_t portid, int flags
 		break;
 	}
 	if (msg) {
-		isp_prt(isp, ISP_LOGERR, "Chan %d PLOGX PortID 0x%06x to N-Port handle 0x%x: %s", chan, portid, handle, msg);
+		isp_prt(isp, lev, "Chan %d PLOGX PortID 0x%06x to N-Port handle 0x%x: %s",
+		    chan, portid, handle, msg);
 	}
 	return (rval);
 }
@@ -2771,10 +2771,11 @@ isp_getpdb(ispsoftc_t *isp, int chan, uint16_t id, isp_pdb_t *pdb)
 		pdb->portid = BITS2WORD_24XX(un.bill.pdb_portid_bits);
 		ISP_MEMCPY(pdb->portname, un.bill.pdb_portname, 8);
 		ISP_MEMCPY(pdb->nodename, un.bill.pdb_nodename, 8);
-		isp_prt(isp, ISP_LOGDEBUG1,
-		    "Chan %d handle 0x%x Port 0x%06x flags 0x%x curstate %x",
+		isp_prt(isp, ISP_LOGDEBUG0,
+		    "Chan %d handle 0x%x Port 0x%06x flags 0x%x curstate %x laststate %x",
 		    chan, id, pdb->portid, un.bill.pdb_flags,
-		    un.bill.pdb_curstate);
+		    un.bill.pdb_curstate, un.bill.pdb_laststate);
+
 		if (un.bill.pdb_curstate < PDB2400_STATE_PLOGI_DONE || un.bill.pdb_curstate > PDB2400_STATE_LOGGED_IN) {
 			mbs.param[0] = MBOX_NOT_LOGGED_IN;
 			return (mbs.param[0]);
@@ -4404,7 +4405,7 @@ isp_start(XS_T *xs)
 		((ispreqt7_t *)reqp)->req_task_attribute = ttype;
 	} else if (IS_FC(isp)) {
 		/*
-		 * See comment in isp_intr
+		 * See comment in isp_intr_respq
 		 */
 		/* XS_SET_RESID(xs, 0); */
 
@@ -4425,8 +4426,6 @@ isp_start(XS_T *xs)
 		}
 	}
 
-	tptr = &reqp->req_time;
-
 	/*
 	 * NB: we do not support long CDBs (yet)
 	 */
@@ -4440,8 +4439,9 @@ isp_start(XS_T *xs)
 		}
 		reqp->req_target = target | (XS_CHANNEL(xs) << 7);
 		reqp->req_lun_trn = XS_LUN(xs);
-		cdbp = reqp->req_cdb;
 		reqp->req_cdblen = cdblen;
+		tptr = &reqp->req_time;
+		cdbp = reqp->req_cdb;
 	} else if (IS_24XX(isp)) {
 		ispreqt7_t *t7 = (ispreqt7_t *)local;
 
@@ -4488,24 +4488,22 @@ isp_start(XS_T *xs)
 			ispreqt2e_t *t2e = (ispreqt2e_t *)local;
 			t2e->req_target = lp->handle;
 			t2e->req_scclun = XS_LUN(xs);
+			tptr = &t2e->req_time;
 			cdbp = t2e->req_cdb;
 		} else if (ISP_CAP_SCCFW(isp)) {
-			ispreqt2_t *t2 = (ispreqt2_t *)local;
 			t2->req_target = lp->handle;
 			t2->req_scclun = XS_LUN(xs);
+			tptr = &t2->req_time;
 			cdbp = t2->req_cdb;
 		} else {
 			t2->req_target = lp->handle;
 			t2->req_lun_trn = XS_LUN(xs);
+			tptr = &t2->req_time;
 			cdbp = t2->req_cdb;
 		}
 	}
+	*tptr = XS_TIME(xs);
 	ISP_MEMCPY(cdbp, XS_CDBP(xs), cdblen);
-
-	*tptr = (XS_TIME(xs) + 999) / 1000;
-	if (IS_24XX(isp) && *tptr > 0x1999) {
-		*tptr = 0x1999;
-	}
 
 	/* Whew. Thankfully the same for type 7 requests */
 	reqp->req_handle = isp_allocate_handle(isp, xs, ISP_HANDLE_INITIATOR);
@@ -4531,7 +4529,6 @@ isp_start(XS_T *xs)
 		return (dmaresult);
 	}
 	isp_xs_prt(isp, xs, ISP_LOGDEBUG0, "START cmd cdb[0]=0x%x datalen %ld", XS_CDBP(xs)[0], (long) XS_XFRLEN(xs));
-	isp->isp_nactive++;
 	return (CMD_QUEUED);
 }
 
@@ -4911,207 +4908,127 @@ isp_control(ispsoftc_t *isp, ispctl_t ctl, ...)
  * and the locking will be held throughout this function.
  */
 
-/*
- * Limit our stack depth by sticking with the max likely number
- * of completions on a request queue at any one time.
- */
-#ifndef	MAX_REQUESTQ_COMPLETIONS
-#define	MAX_REQUESTQ_COMPLETIONS	32
+#ifdef	ISP_TARGET_MODE
+void
+isp_intr_atioq(ispsoftc_t *isp)
+{
+	uint8_t qe[QENTRY_LEN];
+	isphdr_t *hp;
+	void *addr;
+	uint32_t iptr, optr, oop;
+
+	iptr = ISP_READ(isp, BIU2400_ATIO_RSPINP);
+	optr = isp->isp_atioodx;
+	while (optr != iptr) {
+		oop = optr;
+		MEMORYBARRIER(isp, SYNC_ATIOQ, oop, QENTRY_LEN, -1);
+		addr = ISP_QUEUE_ENTRY(isp->isp_atioq, oop);
+		isp_get_hdr(isp, addr, (isphdr_t *)qe);
+		hp = (isphdr_t *)qe;
+		switch (hp->rqs_entry_type) {
+		case RQSTYPE_NOTIFY:
+		case RQSTYPE_ATIO:
+			(void) isp_target_notify(isp, addr, &oop);
+			break;
+		default:
+			isp_print_qentry(isp, "?ATIOQ entry?", oop, addr);
+			break;
+		}
+		optr = ISP_NXT_QENTRY(oop, RESULT_QUEUE_LEN(isp));
+	}
+	if (isp->isp_atioodx != optr) {
+		ISP_WRITE(isp, BIU2400_ATIO_RSPOUTP, optr);
+		isp->isp_atioodx = optr;
+	}
+}
 #endif
 
 void
-isp_intr(ispsoftc_t *isp, uint16_t isr, uint16_t sema, uint16_t info)
+isp_intr_async(ispsoftc_t *isp, uint16_t event)
 {
-	XS_T *complist[MAX_REQUESTQ_COMPLETIONS], *xs;
-	uint32_t iptr, optr, junk;
-	int i, nlooked = 0, ndone = 0, continuations_expected = 0;
-	int etype, last_etype = 0;
 
-again:
-	/*
-	 * Is this a mailbox related interrupt?
-	 * The mailbox semaphore will be nonzero if so.
-	 */
-	if (sema) {
- fmbox:
-		if (info & MBOX_COMMAND_COMPLETE) {
-			isp->isp_intmboxc++;
-			if (isp->isp_mboxbsy) {
-				int obits = isp->isp_obits;
-				isp->isp_mboxtmp[0] = info;
-				for (i = 1; i < ISP_NMBOX(isp); i++) {
-					if ((obits & (1 << i)) == 0) {
-						continue;
-					}
-					isp->isp_mboxtmp[i] = ISP_READ(isp, MBOX_OFF(i));
-				}
-				MBOX_NOTIFY_COMPLETE(isp);
-			} else {
-				isp_prt(isp, ISP_LOGWARN, "mailbox cmd (0x%x) with no waiters", info);
-			}
-		} else {
-			if (IS_FC(isp))
-				isp_parse_async_fc(isp, info);
-			else
-				isp_parse_async(isp, info);
-		}
-		if ((IS_FC(isp) && info != ASYNC_RIOZIO_STALL) || isp->isp_state != ISP_RUNSTATE) {
-			goto out;
-		}
+	if (IS_FC(isp))
+		isp_parse_async_fc(isp, event);
+	else
+		isp_parse_async(isp, event);
+}
+
+void
+isp_intr_mbox(ispsoftc_t *isp, uint16_t mbox0)
+{
+	int i, obits;
+
+	if (!isp->isp_mboxbsy) {
+		isp_prt(isp, ISP_LOGWARN, "mailbox 0x%x with no waiters", mbox0);
+		return;
 	}
+	obits = isp->isp_obits;
+	isp->isp_mboxtmp[0] = mbox0;
+	for (i = 1; i < ISP_NMBOX(isp); i++) {
+		if ((obits & (1 << i)) == 0)
+			continue;
+		isp->isp_mboxtmp[i] = ISP_READ(isp, MBOX_OFF(i));
+	}
+	MBOX_NOTIFY_COMPLETE(isp);
+}
+
+void
+isp_intr_respq(ispsoftc_t *isp)
+{
+	XS_T *xs, *cont_xs;
+	uint8_t qe[QENTRY_LEN];
+	ispstatusreq_t *sp = (ispstatusreq_t *)qe;
+	isp24xx_statusreq_t *sp2 = (isp24xx_statusreq_t *)qe;
+	isphdr_t *hp;
+	uint8_t *resp, *snsp;
+	int buddaboom, completion_status, cont = 0, etype, i;
+	int req_status_flags, req_state_flags, scsi_status;
+	uint32_t iptr, junk, cptr, optr, rlen, slen, sptr, totslen, resid;
 
 	/*
 	 * We can't be getting this now.
 	 */
 	if (isp->isp_state != ISP_RUNSTATE) {
-		/*
-		 * This seems to happen to 23XX and 24XX cards- don't know why.
-		 */
-		 if (isp->isp_mboxbsy && isp->isp_lastmbxcmd == MBOX_ABOUT_FIRMWARE) {
-			goto fmbox;
-		}
-		isp_prt(isp, ISP_LOGINFO, "interrupt (ISR=%x SEMA=%x INFO=%x) "
-		    "when not ready", isr, sema, info);
-		/*
-		 * Thank you very much!  *Burrrp*!
-		 */
-		isp->isp_residx = ISP_READ(isp, isp->isp_respinrp);
-		isp->isp_resodx = isp->isp_residx;
-		ISP_WRITE(isp, isp->isp_respoutrp, isp->isp_resodx);
-		if (IS_24XX(isp)) {
-			ISP_DISABLE_INTS(isp);
-		}
-		goto out;
+		isp_prt(isp, ISP_LOGINFO, "respq interrupt when not ready");
+		return;
 	}
 
-#ifdef	ISP_TARGET_MODE
-	/*
-	 * Check for ATIO Queue entries.
-	 */
-	if (IS_24XX(isp) &&
-	    (isr == ISPR2HST_ATIO_UPDATE || isr == ISPR2HST_ATIO_RSPQ_UPDATE ||
-	     isr == ISPR2HST_ATIO_UPDATE2)) {
-		iptr = ISP_READ(isp, BIU2400_ATIO_RSPINP);
-		optr = isp->isp_atioodx;
-
-		while (optr != iptr) {
-			uint8_t qe[QENTRY_LEN];
-			isphdr_t *hp;
-			uint32_t oop;
-			void *addr;
-
-			oop = optr;
-			MEMORYBARRIER(isp, SYNC_ATIOQ, oop, QENTRY_LEN, -1);
-			addr = ISP_QUEUE_ENTRY(isp->isp_atioq, oop);
-			isp_get_hdr(isp, addr, (isphdr_t *)qe);
-			hp = (isphdr_t *)qe;
-			switch (hp->rqs_entry_type) {
-			case RQSTYPE_NOTIFY:
-			case RQSTYPE_ATIO:
-				(void) isp_target_notify(isp, addr, &oop);
-				break;
-			default:
-				isp_print_qentry(isp, "?ATIOQ entry?", oop, addr);
-				break;
-			}
-			optr = ISP_NXT_QENTRY(oop, RESULT_QUEUE_LEN(isp));
-		}
-		if (isp->isp_atioodx != optr) {
-			ISP_WRITE(isp, BIU2400_ATIO_RSPOUTP, optr);
-			isp->isp_atioodx = optr;
-		}
-	}
-#endif
-
-	/*
-	 * You *must* read the Response Queue In Pointer
-	 * prior to clearing the RISC interrupt.
-	 *
-	 * Debounce the 2300 if revision less than 2.
-	 */
+	iptr = ISP_READ(isp, isp->isp_respinrp);
+	/* Debounce the 2300 if revision less than 2. */
 	if (IS_2100(isp) || (IS_2300(isp) && isp->isp_revision < 2)) {
-		i = 0;
 		do {
+			junk = iptr;
 			iptr = ISP_READ(isp, isp->isp_respinrp);
-			junk = ISP_READ(isp, isp->isp_respinrp);
-		} while (junk != iptr && ++i < 1000);
-
-		if (iptr != junk) {
-			isp_prt(isp, ISP_LOGWARN, "Response Queue Out Pointer Unstable (%x, %x)", iptr, junk);
-			goto out;
-		}
-	} else {
-		iptr = ISP_READ(isp, isp->isp_respinrp);
-	}
-
-	optr = isp->isp_resodx;
-	if (optr == iptr && sema == 0) {
-		/*
-		 * There are a lot of these- reasons unknown- mostly on
-		 * faster Alpha machines.
-		 *
-		 * I tried delaying after writing HCCR_CMD_CLEAR_RISC_INT to
-		 * make sure the old interrupt went away (to avoid 'ringing'
-		 * effects), but that didn't stop this from occurring.
-		 */
-		if (IS_24XX(isp)) {
-			junk = 0;
-		} else if (IS_23XX(isp)) {
-			ISP_DELAY(100);
-			iptr = ISP_READ(isp, isp->isp_respinrp);
-			junk = ISP_READ(isp, BIU_R2HSTSLO);
-		} else {
-			junk = ISP_READ(isp, BIU_ISR);
-		}
-		if (optr == iptr) {
-			if (IS_23XX(isp) || IS_24XX(isp)) {
-				;
-			} else {
-				sema = ISP_READ(isp, BIU_SEMA);
-				info = ISP_READ(isp, OUTMAILBOX0);
-				if ((sema & 0x3) && (info & 0x8000)) {
-					goto again;
-				}
-			}
-			isp->isp_intbogus++;
-			isp_prt(isp, ISP_LOGDEBUG1, "bogus intr- isr %x (%x) iptr %x optr %x", isr, junk, iptr, optr);
-		}
+		} while (junk != iptr);
 	}
 	isp->isp_residx = iptr;
 
+	optr = isp->isp_resodx;
 	while (optr != iptr) {
-		uint8_t qe[QENTRY_LEN];
-		ispstatusreq_t *sp = (ispstatusreq_t *) qe;
-		isphdr_t *hp;
-		int buddaboom, scsi_status, completion_status;
-		int req_status_flags, req_state_flags;
-		uint8_t *snsp, *resp;
-		uint32_t rlen, slen, totslen;
-		long resid;
-		uint16_t oop;
-
-		hp = (isphdr_t *) ISP_QUEUE_ENTRY(isp->isp_result, optr);
-		oop = optr;
+		sptr = cptr = optr;
+		hp = (isphdr_t *) ISP_QUEUE_ENTRY(isp->isp_result, cptr);
 		optr = ISP_NXT_QENTRY(optr, RESULT_QUEUE_LEN(isp));
-		nlooked++;
- read_again:
-		buddaboom = req_status_flags = req_state_flags = 0;
-		resid = 0L;
 
 		/*
 		 * Synchronize our view of this response queue entry.
 		 */
-		MEMORYBARRIER(isp, SYNC_RESULT, oop, QENTRY_LEN, -1);
+		MEMORYBARRIER(isp, SYNC_RESULT, cptr, QENTRY_LEN, -1);
 		if (isp->isp_dblev & ISP_LOGDEBUG1)
-			isp_print_qentry(isp, "Response Queue Entry", oop, hp);
+			isp_print_qentry(isp, "Response Queue Entry", cptr, hp);
 		isp_get_hdr(isp, hp, &sp->req_header);
 		etype = sp->req_header.rqs_entry_type;
 
+		/* We expected Status Continuation, but got different IOCB. */
+		if (cont > 0 && etype != RQSTYPE_STATUS_CONT) {
+			cont = 0;
+			isp_done(cont_xs);
+		}
+
 		if (IS_24XX(isp) && etype == RQSTYPE_RESPONSE) {
-			isp24xx_statusreq_t *sp2 = (isp24xx_statusreq_t *)qe;
 			isp_get_24xx_response(isp, (isp24xx_statusreq_t *)hp, sp2);
 			scsi_status = sp2->req_scsi_status;
 			completion_status = sp2->req_completion_status;
+			req_status_flags = 0;
 			if ((scsi_status & 0xff) != 0)
 				req_state_flags = RQSF_GOT_STATUS;
 			else
@@ -5130,83 +5047,53 @@ again:
 			for (i = 0; i < rio->req_header.rqs_seqno; i++) {
 				isp_fastpost_complete(isp, rio->req_handles[i]);
 			}
-			if (isp->isp_fpcchiwater < rio->req_header.rqs_seqno) {
-				isp->isp_fpcchiwater = rio->req_header.rqs_seqno;
-			}
 			ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
-			last_etype = etype;
 			continue;
 		} else if (etype == RQSTYPE_RIO2) {
 			isp_prt(isp, ISP_LOGERR, "dropping RIO2 response");
 			ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
-			last_etype = etype;
 			continue;
 		} else if (etype == RQSTYPE_STATUS_CONT) {
-			isp_get_cont_response(isp, (ispstatus_cont_t *) hp, (ispstatus_cont_t *) sp);
-			if (last_etype == RQSTYPE_RESPONSE && continuations_expected && ndone > 0 && (xs = complist[ndone-1]) != NULL) {
-				ispstatus_cont_t *scp = (ispstatus_cont_t *) sp;
-				XS_SENSE_APPEND(xs, scp->req_sense_data, sizeof (scp->req_sense_data));
-				isp_prt(isp, ISP_LOGDEBUG0|ISP_LOG_CWARN, "%d more Status Continuations expected", --continuations_expected);
+			ispstatus_cont_t *scp = (ispstatus_cont_t *)qe;
+			isp_get_cont_response(isp, (ispstatus_cont_t *)hp, scp);
+			if (cont > 0) {
+				i = min(cont, sizeof(scp->req_sense_data));
+				XS_SENSE_APPEND(cont_xs, scp->req_sense_data, i);
+				cont -= i;
+				if (cont == 0) {
+					isp_done(cont_xs);
+				} else {
+					isp_prt(isp, ISP_LOGDEBUG0|ISP_LOG_CWARN,
+					    "Expecting Status Continuations for %u bytes",
+					    cont);
+				}
 			} else {
 				isp_prt(isp, ISP_LOG_WARN1, "Ignored Continuation Response");
 			}
 			ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
 			continue;
+		} else if (isp_handle_other_response(isp, etype, hp, &cptr)) {
+			/* More then one IOCB could be consumed. */
+			while (sptr != cptr) {
+				ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
+				sptr = ISP_NXT_QENTRY(sptr, RESULT_QUEUE_LEN(isp));
+				hp = (isphdr_t *)ISP_QUEUE_ENTRY(isp->isp_result, sptr);
+			}
+			ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
+			optr = ISP_NXT_QENTRY(cptr, RESULT_QUEUE_LEN(isp));
+			continue;
 		} else {
-			/*
-			 * Somebody reachable via isp_handle_other_response
-			 * may have updated the response queue pointers for
-			 * us, so we reload our goal index.
-			 */
-			int r;
-			uint32_t tsto = oop;
-			r = isp_handle_other_response(isp, etype, hp, &tsto);
-			if (r < 0) {
-				goto read_again;
-			}
-			/*
-			 * If somebody updated the output pointer, then reset
-			 * optr to be one more than the updated amount.
-			 */
-			while (tsto != oop) {
-				optr = ISP_NXT_QENTRY(tsto, RESULT_QUEUE_LEN(isp));
-			}
-			if (r > 0) {
-				ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
-				last_etype = etype;
-				continue;
-			}
-
-			/*
-			 * After this point, we'll just look at the header as
-			 * we don't know how to deal with the rest of the
-			 * response.
-			 */
-
-			/*
-			 * It really has to be a bounced request just copied
-			 * from the request queue to the response queue. If
-			 * not, something bad has happened.
-			 */
-			if (etype != RQSTYPE_REQUEST) {
-				isp_prt(isp, ISP_LOGERR, notresp, etype, oop, optr, nlooked);
-				ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
-				last_etype = etype;
-				continue;
-			}
-			buddaboom = 1;
-			scsi_status = sp->req_scsi_status;
-			completion_status = sp->req_completion_status;
-			req_status_flags = sp->req_status_flags;
-			req_state_flags = sp->req_state_flags;
-			resid = sp->req_resid;
+			/* We don't know what was this -- log and skip. */
+			isp_prt(isp, ISP_LOGERR, notresp, etype, cptr, optr);
+			ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
+			continue;
 		}
 
+		buddaboom = 0;
 		if (sp->req_header.rqs_flags & RQSFLAG_MASK) {
 			if (sp->req_header.rqs_flags & RQSFLAG_CONTINUATION) {
 				isp_print_qentry(isp, "unexpected continuation segment",
-				    oop, hp);
-				last_etype = etype;
+				    cptr, hp);
 				continue;
 			}
 			if (sp->req_header.rqs_flags & RQSFLAG_FULL) {
@@ -5217,23 +5104,22 @@ again:
 			}
 			if (sp->req_header.rqs_flags & RQSFLAG_BADHEADER) {
 				isp_print_qentry(isp, "bad header flag",
-				    oop, hp);
+				    cptr, hp);
 				buddaboom++;
 			}
 			if (sp->req_header.rqs_flags & RQSFLAG_BADPACKET) {
 				isp_print_qentry(isp, "bad request packet",
-				    oop, hp);
+				    cptr, hp);
 				buddaboom++;
 			}
 			if (sp->req_header.rqs_flags & RQSFLAG_BADCOUNT) {
 				isp_print_qentry(isp, "invalid entry count",
-				    oop, hp);
+				    cptr, hp);
 				buddaboom++;
 			}
 			if (sp->req_header.rqs_flags & RQSFLAG_BADORDER) {
 				isp_print_qentry(isp, "invalid IOCB ordering",
-				    oop, hp);
-				last_etype = etype;
+				    cptr, hp);
 				continue;
 			}
 		}
@@ -5251,7 +5137,6 @@ again:
 				isp_prt(isp, ISP_LOGERR, "cannot find handle 0x%x (status 0x%x)", sp->req_handle, ts);
 			}
 			ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
-			last_etype = etype;
 			continue;
 		}
 		if (req_status_flags & RQSTF_BUS_RESET) {
@@ -5266,13 +5151,11 @@ again:
 			XS_SETERR(xs, HBA_BOTCH);
 		}
 
-		resp = NULL;
-		rlen = 0;
-		snsp = NULL;
-		totslen = slen = 0;
+		resp = snsp = NULL;
+		rlen = slen = totslen = 0;
 		if (IS_24XX(isp) && (scsi_status & (RQCS_RV|RQCS_SV)) != 0) {
-			resp = ((isp24xx_statusreq_t *)sp)->req_rsp_sense;
-			rlen = ((isp24xx_statusreq_t *)sp)->req_response_len;
+			resp = sp2->req_rsp_sense;
+			rlen = sp2->req_response_len;
 		} else if (IS_FC(isp) && (scsi_status & RQCS_RV) != 0) {
 			resp = sp->req_response;
 			rlen = sp->req_response_len;
@@ -5285,220 +5168,115 @@ again:
 			 */
 			req_state_flags |= RQSF_GOT_STATUS|RQSF_GOT_SENSE;
 			if (IS_24XX(isp)) {
-				snsp = ((isp24xx_statusreq_t *)sp)->req_rsp_sense;
+				snsp = sp2->req_rsp_sense;
 				snsp += rlen;
-				totslen = ((isp24xx_statusreq_t *)sp)->req_sense_len;
-				slen = (sizeof (((isp24xx_statusreq_t *)sp)->req_rsp_sense)) - rlen;
-				if (totslen < slen)
-					slen = totslen; 
+				totslen = sp2->req_sense_len;
+				slen = sizeof(sp2->req_rsp_sense) - rlen;
 			} else {
 				snsp = sp->req_sense_data;
 				totslen = sp->req_sense_len;
-				slen = sizeof (sp->req_sense_data);
-				if (totslen < slen)
-					slen = totslen;
+				slen = sizeof(sp->req_sense_data);
 			}
 		} else if (IS_SCSI(isp) && (req_state_flags & RQSF_GOT_SENSE)) {
 			snsp = sp->req_sense_data;
 			totslen = sp->req_sense_len;
 			slen = sizeof (sp->req_sense_data);
-			if (totslen < slen)
-				slen = totslen;
 		}
-		if (req_state_flags & RQSF_GOT_STATUS) {
+		if (slen > totslen)
+			slen = totslen;
+		if (req_state_flags & RQSF_GOT_STATUS)
 			*XS_STSP(xs) = scsi_status & 0xff;
-		}
 
-		switch (etype) {
-		case RQSTYPE_RESPONSE:
-			if (resp && rlen >= 4 && resp[FCP_RSPNS_CODE_OFFSET] != 0) {
-				const char *ptr;
-				char lb[64];
-				const char *rnames[10] = {
-				    "Task Management function complete",
-				    "FCP_DATA length different than FCP_BURST_LEN",
-				    "FCP_CMND fields invalid",
-				    "FCP_DATA parameter mismatch with FCP_DATA_RO",
-				    "Task Management function rejected",
-				    "Task Management function failed",
-				    NULL,
-				    NULL,
-				    "Task Management function succeeded",
-				    "Task Management function incorrect logical unit number",
-				};
-				uint8_t code = resp[FCP_RSPNS_CODE_OFFSET];
-				if (code >= 10 || rnames[code] == NULL) {
-					ISP_SNPRINTF(lb, sizeof(lb),
-					    "Unknown FCP Response Code 0x%x",
-					    code);
-					ptr = lb;
-				} else {
-					ptr = rnames[code];
-				}
-				isp_xs_prt(isp, xs, ISP_LOGWARN,
-				    "FCP RESPONSE, LENGTH %u: %s CDB0=0x%02x",
-				    rlen, ptr, XS_CDBP(xs)[0] & 0xff);
-				if (code != 0 && code != 8)
-					XS_SETERR(xs, HBA_BOTCH);
-			}
-			if (IS_24XX(isp)) {
-				isp_parse_status_24xx(isp, (isp24xx_statusreq_t *)sp, xs, &resid);
+		if (rlen >= 4 && resp[FCP_RSPNS_CODE_OFFSET] != 0) {
+			const char *ptr;
+			char lb[64];
+			const char *rnames[10] = {
+			    "Task Management function complete",
+			    "FCP_DATA length different than FCP_BURST_LEN",
+			    "FCP_CMND fields invalid",
+			    "FCP_DATA parameter mismatch with FCP_DATA_RO",
+			    "Task Management function rejected",
+			    "Task Management function failed",
+			    NULL,
+			    NULL,
+			    "Task Management function succeeded",
+			    "Task Management function incorrect logical unit number",
+			};
+			uint8_t code = resp[FCP_RSPNS_CODE_OFFSET];
+			if (code >= 10 || rnames[code] == NULL) {
+				ISP_SNPRINTF(lb, sizeof(lb),
+				    "Unknown FCP Response Code 0x%x", code);
+				ptr = lb;
 			} else {
-				isp_parse_status(isp, (void *)sp, xs, &resid);
+				ptr = rnames[code];
 			}
-			if ((XS_NOERR(xs) || XS_ERR(xs) == HBA_NOERROR) && (*XS_STSP(xs) == SCSI_BUSY)) {
-				XS_SETERR(xs, HBA_TGTBSY);
+			isp_xs_prt(isp, xs, ISP_LOGWARN,
+			    "FCP RESPONSE, LENGTH %u: %s CDB0=0x%02x",
+			    rlen, ptr, XS_CDBP(xs)[0] & 0xff);
+			if (code != 0 && code != 8)
+				XS_SETERR(xs, HBA_BOTCH);
+		}
+		if (IS_24XX(isp))
+			isp_parse_status_24xx(isp, sp2, xs, &resid);
+		else
+			isp_parse_status(isp, sp, xs, &resid);
+		if ((XS_NOERR(xs) || XS_ERR(xs) == HBA_NOERROR) &&
+		    (*XS_STSP(xs) == SCSI_BUSY))
+			XS_SETERR(xs, HBA_TGTBSY);
+		if (IS_SCSI(isp)) {
+			XS_SET_RESID(xs, resid);
+			/*
+			 * A new synchronous rate was negotiated for
+			 * this target. Mark state such that we'll go
+			 * look up that which has changed later.
+			 */
+			if (req_status_flags & RQSTF_NEGOTIATION) {
+				int t = XS_TGT(xs);
+				sdparam *sdp = SDPARAM(isp, XS_CHANNEL(xs));
+				sdp->isp_devparam[t].dev_refresh = 1;
+				sdp->update = 1;
 			}
-			if (IS_SCSI(isp)) {
+		} else {
+			if (req_status_flags & RQSF_XFER_COMPLETE) {
+				XS_SET_RESID(xs, 0);
+			} else if (scsi_status & RQCS_RESID) {
 				XS_SET_RESID(xs, resid);
-				/*
-				 * A new synchronous rate was negotiated for
-				 * this target. Mark state such that we'll go
-				 * look up that which has changed later.
-				 */
-				if (req_status_flags & RQSTF_NEGOTIATION) {
-					int t = XS_TGT(xs);
-					sdparam *sdp = SDPARAM(isp, XS_CHANNEL(xs));
-					sdp->isp_devparam[t].dev_refresh = 1;
-					sdp->update = 1;
-				}
 			} else {
-				if (req_status_flags & RQSF_XFER_COMPLETE) {
-					XS_SET_RESID(xs, 0);
-				} else if (scsi_status & RQCS_RESID) {
-					XS_SET_RESID(xs, resid);
-				} else {
-					XS_SET_RESID(xs, 0);
-				}
+				XS_SET_RESID(xs, 0);
 			}
-			if (snsp && slen) {
-				if (totslen > slen) {
-					continuations_expected += ((totslen - slen + QENTRY_LEN - 5) / (QENTRY_LEN - 4));
-					if (ndone > (MAX_REQUESTQ_COMPLETIONS - continuations_expected - 1)) {
-						/* we'll lose some stats, but that's a small price to pay */
-						for (i = 0; i < ndone; i++) {
-							if (complist[i]) {
-								isp->isp_rsltccmplt++;
-								isp_done(complist[i]);
-							}
-						}
-						ndone = 0;
-					}
-					isp_prt(isp, ISP_LOGDEBUG0|ISP_LOG_CWARN, "Expecting %d more Status Continuations for total sense length of %u",
-					    continuations_expected, totslen);
-				}
-				XS_SAVE_SENSE(xs, snsp, totslen, slen);
-			} else if ((req_status_flags & RQSF_GOT_STATUS) && (scsi_status & 0xff) == SCSI_CHECK && IS_FC(isp)) {
-				isp_prt(isp, ISP_LOGWARN, "CHECK CONDITION w/o sense data for CDB=0x%x", XS_CDBP(xs)[0] & 0xff);
-				isp_print_qentry(isp, "CC with no Sense",
-				    oop, hp);
-			}
-			isp_prt(isp, ISP_LOGDEBUG2, "asked for %ld got raw resid %ld settled for %ld", (long) XS_XFRLEN(xs), resid, (long) XS_GET_RESID(xs));
-			break;
-		case RQSTYPE_REQUEST:
-		case RQSTYPE_A64:
-		case RQSTYPE_T2RQS:
-		case RQSTYPE_T3RQS:
-		case RQSTYPE_T7RQS:
-			if (!IS_24XX(isp) && (sp->req_header.rqs_flags & RQSFLAG_FULL)) {
-				/*
-				 * Force Queue Full status.
-				 */
-				*XS_STSP(xs) = SCSI_QFULL;
-				XS_SETERR(xs, HBA_NOERROR);
-			} else if (XS_NOERR(xs)) {
-				isp_prt(isp, ISP_LOG_WARN1,
-				    "%d.%d.%jx badness at %s:%u",
-				    XS_CHANNEL(xs), XS_TGT(xs),
-				    (uintmax_t)XS_LUN(xs),
-				    __func__, __LINE__);
-				XS_SETERR(xs, HBA_BOTCH);
-			}
-			XS_SET_RESID(xs, XS_XFRLEN(xs));
-			break;
-		default:
-			isp_print_qentry(isp, "Unhandled Response Type",
-			    oop, hp);
-			if (XS_NOERR(xs)) {
-				XS_SETERR(xs, HBA_BOTCH);
-			}
-			break;
 		}
+		if (slen > 0) {
+			XS_SAVE_SENSE(xs, snsp, slen);
+			if (totslen > slen) {
+				cont = totslen - slen;
+				cont_xs = xs;
+				isp_prt(isp, ISP_LOGDEBUG0|ISP_LOG_CWARN,
+				    "Expecting Status Continuations for %u bytes",
+				    cont);
+			}
+		}
+		isp_prt(isp, ISP_LOGDEBUG2, "asked for %lu got raw resid %lu settled for %lu",
+		    (u_long)XS_XFRLEN(xs), (u_long)resid, (u_long)XS_GET_RESID(xs));
 
-		/*
-		 * Free any DMA resources. As a side effect, this may
-		 * also do any cache flushing necessary for data coherence.
-		 */
-		if (XS_XFRLEN(xs)) {
+		if (XS_XFRLEN(xs))
 			ISP_DMAFREE(isp, xs, sp->req_handle);
-		}
 		isp_destroy_handle(isp, sp->req_handle);
 
-		if (isp->isp_nactive > 0) {
-		    isp->isp_nactive--;
-		}
-		complist[ndone++] = xs;	/* defer completion call until later */
 		ISP_MEMZERO(hp, QENTRY_LEN);	/* PERF */
-		last_etype = etype;
-		if (ndone == MAX_REQUESTQ_COMPLETIONS) {
-			break;
-		}
+
+		/* Complete command if we expect no Status Continuations. */
+		if (cont == 0)
+			isp_done(xs);
 	}
 
-	/*
-	 * If we looked at any commands, then it's valid to find out
-	 * what the outpointer is. It also is a trigger to update the
-	 * ISP's notion of what we've seen so far.
-	 */
-	if (nlooked) {
+	/* We haven't received all Status Continuations, but that is it. */
+	if (cont > 0)
+		isp_done(cont_xs);
+
+	/* If we processed any IOCBs, let ISP know about it. */
+	if (optr != isp->isp_resodx) {
 		ISP_WRITE(isp, isp->isp_respoutrp, optr);
 		isp->isp_resodx = optr;
-		if (isp->isp_rscchiwater < ndone)
-			isp->isp_rscchiwater = ndone;
-	}
-
-out:
-
-	if (IS_24XX(isp)) {
-		ISP_WRITE(isp, BIU2400_HCCR, HCCR_2400_CMD_CLEAR_RISC_INT);
-	} else {
-		ISP_WRITE(isp, HCCR, HCCR_CMD_CLEAR_RISC_INT);
-		ISP_WRITE(isp, BIU_SEMA, 0);
-	}
-
-	for (i = 0; i < ndone; i++) {
-		xs = complist[i];
-		if (xs) {
-			if (((isp->isp_dblev & (ISP_LOGDEBUG1|ISP_LOGDEBUG2|ISP_LOGDEBUG3))) ||
-			    ((isp->isp_dblev & (ISP_LOGDEBUG0|ISP_LOG_CWARN) && ((!XS_NOERR(xs)) || (*XS_STSP(xs) != SCSI_GOOD))))) {
-				isp_prt_endcmd(isp, xs);
-			}
-			isp->isp_rsltccmplt++;
-			isp_done(xs);
-		}
-	}
-}
-
-/*
- * Support routines.
- */
-
-void
-isp_prt_endcmd(ispsoftc_t *isp, XS_T *xs)
-{
-	char cdbstr[16 * 5 + 1];
-	int i, lim;
-
-	lim = XS_CDBLEN(xs) > 16? 16 : XS_CDBLEN(xs);
-	ISP_SNPRINTF(cdbstr, sizeof (cdbstr), "0x%02x ", XS_CDBP(xs)[0]);
-	for (i = 1; i < lim; i++) {
-		ISP_SNPRINTF(cdbstr, sizeof (cdbstr), "%s0x%02x ", cdbstr, XS_CDBP(xs)[i]);
-	}
-	if (XS_SENSE_VALID(xs)) {
-		isp_xs_prt(isp, xs, ISP_LOGALL, "FIN dl%d resid %ld CDB=%s SenseLength=%u/%u KEY/ASC/ASCQ=0x%02x/0x%02x/0x%02x",
-		    XS_XFRLEN(xs), (long) XS_GET_RESID(xs), cdbstr, XS_CUR_SNSLEN(xs), XS_TOT_SNSLEN(xs), XS_SNSKEY(xs), XS_SNSASC(xs), XS_SNSASCQ(xs));
-	} else {
-		isp_xs_prt(isp, xs, ISP_LOGALL, "FIN dl%d resid %ld CDB=%s STS 0x%x XS_ERR=0x%x", XS_XFRLEN(xs), (long) XS_GET_RESID(xs), cdbstr, *XS_STSP(xs), XS_ERR(xs));
 	}
 }
 
@@ -5666,16 +5444,7 @@ isp_parse_async(ispsoftc_t *isp, uint16_t mbox)
 		if (h2) {
 			isp_prt(isp, ISP_LOGDEBUG3, "fast post/rio completion of 0x%08x", h2);
 			isp_fastpost_complete(isp, h2);
-			if (isp->isp_fpcchiwater < 2) {
-				isp->isp_fpcchiwater = 2;
-			}
-		} else {
-			if (isp->isp_fpcchiwater < 1) {
-				isp->isp_fpcchiwater = 1;
-			}
 		}
-	} else {
-		isp->isp_intoasync++;
 	}
 }
 
@@ -5733,19 +5502,16 @@ isp_parse_async_fc(ispsoftc_t *isp, uint16_t mbox)
 
 	case ASYNC_CMD_CMPLT:
 		isp_fastpost_complete(isp, (ISP_READ(isp, OUTMAILBOX2) << 16) | ISP_READ(isp, OUTMAILBOX1));
-		if (isp->isp_fpcchiwater < 1) {
-			isp->isp_fpcchiwater = 1;
-		}
 		break;
 
 	case ASYNC_RIOZIO_STALL:
+		isp_intr_respq(isp);
 		break;
 
 	case ASYNC_CTIO_DONE:
 #ifdef	ISP_TARGET_MODE
 		isp_target_async(isp, (ISP_READ(isp, OUTMAILBOX2) << 16) |
 		    ISP_READ(isp, OUTMAILBOX1), mbox);
-		isp->isp_fphccmplt++;
 #else
 		isp_prt(isp, ISP_LOGWARN, "unexpected ASYNC CTIO done");
 #endif
@@ -5758,7 +5524,6 @@ isp_parse_async_fc(ispsoftc_t *isp, uint16_t mbox)
 		 * These are broadcast events that have to be sent across
 		 * all active channels.
 		 */
-		GET_NANOTIME(&isp->isp_init_time);
 		for (chan = 0; chan < isp->isp_nchan; chan++) {
 			fcp = FCPARAM(isp, chan);
 			int topo = fcp->isp_topo;
@@ -5813,7 +5578,6 @@ isp_parse_async_fc(ispsoftc_t *isp, uint16_t mbox)
 		 * This is a broadcast event that has to be sent across
 		 * all active channels.
 		 */
-		GET_NANOTIME(&isp->isp_init_time);
 		for (chan = 0; chan < isp->isp_nchan; chan++) {
 			fcp = FCPARAM(isp, chan);
 			if (fcp->role == ISP_ROLE_NONE)
@@ -5853,7 +5617,6 @@ isp_parse_async_fc(ispsoftc_t *isp, uint16_t mbox)
 		 * This is a broadcast event that has to be sent across
 		 * all active channels.
 		 */
-		GET_NANOTIME(&isp->isp_init_time);
 		for (chan = 0; chan < isp->isp_nchan; chan++) {
 			fcp = FCPARAM(isp, chan);
 			if (fcp->role == ISP_ROLE_NONE)
@@ -6017,9 +5780,6 @@ isp_parse_async_fc(ispsoftc_t *isp, uint16_t mbox)
 		isp_prt(isp, ISP_LOGWARN, "Unknown Async Code 0x%x", mbox);
 		break;
 	}
-	if (mbox != ASYNC_CTIO_DONE && mbox != ASYNC_CMD_CMPLT) {
-		isp->isp_intoasync++;
-	}
 }
 
 /*
@@ -6037,9 +5797,6 @@ isp_handle_other_response(ispsoftc_t *isp, int type, isphdr_t *hp, uint32_t *opt
 	void *ptr;
 
 	switch (type) {
-	case RQSTYPE_STATUS_CONT:
-		isp_prt(isp, ISP_LOG_WARN1, "Ignored Continuation Response");
-		return (1);
 	case RQSTYPE_MARKER:
 		isp_prt(isp, ISP_LOG_WARN1, "Marker Response");
 		return (1);
@@ -6048,7 +5805,6 @@ isp_handle_other_response(ispsoftc_t *isp, int type, isphdr_t *hp, uint32_t *opt
 		portid = (uint32_t)rid.ridacq_vp_port_hi << 16 |
 		    rid.ridacq_vp_port_lo;
 		if (rid.ridacq_format == 0) {
-			GET_NANOTIME(&isp->isp_init_time);
 			for (chan = 0; chan < isp->isp_nchan; chan++) {
 				fcparam *fcp = FCPARAM(isp, chan);
 				if (fcp->role == ISP_ROLE_NONE)
@@ -6095,8 +5851,6 @@ isp_handle_other_response(ispsoftc_t *isp, int type, isphdr_t *hp, uint32_t *opt
 		return (1);
 	case RQSTYPE_ATIO:
 	case RQSTYPE_CTIO:
-	case RQSTYPE_ENABLE_LUN:
-	case RQSTYPE_MODIFY_LUN:
 	case RQSTYPE_NOTIFY:
 	case RQSTYPE_NOTIFY_ACK:
 	case RQSTYPE_CTIO1:
@@ -6106,37 +5860,18 @@ isp_handle_other_response(ispsoftc_t *isp, int type, isphdr_t *hp, uint32_t *opt
 	case RQSTYPE_CTIO7:
 	case RQSTYPE_ABTS_RCVD:
 	case RQSTYPE_ABTS_RSP:
-		isp->isp_rsltccmplt++;	/* count as a response completion */
 #ifdef	ISP_TARGET_MODE
-		if (isp_target_notify(isp, (ispstatusreq_t *) hp, optrp)) {
-			return (1);
-		}
+		return (isp_target_notify(isp, (ispstatusreq_t *) hp, optrp));
 #endif
 		/* FALLTHROUGH */
 	case RQSTYPE_REQUEST:
 	default:
-		ISP_DELAY(100);
-		if (type != isp_get_response_type(isp, hp)) {
-			/*
-			 * This is questionable- we're just papering over
-			 * something we've seen on SMP linux in target
-			 * mode- we don't really know what's happening
-			 * here that causes us to think we've gotten
-			 * an entry, but that either the entry isn't
-			 * filled out yet or our CPU read data is stale.
-			 */
-			isp_prt(isp, ISP_LOGINFO,
-				"unstable type in response queue");
-			return (-1);
-		}
-		isp_prt(isp, ISP_LOGWARN, "Unhandled Response Type 0x%x",
-		    isp_get_response_type(isp, hp));
 		return (0);
 	}
 }
 
 static void
-isp_parse_status(ispsoftc_t *isp, ispstatusreq_t *sp, XS_T *xs, long *rp)
+isp_parse_status(ispsoftc_t *isp, ispstatusreq_t *sp, XS_T *xs, uint32_t *rp)
 {
 	switch (sp->req_completion_status & 0xff) {
 	case RQCS_COMPLETE:
@@ -6464,7 +6199,7 @@ isp_parse_status(ispsoftc_t *isp, ispstatusreq_t *sp, XS_T *xs, long *rp)
 }
 
 static void
-isp_parse_status_24xx(ispsoftc_t *isp, isp24xx_statusreq_t *sp, XS_T *xs, long *rp)
+isp_parse_status_24xx(ispsoftc_t *isp, isp24xx_statusreq_t *sp, XS_T *xs, uint32_t *rp)
 {
 	int ru_marked, sv_marked;
 	int chan = XS_CHANNEL(xs);
@@ -6646,10 +6381,6 @@ isp_fastpost_complete(ispsoftc_t *isp, uint32_t fph)
 	if (XS_XFRLEN(xs)) {
 		ISP_DMAFREE(isp, xs, fph);
 	}
-	if (isp->isp_nactive) {
-		isp->isp_nactive--;
-	}
-	isp->isp_fphccmplt++;
 	isp_done(xs);
 }
 
@@ -7690,7 +7421,6 @@ isp_reinit(ispsoftc_t *isp, int do_load_defaults)
 	}
 
 cleanup:
-	isp->isp_nactive = 0;
 	isp_clear_commands(isp);
 	if (IS_FC(isp)) {
 		for (i = 0; i < isp->isp_nchan; i++)

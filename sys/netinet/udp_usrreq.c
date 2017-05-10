@@ -123,12 +123,6 @@ SYSCTL_INT(_net_inet_udp, OID_AUTO, blackhole, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(udp_blackhole), 0,
     "Do not send port unreachables for refused connects");
 
-static VNET_DEFINE(int, udp_require_l2_bcast) = 0;
-#define	V_udp_require_l2_bcast		VNET(udp_require_l2_bcast)
-SYSCTL_INT(_net_inet_udp, OID_AUTO, require_l2_bcast, CTLFLAG_VNET | CTLFLAG_RW,
-    &VNET_NAME(udp_require_l2_bcast), 0,
-    "Only treat packets sent to an L2 broadcast address as broadcast packets");
-
 u_long	udp_sendspace = 9216;		/* really max datagram size */
 SYSCTL_ULONG(_net_inet_udp, UDPCTL_MAXDGRAM, maxdgram, CTLFLAG_RW,
     &udp_sendspace, 0, "Maximum outgoing UDP datagram size");
@@ -529,8 +523,7 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 
 	pcbinfo = udp_get_inpcbinfo(proto);
 	if (IN_MULTICAST(ntohl(ip->ip_dst.s_addr)) ||
-	    ((!V_udp_require_l2_bcast || m->m_flags & M_BCAST) &&
-	    in_broadcast(ip->ip_dst, ifp))) {
+	    in_broadcast(ip->ip_dst, ifp)) {
 		struct inpcb *last;
 		struct inpcbhead *pcblist;
 		struct ip_moptions *imo;
@@ -905,13 +898,7 @@ udp_pcblist(SYSCTL_HANDLER_ARGS)
 		if (inp->inp_gencnt <= gencnt) {
 			struct xinpcb xi;
 
-			bzero(&xi, sizeof(xi));
-			xi.xi_len = sizeof xi;
-			/* XXX should avoid extra copy */
-			bcopy(inp, &xi.xi_inp, sizeof *inp);
-			if (inp->inp_socket)
-				sotoxsocket(inp->inp_socket, &xi.xi_socket);
-			xi.xi_inp.inp_gencnt = inp->inp_gencnt;
+			in_pcbtoxinpcb(inp, &xi);
 			INP_RUNLOCK(inp);
 			error = SYSCTL_OUT(req, &xi, sizeof xi);
 		} else

@@ -92,6 +92,7 @@ umass_disk_strategy(void *devdata, int flag, daddr_t dblk, size_t size,
 	if (rsizep != NULL)
 		*rsizep = 0;
 
+	flag &= F_MASK;
 	if (flag == F_WRITE) {
 		if (usb_msc_write_10(umass_uaa.device, 0, dblk, size >> 9, buf) != 0)
 			return (EINVAL);
@@ -116,7 +117,7 @@ umass_disk_open_sub(struct disk_devdesc *dev)
 	if (usb_msc_read_capacity(umass_uaa.device, 0, &nblock, &blocksize) != 0)
 		return (EINVAL);
 
-	return (disk_open(dev, ((uint64_t)nblock + 1) * (uint64_t)blocksize, blocksize, 0));
+	return (disk_open(dev, ((uint64_t)nblock + 1) * (uint64_t)blocksize, blocksize));
 }
 
 static int
@@ -208,7 +209,6 @@ umass_disk_print(int verbose)
 static void
 umass_disk_cleanup(void)
 {
-	disk_cleanup(&umass_disk);
 
 	usb_uninit();
 }
