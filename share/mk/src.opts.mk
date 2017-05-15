@@ -180,6 +180,7 @@ __DEFAULT_YES_OPTIONS = \
     ZONEINFO
 
 __DEFAULT_NO_OPTIONS = \
+    ASAN \
     BSD_GREP \
     CLANG_EXTRAS \
     DEVD_PIE \
@@ -445,6 +446,11 @@ MK_SAFESTACK:=	no
 
 .if ${MK_LLD_IS_LD} == "no" || ${MK_LLD_BOOTSTRAP} == "no"
 MK_CFI:=	no
+.endif
+
+.if ${MK_ASAN} != "no"
+MK_SAFESTACK=	no
+MK_CFI=		no
 .endif
 
 #

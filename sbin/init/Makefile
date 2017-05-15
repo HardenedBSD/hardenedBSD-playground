@@ -11,6 +11,7 @@ CFLAGS+=-DDEBUGSHELL -DSECURE -DLOGIN_CAP -DCOMPAT_SYSV_INIT
 LIBADD=	util crypt
 
 NOCFI=	yes
+NOASAN=	yes
 
 # Needed for getmntopts.c
 MOUNT=	${SRCTOP}/sbin/mount

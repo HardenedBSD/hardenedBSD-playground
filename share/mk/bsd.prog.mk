@@ -64,7 +64,7 @@ LDFLAGS+= -static
 # it be defined.
 
 .if ${LDFLAGS:M-static}
-NOPIE=yes
+NOPIE=	yes
 .endif
 
 .if !defined(NOPIE)
@@ -107,6 +107,16 @@ LDFLAGS+=	-Wl,-z,relro
 
 .if ${MK_BIND_NOW} != "no"
 LDFLAGS+=	-Wl,-z,now
+.endif
+.endif
+
+.if ${LDFLAGS:M-static}
+NOASAN=	yes
+.endif
+
+.if !defined(NOASAN) && defined(MK_ASAN)
+.if ${MK_ASAN} != "no"
+CFLAGS+=	-fsanitize=address
 .endif
 .endif
 
