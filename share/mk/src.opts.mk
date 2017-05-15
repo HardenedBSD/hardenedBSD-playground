@@ -72,6 +72,7 @@ __DEFAULT_YES_OPTIONS = \
     CASPER \
     CCD \
     CDDL \
+    CLANG_EXTRAS \
     CPP \
     CROSS_COMPILER \
     CRYPT \
@@ -182,7 +183,6 @@ __DEFAULT_YES_OPTIONS = \
 __DEFAULT_NO_OPTIONS = \
     ASAN \
     BSD_GREP \
-    CLANG_EXTRAS \
     DEVD_PIE \
     DTRACE_TESTS \
     FREEBSD_UPDATE \
