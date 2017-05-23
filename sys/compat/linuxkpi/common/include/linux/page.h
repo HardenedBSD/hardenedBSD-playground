@@ -49,13 +49,7 @@ typedef unsigned long pgprot_t;
 
 #define page	vm_page
 
-#define	PAGE_KERNEL	0x0000
-#define PAGE_KERNEL_IO  PAGE_KERNEL
-/*
-#define __PAGE_KERNEL_EXEC						\
-	(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY | _PAGE_ACCESSED | _PAGE_GLOBAL)
-#define __PAGE_KERNEL		(__PAGE_KERNEL_EXEC | _PAGE_NX)
-*/
+#define PAGE_KERNEL_IO  0x0000
 
 #define	LINUXKPI_PROT_VALID (1 << 4)
 #define	LINUXKPI_CACHE_MODE_SHIFT 3
@@ -135,8 +129,6 @@ int set_pages_wc(vm_page_t page, int numpages);
 int set_memory_wc(unsigned long addr, int numpages);
 
 vm_paddr_t page_to_phys(vm_page_t page);
-
-void *acpi_os_ioremap(vm_paddr_t pa, vm_size_t size);
 
 void unmap_mapping_range(void *obj,
 			 loff_t const holebegin, loff_t const holelen, int even_cows);

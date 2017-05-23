@@ -46,7 +46,6 @@
 #include <linux/list.h>
 #include <linux/atomic.h>
 #include <linux/mutex.h>
-#include <linux/capability.h>
 #include <linux/interrupt.h>
 
 struct module;
@@ -93,7 +92,6 @@ struct linux_file {
 	vm_object_t	f_mapping;
 
 	/* kqfilter support */
-	struct tasklet_struct f_kevent_tasklet;
 	struct list_head f_entry;
 	struct filterops *f_kqfiltops;
 	/* protects f_sigio.si_note and f_entry */
@@ -296,13 +294,6 @@ static inline gfp_t mapping_gfp_mask(struct address_space *m)
 	return (0);
 }
 void shmem_truncate_range(struct vnode *, loff_t, loff_t);
-/*
-  void shmem_truncate_range(struct vnode *, int, loff_t) =>
-  	vm_obj = obj->base.i_mapping.vm_obj;
-	VM_OBJECT_WLOCK(vm_obj);
-	vm_object_page_remove(vm_obj, 0, 0, false);
-	VM_OBJECT_WUNLOCK(vm_obj);
- */
 
 extern struct address_space *alloc_anon_mapping(size_t);
 extern void free_anon_mapping(struct address_space *);

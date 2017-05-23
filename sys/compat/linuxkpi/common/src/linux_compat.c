@@ -54,10 +54,6 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/stdarg.h>
 
-#if defined(__i386__) || defined(__amd64__)
-#include <machine/md_var.h>
-#endif
-
 #include <linux/kobject.h>
 #include <linux/device.h>
 #include <linux/slab.h>
@@ -71,7 +67,6 @@ __FBSDID("$FreeBSD$");
 #include <linux/netdevice.h>
 #include <linux/timer.h>
 #include <linux/interrupt.h>
-#include <linux/async.h>
 #include <linux/compat.h>
 #include <linux/uaccess.h>
 #include <linux/list.h>
@@ -100,8 +95,6 @@ MALLOC_DEFINE(M_LCINT, "linuxint", "Linux compat internal");
 #undef file
 #undef cdev
 
-struct cpuinfo_x86 boot_cpu_data; 
-
 static struct vm_area_struct *linux_cdev_handle_find(void *handle);
 
 struct kobject linux_class_root;
@@ -112,8 +105,6 @@ struct list_head pci_devices;
 spinlock_t pci_lock;
 
 unsigned long linux_timer_hz_mask;
-struct ida *hwmon_idap;
-DEFINE_IDA(hwmon_ida);
 
 /*
  * XXX need to define irq_idr 
@@ -598,16 +589,6 @@ static struct cdev_pager_ops linux_cdev_pager_ops = {
 };
 
 static void
-linux_dev_deferred_note(unsigned long arg)
-{
-	struct linux_file *filp = (struct linux_file *)arg;
-
-	spin_lock(&filp->f_lock);
-	KNOTE_LOCKED(&filp->f_selinfo.si_note, 1);
-	spin_unlock(&filp->f_lock);
-}
-
-static void
 kq_lock(void *arg)
 {
 	spinlock_t *s = arg;
@@ -648,7 +629,6 @@ linux_dev_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 	struct linux_cdev *ldev;
 	struct linux_file *filp;
 	struct file *file;
-	struct tasklet_struct *t;
 	int error;
 
 	file = td->td_fpop;
@@ -663,11 +643,9 @@ linux_dev_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 	filp->f_vnode = file->f_vnode;
 	linux_set_current(td);
 	INIT_LIST_HEAD(&filp->f_entry);
-	t = &filp->f_kevent_tasklet;
-	tasklet_init(t, linux_dev_deferred_note, (u_long)filp);
 	spin_lock_init(&filp->f_lock);
 	knlist_init(&filp->f_selinfo.si_note, &filp->f_lock, kq_lock, kq_unlock,
-		    kq_lock_owned, kq_lock_unowned);
+	    kq_lock_owned, kq_lock_unowned);
 
 	if (filp->f_op->open) {
 		error = -filp->f_op->open(file->f_vnode, filp);
@@ -941,7 +919,6 @@ static int
 linux_dev_poll(struct cdev *dev, int events, struct thread *td)
 {
 	struct linux_file *filp;
-	struct poll_wqueues table;
 	struct file *file;
 	int revents;
 
@@ -956,14 +933,11 @@ linux_dev_poll(struct cdev *dev, int events, struct thread *td)
 		filp->_file = file;
 
 	linux_set_current(td);
-	if (filp->f_op->poll) {
+	if (filp->f_op->poll)
 		/* XXX need to add support for bounded wait */
-		poll_initwait(&table);
-		revents = filp->f_op->poll(filp, &table.pt) & events;
-		poll_freewait(&table);
-	} else {
+		revents = filp->f_op->poll(filp, NULL) & events;
+	else
 		revents = 0;
-	}
 	return (revents);
 error:
 	return (events & (POLLHUP|POLLIN|POLLRDNORM|POLLOUT|POLLWRNORM));
@@ -974,7 +948,6 @@ linux_dev_kqfilter(struct cdev *dev, struct knote *kn)
 {
 	struct linux_file *filp;
 	struct file *file;
-	struct poll_wqueues table;
 	struct thread *td;
 	int error, revents;
 
@@ -1001,8 +974,7 @@ linux_dev_kqfilter(struct cdev *dev, struct knote *kn)
 		return (EINVAL);
 
 	linux_set_current(td);
-	kevent_initwait(&table);
-	revents = filp->f_op->poll(filp, &table.pt);
+	revents = filp->f_op->poll(filp, NULL);
 
 	if (revents) {
 		spin_lock(&filp->f_lock);
@@ -1158,7 +1130,6 @@ linux_file_poll(struct file *file, int events, struct ucred *active_cred,
     struct thread *td)
 {
 	struct linux_file *filp;
-	struct poll_wqueues table;
 	int revents;
 
 	filp = (struct linux_file *)file->f_data;
@@ -1166,11 +1137,9 @@ linux_file_poll(struct file *file, int events, struct ucred *active_cred,
 	if (filp->_file == NULL)
 		filp->_file = td->td_fpop;
 	linux_set_current(td);
-	if (filp->f_op->poll) {
-		poll_initwait(&table);
-		revents = filp->f_op->poll(filp, &table.pt) & events;
-		poll_freewait(&table);
-	} else
+	if (filp->f_op->poll)
+		revents = filp->f_op->poll(filp, NULL) & events;
+	else
 		revents = 0;
 
 	return (revents);
@@ -1768,45 +1737,6 @@ __unregister_chrdev(unsigned int major, unsigned int baseminor,
 	}
 }
 
-static DECLARE_WAIT_QUEUE_HEAD(async_done);
-static atomic_t nextcookie;
-
-static void
-async_run_entry_fn(struct work_struct *work)
-{
-	struct async_entry *entry; 	
-
-	linux_set_current(curthread);
-	entry  = container_of(work, struct async_entry, work);
-	entry->func(entry->data, entry->cookie);
-	kfree(entry);
-	wake_up(&async_done);
-
-}
-
-async_cookie_t
-async_schedule(async_func_t func, void *data)
-{
-	struct async_entry *entry;
-	async_cookie_t newcookie;
-
-	DODGY();
-	entry = kzalloc(sizeof(struct async_entry), GFP_ATOMIC);
-
-	if (entry == NULL) {
-		newcookie = atomic_inc_return(&nextcookie);
-		func(data, newcookie);
-		return (newcookie);
-	}
-
-	INIT_WORK(&entry->work, async_run_entry_fn);
-	entry->func = func;
-	entry->data = data;
-	newcookie = entry->cookie = atomic_inc_return(&nextcookie);
-	queue_work(system_unbound_wq, &entry->work);
-	return (newcookie);
-}
-
 #if defined(__i386__) || defined(__amd64__)
 bool linux_cpu_has_clflush;
 #endif
@@ -1816,16 +1746,7 @@ linux_compat_init(void *arg)
 {
 	struct sysctl_oid *rootoid;
 
-#if defined(__i386__) || defined(__amd64__)
-	if (cpu_feature & CPUID_CLFSH)
-		set_bit(X86_FEATURE_CLFLUSH, &boot_cpu_data.x86_capability);
-	if (cpu_feature & CPUID_PAT)
-		set_bit(X86_FEATURE_PAT, &boot_cpu_data.x86_capability);
-#endif
-	hwmon_idap = &hwmon_ida;
 	rw_init(&linux_vma_lock, "lkpi-vma-lock");
-	boot_cpu_data.x86_clflush_size = cpu_clflush_line_size;
-	boot_cpu_data.x86 = ((cpu_id & 0xF0000) >> 12) | ((cpu_id & 0xF0) >> 4);
 
 	rootoid = SYSCTL_ADD_ROOT_NODE(NULL,
 	    OID_AUTO, "sys", CTLFLAG_RD|CTLFLAG_MPSAFE, NULL, "sys");

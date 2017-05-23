@@ -42,7 +42,6 @@
 #include <linux/pid.h>
 #include <linux/slab.h>
 #include <linux/mm_types.h>
-#include <linux/hrtimer.h>
 #include <linux/time64.h>
 #include <linux/string.h>
 #include <linux/bitmap.h>
@@ -127,22 +126,6 @@ put_task_struct(struct task_struct *task)
 extern u64 cpu_clock(int cpu);
 extern u64 running_clock(void);
 extern u64 sched_clock_cpu(int cpu);
-
-static inline int
-sched_setscheduler(struct task_struct *t, int policy,
-    const struct sched_param *param)
-{
-	UNIMPLEMENTED();
-	return (0);
-}
-
-static inline int
-sched_setscheduler_nocheck(struct task_struct *t, int policy,
-    const struct sched_param *param)
-{
-	UNIMPLEMENTED();
-	return (0);
-}
 
 static inline u64
 local_clock(void)
@@ -241,7 +224,7 @@ schedule(void)
 	schedule_timeout(MAX_SCHEDULE_TIMEOUT);
 }
 
-#define	yield() kern_yield(0)
+#define	yield() kern_yield(PRI_UNCHANGED)
 
 #define	need_resched() (curthread->td_flags & TDF_NEEDRESCHED)
 
