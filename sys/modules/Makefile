@@ -103,6 +103,7 @@ SUBDIR=	\
 	${_efirt} \
 	${_elink} \
 	${_em} \
+	${_ena} \
 	${_ep} \
 	${_epic} \
 	esp \
@@ -560,6 +561,7 @@ _dpms=		dpms
 _drm=		drm
 _ed=		ed
 _em=		em
+_ena=		ena
 _ep=		ep
 _et=		et
 _exca=		exca

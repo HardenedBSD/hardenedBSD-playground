@@ -606,6 +606,8 @@
         ..
         cmp
         ..
+        compress
+        ..
         cpio
         ..
         col
@@ -621,6 +623,8 @@
         dirname
         ..
         file2c
+        ..
+        getconf
         ..
         grep
         ..
