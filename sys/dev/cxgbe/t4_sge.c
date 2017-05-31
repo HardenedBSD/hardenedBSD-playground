@@ -969,6 +969,11 @@ vi_intr_iq(struct vi_info *vi, int idx)
 		return (&sc->sge.fwq);
 
 	nintr = vi->nintr;
+#ifdef DEV_NETMAP
+	/* Do not consider any netmap-only interrupts */
+	if (vi->flags & INTR_RXQ && vi->nnmrxq > vi->nrxq)
+		nintr -= vi->nnmrxq - vi->nrxq;
+#endif
 	KASSERT(nintr != 0,
 	    ("%s: vi %p has no exclusive interrupts, total interrupts = %d",
 	    __func__, vi, sc->intr_count));
@@ -5318,7 +5323,7 @@ sysctl_tc(SYSCTL_HANDLER_ARGS)
 			tc->refcount--;
 		}
 		txq->tc_idx = tc_idx;
-	} else {
+	} else if (tc_idx != -1) {
 		tc = &pi->sched_params->cl_rl[tc_idx];
 		MPASS(tc->refcount > 0);
 		tc->refcount--;
