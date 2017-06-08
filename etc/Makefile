@@ -7,9 +7,6 @@ FILESGROUPS=	FILES
 
 # No need as it is empty and just causes rebuilds since this file does so much.
 UPDATE_DEPENDFILE=	no
-SUBDIR=	\
-	newsyslog.conf.d \
-	syslog.d
 
 .if ${MK_SENDMAIL} != "no"
 SUBDIR+=sendmail
@@ -257,9 +254,11 @@ distribution:
 .if ${MK_CASPER} != "no"
 	${_+_}cd ${.CURDIR}/casper; ${MAKE} install
 .endif
+	${_+_}cd ${.CURDIR}/cron.d; ${MAKE} install
 	${_+_}cd ${.CURDIR}/defaults; ${MAKE} install
 	${_+_}cd ${.CURDIR}/devd; ${MAKE} install
 	${_+_}cd ${.CURDIR}/gss; ${MAKE} install
+	${_+_}cd ${.CURDIR}/newsyslog.conf.d; ${MAKE} install
 .if ${MK_NTP} != "no"
 	${_+_}cd ${.CURDIR}/ntp; ${MAKE} install
 .endif
@@ -269,6 +268,7 @@ distribution:
 .endif
 	${_+_}cd ${.CURDIR}/rc.d; ${MAKE} install
 	${_+_}cd ${SRCTOP}/share/termcap; ${MAKE} etc-termcap
+	${_+_}cd ${.CURDIR}/syslog.d; ${MAKE} install
 	${_+_}cd ${SRCTOP}/usr.sbin/rmt; ${MAKE} etc-rmt
 	${_+_}cd ${.CURDIR}/pam.d; ${MAKE} install
 	cd ${.CURDIR}; ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 0444 \
@@ -364,9 +364,6 @@ MTREES=		mtree/BSD.root.dist		/		\
 		mtree/BSD.usr.dist		/usr		\
 		mtree/BSD.include.dist		/usr/include	\
 		mtree/BSD.debug.dist		/usr/lib
-.if ${MK_GROFF} != "no"
-MTREES+=	mtree/BSD.groff.dist		/usr
-.endif
 .if ${MK_LIB32} != "no"
 MTREES+=	mtree/BSD.lib32.dist		/usr
 MTREES+=	mtree/BSD.lib32.dist		/usr/lib/debug/usr

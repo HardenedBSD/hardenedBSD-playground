@@ -101,6 +101,7 @@ MAN=	aac.4 \
 	cc_newreno.4 \
 	cc_vegas.4 \
 	${_ccd.4} \
+	ccr.4 \
 	cd.4 \
 	cdce.4 \
 	cfi.4 \
@@ -428,6 +429,7 @@ MAN=	aac.4 \
 	ral.4 \
 	random.4 \
 	rc.4 \
+	rctl.4 \
 	re.4 \
 	rgephy.4 \
 	rights.4 \

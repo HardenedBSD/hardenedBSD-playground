@@ -37,6 +37,7 @@ __FBSDID("$FreeBSD$");
  * arguments.
  */
 
+#include <sys/capsicum.h>
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/ioccom.h>
@@ -76,6 +77,32 @@ __FBSDID("$FreeBSD$");
  */
 static struct syscall decoded_syscalls[] = {
 	/* Native ABI */
+	{ .name = "__acl_aclcheck_fd", .ret_type = 1, .nargs = 3,
+	  .args = { { Int, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__acl_aclcheck_file", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__acl_aclcheck_link", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__acl_delete_fd", .ret_type = 1, .nargs = 2,
+	  .args = { { Int, 0 }, { Acltype, 1 } } },
+	{ .name = "__acl_delete_file", .ret_type = 1, .nargs = 2,
+	  .args = { { Name, 0 }, { Acltype, 1 } } },
+	{ .name = "__acl_delete_link", .ret_type = 1, .nargs = 2,
+	  .args = { { Name, 0 }, { Acltype, 1 } } },
+	{ .name = "__acl_get_fd", .ret_type = 1, .nargs = 3,
+	  .args = { { Int, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__acl_get_file", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__acl_get_link", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__acl_set_fd", .ret_type = 1, .nargs = 3,
+	  .args = { { Int, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__acl_set_file", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__acl_set_link", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Acltype, 1 }, { Ptr, 2 } } },
+	{ .name = "__cap_rights_get", .ret_type = 1, .nargs = 3,
+	  .args = { { Int, 0 }, { Int, 1 }, { CapRights | OUT, 2 } } },
 	{ .name = "__getcwd", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | OUT, 0 }, { Int, 1 } } },
 	{ .name = "_umtx_op", .ret_type = 1, .nargs = 5,
@@ -96,6 +123,10 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 }, { CapFcntlRights | OUT, 1 } } },
 	{ .name = "cap_fcntls_limit", .ret_type = 1, .nargs = 2,
 	  .args = { { Int, 0 }, { CapFcntlRights, 1 } } },
+	{ .name = "cap_getmode", .ret_type = 1, .nargs = 1,
+	  .args = { { PUInt | OUT, 0 } } },
+	{ .name = "cap_rights_limit", .ret_type = 1, .nargs = 2,
+	  .args = { { Int, 0 }, { CapRights, 1 } } },
 	{ .name = "chdir", .ret_type = 1, .nargs = 1,
 	  .args = { { Name, 0 } } },
 	{ .name = "chflags", .ret_type = 1, .nargs = 2,
@@ -118,6 +149,10 @@ static struct syscall decoded_syscalls[] = {
 	{ .name = "connectat", .ret_type = 1, .nargs = 4,
 	  .args = { { Atfd, 0 }, { Int, 1 }, { Sockaddr | IN, 2 },
 		    { Int, 3 } } },
+	{ .name = "dup", .ret_type = 1, .nargs = 1,
+	  .args = { { Int, 0 } } },
+	{ .name = "dup2", .ret_type = 1, .nargs = 2,
+	  .args = { { Int, 0 }, { Int, 1 } } },
 	{ .name = "eaccess", .ret_type = 1, .nargs = 2,
 	  .args = { { Name | IN, 0 }, { Accessmode, 1 } } },
 	{ .name = "execve", .ret_type = 1, .nargs = 3,
@@ -125,6 +160,42 @@ static struct syscall decoded_syscalls[] = {
 		    { ExecEnv | IN, 2 } } },
 	{ .name = "exit", .ret_type = 0, .nargs = 1,
 	  .args = { { Hex, 0 } } },
+	{ .name = "extattr_delete_fd", .ret_type = 1, .nargs = 3,
+	  .args = { { Int, 0 }, { Extattrnamespace, 1 }, { Name, 2 } } },
+	{ .name = "extattr_delete_file", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Extattrnamespace, 1 }, { Name, 2 } } },
+	{ .name = "extattr_delete_link", .ret_type = 1, .nargs = 3,
+	  .args = { { Name, 0 }, { Extattrnamespace, 1 }, { Name, 2 } } },
+	{ .name = "extattr_get_fd", .ret_type = 1, .nargs = 5,
+	  .args = { { Int, 0 }, { Extattrnamespace, 1 }, { Name, 2 },
+		    { BinString | OUT, 3 }, { Sizet, 4 } } },
+	{ .name = "extattr_get_file", .ret_type = 1, .nargs = 5,
+	  .args = { { Name, 0 }, { Extattrnamespace, 1 }, { Name, 2 },
+		    { BinString | OUT, 3 }, { Sizet, 4 } } },
+	{ .name = "extattr_get_link", .ret_type = 1, .nargs = 5,
+	  .args = { { Name, 0 }, { Extattrnamespace, 1 }, { Name, 2 },
+		    { BinString | OUT, 3 }, { Sizet, 4 } } },
+	{ .name = "extattr_list_fd", .ret_type = 1, .nargs = 4,
+	  .args = { { Int, 0 }, { Extattrnamespace, 1 }, { BinString | OUT, 2 },
+		    { Sizet, 3 } } },
+	{ .name = "extattr_list_file", .ret_type = 1, .nargs = 4,
+	  .args = { { Name, 0 }, { Extattrnamespace, 1 }, { BinString | OUT, 2 },
+		    { Sizet, 3 } } },
+	{ .name = "extattr_list_link", .ret_type = 1, .nargs = 4,
+	  .args = { { Name, 0 }, { Extattrnamespace, 1 }, { BinString | OUT, 2 },
+		    { Sizet, 3 } } },
+	{ .name = "extattr_set_fd", .ret_type = 1, .nargs = 5,
+	  .args = { { Int, 0 }, { Extattrnamespace, 1 }, { Name, 2 },
+		    { BinString | IN, 3 }, { Sizet, 4 } } },
+	{ .name = "extattr_set_file", .ret_type = 1, .nargs = 5,
+	  .args = { { Name, 0 }, { Extattrnamespace, 1 }, { Name, 2 },
+		    { BinString | IN, 3 }, { Sizet, 4 } } },
+	{ .name = "extattr_set_link", .ret_type = 1, .nargs = 5,
+	  .args = { { Name, 0 }, { Extattrnamespace, 1 }, { Name, 2 },
+		    { BinString | IN, 3 }, { Sizet, 4 } } },
+	{ .name = "extattrctl", .ret_type = 1, .nargs = 5,
+	  .args = { { Name, 0 }, { Hex, 1 }, { Name, 2 },
+		    { Extattrnamespace, 3 }, { Name, 4 } } },
 	{ .name = "faccessat", .ret_type = 1, .nargs = 4,
 	  .args = { { Atfd, 0 }, { Name | IN, 1 }, { Accessmode, 2 },
 		    { Atflags, 3 } } },
@@ -158,6 +229,9 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Int, 0 }, { Timeval2 | IN, 1 } } },
 	{ .name = "futimesat", .ret_type = 1, .nargs = 3,
 	  .args = { { Atfd, 0 }, { Name | IN, 1 }, { Timeval2 | IN, 2 } } },
+	{ .name = "getdirentries", .ret_type = 1, .nargs = 4,
+	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Int, 2 },
+		    { PQuadHex | OUT, 3 } } },
 	{ .name = "getfsstat", .ret_type = 1, .nargs = 3,
 	  .args = { { Ptr, 0 }, { Long, 1 }, { Getfsstatmode, 2 } } },
 	{ .name = "getitimer", .ret_type = 1, .nargs = 2,
@@ -169,7 +243,7 @@ static struct syscall decoded_syscalls[] = {
 	{ .name = "getrlimit", .ret_type = 1, .nargs = 2,
 	  .args = { { Resource, 0 }, { Rlimit | OUT, 1 } } },
 	{ .name = "getrusage", .ret_type = 1, .nargs = 2,
-	  .args = { { Int, 0 }, { Rusage | OUT, 1 } } },
+	  .args = { { RusageWho, 0 }, { Rusage | OUT, 1 } } },
 	{ .name = "getsid", .ret_type = 1, .nargs = 1,
 	  .args = { { Int, 0 } } },
 	{ .name = "getsockname", .ret_type = 1, .nargs = 3,
@@ -225,6 +299,8 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Name | IN, 0 }, { Timeval2 | IN, 1 } } },
 	{ .name = "madvise", .ret_type = 1, .nargs = 3,
 	  .args = { { Ptr, 0 }, { Sizet, 1 }, { Madvice, 2 } } },
+	{ .name = "minherit", .ret_type = 1, .nargs = 3,
+	  .args = { { Ptr, 0 }, { Sizet, 1 }, { Minherit, 2 } } },
 	{ .name = "mkdir", .ret_type = 1, .nargs = 2,
 	  .args = { { Name, 0 }, { Octal, 1 } } },
 	{ .name = "mkdirat", .ret_type = 1, .nargs = 3,
@@ -237,19 +313,29 @@ static struct syscall decoded_syscalls[] = {
 	  .args = { { Name, 0 }, { Octal, 1 }, { Int, 2 } } },
 	{ .name = "mknodat", .ret_type = 1, .nargs = 4,
 	  .args = { { Atfd, 0 }, { Name, 1 }, { Octal, 2 }, { Int, 3 } } },
+	{ .name = "mlock", .ret_type = 1, .nargs = 2,
+	  .args = { { Ptr, 0 }, { Sizet, 1 } } },
+	{ .name = "mlockall", .ret_type = 1, .nargs = 1,
+	  .args = { { Mlockall, 0 } } },
 	{ .name = "mmap", .ret_type = 1, .nargs = 6,
 	  .args = { { Ptr, 0 }, { Sizet, 1 }, { Mprot, 2 }, { Mmapflags, 3 },
 		    { Int, 4 }, { QuadHex, 5 } } },
 	{ .name = "modfind", .ret_type = 1, .nargs = 1,
 	  .args = { { Name | IN, 0 } } },
 	{ .name = "mount", .ret_type = 1, .nargs = 4,
-	  .args = { { Name, 0 }, { Name, 1 }, { Int, 2 }, { Ptr, 3 } } },
+	  .args = { { Name, 0 }, { Name, 1 }, { Mountflags, 2 }, { Ptr, 3 } } },
 	{ .name = "mprotect", .ret_type = 1, .nargs = 3,
 	  .args = { { Ptr, 0 }, { Sizet, 1 }, { Mprot, 2 } } },
+	{ .name = "msync", .ret_type = 1, .nargs = 3,
+	  .args = { { Ptr, 0 }, { Sizet, 1 }, { Msync, 2 } } },
+	{ .name = "munlock", .ret_type = 1, .nargs = 2,
+	  .args = { { Ptr, 0 }, { Sizet, 1 } } },
 	{ .name = "munmap", .ret_type = 1, .nargs = 2,
 	  .args = { { Ptr, 0 }, { Sizet, 1 } } },
 	{ .name = "nanosleep", .ret_type = 1, .nargs = 1,
 	  .args = { { Timespec, 0 } } },
+	{ .name = "nmount", .ret_type = 1, .nargs = 3,
+	  .args = { { Ptr, 0 }, { UInt, 1 }, { Mountflags, 2 } } },
 	{ .name = "open", .ret_type = 1, .nargs = 3,
 	  .args = { { Name | IN, 0 }, { Open, 1 }, { Octal, 2 } } },
 	{ .name = "openat", .ret_type = 1, .nargs = 4,
@@ -268,8 +354,14 @@ static struct syscall decoded_syscalls[] = {
 		    { Fadvice, 3 } } },
 	{ .name = "posix_openpt", .ret_type = 1, .nargs = 1,
 	  .args = { { Open, 0 } } },
+	{ .name = "pread", .ret_type = 1, .nargs = 4,
+	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Sizet, 2 },
+		    { QuadHex, 3 } } },
 	{ .name = "procctl", .ret_type = 1, .nargs = 4,
 	  .args = { { Idtype, 0 }, { Quad, 1 }, { Procctl, 2 }, { Ptr, 3 } } },
+	{ .name = "pwrite", .ret_type = 1, .nargs = 4,
+	  .args = { { Int, 0 }, { BinString | IN, 1 }, { Sizet, 2 },
+		    { QuadHex, 3 } } },
 	{ .name = "read", .ret_type = 1, .nargs = 3,
 	  .args = { { Int, 0 }, { BinString | OUT, 1 }, { Sizet, 2 } } },
 	{ .name = "readlink", .ret_type = 1, .nargs = 3,
@@ -364,7 +456,7 @@ static struct syscall decoded_syscalls[] = {
 	{ .name = "unlinkat", .ret_type = 1, .nargs = 3,
 	  .args = { { Atfd, 0 }, { Name, 1 }, { Atflags, 2 } } },
 	{ .name = "unmount", .ret_type = 1, .nargs = 2,
-	  .args = { { Name, 0 }, { Int, 1 } } },
+	  .args = { { Name, 0 }, { Mountflags, 1 } } },
 	{ .name = "utimensat", .ret_type = 1, .nargs = 4,
 	  .args = { { Atfd, 0 }, { Name | IN, 1 }, { Timespec2 | IN, 2 },
 		    { Atflags, 3 } } },
@@ -1185,6 +1277,16 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 	case UInt:
 		fprintf(fp, "%u", (unsigned int)args[sc->offset]);
 		break;
+	case PUInt: {
+		unsigned int val;
+
+		if (get_struct(pid, (void *)args[sc->offset], &val,
+		    sizeof(val)) == 0) 
+			fprintf(fp, "{ %u }", val);
+		else
+			fprintf(fp, "0x%lx", args[sc->offset]);
+		break;
+	}
 	case LongHex:
 		fprintf(fp, "0x%lx", args[sc->offset]);
 		break;
@@ -1337,6 +1439,16 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 		break;
 	}
 #endif
+	case PQuadHex: {
+		uint64_t val;
+
+		if (get_struct(pid, (void *)args[sc->offset], &val,
+		    sizeof(val)) == 0) 
+			fprintf(fp, "{ 0x%jx }", (uintmax_t)val);
+		else
+			fprintf(fp, "0x%lx", args[sc->offset]);
+		break;
+	}
 	case Ptr:
 		fprintf(fp, "0x%lx", args[sc->offset]);
 		break;
@@ -1578,6 +1690,9 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 		break;
 	case Resource:
 		print_integer_arg(sysdecode_rlimit, fp, args[sc->offset]);
+		break;
+	case RusageWho:
+		print_integer_arg(sysdecode_getrusage_who, fp, args[sc->offset]);
 		break;
 	case Pathconf:
 		fputs(xlookup(pathconf_arg, args[sc->offset]), fp);
@@ -1938,13 +2053,20 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 		fprintf(fp, "%u", (socklen_t)args[sc->offset]);
 		break;
 	case Sockprotocol: {
-		int protocol;
+		const char *temp;
+		int domain, protocol;
 
+		domain = args[sc->offset - 2];
 		protocol = args[sc->offset];
 		if (protocol == 0) {
 			fputs("0", fp);
 		} else {
-			print_integer_arg(sysdecode_ipproto, fp, protocol);
+			temp = sysdecode_socket_protocol(domain, protocol);
+			if (temp) {
+				fputs(temp, fp);
+			} else {
+				fprintf(fp, "%d", protocol);
+			}
 		}
 		break;
 	}
@@ -1968,6 +2090,38 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 	}
 	case Msgflags:
 		print_mask_arg(sysdecode_msg_flags, fp, args[sc->offset]);
+		break;
+	case CapRights: {
+		cap_rights_t rights;
+
+		if (get_struct(pid, (void *)args[sc->offset], &rights,
+		    sizeof(rights)) != -1) {
+			fputs("{ ", fp);
+			sysdecode_cap_rights(fp, &rights);
+			fputs(" }", fp);
+		} else
+			fprintf(fp, "0x%lx", args[sc->offset]);
+		break;
+	}
+	case Acltype:
+		print_integer_arg(sysdecode_acltype, fp, args[sc->offset]);
+		break;
+	case Extattrnamespace:
+		print_integer_arg(sysdecode_extattrnamespace, fp,
+		    args[sc->offset]);
+		break;
+	case Minherit:
+		print_integer_arg(sysdecode_minherit_inherit, fp,
+		    args[sc->offset]);
+		break;
+	case Mlockall:
+		print_mask_arg(sysdecode_mlockall_flags, fp, args[sc->offset]);
+		break;
+	case Mountflags:
+		print_mask_arg(sysdecode_mount_flags, fp, args[sc->offset]);
+		break;
+	case Msync:
+		print_mask_arg(sysdecode_msync_flags, fp, args[sc->offset]);
 		break;
 
 	case CloudABIAdvice:
