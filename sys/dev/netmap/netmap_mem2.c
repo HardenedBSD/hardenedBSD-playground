@@ -56,6 +56,8 @@ __FBSDID("$FreeBSD$");
 MALLOC_DECLARE(M_NETMAP);
 MALLOC_DEFINE(M_NETMAP, "netmap", "Network memory map");
 
+struct device;
+
 #endif /* __FreeBSD__ */
 
 #ifdef _WIN32
@@ -229,9 +231,6 @@ NMD_DEFNACB(void, rings_delete);
 
 static int netmap_mem_map(struct netmap_obj_pool *, struct netmap_adapter *);
 static int netmap_mem_unmap(struct netmap_obj_pool *, struct netmap_adapter *);
-<<<<<<< HEAD
-static int nm_mem_assign_group(struct netmap_mem_d *, device_t);
-=======
 static int nm_mem_assign_group(struct netmap_mem_d *, struct device *);
 static void nm_mem_release_id(struct netmap_mem_d *);
 
@@ -240,7 +239,6 @@ netmap_mem_get_id(struct netmap_mem_d *nmd)
 {
 	return nmd->nm_id;
 }
->>>>>>> upstream/hardened/current/master
 
 #define NMA_LOCK_INIT(n)	NM_MTX_INIT((n)->nm_mtx)
 #define NMA_LOCK_DESTROY(n)	NM_MTX_DESTROY((n)->nm_mtx)
@@ -584,7 +582,7 @@ netmap_mem_find(nm_memid_t id)
 }
 
 static int
-nm_mem_assign_group(struct netmap_mem_d *nmd, device_t dev)
+nm_mem_assign_group(struct netmap_mem_d *nmd, struct device *dev)
 {
 	int err = 0, id;
 	id = nm_iommu_group_id(dev);
