@@ -36,8 +36,6 @@
 
 #include <linux/hardirq.h>
 
-struct seq_file;
-#undef resource
 typedef	irqreturn_t	(*irq_handler_t)(int, void *);
 
 #define	IRQ_RETVAL(x)	((x) != IRQ_NONE)
@@ -163,8 +161,6 @@ free_irq(unsigned int irq, void *device)
 	list_del(&irqe->links);
 	kfree(irqe);
 }
-
-#define resource linux_resource
 
 /*
  * Tasklet support

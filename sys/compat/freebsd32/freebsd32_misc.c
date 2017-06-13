@@ -1895,12 +1895,38 @@ freebsd32_fhstat(struct thread *td, struct freebsd32_fhstat_args *uap)
 }
 
 #if defined(COMPAT_FREEBSD11)
-static void
+extern int ino64_trunc_error;
+
+static int
 freebsd11_cvtstat32(struct stat *in, struct freebsd11_stat32 *out)
 {
 
 	CP(*in, *out, st_ino);
+	if (in->st_ino != out->st_ino) {
+		switch (ino64_trunc_error) {
+		default:
+		case 0:
+			break;
+		case 1:
+			return (EOVERFLOW);
+		case 2:
+			out->st_ino = UINT32_MAX;
+			break;
+		}
+	}
 	CP(*in, *out, st_nlink);
+	if (in->st_nlink != out->st_nlink) {
+		switch (ino64_trunc_error) {
+		default:
+		case 0:
+			break;
+		case 1:
+			return (EOVERFLOW);
+		case 2:
+			out->st_nlink = UINT16_MAX;
+			break;
+		}
+	}
 	CP(*in, *out, st_dev);
 	CP(*in, *out, st_mode);
 	CP(*in, *out, st_uid);
@@ -1919,6 +1945,7 @@ freebsd11_cvtstat32(struct stat *in, struct freebsd11_stat32 *out)
 	bzero((char *)&out->st_birthtim + sizeof(out->st_birthtim),
 	    sizeof(*out) - offsetof(struct freebsd11_stat32,
 	    st_birthtim) - sizeof(out->st_birthtim));
+	return (0);
 }
 
 int
@@ -1933,8 +1960,9 @@ freebsd11_freebsd32_stat(struct thread *td,
 	    &sb, NULL);
 	if (error != 0)
 		return (error);
-	freebsd11_cvtstat32(&sb, &sb32);
-	error = copyout(&sb32, uap->ub, sizeof (sb32));
+	error = freebsd11_cvtstat32(&sb, &sb32);
+	if (error == 0)
+		error = copyout(&sb32, uap->ub, sizeof (sb32));
 	return (error);
 }
 
@@ -1949,8 +1977,9 @@ freebsd11_freebsd32_fstat(struct thread *td,
 	error = kern_fstat(td, uap->fd, &sb);
 	if (error != 0)
 		return (error);
-	freebsd11_cvtstat32(&sb, &sb32);
-	error = copyout(&sb32, uap->ub, sizeof (sb32));
+	error = freebsd11_cvtstat32(&sb, &sb32);
+	if (error == 0)
+		error = copyout(&sb32, uap->ub, sizeof (sb32));
 	return (error);
 }
 
@@ -1966,8 +1995,9 @@ freebsd11_freebsd32_fstatat(struct thread *td,
 	    &sb, NULL);
 	if (error != 0)
 		return (error);
-	freebsd11_cvtstat32(&sb, &sb32);
-	error = copyout(&sb32, uap->buf, sizeof (sb32));
+	error = freebsd11_cvtstat32(&sb, &sb32);
+	if (error == 0)
+		error = copyout(&sb32, uap->buf, sizeof (sb32));
 	return (error);
 }
 
@@ -1981,10 +2011,11 @@ freebsd11_freebsd32_lstat(struct thread *td,
 
 	error = kern_statat(td, AT_SYMLINK_NOFOLLOW, AT_FDCWD, uap->path,
 	    UIO_USERSPACE, &sb, NULL);
-	if (error)
+	if (error != 0)
 		return (error);
-	freebsd11_cvtstat32(&sb, &sb32);
-	error = copyout(&sb32, uap->ub, sizeof (sb32));
+	error = freebsd11_cvtstat32(&sb, &sb32);
+	if (error == 0)
+		error = copyout(&sb32, uap->ub, sizeof (sb32));
 	return (error);
 }
 
@@ -2003,8 +2034,9 @@ freebsd11_freebsd32_fhstat(struct thread *td,
 	error = kern_fhstat(td, fh, &sb);
 	if (error != 0)
 		return (error);
-	freebsd11_cvtstat32(&sb, &sb32);
-	error = copyout(&sb32, uap->sb, sizeof (sb32));
+	error = freebsd11_cvtstat32(&sb, &sb32);
+	if (error == 0)
+		error = copyout(&sb32, uap->sb, sizeof (sb32));
 	return (error);
 }
 #endif

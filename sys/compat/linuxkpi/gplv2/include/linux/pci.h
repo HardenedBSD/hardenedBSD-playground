@@ -3,6 +3,45 @@
 
 #include_next <linux/pci.h>
 
+extern void pci_unmap_rom(struct pci_dev *pdev, u8 *bios);
+extern void *pci_map_rom(struct pci_dev *pdev, size_t *size);
+extern void *pci_iomap(struct pci_dev *pdev, int bar, unsigned long max);
+extern void pci_iounmap(struct pci_dev *pdev, void *regs);
+
+struct pci_dev *linux_pci_get_class(unsigned int class, struct pci_dev *from);
+
+static inline int
+pci_bus_read_config(struct pci_bus *bus, unsigned int devfn,
+		    int where, uint32_t *val, int size)
+{
+	device_t dev;
+	int dom, busid, slot, func;
+
+	dom = pci_get_domain(bus->self->dev.bsddev);
+	busid = pci_get_bus(bus->self->dev.bsddev);
+	slot = ((devfn >> 3) & 0x1f);
+	func = devfn & 0x7;
+	dev = pci_find_dbsf(dom, busid, slot, func);
+	*val = pci_read_config(dev, where, size);
+	return (0);
+}
+
+static inline int
+pci_bus_read_config_word(struct pci_bus *bus, unsigned int devfn, int where, u16 *val)
+{
+	return (pci_bus_read_config(bus, devfn, where, (uint32_t *)val, 2));
+}
+
+static inline int
+pci_bus_read_config_byte(struct pci_bus *bus, unsigned int devfn, int where, u8 *val)
+{
+	return (pci_bus_read_config(bus, devfn, where, (uint32_t *)val, 1));
+}
+
+extern struct pci_dev *pci_get_bus_and_slot(unsigned int bus, unsigned int devfn);
+
+void pci_dev_put(struct pci_dev *pdev);
+
 static inline bool
 pci_is_root_bus(struct pci_bus *pbus)
 {
@@ -67,13 +106,4 @@ pcie_get_readrq(struct pci_dev *dev)
 	return 128 << ((ctl & PCI_EXP_DEVCTL_READRQ) >> 12);
 }
 
-static inline void
-pci_resource_to_user(const struct pci_dev *dev, int bar,
-		const struct linux_resource *rsrc, resource_size_t *start,
-		resource_size_t *end)
-{
-
-	*start = rsrc->start;
-	*end = rsrc->end;
-}
 #endif /* _LINUX_GPLV2_PCI_H_ */

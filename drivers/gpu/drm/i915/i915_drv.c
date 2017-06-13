@@ -387,6 +387,28 @@ intel_alloc_mchbar_resource(struct drm_device *dev)
 #endif
 
 	/* Get some space for it */
+#ifdef __FreeBSD__
+#undef resource
+	device_t vga;
+	(void)ret;
+
+	vga = device_get_parent(dev->dev->bsddev);
+	dev_priv->mch_res_rid = 0x100;
+	dev_priv->mch_res = BUS_ALLOC_RESOURCE(device_get_parent(vga),
+	    dev->dev->bsddev, SYS_RES_MEMORY, &dev_priv->mch_res_rid, 0, ~0UL,
+	    MCHBAR_SIZE, RF_ACTIVE | RF_SHAREABLE);
+	if (dev_priv->mch_res == NULL) {
+		DRM_DEBUG_DRIVER("failed bus alloc\n");
+		return -ENOMEM;
+	}
+
+	if (INTEL_INFO(dev)->gen >= 4)
+		pci_write_config_dword(dev_priv->bridge_dev, reg + 4,
+		    upper_32_bits(rman_get_start(dev_priv->mch_res)));
+
+	pci_write_config_dword(dev_priv->bridge_dev, reg,
+	    lower_32_bits(rman_get_start(dev_priv->mch_res)));
+#else
 	dev_priv->mch_res.name = "i915 MCHBAR";
 	dev_priv->mch_res.flags = IORESOURCE_MEM;
 	ret = pci_bus_alloc_resource(dev_priv->bridge_dev->bus,
@@ -407,6 +429,7 @@ intel_alloc_mchbar_resource(struct drm_device *dev)
 
 	pci_write_config_dword(dev_priv->bridge_dev, reg,
 			       lower_32_bits(dev_priv->mch_res.start));
+#endif
 	return 0;
 }
 
@@ -477,8 +500,23 @@ intel_teardown_mchbar(struct drm_device *dev)
 		}
 	}
 
+#ifdef __FreeBSD__
+	if (dev_priv->mch_res != NULL) {
+		device_t vga;
+
+		vga = device_get_parent(dev->dev->bsddev);
+		BUS_DEACTIVATE_RESOURCE(device_get_parent(vga),
+		    dev->dev->bsddev, SYS_RES_MEMORY, dev_priv->mch_res_rid,
+		    dev_priv->mch_res);
+		BUS_RELEASE_RESOURCE(device_get_parent(vga),
+		    dev->dev->bsddev, SYS_RES_MEMORY, dev_priv->mch_res_rid,
+		    dev_priv->mch_res);
+		dev_priv->mch_res = NULL;
+	}
+#else
 	if (dev_priv->mch_res.start)
 		release_resource(&dev_priv->mch_res);
+#endif
 }
 
 /* true = enable decode, false = disable decoder */
@@ -1066,6 +1104,7 @@ static int i915_driver_init_hw(struct drm_i915_private *dev_priv)
 
 	i915_gem_load_init_fences(dev_priv);
 
+#ifndef __FreeBSD__
 	/* On the 945G/GM, the chipset reports the MSI capability on the
 	 * integrated graphics even though the support isn't actually there
 	 * according to the published specs.  It doesn't appear to function
@@ -1081,6 +1120,7 @@ static int i915_driver_init_hw(struct drm_i915_private *dev_priv)
 		if (pci_enable_msi(pdev) < 0)
 			DRM_DEBUG_DRIVER("can't enable MSI");
 	}
+#endif
 
 	return 0;
 
@@ -1096,10 +1136,12 @@ out_ggtt:
  */
 static void i915_driver_cleanup_hw(struct drm_i915_private *dev_priv)
 {
+#ifndef __FreeBSD__
 	struct pci_dev *pdev = dev_priv->drm.pdev;
 
 	if (pdev->msi_enabled)
 		pci_disable_msi(pdev);
+#endif
 
 	pm_qos_remove_request(&dev_priv->pm_qos);
 	i915_ggtt_cleanup_hw(dev_priv);

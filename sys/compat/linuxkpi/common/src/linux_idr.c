@@ -45,8 +45,6 @@ __FBSDID("$FreeBSD$");
 #include <linux/slab.h>
 #include <linux/idr.h>
 #include <linux/err.h>
-#include <linux/compat.h>
-#include <linux/preempt.h>
 
 #define	MAX_IDR_LEVEL	((MAX_IDR_SHIFT + IDR_BITS - 1) / IDR_BITS)
 #define	MAX_IDR_FREE	(MAX_IDR_LEVEL * 2)
@@ -98,7 +96,7 @@ idr_preload_init(void *arg)
 		spin_lock_init(&lic->lock);
 	}
 }
-SYSINIT(idr_preload_init, SI_SUB_LOCK, SI_ORDER_FIRST, idr_preload_init, NULL);
+SYSINIT(idr_preload_init, SI_SUB_CPU, SI_ORDER_ANY, idr_preload_init, NULL);
 
 static void
 idr_preload_uninit(void *arg)
@@ -371,12 +369,12 @@ idr_pre_get(struct idr *idr, gfp_t gfp_mask)
 }
 
 static struct idr_layer *
-__free_list_get(struct idr *idp)
+idr_free_list_get(struct idr *idp)
 {
 	struct idr_layer *il;
 
 	mtx_lock(&idp->lock);
-	if ((il = idp->free)) {
+	if ((il = idp->free) != NULL) {
 		idp->free = il->ary[0];
 		il->ary[0] = NULL;
 	}
@@ -389,12 +387,11 @@ idr_get(struct idr *idp)
 {
 	struct idr_layer *il;
 
-	if ((il = __free_list_get(idp)) != NULL) {
-		MPASS(ffsl(il->bitmap) != 0);
+	if ((il = idr_free_list_get(idp)) != NULL) {
+		MPASS(il->bitmap != 0);
 	} else if ((il = malloc(sizeof(*il), M_IDR, M_ZERO | M_NOWAIT)) != NULL) {
 		bitmap_fill(&il->bitmap, IDR_SIZE);
-	} else if (!in_interrupt() &&
-	    (il = idr_preload_dequeue_locked(&DPCPU_GET(linux_idr_cache))) != NULL) {
+	} else if ((il = idr_preload_dequeue_locked(&DPCPU_GET(linux_idr_cache))) != NULL) {
 		bitmap_fill(&il->bitmap, IDR_SIZE);
 	} else {
 		return (NULL);

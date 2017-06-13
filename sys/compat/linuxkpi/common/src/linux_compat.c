@@ -82,7 +82,6 @@ __FBSDID("$FreeBSD$");
 
 extern u_int cpu_clflush_line_size;
 extern u_int cpu_id;
-pteval_t __supported_pte_mask __read_mostly = ~0;
 
 SYSCTL_NODE(_compat, OID_AUTO, linuxkpi, CTLFLAG_RW, 0, "LinuxKPI parameters");
 int linux_db_trace;
@@ -90,7 +89,6 @@ SYSCTL_INT(_compat_linuxkpi, OID_AUTO, db_trace, CTLFLAG_RWTUN, &linux_db_trace,
 
 MALLOC_DEFINE(M_KMALLOC, "linux", "Linux kmalloc compat");
 MALLOC_DEFINE(M_LCINT, "linuxint", "Linux compat internal");
-
 
 #undef file
 #undef cdev
@@ -415,6 +413,82 @@ linux_file_dtor(void *cdp)
 	kfree(filp);
 }
 
+static void
+linux_kq_lock(void *arg)
+{
+	spinlock_t *s = arg;
+
+	spin_lock(s);
+}
+static void
+linux_kq_unlock(void *arg)
+{
+	spinlock_t *s = arg;
+
+	spin_unlock(s);
+}
+
+static void
+linux_kq_lock_owned(void *arg)
+{
+#ifdef INVARIANTS
+	spinlock_t *s = arg;
+
+	mtx_assert(&s->m, MA_OWNED);
+#endif
+}
+
+static void
+linux_kq_lock_unowned(void *arg)
+{
+#ifdef INVARIANTS
+	spinlock_t *s = arg;
+
+	mtx_assert(&s->m, MA_NOTOWNED);
+#endif
+}
+
+static void
+linux_dev_kqfilter_poll(struct linux_file *, int);
+
+struct linux_file *
+linux_file_alloc(void)
+{
+	struct linux_file *filp;
+
+	filp = kzalloc(sizeof(*filp), GFP_KERNEL);
+
+	/* set initial refcount */
+	filp->f_count = 1;
+
+	/* setup fields needed by kqueue support */
+	spin_lock_init(&filp->f_kqlock);
+	knlist_init(&filp->f_selinfo.si_note, &filp->f_kqlock,
+	    linux_kq_lock, linux_kq_unlock,
+	    linux_kq_lock_owned, linux_kq_lock_unowned);
+
+	return (filp);
+}
+
+void
+linux_file_free(struct linux_file *filp)
+{
+	if (filp->_file == NULL) {
+		struct vnode *vp = filp->f_vnode;
+
+		if (vp != NULL && vp->i_mapping != NULL)
+			vm_object_deallocate(vp->i_mapping);
+
+		kfree(filp);
+	} else {
+		/*
+		 * The close method of the character device or file
+		 * will free the linux_file structure:
+		 */
+		_fdrop(filp->_file, curthread);
+	}
+}
+
 static int
 linux_cdev_pager_populate(vm_object_t vm_obj, vm_pindex_t pidx, int fault_type,
     vm_prot_t max_prot, vm_pindex_t *first, vm_pindex_t *last)
@@ -486,6 +560,19 @@ static struct rwlock linux_vma_lock;
 static TAILQ_HEAD(, vm_area_struct) linux_vma_head =
     TAILQ_HEAD_INITIALIZER(linux_vma_head);
 
+static void
+linux_cdev_handle_free(struct vm_area_struct *vmap)
+{
+	/* Drop reference on vm_file */
+	if (vmap->vm_file != NULL)
+		fput(vmap->vm_file);
+
+	/* Drop reference on mm_struct */
+	mmput(vmap->vm_mm);
+
+	kfree(vmap);
+}
+
 static struct vm_area_struct *
 linux_cdev_handle_insert(void *handle, struct vm_area_struct *vmap)
 {
@@ -495,20 +582,10 @@ linux_cdev_handle_insert(void *handle, struct vm_area_struct *vmap)
 	TAILQ_FOREACH(ptr, &linux_vma_head, vm_entry) {
 		if (ptr->vm_private_data == handle) {
 			rw_wunlock(&linux_vma_lock);
-			kfree(vmap);
+			linux_cdev_handle_free(vmap);
 			return (NULL);
 		}
 	}
-	/*
-	 * The same VM object might be shared by multiple processes
-	 * and the mm_struct is usually freed when a process exits.
-	 *
-	 * The atomic reference below makes sure the mm_struct is
-	 * available as long as the vmap is in the linux_vma_head.
-	 */
-	if (atomic_inc_not_zero(&vmap->vm_mm->mm_users) == 0)
-		panic("linuxkpi: mm_users is zero\n");
-
 	TAILQ_INSERT_TAIL(&linux_vma_head, vmap, vm_entry);
 	rw_wunlock(&linux_vma_lock);
 	return (vmap);
@@ -517,16 +594,9 @@ linux_cdev_handle_insert(void *handle, struct vm_area_struct *vmap)
 static void
 linux_cdev_handle_remove(struct vm_area_struct *vmap)
 {
-	if (vmap == NULL)
-		return;
-
 	rw_wlock(&linux_vma_lock);
 	TAILQ_REMOVE(&linux_vma_head, vmap, vm_entry);
 	rw_wunlock(&linux_vma_lock);
-
-	/* Drop reference on mm_struct */
-	mmput(vmap->vm_mm);
-	kfree(vmap);
 }
 
 static struct vm_area_struct *
@@ -547,20 +617,9 @@ static int
 linux_cdev_pager_ctor(void *handle, vm_ooffset_t size, vm_prot_t prot,
 		      vm_ooffset_t foff, struct ucred *cred, u_short *color)
 {
-	const struct vm_operations_struct *vm_ops;
-	struct vm_area_struct *vmap;
 
-	vmap = linux_cdev_handle_find(handle);
-	MPASS(vmap != NULL);
-
+	MPASS(linux_cdev_handle_find(handle) != NULL);
 	*color = 0;
-
-	down_write(&vmap->vm_mm->mmap_sem);
-	vm_ops = vmap->vm_ops;
-	if (likely(vm_ops != NULL))
-		vm_ops->open(vmap);
-	up_write(&vmap->vm_mm->mmap_sem);
-
 	return (0);
 }
 
@@ -573,13 +632,19 @@ linux_cdev_pager_dtor(void *handle)
 	vmap = linux_cdev_handle_find(handle);
 	MPASS(vmap != NULL);
 
+	/*
+	 * Remove handle before calling close operation to prevent
+	 * other threads from reusing the handle pointer.
+	 */
+	linux_cdev_handle_remove(vmap);
+
 	down_write(&vmap->vm_mm->mmap_sem);
 	vm_ops = vmap->vm_ops;
 	if (likely(vm_ops != NULL))
 		vm_ops->close(vmap);
 	up_write(&vmap->vm_mm->mmap_sem);
 
-	linux_cdev_handle_remove(vmap);
+	linux_cdev_handle_free(vmap);
 }
 
 static struct cdev_pager_ops linux_cdev_pager_ops = {
@@ -587,41 +652,6 @@ static struct cdev_pager_ops linux_cdev_pager_ops = {
 	.cdev_pg_ctor	= linux_cdev_pager_ctor,
 	.cdev_pg_dtor	= linux_cdev_pager_dtor
 };
-
-static void
-kq_lock(void *arg)
-{
-	spinlock_t *s = arg;
-
-	spin_lock(s);
-}
-static void
-kq_unlock(void *arg)
-{
-	spinlock_t *s = arg;
-
-	spin_unlock(s);
-}
-
-static void
-kq_lock_owned(void *arg)
-{
-#ifdef INVARIANTS
-	spinlock_t *s = arg;
-
-	mtx_assert(&s->m, MA_OWNED);
-#endif
-}
-
-static void
-kq_lock_unowned(void *arg)
-{
-#ifdef INVARIANTS
-	spinlock_t *s = arg;
-
-	mtx_assert(&s->m, MA_NOTOWNED);
-#endif
-}
 
 static int
 linux_dev_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
@@ -635,21 +665,21 @@ linux_dev_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 	ldev = dev->si_drv1;
 	if (ldev == NULL)
 		return (ENODEV);
-	filp = kzalloc(sizeof(*filp), GFP_KERNEL);
+
+	filp = linux_file_alloc();
 	filp->f_dentry = &filp->f_dentry_store;
 	filp->f_op = ldev->ops;
 	filp->f_flags = file->f_flag;
 	vhold(file->f_vnode);
 	filp->f_vnode = file->f_vnode;
+	filp->_file = file;
+
 	linux_set_current(td);
-	INIT_LIST_HEAD(&filp->f_entry);
-	spin_lock_init(&filp->f_lock);
-	knlist_init(&filp->f_selinfo.si_note, &filp->f_lock, kq_lock, kq_unlock,
-	    kq_lock_owned, kq_lock_unowned);
 
 	if (filp->f_op->open) {
 		error = -filp->f_op->open(file->f_vnode, filp);
 		if (error) {
+			vdrop(filp->f_vnode);
 			kfree(filp);
 			goto done;
 		}
@@ -657,6 +687,7 @@ linux_dev_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 	error = devfs_set_cdevpriv(filp, linux_file_dtor);
 	if (error) {
 		filp->f_op->release(file->f_vnode, filp);
+		vdrop(filp->f_vnode);
 		kfree(filp);
 	}
 done:
@@ -676,8 +707,7 @@ linux_dev_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
 	if ((error = devfs_get_cdevpriv((void **)&filp)) != 0)
 		return (error);
 	filp->f_flags = file->f_flag;
-        devfs_clear_cdevpriv();
-        
+	devfs_clear_cdevpriv();
 
 	return (0);
 }
@@ -812,6 +842,10 @@ linux_dev_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
 		return (error);
 	filp->f_flags = file->f_flag;
 
+	/* the LinuxKPI supports blocking and non-blocking I/O */
+	if (cmd == FIONBIO || cmd == FIOASYNC)
+		return (0);
+
 	linux_set_current(td);
 	size = IOCPARM_LEN(cmd);
 	/* refer to logic in sys_ioctl() */
@@ -838,7 +872,11 @@ linux_dev_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
 		current->bsd_ioctl_len = 0;
 	}
 
-	if (error == ERESTARTSYS)
+	if (error == EWOULDBLOCK) {
+		/* update kqfilter status, if any */
+		linux_dev_kqfilter_poll(filp,
+		    LINUX_KQ_FLAG_HAS_READ | LINUX_KQ_FLAG_HAS_WRITE);
+	} else if (error == ERESTARTSYS)
 		error = ERESTART;
 	return (error);
 }
@@ -871,10 +909,16 @@ linux_dev_read(struct cdev *dev, struct uio *uio, int ioflag)
 			    ((uint8_t *)uio->uio_iov->iov_base) + bytes;
 			uio->uio_iov->iov_len -= bytes;
 			uio->uio_resid -= bytes;
-		} else
+		} else {
 			error = -bytes;
+			if (error == ERESTARTSYS)
+				error = ERESTART;
+		}
 	} else
 		error = ENXIO;
+
+	/* update kqfilter status, if any */
+	linux_dev_kqfilter_poll(filp, LINUX_KQ_FLAG_HAS_READ);
 
 	return (error);
 }
@@ -907,10 +951,16 @@ linux_dev_write(struct cdev *dev, struct uio *uio, int ioflag)
 			    ((uint8_t *)uio->uio_iov->iov_base) + bytes;
 			uio->uio_iov->iov_len -= bytes;
 			uio->uio_resid -= bytes;
-		} else
+		} else {
 			error = -bytes;
+			if (error == ERESTARTSYS)
+				error = ERESTART;
+		}
 	} else
 		error = ENXIO;
+
+	/* update kqfilter status, if any */
+	linux_dev_kqfilter_poll(filp, LINUX_KQ_FLAG_HAS_WRITE);
 
 	return (error);
 }
@@ -929,18 +979,103 @@ linux_dev_poll(struct cdev *dev, int events, struct thread *td)
 
 	file = td->td_fpop;
 	filp->f_flags = file->f_flag;
-	if (filp->_file == NULL)
-		filp->_file = file;
-
 	linux_set_current(td);
-	if (filp->f_op->poll)
-		/* XXX need to add support for bounded wait */
+	if (filp->f_op->poll != NULL) {
+		selrecord(td, &filp->f_selinfo);
 		revents = filp->f_op->poll(filp, NULL) & events;
-	else
+	} else
 		revents = 0;
+
 	return (revents);
 error:
 	return (events & (POLLHUP|POLLIN|POLLRDNORM|POLLOUT|POLLWRNORM));
+}
+
+void
+linux_poll_wakeup(struct linux_file *filp)
+{
+	/* this function should be NULL-safe */
+	if (filp == NULL)
+		return;
+
+	selwakeup(&filp->f_selinfo);
+
+	spin_lock(&filp->f_kqlock);
+	filp->f_kqflags |= LINUX_KQ_FLAG_NEED_READ |
+	    LINUX_KQ_FLAG_NEED_WRITE;
+
+	/* make sure the "knote" gets woken up */
+	KNOTE_LOCKED(&filp->f_selinfo.si_note, 1);
+	spin_unlock(&filp->f_kqlock);
+}
+
+static void
+linux_dev_kqfilter_detach(struct knote *kn)
+{
+	struct linux_file *filp = kn->kn_hook;
+
+	spin_lock(&filp->f_kqlock);
+	knlist_remove(&filp->f_selinfo.si_note, kn, 1);
+	spin_unlock(&filp->f_kqlock);
+}
+
+static int
+linux_dev_kqfilter_read_event(struct knote *kn, long hint)
+{
+	struct linux_file *filp = kn->kn_hook;
+
+	mtx_assert(&filp->f_kqlock.m, MA_OWNED);
+
+	return ((filp->f_kqflags & LINUX_KQ_FLAG_NEED_READ) ? 1 : 0);
+}
+
+static int
+linux_dev_kqfilter_write_event(struct knote *kn, long hint)
+{
+	struct linux_file *filp = kn->kn_hook;
+
+	mtx_assert(&filp->f_kqlock.m, MA_OWNED);
+
+	return ((filp->f_kqflags & LINUX_KQ_FLAG_NEED_WRITE) ? 1 : 0);
+}
+
+static struct filterops linux_dev_kqfiltops_read = {
+	.f_isfd = 1,
+	.f_detach = linux_dev_kqfilter_detach,
+	.f_event = linux_dev_kqfilter_read_event,
+};
+
+static struct filterops linux_dev_kqfiltops_write = {
+	.f_isfd = 1,
+	.f_detach = linux_dev_kqfilter_detach,
+	.f_event = linux_dev_kqfilter_write_event,
+};
+
+static void
+linux_dev_kqfilter_poll(struct linux_file *filp, int kqflags)
+{
+	int temp;
+
+	if (filp->f_kqflags & kqflags) {
+		/* get the latest polling state */
+		temp = filp->f_op->poll(filp, NULL);
+
+		spin_lock(&filp->f_kqlock);
+		/* clear kqflags */
+		filp->f_kqflags &= ~(LINUX_KQ_FLAG_NEED_READ |
+		    LINUX_KQ_FLAG_NEED_WRITE);
+		/* update kqflags */
+		if (temp & (POLLIN | POLLOUT)) {
+			if (temp & POLLIN)
+				filp->f_kqflags |= LINUX_KQ_FLAG_NEED_READ;
+			if (temp & POLLOUT)
+				filp->f_kqflags |= LINUX_KQ_FLAG_NEED_WRITE;
+
+			/* make sure the "knote" gets woken up */
+			KNOTE_LOCKED(&filp->f_selinfo.si_note, 0);
+		}
+		spin_unlock(&filp->f_kqlock);
+	}
 }
 
 static int
@@ -949,39 +1084,46 @@ linux_dev_kqfilter(struct cdev *dev, struct knote *kn)
 	struct linux_file *filp;
 	struct file *file;
 	struct thread *td;
-	int error, revents;
+	int error;
 
 	td = curthread;
 	file = td->td_fpop;
-	revents = 0;
 	if (dev->si_drv1 == NULL)
 		return (ENXIO);
 	if ((error = devfs_get_cdevpriv((void **)&filp)) != 0)
 		return (error);
 	filp->f_flags = file->f_flag;
-	if (filp->_file == NULL)
-		filp->_file = td->td_fpop;
-	if (filp->f_op->poll == NULL || kn->kn_filter != EVFILT_READ || filp->f_kqfiltops == NULL)
+	if (filp->f_op->poll == NULL)
 		return (EINVAL);
 
-	if (kn->kn_filter == EVFILT_READ) {
-		kn->kn_fop = filp->f_kqfiltops;
+	spin_lock(&filp->f_kqlock);
+	switch (kn->kn_filter) {
+	case EVFILT_READ:
+		filp->f_kqflags |= LINUX_KQ_FLAG_HAS_READ;
+		kn->kn_fop = &linux_dev_kqfiltops_read;
 		kn->kn_hook = filp;
-		spin_lock(&filp->f_lock);
 		knlist_add(&filp->f_selinfo.si_note, kn, 1);
-		spin_unlock(&filp->f_lock);
-	} else
-		return (EINVAL);
-
-	linux_set_current(td);
-	revents = filp->f_op->poll(filp, NULL);
-
-	if (revents) {
-		spin_lock(&filp->f_lock);
-		KNOTE_LOCKED(&filp->f_selinfo.si_note, 0);
-		spin_unlock(&filp->f_lock);
+		break;
+	case EVFILT_WRITE:
+		filp->f_kqflags |= LINUX_KQ_FLAG_HAS_WRITE;
+		kn->kn_fop = &linux_dev_kqfiltops_write;
+		kn->kn_hook = filp;
+		knlist_add(&filp->f_selinfo.si_note, kn, 1);
+		break;
+	default:
+		error = EINVAL;
+		break;
 	}
-	return (0);
+	spin_unlock(&filp->f_kqlock);
+
+	if (error == 0) {
+		linux_set_current(td);
+
+		/* update kqfilter status, if any */
+		linux_dev_kqfilter_poll(filp,
+		    LINUX_KQ_FLAG_HAS_READ | LINUX_KQ_FLAG_HAS_WRITE);
+	}
+	return (error);
 }
 
 static int
@@ -989,6 +1131,7 @@ linux_dev_mmap_single(struct cdev *dev, vm_ooffset_t *offset,
     vm_size_t size, struct vm_object **object, int nprot)
 {
 	struct vm_area_struct *vmap;
+	struct mm_struct *mm;
 	struct linux_file *filp;
 	struct thread *td;
 	struct file *file;
@@ -1008,6 +1151,17 @@ linux_dev_mmap_single(struct cdev *dev, vm_ooffset_t *offset,
 
 	linux_set_current(td);
 
+	/*
+	 * The same VM object might be shared by multiple processes
+	 * and the mm_struct is usually freed when a process exits.
+	 *
+	 * The atomic reference below makes sure the mm_struct is
+	 * available as long as the vmap is in the linux_vma_head.
+	 */
+	mm = current->mm;
+	if (atomic_inc_not_zero(&mm->mm_users) == 0)
+		return (EINVAL);
+
 	vmap = kzalloc(sizeof(*vmap), GFP_KERNEL);
 	vmap->vm_start = 0;
 	vmap->vm_end = size;
@@ -1015,8 +1169,8 @@ linux_dev_mmap_single(struct cdev *dev, vm_ooffset_t *offset,
 	vmap->vm_pfn = 0;
 	vmap->vm_flags = vmap->vm_page_prot = nprot;
 	vmap->vm_ops = NULL;
-	vmap->vm_file = filp;
-	vmap->vm_mm = current->mm;
+	vmap->vm_file = get_file(filp);
+	vmap->vm_mm = mm;
 
 	if (unlikely(down_write_killable(&vmap->vm_mm->mmap_sem))) {
 		error = EINTR;
@@ -1026,7 +1180,7 @@ linux_dev_mmap_single(struct cdev *dev, vm_ooffset_t *offset,
 	}
 
 	if (error != 0) {
-		kfree(vmap);
+		linux_cdev_handle_free(vmap);
 		return (error);
 	}
 
@@ -1039,7 +1193,7 @@ linux_dev_mmap_single(struct cdev *dev, vm_ooffset_t *offset,
 		    vmap->vm_ops->open == NULL ||
 		    vmap->vm_ops->close == NULL ||
 		    vmap->vm_private_data == NULL) {
-			kfree(vmap);
+			linux_cdev_handle_free(vmap);
 			return (EINVAL);
 		}
 
@@ -1052,6 +1206,7 @@ linux_dev_mmap_single(struct cdev *dev, vm_ooffset_t *offset,
 
 		if (*object == NULL) {
 			linux_cdev_handle_remove(vmap);
+			linux_cdev_handle_free(vmap);
 			return (EINVAL);
 		}
 	} else {
@@ -1063,7 +1218,7 @@ linux_dev_mmap_single(struct cdev *dev, vm_ooffset_t *offset,
 		*object = vm_pager_allocate(OBJT_SG, sg, vmap->vm_len,
 		    nprot, 0, curthread->td_ucred);
 
-		kfree(vmap);
+		linux_cdev_handle_free(vmap);
 
 		if (*object == NULL) {
 			sglist_free(sg);
@@ -1134,12 +1289,11 @@ linux_file_poll(struct file *file, int events, struct ucred *active_cred,
 
 	filp = (struct linux_file *)file->f_data;
 	filp->f_flags = file->f_flag;
-	if (filp->_file == NULL)
-		filp->_file = td->td_fpop;
 	linux_set_current(td);
-	if (filp->f_op->poll)
+	if (filp->f_op->poll != NULL) {
+		selrecord(td, &filp->f_selinfo);
 		revents = filp->f_op->poll(filp, NULL) & events;
-	else
+	} else
 		revents = 0;
 
 	return (revents);
@@ -1227,7 +1381,6 @@ struct fileops linuxfileops = {
 	.fo_chown = invfo_chown,
 	.fo_sendfile = invfo_sendfile,
 };
-
 
 char *
 kvasprintf(gfp_t gfp, const char *fmt, va_list ap)
@@ -1655,7 +1808,7 @@ linux_on_each_cpu(void callback(void *), void *data)
 }
 
 int
-in_atomic(void)
+linux_in_atomic(void)
 {
 
 	return ((curthread->td_pflags & TDP_NOFAULTING) != 0);
