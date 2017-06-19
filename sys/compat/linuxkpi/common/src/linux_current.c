@@ -28,6 +28,7 @@
 __FBSDID("$FreeBSD$");
 
 #include <linux/compat.h>
+#include <linux/completion.h>
 #include <linux/mm.h>
 #include <linux/kthread.h>
 
