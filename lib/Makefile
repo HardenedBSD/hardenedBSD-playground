@@ -90,6 +90,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libxo \
 	liby \
 	libz \
+	libzstd \
 	ncurses
 
 # Inter-library dependencies.  When the makefile for a library contains LDADD
@@ -156,6 +157,9 @@ _libclang_rt=	libclang_rt
 .if ${MK_LIBCPLUSPLUS} != "no"
 _libcxxrt=	libcxxrt
 _libcplusplus=	libc++
+.if ${MACHINE_CPUARCH} != "arm" && ${MACHINE_CPUARCH} != "mips"
+_libcplusplus+=	libc++experimental
+.endif
 .endif
 
 SUBDIR.${MK_EFI}+=	libefivar

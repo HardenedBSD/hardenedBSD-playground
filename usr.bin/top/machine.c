@@ -188,9 +188,9 @@ char *arcnames[] = {
 	NULL
 };
 
-int carc_stats[5];
+int carc_stats[4];
 char *carcnames[] = {
-	"K Compressed, ", "K Uncompressed, ", ":1 Ratio, ", "K Overhead",
+	"K Compressed, ", "K Uncompressed, ", ":1 Ratio, ",
 	NULL
 };
 
@@ -516,7 +516,7 @@ get_system_info(struct system_info *si)
 		static int swapavail = 0;
 		static int swapfree = 0;
 		static long bufspace = 0;
-		static int nspgsin, nspgsout;
+		static uint64_t nspgsin, nspgsout;
 
 		GETSYSCTL("vfs.bufspace", bufspace);
 		GETSYSCTL("vm.stats.vm.v_active_count", memory_stats[0]);
@@ -580,11 +580,9 @@ get_system_info(struct system_info *si)
 	if (carc_enabled) {
 		GETSYSCTL("kstat.zfs.misc.arcstats.compressed_size", arc_stat);
 		carc_stats[0] = arc_stat >> 10;
+		carc_stats[2] = arc_stat >> 10; /* For ratio */
 		GETSYSCTL("kstat.zfs.misc.arcstats.uncompressed_size", arc_stat);
 		carc_stats[1] = arc_stat >> 10;
-		carc_stats[2] = arc_stats[0]; /* ARC Total */
-		GETSYSCTL("kstat.zfs.misc.arcstats.overhead_size", arc_stat);
-		carc_stats[3] = arc_stat >> 10;
 		si->carc = carc_stats;
 	}
 

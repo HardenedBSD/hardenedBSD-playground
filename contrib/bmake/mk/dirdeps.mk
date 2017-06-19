@@ -1,4 +1,4 @@
-# $Id: dirdeps.mk,v 1.86 2017/03/01 20:26:51 sjg Exp $
+# $Id: dirdeps.mk,v 1.88 2017/04/24 20:34:59 sjg Exp $
 
 # Copyright (c) 2010-2013, Juniper Networks, Inc.
 # All rights reserved.
@@ -57,7 +57,7 @@
 #	distinguish them from others.
 #	
 #	Before each Makefile.depend file is read, we set 
-#	DEP_RELDIR to be the the RELDIR (path relative to SRCTOP) for
+#	DEP_RELDIR to be the RELDIR (path relative to SRCTOP) for
 #	its directory, and DEP_MACHINE etc according to the .<target_spec>
 #	represented by the suffix of the corresponding target.
 #	
@@ -136,6 +136,14 @@
 #		A list of MACHINEs the current directory should not be
 #		built for.
 #
+
+.if !target(bootstrap) && (make(bootstrap) || \
+	make(bootstrap-this) || \
+	make(bootstrap-recurse) || \
+	make(bootstrap-empty))
+# disable most of below
+.MAKE.LEVEL = 1
+.endif
 
 # touch this at your peril
 _DIRDEP_USE_LEVEL?= 0
@@ -757,7 +765,7 @@ bootstrap-this:	.NOTMAIN
 	@echo Bootstrapping ${RELDIR}/${_want:T} from ${_src:T}; \
 	echo You need to build ${RELDIR} to correctly populate it.
 .if ${_src:T} != ${.MAKE.DEPENDFILE_PREFIX:T}
-	(cd ${.CURDIR} && sed ${.MAKE.DEPENDFILE_BOOTSTRAP_SED} ${_src} > ${_want})
+	(cd ${.CURDIR} && sed ${.MAKE.DEPENDFILE_BOOTSTRAP_SED} ${_src} > ${_want:T})
 .else
 	cp ${.CURDIR}/${_src:T} ${_want}
 .endif

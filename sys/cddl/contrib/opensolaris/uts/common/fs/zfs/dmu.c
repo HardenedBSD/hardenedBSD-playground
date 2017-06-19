@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2016 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
  */
 /* Copyright (c) 2013 by Saso Kiselkov. All rights reserved. */
 /* Copyright (c) 2013, Joyent, Inc. All rights reserved. */
@@ -871,17 +871,12 @@ dmu_free_range(objset_t *os, uint64_t object, uint64_t offset,
 	return (0);
 }
 
-int
-dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
+static int
+dmu_read_impl(dnode_t *dn, uint64_t offset, uint64_t size,
     void *buf, uint32_t flags)
 {
-	dnode_t *dn;
 	dmu_buf_t **dbp;
-	int numbufs, err;
-
-	err = dnode_hold(os, object, FTAG, &dn);
-	if (err)
-		return (err);
+	int numbufs, err = 0;
 
 	/*
 	 * Deal with odd block sizes, where there can't be data past the first
@@ -926,22 +921,37 @@ dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 		}
 		dmu_buf_rele_array(dbp, numbufs, FTAG);
 	}
+	return (err);
+}
+
+int
+dmu_read(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
+    void *buf, uint32_t flags)
+{
+	dnode_t *dn;
+	int err;
+
+	err = dnode_hold(os, object, FTAG, &dn);
+	if (err != 0)
+		return (err);
+
+	err = dmu_read_impl(dn, offset, size, buf, flags);
 	dnode_rele(dn, FTAG);
 	return (err);
 }
 
-void
-dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
+int
+dmu_read_by_dnode(dnode_t *dn, uint64_t offset, uint64_t size, void *buf,
+    uint32_t flags)
+{
+	return (dmu_read_impl(dn, offset, size, buf, flags));
+}
+
+static void
+dmu_write_impl(dmu_buf_t **dbp, int numbufs, uint64_t offset, uint64_t size,
     const void *buf, dmu_tx_t *tx)
 {
-	dmu_buf_t **dbp;
-	int numbufs, i;
-
-	if (size == 0)
-		return;
-
-	VERIFY(0 == dmu_buf_hold_array(os, object, offset, size,
-	    FALSE, FTAG, &numbufs, &dbp));
+	int i;
 
 	for (i = 0; i < numbufs; i++) {
 		int tocpy;
@@ -969,6 +979,37 @@ dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
 		size -= tocpy;
 		buf = (char *)buf + tocpy;
 	}
+}
+
+void
+dmu_write(objset_t *os, uint64_t object, uint64_t offset, uint64_t size,
+    const void *buf, dmu_tx_t *tx)
+{
+	dmu_buf_t **dbp;
+	int numbufs;
+
+	if (size == 0)
+		return;
+
+	VERIFY0(dmu_buf_hold_array(os, object, offset, size,
+	    FALSE, FTAG, &numbufs, &dbp));
+	dmu_write_impl(dbp, numbufs, offset, size, buf, tx);
+	dmu_buf_rele_array(dbp, numbufs, FTAG);
+}
+
+void
+dmu_write_by_dnode(dnode_t *dn, uint64_t offset, uint64_t size,
+    const void *buf, dmu_tx_t *tx)
+{
+	dmu_buf_t **dbp;
+	int numbufs;
+
+	if (size == 0)
+		return;
+
+	VERIFY0(dmu_buf_hold_array_by_dnode(dn, offset, size,
+	    FALSE, FTAG, &numbufs, &dbp, DMU_READ_PREFETCH));
+	dmu_write_impl(dbp, numbufs, offset, size, buf, tx);
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
 }
 
@@ -1069,7 +1110,7 @@ dmu_xuio_add(xuio_t *xuio, arc_buf_t *abuf, offset_t off, size_t n)
 	int i = priv->next++;
 
 	ASSERT(i < priv->cnt);
-	ASSERT(off + n <= arc_buf_size(abuf));
+	ASSERT(off + n <= arc_buf_lsize(abuf));
 	iov = uio->uio_iov + i;
 	iov->iov_base = (char *)abuf->b_data + off;
 	iov->iov_len = n;
@@ -1487,7 +1528,7 @@ dmu_request_arcbuf(dmu_buf_t *handle, int size)
 {
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)handle;
 
-	return (arc_loan_buf(db->db_objset->os_spa, size));
+	return (arc_loan_buf(db->db_objset->os_spa, B_FALSE, size));
 }
 
 /*
@@ -1512,7 +1553,7 @@ dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
 	dmu_buf_impl_t *dbuf = (dmu_buf_impl_t *)handle;
 	dnode_t *dn;
 	dmu_buf_impl_t *db;
-	uint32_t blksz = (uint32_t)arc_buf_size(buf);
+	uint32_t blksz = (uint32_t)arc_buf_lsize(buf);
 	uint64_t blkid;
 
 	DB_DNODE_ENTER(dbuf);
@@ -1525,12 +1566,9 @@ dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
 
 	/*
 	 * We can only assign if the offset is aligned, the arc buf is the
-	 * same size as the dbuf, and the dbuf is not metadata.  It
-	 * can't be metadata because the loaned arc buf comes from the
-	 * user-data kmem arena.
+	 * same size as the dbuf, and the dbuf is not metadata.
 	 */
-	if (offset == db->db.db_offset && blksz == db->db.db_size &&
-	    DBUF_GET_BUFC_TYPE(db) == ARC_BUFC_DATA) {
+	if (offset == db->db.db_offset && blksz == db->db.db_size) {
 #ifdef _KERNEL
 		curthread->td_ru.ru_oublock++;
 #ifdef RACCT
@@ -1547,6 +1585,10 @@ dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, arc_buf_t *buf,
 	} else {
 		objset_t *os;
 		uint64_t object;
+
+		/* compressed bufs must always be assignable to their dbuf */
+		ASSERT3U(arc_get_compression(buf), ==, ZIO_COMPRESS_OFF);
+		ASSERT(!(buf->b_flags & ARC_BUF_FLAG_COMPRESSED));
 
 		DB_DNODE_ENTER(dbuf);
 		dn = DB_DNODE(dbuf);
@@ -1697,8 +1739,8 @@ dmu_sync_late_arrival(zio_t *pio, objset_t *os, dmu_sync_cb_t *done, zgd_t *zgd,
 	dsa->dsa_zgd = zgd;
 	dsa->dsa_tx = tx;
 
-	zio_nowait(zio_write(pio, os->os_spa, dmu_tx_get_txg(tx),
-	    zgd->zgd_bp, zgd->zgd_db->db_data, zgd->zgd_db->db_size,
+	zio_nowait(zio_write(pio, os->os_spa, dmu_tx_get_txg(tx), zgd->zgd_bp,
+	    zgd->zgd_db->db_data, zgd->zgd_db->db_size, zgd->zgd_db->db_size,
 	    zp, dmu_sync_late_arrival_ready, NULL,
 	    NULL, dmu_sync_late_arrival_done, dsa, ZIO_PRIORITY_SYNC_WRITE,
 	    ZIO_FLAG_CANFAIL, zb));
@@ -2024,6 +2066,8 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 
 	zp->zp_checksum = checksum;
 	zp->zp_compress = compress;
+	ASSERT3U(zp->zp_compress, !=, ZIO_COMPRESS_INHERIT);
+
 	zp->zp_type = (wp & WP_SPILL) ? dn->dn_bonustype : type;
 	zp->zp_level = level;
 	zp->zp_copies = MIN(copies, spa_max_replication(os->os_spa));

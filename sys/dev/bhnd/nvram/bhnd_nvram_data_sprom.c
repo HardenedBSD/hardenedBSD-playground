@@ -184,6 +184,7 @@ bhnd_nvram_sprom_ident(struct bhnd_nvram_io *io,
 		u_char			 buf[512];
 		size_t			 nread;
 		uint16_t		 magic;
+		uint8_t			 srevcrc[2];
 		uint8_t			 srev;
 		bool			 crc_valid;
 		bool			 have_magic;
@@ -224,11 +225,14 @@ bhnd_nvram_sprom_ident(struct bhnd_nvram_io *io,
 			nbytes += nr;
 		}
 
-		/* Read SPROM revision */
-		error = bhnd_nvram_io_read(io, layout->srev_offset, &srev,
-		    sizeof(srev));
+		/* Read 8-bit SPROM revision, maintaining 16-bit size alignment
+		 * required by some OTP/SPROM chipsets. */
+		error = bhnd_nvram_io_read(io, layout->srev_offset, &srevcrc,
+		    sizeof(srevcrc));
 		if (error)
 			return (error);
+
+		srev = srevcrc[0];
 
 		/* Early sromrev 1 devices (specifically some BCM440x enet
 		 * cards) are reported to have been incorrectly programmed
@@ -1256,7 +1260,6 @@ bhnd_nvram_sprom_read_var(struct bhnd_sprom_opcode_state *state,
 	/* Provide value wrapper */
 	return (bhnd_nvram_val_init(val, var->fmt, inp, ilen, var->type,
 	    BHND_NVRAM_VAL_BORROW_DATA));
-		return (error);
 }
 
 

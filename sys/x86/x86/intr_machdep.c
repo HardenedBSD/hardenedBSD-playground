@@ -49,6 +49,7 @@
 #include <sys/sx.h>
 #include <sys/syslog.h>
 #include <sys/systm.h>
+#include <sys/vmmeter.h>
 #include <machine/clock.h>
 #include <machine/intr_machdep.h>
 #include <machine/smp.h>
@@ -245,7 +246,7 @@ intr_execute_handlers(struct intsrc *isrc, struct trapframe *frame)
 	 * processed too.
 	 */
 	(*isrc->is_count)++;
-	PCPU_INC(cnt.v_intr);
+	VM_CNT_INC(v_intr);
 
 	ie = isrc->is_event;
 
@@ -311,7 +312,9 @@ intr_assign_cpu(void *arg, int cpu)
 
 #ifdef EARLY_AP_STARTUP
 	MPASS(mp_ncpus == 1 || smp_started);
-	if (cpu != NOCPU) {
+
+	/* Nothing to do if there is only a single CPU. */
+	if (mp_ncpus > 1 && cpu != NOCPU) {
 #else
 	/*
 	 * Don't do anything during early boot.  We will pick up the
@@ -499,6 +502,8 @@ intr_next_cpu(void)
 
 #ifdef EARLY_AP_STARTUP
 	MPASS(mp_ncpus == 1 || smp_started);
+	if (mp_ncpus == 1)
+		return (PCPU_GET(apic_id));
 #else
 	/* Leave all interrupts on the BSP during boot. */
 	if (!assign_cpu)

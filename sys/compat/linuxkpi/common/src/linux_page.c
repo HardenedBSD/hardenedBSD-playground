@@ -51,7 +51,6 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_page.h>
 #include <vm/vm_pageout.h>
 #include <vm/vm_pager.h>
-#include <vm/vm_phys.h>
 #include <vm/vm_radix.h>
 #include <vm/vm_reserv.h>
 #include <vm/vm_extern.h>
@@ -72,14 +71,16 @@ __FBSDID("$FreeBSD$");
 void *
 linux_page_address(struct page *page)
 {
+
+	if (page->object != kmem_object && page->object != kernel_object) {
 #ifdef LINUXKPI_HAVE_DMAP
-	return ((void *)PHYS_TO_DMAP(VM_PAGE_TO_PHYS(page)));
+		return ((void *)PHYS_TO_DMAP(VM_PAGE_TO_PHYS(page)));
 #else
-	if (page->object != kmem_object && page->object != kernel_object)
 		return (NULL);
+#endif
+	}
 	return ((void *)(uintptr_t)(VM_MIN_KERNEL_ADDRESS +
 	    IDX_TO_OFF(page->pindex)));
-#endif
 }
 
 vm_page_t
@@ -267,7 +268,7 @@ get_user_pages_remote(struct task_struct *task, struct mm_struct *mm,
 {
 	vm_map_t map;
 
-	map = &mm->vmspace->vm_map;
+	map = &task->task_thread->td_proc->p_vmspace->vm_map;
 	return (linux_get_user_pages_internal(map, start, nr_pages,
 	    !!(gup_flags & FOLL_WRITE), pages));
 }

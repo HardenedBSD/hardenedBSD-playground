@@ -197,7 +197,7 @@ grep_fgetln(struct file *f, size_t *lenp)
 	}
 
 	/* Look for a newline in the remaining part of the buffer */
-	if ((p = memchr(bufpos, '\n', bufrem)) != NULL) {
+	if ((p = memchr(bufpos, fileeol, bufrem)) != NULL) {
 		++p; /* advance over newline */
 		ret = bufpos;
 		len = p - bufpos;
@@ -213,24 +213,24 @@ grep_fgetln(struct file *f, size_t *lenp)
 		if (grep_lnbufgrow(len + LNBUFBUMP))
 			goto error;
 		memcpy(lnbuf + off, bufpos, len - off);
+		/* With FILE_MMAP, this is EOF; there's no more to refill */
+		if (filebehave == FILE_MMAP) {
+			bufrem -= len;
+			break;
+		}
 		off = len;
+		/* Fetch more to try and find EOL/EOF */
 		if (grep_refill(f) != 0)
 			goto error;
 		if (bufrem == 0)
 			/* EOF: return partial line */
 			break;
-		if ((p = memchr(bufpos, '\n', bufrem)) == NULL &&
-		    filebehave != FILE_MMAP)
+		if ((p = memchr(bufpos, fileeol, bufrem)) == NULL)
 			continue;
-		if (p == NULL) {
-			/* mmap EOF: return partial line, consume buffer */
-			diff = len;
-		} else {
-			/* got it: finish up the line (like code above) */
-			++p;
-			diff = p - bufpos;
-			len += diff;
-		}
+		/* got it: finish up the line (like code above) */
+		++p;
+		diff = p - bufpos;
+		len += diff;
 		if (grep_lnbufgrow(len))
 		    goto error;
 		memcpy(lnbuf + off, bufpos, diff);
@@ -322,7 +322,8 @@ grep_open(const char *path)
 		goto error2;
 
 	/* Check for binary stuff, if necessary */
-	if (binbehave != BINFILE_TEXT && memchr(bufpos, '\0', bufrem) != NULL)
+	if (binbehave != BINFILE_TEXT && fileeol != '\0' &&
+	    memchr(bufpos, '\0', bufrem) != NULL)
 	f->binary = true;
 
 	return (f);

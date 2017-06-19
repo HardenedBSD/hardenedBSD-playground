@@ -1613,6 +1613,26 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	tcp_pcap_add(th, m, &(tp->t_inpkts));
 #endif
 
+	if ((thflags & TH_SYN) && (thflags & TH_FIN) && V_drop_synfin) {
+		if ((s = tcp_log_addrs(inc, th, NULL, NULL))) {
+			log(LOG_DEBUG, "%s; %s: "
+			    "SYN|FIN segment ignored (based on "
+			    "sysctl setting)\n", s, __func__);
+			free(s, M_TCPLOG);
+		}
+		goto drop;
+	}
+
+	/*
+	 * If a segment with the ACK-bit set arrives in the SYN-SENT state
+	 * check SEQ.ACK first.
+	 */
+	if ((tp->t_state == TCPS_SYN_SENT) && (thflags & TH_ACK) &&
+	    (SEQ_LEQ(th->th_ack, tp->iss) || SEQ_GT(th->th_ack, tp->snd_max))) {
+		rstreason = BANDLIM_UNLIMITED;
+		goto dropwithreset;
+	}
+
 	/*
 	 * Segment received on connection.
 	 * Reset idle time and keep-alive timer.
@@ -1991,9 +2011,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 
 	/*
 	 * If the state is SYN_SENT:
-	 *	if seg contains an ACK, but not for our SYN, drop the input.
-	 *	if seg contains a RST, then drop the connection.
-	 *	if seg does not contain SYN, then drop it.
+	 *	if seg contains a RST with valid ACK (SEQ.ACK has already
+	 *	    been verified), then drop the connection.
+	 *	if seg contains a RST without an ACK, drop the seg.
+	 *	if seg does not contain SYN, then drop the seg.
 	 * Otherwise this is an acceptable SYN segment
 	 *	initialize tp->rcv_nxt and tp->irs
 	 *	if seg contains ack then advance tp->snd_una
@@ -2004,12 +2025,6 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	 *	continue processing rest of data/controls, beginning with URG
 	 */
 	case TCPS_SYN_SENT:
-		if ((thflags & TH_ACK) &&
-		    (SEQ_LEQ(th->th_ack, tp->iss) ||
-		     SEQ_GT(th->th_ack, tp->snd_max))) {
-			rstreason = BANDLIM_UNLIMITED;
-			goto dropwithreset;
-		}
 		if ((thflags & (TH_ACK|TH_RST)) == (TH_ACK|TH_RST)) {
 			TCP_PROBE5(connect__refused, NULL, tp,
 			    m, tp, th);

@@ -552,10 +552,6 @@ DRM_DEBUG		opt_drm.h
 TI_SF_BUF_JUMBO		opt_ti.h
 TI_JUMBO_HDRSPLIT	opt_ti.h
 
-# XXX Conflict: # of devices vs network protocol (Native ATM).
-# This makes "atm.h" unusable.
-NATM
-
 # DPT driver debug flags
 DPT_MEASURE_PERFORMANCE	opt_dpt.h
 DPT_RESET_HBA		opt_dpt.h
@@ -876,6 +872,10 @@ MWL_DIAGAPI		opt_mwl.h
 MWL_AGGR_SIZE		opt_mwl.h
 MWL_TX_NODROP		opt_mwl.h
 
+# Options for the Marvell NETA driver
+MVNETA_MULTIQUEUE	opt_mvneta.h
+MVNETA_KTR		opt_mvneta.h
+
 # Options for the Intel 802.11ac wireless driver
 IWM_DEBUG		opt_iwm.h
 
@@ -987,6 +987,9 @@ PAX_ASLR_COMPAT_DELTA_MMAP_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_STACK_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_EXEC_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_VDSO_DEF_LEN	opt_pax.h
+
+# Other hardening features
+HARDEN_RANDOMPID	opt_pax.h
 
 # Random number generator(s)
 # Which CSPRNG hash we get.

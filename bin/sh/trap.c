@@ -478,19 +478,14 @@ dotrap(void)
 
 
 /*
- * Controls whether the shell is interactive or not.
+ * Controls whether the shell is interactive or not based on iflag.
  */
 void
-setinteractive(int on)
+setinteractive(void)
 {
-	static int is_interactive = -1;
-
-	if (on == is_interactive)
-		return;
 	setsignal(SIGINT);
 	setsignal(SIGQUIT);
 	setsignal(SIGTERM);
-	is_interactive = on;
 }
 
 
@@ -531,11 +526,13 @@ exitshell_savedstatus(void)
 			 */
 			evalskip = 0;
 			trap[0] = NULL;
+			FORCEINTON;
 			evalstring(p, 0);
 		}
 	}
 	if (!setjmp(loc2.loc)) {
 		handler = &loc2;		/* probably unnecessary */
+		FORCEINTON;
 		flushall();
 #if JOBS
 		setjobctl(0);

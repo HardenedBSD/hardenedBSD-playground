@@ -158,14 +158,6 @@ APM+=		apmd
 APMPACKAGE=	apm
 .endif
 
-.if ${MK_ATM} != "no"
-FILESGROUPS+=	ATM
-ATM+=		atm1
-ATM+=		atm2
-ATM+=		atm3
-ATMPACKAGE=	atm
-.endif
-
 .if ${MK_AUTOFS} != "no"
 FILES+=		automount
 FILES+=		automountd
@@ -250,7 +242,7 @@ FILES+=		othermta
 _nscd=		nscd
 .endif
 
-.if ${MK_NTP} != "no" && ${MK_OPENNTPD} == "no"
+.if ${MK_NTP} != "no"
 FILES+=		ntpd
 .endif
 

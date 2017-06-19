@@ -71,6 +71,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/syscallsubr.h>
 #include <sys/sysent.h>
 #include <sys/sysproto.h>
+#include <sys/vmmeter.h>
 
 #include <vm/vm_object.h>
 #include <vm/vm_page.h>
@@ -102,6 +103,10 @@ __FBSDID("$FreeBSD$");
     defined(COMPAT_FREEBSD6) || defined(COMPAT_FREEBSD7) || \
     defined(COMPAT_FREEBSD9)
 #error FreeBSD/arm doesn't provide compatibility with releases prior to 10
+#endif
+
+#if __ARM_ARCH >= 6 && !defined(INTRNG)
+#error armv6 requires INTRNG
 #endif
 
 struct pcpu __pcpu[MAXCPU];
@@ -298,6 +303,7 @@ cpu_idle_wakeup(int cpu)
 	return (0);
 }
 
+#ifdef NO_EVENTTIMERS
 /*
  * Most ARM platforms don't need to do anything special to init their clocks
  * (they get intialized during normal device attachment), and by not defining a
@@ -308,8 +314,14 @@ cpu_idle_wakeup(int cpu)
 void
 arm_generic_initclocks(void)
 {
+}
+__weak_reference(arm_generic_initclocks, cpu_initclocks);
 
-#ifndef NO_EVENTTIMERS
+#else
+void
+cpu_initclocks(void)
+{
+
 #ifdef SMP
 	if (PCPU_GET(cpuid) == 0)
 		cpu_initclocks_bsp();
@@ -318,9 +330,8 @@ arm_generic_initclocks(void)
 #else
 	cpu_initclocks_bsp();
 #endif
-#endif
 }
-__weak_reference(arm_generic_initclocks, cpu_initclocks);
+#endif
 
 #ifdef MULTIDELAY
 void
@@ -815,9 +826,10 @@ initarm(struct arm_boot_params *abp)
 
 	/*
 	 * Add one table for end of kernel map, one for stacks, msgbuf and
-	 * L1 and L2 tables map and one for vectors map.
+	 * L1 and L2 tables map,  one for vectors map and two for
+	 * l2 structures from pmap_bootstrap.
 	 */
-	l2size += 3;
+	l2size += 5;
 
 	/* Make it divisible by 4 */
 	l2size = (l2size + 3) & ~3;

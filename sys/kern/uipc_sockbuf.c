@@ -314,15 +314,15 @@ sowakeup(struct socket *so, struct sockbuf *sb)
 
 	SOCKBUF_LOCK_ASSERT(sb);
 
-	selwakeuppri(&sb->sb_sel, PSOCK);
-	if (!SEL_WAITING(&sb->sb_sel))
+	selwakeuppri(sb->sb_sel, PSOCK);
+	if (!SEL_WAITING(sb->sb_sel))
 		sb->sb_flags &= ~SB_SEL;
 	if (sb->sb_flags & SB_WAIT) {
 		sb->sb_flags &= ~SB_WAIT;
 		wakeup(&sb->sb_acc);
 	}
-	KNOTE_LOCKED(&sb->sb_sel.si_note, 0);
-	if (sb->sb_upcall != NULL) {
+	KNOTE_LOCKED(&sb->sb_sel->si_note, 0);
+	if (sb->sb_upcall != NULL && !(so->so_state & SS_ISDISCONNECTED)) {
 		ret = sb->sb_upcall(so, sb->sb_upcallarg, M_NOWAIT);
 		if (ret == SU_ISCONNECTED) {
 			KASSERT(sb == &so->so_rcv,
@@ -794,8 +794,20 @@ sbappendaddr_locked_internal(struct sockbuf *sb, const struct sockaddr *asa,
 		return (0);
 	m->m_len = asa->sa_len;
 	bcopy(asa, mtod(m, caddr_t), asa->sa_len);
-	if (m0)
+	if (m0) {
 		m_clrprotoflags(m0);
+		m_tag_delete_chain(m0, NULL);
+		/*
+		 * Clear some persistent info from pkthdr.
+		 * We don't use m_demote(), because some netgraph consumers
+		 * expect M_PKTHDR presence.
+		 */
+		m0->m_pkthdr.rcvif = NULL;
+		m0->m_pkthdr.flowid = 0;
+		m0->m_pkthdr.csum_flags = 0;
+		m0->m_pkthdr.fibnum = 0;
+		m0->m_pkthdr.rsstype = 0;
+	}
 	if (ctrl_last)
 		ctrl_last->m_next = m0;	/* concatenate data to control */
 	else

@@ -198,7 +198,7 @@ SYSCTL_INT(_kern, OID_AUTO, lastpid, CTLFLAG_RD, &lastpid, 0,
  */
 int randompid = 0;
 
-#ifndef PAX_HARDENING
+#ifndef HARDEN_RANDOMPID
 static int
 sysctl_kern_randompid(SYSCTL_HANDLER_ARGS)
 {
@@ -672,20 +672,20 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	vm_forkproc(td, p2, td2, vm2, fr->fr_flags);
 
 	if (fr->fr_flags == (RFFDG | RFPROC)) {
-		PCPU_INC(cnt.v_forks);
-		PCPU_ADD(cnt.v_forkpages, p2->p_vmspace->vm_dsize +
+		VM_CNT_INC(v_forks);
+		VM_CNT_ADD(v_forkpages, p2->p_vmspace->vm_dsize +
 		    p2->p_vmspace->vm_ssize);
 	} else if (fr->fr_flags == (RFFDG | RFPROC | RFPPWAIT | RFMEM)) {
-		PCPU_INC(cnt.v_vforks);
-		PCPU_ADD(cnt.v_vforkpages, p2->p_vmspace->vm_dsize +
+		VM_CNT_INC(v_vforks);
+		VM_CNT_ADD(v_vforkpages, p2->p_vmspace->vm_dsize +
 		    p2->p_vmspace->vm_ssize);
 	} else if (p1 == &proc0) {
-		PCPU_INC(cnt.v_kthreads);
-		PCPU_ADD(cnt.v_kthreadpages, p2->p_vmspace->vm_dsize +
+		VM_CNT_INC(v_kthreads);
+		VM_CNT_ADD(v_kthreadpages, p2->p_vmspace->vm_dsize +
 		    p2->p_vmspace->vm_ssize);
 	} else {
-		PCPU_INC(cnt.v_rforks);
-		PCPU_ADD(cnt.v_rforkpages, p2->p_vmspace->vm_dsize +
+		VM_CNT_INC(v_rforks);
+		VM_CNT_ADD(v_rforkpages, p2->p_vmspace->vm_dsize +
 		    p2->p_vmspace->vm_ssize);
 	}
 
@@ -1116,7 +1116,7 @@ fork_return(struct thread *td, struct trapframe *frame)
 		 */
 		PROC_LOCK(p);
 		td->td_dbgflags |= TDB_SCX;
-		_STOPEVENT(p, S_SCX, td->td_dbg_sc_code);
+		_STOPEVENT(p, S_SCX, td->td_sa.code);
 		if ((p->p_ptevents & PTRACE_SCX) != 0 ||
 		    (td->td_dbgflags & TDB_BORN) != 0)
 			ptracestop(td, SIGTRAP, NULL);

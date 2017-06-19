@@ -338,7 +338,7 @@ int	 ferror_unlocked(FILE *);
 int	 fileno_unlocked(FILE *);
 #endif
 
-#if __POSIX_VISIBLE >= 200112
+#if __POSIX_VISIBLE >= 200112 || __XSI_VISIBLE >= 500
 int	 fseeko(FILE *, __off_t, int);
 __off_t	 ftello(FILE *);
 #endif
@@ -464,7 +464,10 @@ static __inline int __sputc(int _c, FILE *_p) {
 		(*(p)->_p = (c), (int)*(p)->_p++))
 #endif
 
+#ifndef __LIBC_ISTHREADED_DECLARED
+#define __LIBC_ISTHREADED_DECLARED
 extern int __isthreaded;
+#endif
 
 #ifndef __cplusplus
 

@@ -490,14 +490,12 @@ nfscl_loadattrcache(struct vnode **vpp, struct nfsvattr *nap, void *nvaper,
 		 * from the value used for the top level server volume
 		 * in the mounted subtree.
 		 */
-		if (vp->v_mount->mnt_stat.f_fsid.val[0] !=
-		    (uint32_t)np->n_vattr.na_filesid[0])
-			vap->va_fsid = (uint32_t)np->n_vattr.na_filesid[0];
-		else
-			vap->va_fsid = (uint32_t)hash32_buf(
+		vn_fsid(vp, vap);
+		if ((uint32_t)vap->va_fsid == np->n_vattr.na_filesid[0])
+			vap->va_fsid = hash32_buf(
 			    np->n_vattr.na_filesid, 2 * sizeof(uint64_t), 0);
 	} else
-		vap->va_fsid = vp->v_mount->mnt_stat.f_fsid.val[0];
+		vn_fsid(vp, vap);
 	np->n_attrstamp = time_second;
 	if (vap->va_size != np->n_size) {
 		if (vap->va_type == VREG) {
@@ -634,7 +632,7 @@ nfscl_filllockowner(void *id, u_int8_t *cp, int flags)
 	struct proc *p;
 
 	if (id == NULL) {
-		printf("NULL id\n");
+		/* Return the single open_owner of all 0 bytes. */
 		bzero(cp, NFSV4CL_LOCKNAMELEN);
 		return;
 	}
@@ -1255,7 +1253,14 @@ nfscl_procdoesntexist(u_int8_t *own)
 	} tl;
 	struct proc *p;
 	pid_t pid;
-	int ret = 0;
+	int i, ret = 0;
+
+	/* For the single open_owner of all 0 bytes, just return 0. */
+	for (i = 0; i < NFSV4CL_LOCKNAMELEN; i++)
+		if (own[i] != 0)
+			break;
+	if (i == NFSV4CL_LOCKNAMELEN)
+		return (0);
 
 	tl.cval[0] = *own++;
 	tl.cval[1] = *own++;

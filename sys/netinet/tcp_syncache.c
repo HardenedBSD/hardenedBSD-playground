@@ -260,6 +260,8 @@ syncache_init(void)
 			 &V_tcp_syncache.hashbase[i].sch_mtx, 0);
 		V_tcp_syncache.hashbase[i].sch_length = 0;
 		V_tcp_syncache.hashbase[i].sch_sc = &V_tcp_syncache;
+		V_tcp_syncache.hashbase[i].sch_last_overflow =
+		    -(SYNCOOKIE_LIFETIME + 1);
 	}
 
 	/* Create the syncache entry zone. */
@@ -335,6 +337,7 @@ syncache_insert(struct syncache *sc, struct syncache_head *sch)
 		KASSERT(!TAILQ_EMPTY(&sch->sch_bucket),
 			("sch->sch_length incorrect"));
 		sc2 = TAILQ_LAST(&sch->sch_bucket, sch_head);
+		sch->sch_last_overflow = time_uptime;
 		syncache_drop(sc2, sch);
 		TCPSTAT_INC(tcps_sc_bucketoverflow);
 	}
@@ -599,7 +602,7 @@ syncache_badack(struct in_conninfo *inc)
 }
 
 void
-syncache_unreach(struct in_conninfo *inc, struct tcphdr *th)
+syncache_unreach(struct in_conninfo *inc, tcp_seq th_seq)
 {
 	struct syncache *sc;
 	struct syncache_head *sch;
@@ -610,7 +613,7 @@ syncache_unreach(struct in_conninfo *inc, struct tcphdr *th)
 		goto done;
 
 	/* If the sequence number != sc_iss, then it's a bogus ICMP msg */
-	if (ntohl(th->th_seq) != sc->sc_iss)
+	if (ntohl(th_seq) != sc->sc_iss)
 		goto done;
 
 	/*
@@ -974,10 +977,13 @@ syncache_expand(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 		/*
 		 * There is no syncache entry, so see if this ACK is
 		 * a returning syncookie.  To do this, first:
-		 *  A. See if this socket has had a syncache entry dropped in
-		 *     the past.  We don't want to accept a bogus syncookie
-		 *     if we've never received a SYN.
-		 *  B. check that the syncookie is valid.  If it is, then
+		 *  A. Check if syncookies are used in case of syncache
+		 *     overflows
+		 *  B. See if this socket has had a syncache entry dropped in
+		 *     the recent past. We don't want to accept a bogus
+		 *     syncookie if we've never received a SYN or accept it
+		 *     twice.
+		 *  C. check that the syncookie is valid.  If it is, then
 		 *     cobble up a fake syncache entry, and return.
 		 */
 		if (!V_tcp_syncookies) {
@@ -985,6 +991,15 @@ syncache_expand(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 			if ((s = tcp_log_addrs(inc, th, NULL, NULL)))
 				log(LOG_DEBUG, "%s; %s: Spurious ACK, "
 				    "segment rejected (syncookies disabled)\n",
+				    s, __func__);
+			goto failed;
+		}
+		if (!V_tcp_syncookiesonly &&
+		    sch->sch_last_overflow < time_uptime - SYNCOOKIE_LIFETIME) {
+			SCH_UNLOCK(sch);
+			if ((s = tcp_log_addrs(inc, th, NULL, NULL)))
+				log(LOG_DEBUG, "%s; %s: Spurious ACK, "
+				    "segment rejected (no syncache entry)\n",
 				    s, __func__);
 			goto failed;
 		}
@@ -1249,6 +1264,7 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 	 * soon as possible.
 	 */
 	so = *lsop;
+	KASSERT(SOLISTENING(so), ("%s: %p not listening", __func__, so));
 	tp = sototcpcb(so);
 	cred = crhold(so->so_cred);
 
@@ -1259,7 +1275,7 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 #endif
 	ip_ttl = inp->inp_ip_ttl;
 	ip_tos = inp->inp_ip_tos;
-	win = sbspace(&so->so_rcv);
+	win = so->sol_sbrcv_hiwat;
 	ltflags = (tp->t_flags & (TF_NOOPT | TF_SIGNATURE));
 
 #ifdef TCP_RFC7413
@@ -1272,7 +1288,7 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 		 * listen queue with bogus TFO connections.
 		 */
 		if (atomic_fetchadd_int(tp->t_tfo_pending, 1) <=
-		    (so->so_qlimit / 2)) {
+		    (so->sol_qlimit / 2)) {
 			int result;
 
 			result = tcp_fastopen_check_cookie(inc,
@@ -1411,8 +1427,10 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 		 * entry and insert the new one.
 		 */
 		TCPSTAT_INC(tcps_sc_zonefail);
-		if ((sc = TAILQ_LAST(&sch->sch_bucket, sch_head)) != NULL)
+		if ((sc = TAILQ_LAST(&sch->sch_bucket, sch_head)) != NULL) {
+			sch->sch_last_overflow = time_uptime;
 			syncache_drop(sc, sch);
+		}
 		sc = uma_zalloc(V_tcp_syncache.zone, M_NOWAIT | M_ZERO);
 		if (sc == NULL) {
 			if (V_tcp_syncookies) {
@@ -2098,7 +2116,7 @@ syncookie_lookup(struct in_conninfo *inc, struct syncache_head *sch,
 		sc->sc_flags |= SCF_WINSCALE;
 	}
 
-	wnd = sbspace(&lso->so_rcv);
+	wnd = lso->sol_sbrcv_hiwat;
 	wnd = imax(wnd, 0);
 	wnd = imin(wnd, TCP_MAXWIN);
 	sc->sc_wnd = wnd;

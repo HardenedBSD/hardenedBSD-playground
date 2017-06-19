@@ -72,7 +72,7 @@ short nfsv4_cbport = NFSV4_CBPORT;
 int nfstest_openallsetattr = 0;
 #endif	/* !APPLEKEXT */
 
-#define	DIRHDSIZ	(sizeof (struct dirent) - (MAXNAMLEN + 1))
+#define	DIRHDSIZ	offsetof(struct dirent, d_name)
 
 /*
  * nfscl_getsameserver() can return one of three values:
@@ -347,7 +347,7 @@ else printf(" fhl=0\n");
 	     */
 	    if (!error)
 		op->nfso_opencnt++;
-	    nfscl_openrelease(op, error, newone);
+	    nfscl_openrelease(nmp, op, error, newone);
 	    if (error == NFSERR_GRACE || error == NFSERR_STALECLIENTID ||
 		error == NFSERR_STALEDONTRECOVER || error == NFSERR_DELAY ||
 		error == NFSERR_BADSESSION) {
@@ -1134,6 +1134,11 @@ nfsrpc_setattr(vnode_t vp, struct vattr *vap, NFSACL_T *aclp,
 		else
 			error = nfsrpc_setaclrpc(vp, cred, p, aclp, &stateid,
 			    stuff);
+		if (error == NFSERR_OPENMODE && mode == NFSV4OPEN_ACCESSREAD) {
+			NFSLOCKMNT(nmp);
+			nmp->nm_state |= NFSSTA_OPENMODE;
+			NFSUNLOCKMNT(nmp);
+		}
 		if (error == NFSERR_STALESTATEID)
 			nfscl_initiate_recovery(nmp->nm_clp);
 		if (lckp != NULL)
@@ -1154,7 +1159,9 @@ nfsrpc_setattr(vnode_t vp, struct vattr *vap, NFSACL_T *aclp,
 	    error == NFSERR_BADSESSION ||
 	    (error == NFSERR_OLDSTATEID && retrycnt < 20) ||
 	    ((error == NFSERR_EXPIRED || error == NFSERR_BADSTATEID) &&
-	     expireret == 0 && clidrev != 0 && retrycnt < 4));
+	     expireret == 0 && clidrev != 0 && retrycnt < 4) ||
+	    (error == NFSERR_OPENMODE && mode == NFSV4OPEN_ACCESSREAD &&
+	     retrycnt < 4));
 	if (error && retrycnt >= 4)
 		error = EIO;
 	return (error);
@@ -1391,6 +1398,11 @@ nfsrpc_read(vnode_t vp, struct uio *uiop, struct ucred *cred,
 			    &lckp);
 		error = nfsrpc_readrpc(vp, uiop, newcred, &stateid, p, nap,
 		    attrflagp, stuff);
+		if (error == NFSERR_OPENMODE) {
+			NFSLOCKMNT(nmp);
+			nmp->nm_state |= NFSSTA_OPENMODE;
+			NFSUNLOCKMNT(nmp);
+		}
 		if (error == NFSERR_STALESTATEID)
 			nfscl_initiate_recovery(nmp->nm_clp);
 		if (lckp != NULL)
@@ -1409,7 +1421,8 @@ nfsrpc_read(vnode_t vp, struct uio *uiop, struct ucred *cred,
 	    error == NFSERR_BADSESSION ||
 	    (error == NFSERR_OLDSTATEID && retrycnt < 20) ||
 	    ((error == NFSERR_EXPIRED || error == NFSERR_BADSTATEID) &&
-	     expireret == 0 && clidrev != 0 && retrycnt < 4));
+	     expireret == 0 && clidrev != 0 && retrycnt < 4) ||
+	    (error == NFSERR_OPENMODE && retrycnt < 4));
 	if (error && retrycnt >= 4)
 		error = EIO;
 	if (NFSHASNFSV4(nmp))
@@ -1893,7 +1906,7 @@ nfsrpc_create(vnode_t dvp, char *name, int namelen, struct vattr *vap,
 		if (dp != NULL)
 			(void) nfscl_deleg(nmp->nm_mountp, owp->nfsow_clp,
 			    (*nfhpp)->nfh_fh, (*nfhpp)->nfh_len, cred, p, &dp);
-		nfscl_ownerrelease(owp, error, newone, unlocked);
+		nfscl_ownerrelease(nmp, owp, error, newone, unlocked);
 		if (error == NFSERR_GRACE || error == NFSERR_STALECLIENTID ||
 		    error == NFSERR_STALEDONTRECOVER || error == NFSERR_DELAY ||
 		    error == NFSERR_BADSESSION) {
@@ -2198,7 +2211,7 @@ nfsrpc_createv4(vnode_t dvp, char *name, int namelen, struct vattr *vap,
 				error = ret;
 		    }
 		}
-		nfscl_openrelease(op, error, newone);
+		nfscl_openrelease(nmp, op, error, newone);
 		*unlockedp = 1;
 	}
 	if (nd->nd_repstat != 0 && error == 0)
@@ -2848,17 +2861,18 @@ nfsrpc_readdir(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 			if (error)
 			    return (error);
 			nd->nd_mrep = NULL;
-			dp = (struct dirent *) CAST_DOWN(caddr_t, uio_iov_base(uiop));
+			dp = (struct dirent *)uio_iov_base(uiop);
+			dp->d_off = 0;
 			dp->d_type = DT_DIR;
 			dp->d_fileno = dotfileid;
 			dp->d_namlen = 1;
+			*((uint64_t *)dp->d_name) = 0;	/* Zero pad it. */
 			dp->d_name[0] = '.';
-			dp->d_name[1] = '\0';
-			dp->d_reclen = DIRENT_SIZE(dp) + NFSX_HYPER;
+			dp->d_reclen = _GENERIC_DIRSIZ(dp) + NFSX_HYPER;
 			/*
 			 * Just make these offset cookie 0.
 			 */
-			tl = (u_int32_t *)&dp->d_name[4];
+			tl = (u_int32_t *)&dp->d_name[8];
 			*tl++ = 0;
 			*tl = 0;
 			blksiz += dp->d_reclen;
@@ -2866,18 +2880,19 @@ nfsrpc_readdir(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 			uiop->uio_offset += dp->d_reclen;
 			uio_iov_base_add(uiop, dp->d_reclen);
 			uio_iov_len_add(uiop, -(dp->d_reclen));
-			dp = (struct dirent *) CAST_DOWN(caddr_t, uio_iov_base(uiop));
+			dp = (struct dirent *)uio_iov_base(uiop);
+			dp->d_off = 0;
 			dp->d_type = DT_DIR;
 			dp->d_fileno = dotdotfileid;
 			dp->d_namlen = 2;
+			*((uint64_t *)dp->d_name) = 0;
 			dp->d_name[0] = '.';
 			dp->d_name[1] = '.';
-			dp->d_name[2] = '\0';
-			dp->d_reclen = DIRENT_SIZE(dp) + NFSX_HYPER;
+			dp->d_reclen = _GENERIC_DIRSIZ(dp) + NFSX_HYPER;
 			/*
 			 * Just make these offset cookie 0.
 			 */
-			tl = (u_int32_t *)&dp->d_name[4];
+			tl = (u_int32_t *)&dp->d_name[8];
 			*tl++ = 0;
 			*tl = 0;
 			blksiz += dp->d_reclen;
@@ -2974,11 +2989,11 @@ nfsrpc_readdir(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 				error = EBADRPC;
 				goto nfsmout;
 			}
-			tlen = NFSM_RNDUP(len);
+			tlen = roundup2(len, 8);
 			if (tlen == len)
-				tlen += 4;  /* To ensure null termination */
+				tlen += 8;  /* To ensure null termination. */
 			left = DIRBLKSIZ - blksiz;
-			if ((int)(tlen + DIRHDSIZ + NFSX_HYPER) > left) {
+			if (_GENERIC_DIRLEN(len) + NFSX_HYPER > left) {
 				dp->d_reclen += left;
 				uio_iov_base_add(uiop, left);
 				uio_iov_len_add(uiop, -(left));
@@ -2986,12 +3001,15 @@ nfsrpc_readdir(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 				uiop->uio_offset += left;
 				blksiz = 0;
 			}
-			if ((int)(tlen + DIRHDSIZ + NFSX_HYPER) > uio_uio_resid(uiop))
+			if (_GENERIC_DIRLEN(len) + NFSX_HYPER >
+			    uio_uio_resid(uiop))
 				bigenough = 0;
 			if (bigenough) {
-				dp = (struct dirent *) CAST_DOWN(caddr_t, uio_iov_base(uiop));
+				dp = (struct dirent *)uio_iov_base(uiop);
+				dp->d_off = 0;
 				dp->d_namlen = len;
-				dp->d_reclen = tlen + DIRHDSIZ + NFSX_HYPER;
+				dp->d_reclen = _GENERIC_DIRLEN(len) +
+				    NFSX_HYPER;
 				dp->d_type = DT_UNKNOWN;
 				blksiz += dp->d_reclen;
 				if (blksiz == DIRBLKSIZ)
@@ -3003,7 +3021,7 @@ nfsrpc_readdir(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 				error = nfsm_mbufuio(nd, uiop, len);
 				if (error)
 					goto nfsmout;
-				cp = CAST_DOWN(caddr_t, uio_iov_base(uiop));
+				cp = uio_iov_base(uiop);
 				tlen -= len;
 				*cp = '\0';	/* null terminate */
 				cp += tlen;	/* points to cookie storage */
@@ -3118,8 +3136,8 @@ nfsrpc_readdir(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 	/*
 	 * Add extra empty records to any remaining DIRBLKSIZ chunks.
 	 */
-	while (uio_uio_resid(uiop) > 0 && ((size_t)(uio_uio_resid(uiop))) != tresid) {
-		dp = (struct dirent *) CAST_DOWN(caddr_t, uio_iov_base(uiop));
+	while (uio_uio_resid(uiop) > 0 && uio_uio_resid(uiop) != tresid) {
+		dp = (struct dirent *)uio_iov_base(uiop);
 		dp->d_type = DT_UNKNOWN;
 		dp->d_fileno = 0;
 		dp->d_namlen = 0;
@@ -3276,16 +3294,17 @@ nfsrpc_readdirplus(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 			    return (error);
 			nd->nd_mrep = NULL;
 			dp = (struct dirent *)uio_iov_base(uiop);
+			dp->d_off = 0;
 			dp->d_type = DT_DIR;
 			dp->d_fileno = dotfileid;
 			dp->d_namlen = 1;
+			*((uint64_t *)dp->d_name) = 0;	/* Zero pad it. */
 			dp->d_name[0] = '.';
-			dp->d_name[1] = '\0';
-			dp->d_reclen = DIRENT_SIZE(dp) + NFSX_HYPER;
+			dp->d_reclen = _GENERIC_DIRSIZ(dp) + NFSX_HYPER;
 			/*
 			 * Just make these offset cookie 0.
 			 */
-			tl = (u_int32_t *)&dp->d_name[4];
+			tl = (u_int32_t *)&dp->d_name[8];
 			*tl++ = 0;
 			*tl = 0;
 			blksiz += dp->d_reclen;
@@ -3294,17 +3313,18 @@ nfsrpc_readdirplus(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 			uio_iov_base_add(uiop, dp->d_reclen);
 			uio_iov_len_add(uiop, -(dp->d_reclen));
 			dp = (struct dirent *)uio_iov_base(uiop);
+			dp->d_off = 0;
 			dp->d_type = DT_DIR;
 			dp->d_fileno = dotdotfileid;
 			dp->d_namlen = 2;
+			*((uint64_t *)dp->d_name) = 0;
 			dp->d_name[0] = '.';
 			dp->d_name[1] = '.';
-			dp->d_name[2] = '\0';
-			dp->d_reclen = DIRENT_SIZE(dp) + NFSX_HYPER;
+			dp->d_reclen = _GENERIC_DIRSIZ(dp) + NFSX_HYPER;
 			/*
 			 * Just make these offset cookie 0.
 			 */
-			tl = (u_int32_t *)&dp->d_name[4];
+			tl = (u_int32_t *)&dp->d_name[8];
 			*tl++ = 0;
 			*tl = 0;
 			blksiz += dp->d_reclen;
@@ -3382,11 +3402,11 @@ nfsrpc_readdirplus(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 				error = EBADRPC;
 				goto nfsmout;
 			}
-			tlen = NFSM_RNDUP(len);
+			tlen = roundup2(len, 8);
 			if (tlen == len)
-				tlen += 4;  /* To ensure null termination */
+				tlen += 8;  /* To ensure null termination. */
 			left = DIRBLKSIZ - blksiz;
-			if ((tlen + DIRHDSIZ + NFSX_HYPER) > left) {
+			if (_GENERIC_DIRLEN(len) + NFSX_HYPER > left) {
 				dp->d_reclen += left;
 				uio_iov_base_add(uiop, left);
 				uio_iov_len_add(uiop, -(left));
@@ -3394,12 +3414,15 @@ nfsrpc_readdirplus(vnode_t vp, struct uio *uiop, nfsuint64 *cookiep,
 				uiop->uio_offset += left;
 				blksiz = 0;
 			}
-			if ((tlen + DIRHDSIZ + NFSX_HYPER) > uio_uio_resid(uiop))
+			if (_GENERIC_DIRLEN(len) + NFSX_HYPER >
+			    uio_uio_resid(uiop))
 				bigenough = 0;
 			if (bigenough) {
 				dp = (struct dirent *)uio_iov_base(uiop);
+				dp->d_off = 0;
 				dp->d_namlen = len;
-				dp->d_reclen = tlen + DIRHDSIZ + NFSX_HYPER;
+				dp->d_reclen = _GENERIC_DIRLEN(len) +
+				    NFSX_HYPER;
 				dp->d_type = DT_UNKNOWN;
 				blksiz += dp->d_reclen;
 				if (blksiz == DIRBLKSIZ)
@@ -4602,7 +4625,7 @@ nfsrpc_createsession(struct nfsmount *nmp, struct nfsclsession *sep,
     struct nfssockreq *nrp, uint32_t sequenceid, int mds, struct ucred *cred,
     NFSPROC_T *p)
 {
-	uint32_t crflags, *tl;
+	uint32_t crflags, maxval, *tl;
 	struct nfsrv_descript nfsd;
 	struct nfsrv_descript *nd = &nfsd;
 	int error, irdcnt;
@@ -4613,15 +4636,15 @@ nfsrpc_createsession(struct nfsmount *nmp, struct nfsclsession *sep,
 	*tl++ = sep->nfsess_clientid.lval[1];
 	*tl++ = txdr_unsigned(sequenceid);
 	crflags = (NFSMNT_RDONLY(nmp->nm_mountp) ? 0 : NFSV4CRSESS_PERSIST);
-	if (nfscl_enablecallb != 0 && nfs_numnfscbd > 0)
+	if (nfscl_enablecallb != 0 && nfs_numnfscbd > 0 && mds != 0)
 		crflags |= NFSV4CRSESS_CONNBACKCHAN;
 	*tl = txdr_unsigned(crflags);
 
 	/* Fill in fore channel attributes. */
 	NFSM_BUILD(tl, uint32_t *, 7 * NFSX_UNSIGNED);
 	*tl++ = 0;				/* Header pad size */
-	*tl++ = txdr_unsigned(100000);		/* Max request size */
-	*tl++ = txdr_unsigned(100000);		/* Max response size */
+	*tl++ = txdr_unsigned(nmp->nm_wsize + NFS_MAXXDR);/* Max request size */
+	*tl++ = txdr_unsigned(nmp->nm_rsize + NFS_MAXXDR);/* Max reply size */
 	*tl++ = txdr_unsigned(4096);		/* Max response size cached */
 	*tl++ = txdr_unsigned(20);		/* Max operations */
 	*tl++ = txdr_unsigned(64);		/* Max slots */
@@ -4668,7 +4691,26 @@ nfsrpc_createsession(struct nfsmount *nmp, struct nfsclsession *sep,
 
 		/* Get the fore channel slot count. */
 		NFSM_DISSECT(tl, uint32_t *, 7 * NFSX_UNSIGNED);
-		tl += 3;		/* Skip the other counts. */		
+		tl++;			/* Skip the header pad size. */
+
+		/* Make sure nm_wsize is small enough. */
+		maxval = fxdr_unsigned(uint32_t, *tl++);
+		while (maxval < nmp->nm_wsize + NFS_MAXXDR) {
+			if (nmp->nm_wsize > 8096)
+				nmp->nm_wsize /= 2;
+			else
+				break;
+		}
+
+		/* Make sure nm_rsize is small enough. */
+		maxval = fxdr_unsigned(uint32_t, *tl++);
+		while (maxval < nmp->nm_rsize + NFS_MAXXDR) {
+			if (nmp->nm_rsize > 8096)
+				nmp->nm_rsize /= 2;
+			else
+				break;
+		}
+
 		sep->nfsess_maxcache = fxdr_unsigned(int, *tl++);
 		tl++;
 		sep->nfsess_foreslots = fxdr_unsigned(uint16_t, *tl++);
@@ -5225,7 +5267,7 @@ nfsrpc_getlayout(struct nfsmount *nmp, vnode_t vp, struct nfsfh *nfhp,
 			stateid.other[1] = stateidp->other[1];
 			stateid.other[2] = stateidp->other[2];
 			error = nfsrpc_layoutget(nmp, nfhp->nfh_fh,
-			    nfhp->nfh_len, iomode, (uint64_t)0, INT64_MAX,
+			    nfhp->nfh_len, iomode, (uint64_t)0, UINT64_MAX,
 			    (uint64_t)0, layoutlen, &stateid, &retonclose,
 			    &flh, cred, p, NULL);
 		} else {
@@ -5235,7 +5277,7 @@ nfsrpc_getlayout(struct nfsmount *nmp, vnode_t vp, struct nfsfh *nfhp,
 			stateid.other[1] = lyp->nfsly_stateid.other[1];
 			stateid.other[2] = lyp->nfsly_stateid.other[2];
 			error = nfsrpc_layoutget(nmp, nfhp->nfh_fh,
-			    nfhp->nfh_len, iomode, off, INT64_MAX,
+			    nfhp->nfh_len, iomode, off, UINT64_MAX,
 			    (uint64_t)0, layoutlen, &stateid, &retonclose,
 			    &flh, cred, p, NULL);
 		}
@@ -5399,10 +5441,13 @@ nfsrpc_fillsa(struct nfsmount *nmp, struct sockaddr_storage *ssp,
 	NFSCL_DEBUG(3, "DS connect=%d\n", error);
 
 	/* Now, do the exchangeid and create session. */
-	if (error == 0)
+	if (error == 0) {
 		error = nfsrpc_exchangeid(nmp, clp, nrp, NFSV4EXCH_USEPNFSDS,
 		    &dsp, nrp->nr_cred, p);
-	NFSCL_DEBUG(3, "DS exchangeid=%d\n", error);
+		NFSCL_DEBUG(3, "DS exchangeid=%d\n", error);
+		if (error != 0)
+			newnfs_disconnect(nrp);
+	}
 	if (error == 0) {
 		dsp->nfsclds_sockp = nrp;
 		NFSLOCKMNT(nmp);
@@ -5445,8 +5490,10 @@ nfsrpc_fillsa(struct nfsmount *nmp, struct sockaddr_storage *ssp,
 		TAILQ_INSERT_TAIL(&nmp->nm_sess, dsp, nfsclds_list);
 		NFSUNLOCKMNT(nmp);
 		*dspp = dsp;
-	} else if (dsp != NULL)
+	} else if (dsp != NULL) {
+		newnfs_disconnect(nrp);
 		nfscl_freenfsclds(dsp);
+	}
 	return (error);
 }
 
@@ -5589,6 +5636,11 @@ nfscl_doiods(vnode_t vp, struct uio *uiop, int *iomode, int *must_commit,
 					if (lastbyte > layp->nfsly_lastbyte)
 						layp->nfsly_lastbyte = lastbyte;
 					NFSUNLOCKCLSTATE();
+				} else if (error == NFSERR_OPENMODE &&
+				    rwaccess == NFSV4OPEN_ACCESSREAD) {
+					NFSLOCKMNT(nmp);
+					nmp->nm_state |= NFSSTA_OPENMODE;
+					NFSUNLOCKMNT(nmp);
 				}
 			} else
 				error = EIO;

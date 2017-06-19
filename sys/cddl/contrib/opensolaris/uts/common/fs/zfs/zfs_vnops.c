@@ -18,11 +18,12 @@
  *
  * CDDL HEADER END
  */
+
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2012, 2015 by Delphix. All rights reserved.
- * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
+ * Copyright 2017 Nexenta Systems, Inc.
  */
 
 /* Portions Copyright 2007 Jeremy Teo */
@@ -73,6 +74,7 @@
 #include <sys/buf.h>
 #include <sys/sched.h>
 #include <sys/acl.h>
+#include <sys/vmmeter.h>
 #include <vm/vm_param.h>
 
 /*
@@ -903,9 +905,11 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 	}
 
 	/*
-	 * If immutable or not appending then return EPERM
+	 * If immutable or not appending then return EPERM.
+	 * Intentionally allow ZFS_READONLY through here.
+	 * See zfs_zaccess_common()
 	 */
-	if ((zp->z_pflags & (ZFS_IMMUTABLE | ZFS_READONLY)) ||
+	if ((zp->z_pflags & ZFS_IMMUTABLE) ||
 	    ((zp->z_pflags & ZFS_APPENDONLY) && !(ioflag & FAPPEND) &&
 	    (uio->uio_loffset < zp->z_size))) {
 		ZFS_EXIT(zfsvfs);
@@ -1384,7 +1388,7 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 
 			error = dmu_sync(zio, lr->lr_common.lrc_txg,
 			    zfs_get_done, zgd);
-			ASSERT(error || lr->lr_length <= zp->z_blksz);
+			ASSERT(error || lr->lr_length <= size);
 
 			/*
 			 * On success, we need to wait for the write I/O
@@ -1534,7 +1538,15 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct componentname *cnp,
 	zfsvfs_t *zfsvfs = zdp->z_zfsvfs;
 	int	error = 0;
 
-	/* fast path (should be redundant with vfs namecache) */
+	/*
+	 * Fast path lookup, however we must skip DNLC lookup
+	 * for case folding or normalizing lookups because the
+	 * DNLC code only stores the passed in name.  This means
+	 * creating 'a' and removing 'A' on a case insensitive
+	 * file system would work, but DNLC still thinks 'a'
+	 * exists and won't let you create it again on the next
+	 * pass through fast path.
+	 */
 	if (!(flags & LOOKUP_XATTR)) {
 		if (dvp->v_type != VDIR) {
 			return (SET_ERROR(ENOTDIR));
@@ -1625,7 +1637,7 @@ zfs_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, struct componentname *cnp,
 				cn.cn_nameptr = "snapshot";
 				cn.cn_namelen = strlen(cn.cn_nameptr);
 				cn.cn_nameiop = cnp->cn_nameiop;
-				cn.cn_flags = cnp->cn_flags;
+				cn.cn_flags = cnp->cn_flags & ~ISDOTDOT;
 				cn.cn_lkflags = cnp->cn_lkflags;
 				error = VOP_LOOKUP(zfsctl_vp, vpp, &cn);
 				vput(zfsctl_vp);
@@ -2698,7 +2710,7 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 #ifdef illumos
 	vap->va_fsid = zp->z_zfsvfs->z_vfs->vfs_dev;
 #else
-	vap->va_fsid = vp->v_mount->mnt_stat.f_fsid.val[0];
+	vn_fsid(vp, vap);
 #endif
 	vap->va_nodeid = zp->z_id;
 	if ((vp->v_flag & VROOT) && zfs_show_ctldir(zp))
@@ -2936,10 +2948,9 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 		return (SET_ERROR(EPERM));
 	}
 
-	if ((mask & AT_SIZE) && (zp->z_pflags & ZFS_READONLY)) {
-		ZFS_EXIT(zfsvfs);
-		return (SET_ERROR(EPERM));
-	}
+	/*
+	 * Note: ZFS_READONLY is handled in zfs_zaccess_common.
+	 */
 
 	/*
 	 * Verify timestamps doesn't overflow 32 bits.
@@ -4574,8 +4585,8 @@ zfs_getpages(struct vnode *vp, vm_page_t *m, int count, int *rbehind,
 		return (zfs_vm_pagerret_bad);
 	}
 
-	PCPU_INC(cnt.v_vnodein);
-	PCPU_ADD(cnt.v_vnodepgsin, count);
+	VM_CNT_INC(v_vnodein);
+	VM_CNT_ADD(v_vnodepgsin, count);
 
 	lsize = PAGE_SIZE;
 	if (IDX_TO_OFF(mlast->pindex) + lsize > object->un_pager.vnp.vnp_size)
@@ -4748,7 +4759,8 @@ zfs_putpages(struct vnode *vp, vm_page_t *ma, size_t len, int flags,
 		    &zp->z_pflags, 8);
 		zfs_tstamp_update_setup(zp, CONTENT_MODIFIED, mtime, ctime,
 		    B_TRUE);
-		(void)sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
+		err = sa_bulk_update(zp->z_sa_hdl, bulk, count, tx);
+		ASSERT0(err);
 		zfs_log_write(zfsvfs->z_log, tx, TX_WRITE, zp, off, len, 0);
 
 		zfs_vmobject_wlock(object);
@@ -4757,8 +4769,8 @@ zfs_putpages(struct vnode *vp, vm_page_t *ma, size_t len, int flags,
 			vm_page_undirty(ma[i]);
 		}
 		zfs_vmobject_wunlock(object);
-		PCPU_INC(cnt.v_vnodeout);
-		PCPU_ADD(cnt.v_vnodepgsout, ncount);
+		VM_CNT_INC(v_vnodeout);
+		VM_CNT_ADD(v_vnodepgsout, ncount);
 	}
 	dmu_tx_commit(tx);
 

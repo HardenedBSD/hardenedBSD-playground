@@ -57,7 +57,17 @@ __FBSDID("$FreeBSD$");
 #include "mmcbr_if.h"
 #include "sdhci_if.h"
 
-#define	MAX_SLOTS	6
+#define	MAX_SLOTS		6
+#define	SDHCI_FDT_ARMADA38X	1
+#define	SDHCI_FDT_GENERIC	2
+#define	SDHCI_FDT_XLNX_ZY7	3
+
+static struct ofw_compat_data compat_data[] = {
+	{ "marvell,armada-380-sdhci",	SDHCI_FDT_ARMADA38X },
+	{ "sdhci_generic",		SDHCI_FDT_GENERIC },
+	{ "xlnx,zy7_sdhci",		SDHCI_FDT_XLNX_ZY7 },
+	{ NULL, 0 }
+};
 
 struct sdhci_fdt_softc {
 	device_t	dev;		/* Controller device */
@@ -70,6 +80,9 @@ struct sdhci_fdt_softc {
 	int		num_slots;	/* Number of slots on this controller*/
 	struct sdhci_slot slots[MAX_SLOTS];
 	struct resource	*mem_res[MAX_SLOTS];	/* Memory resource */
+
+	bool		wp_inverted;	/* WP pin is inverted */
+	bool		no_18v;		/* No 1.8V support */
 };
 
 static uint8_t
@@ -110,8 +123,13 @@ static uint32_t
 sdhci_fdt_read_4(device_t dev, struct sdhci_slot *slot, bus_size_t off)
 {
 	struct sdhci_fdt_softc *sc = device_get_softc(dev);
+	uint32_t val32;
 
-	return (bus_read_4(sc->mem_res[slot->num], off));
+	val32 = bus_read_4(sc->mem_res[slot->num], off);
+	if (off == SDHCI_CAPABILITIES && sc->no_18v)
+		val32 &= ~SDHCI_CAN_VDD_180;
+
+	return (val32);
 }
 
 static void
@@ -152,6 +170,14 @@ sdhci_fdt_intr(void *arg)
 }
 
 static int
+sdhci_fdt_get_ro(device_t bus, device_t dev)
+{
+	struct sdhci_fdt_softc *sc = device_get_softc(bus);
+
+	return (sdhci_generic_get_ro(bus, dev) ^ sc->wp_inverted);
+}
+
+static int
 sdhci_fdt_probe(device_t dev)
 {
 	struct sdhci_fdt_softc *sc = device_get_softc(dev);
@@ -165,13 +191,21 @@ sdhci_fdt_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (ofw_bus_is_compatible(dev, "sdhci_generic")) {
+	switch (ofw_bus_search_compatible(dev, compat_data)->ocd_data) {
+	case SDHCI_FDT_ARMADA38X:
+		sc->quirks = SDHCI_QUIRK_BROKEN_AUTO_STOP;
+		device_set_desc(dev, "ARMADA38X SDHCI controller");
+		break;
+	case SDHCI_FDT_GENERIC:
 		device_set_desc(dev, "generic fdt SDHCI controller");
-	} else if (ofw_bus_is_compatible(dev, "xlnx,zy7_sdhci")) {
+		break;
+	case SDHCI_FDT_XLNX_ZY7:
 		sc->quirks = SDHCI_QUIRK_DATA_TIMEOUT_USES_SDCLK;
 		device_set_desc(dev, "Zynq-7000 generic fdt SDHCI controller");
-	} else
+		break;
+	default:
 		return (ENXIO);
+	}
 
 	node = ofw_bus_get_node(dev);
 
@@ -182,6 +216,10 @@ sdhci_fdt_probe(device_t dev)
 		sc->num_slots = cid;
 	if ((OF_getencprop(node, "max-frequency", &cid, sizeof(cid))) > 0)
 		sc->max_clk = cid;
+	if (OF_hasprop(node, "no-1-8-v"))
+		sc->no_18v = true;
+	if (OF_hasprop(node, "wp-inverted"))
+		sc->wp_inverted = true;
 
 	return (0);
 }
@@ -279,7 +317,7 @@ static device_method_t sdhci_fdt_methods[] = {
 	/* mmcbr_if */
 	DEVMETHOD(mmcbr_update_ios,	sdhci_generic_update_ios),
 	DEVMETHOD(mmcbr_request,	sdhci_generic_request),
-	DEVMETHOD(mmcbr_get_ro,		sdhci_generic_get_ro),
+	DEVMETHOD(mmcbr_get_ro,		sdhci_fdt_get_ro),
 	DEVMETHOD(mmcbr_acquire_host,	sdhci_generic_acquire_host),
 	DEVMETHOD(mmcbr_release_host,	sdhci_generic_release_host),
 

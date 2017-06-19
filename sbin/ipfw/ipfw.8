@@ -50,7 +50,9 @@ in-kernel NAT.
 .Nm
 .Oo Cm set Ar N Oc Cm table Ar name Cm create Ar create-options
 .Nm
-.Oo Cm set Ar N Oc Cm table Ar name Cm destroy
+.Oo Cm set Ar N Oc Cm table
+.Brq Ar name | all
+.Cm destroy
 .Nm
 .Oo Cm set Ar N Oc Cm table Ar name Cm modify Ar modify-options
 .Nm
@@ -2894,6 +2896,11 @@ the packets are dropped.
 .Nm
 support in-kernel NAT using the kernel version of
 .Xr libalias 3 .
+The kernel module
+.Cm ipfw_nat
+should be loaded or kernel should have
+.Cm options IPFIREWALL_NAT
+to be able use NAT.
 .Pp
 The nat configuration command is the following:
 .Bd -ragged -offset indent

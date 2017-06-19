@@ -47,8 +47,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/thr.h>
 #include <sys/umtx.h>
 #include <netinet/in.h>
+#include <netinet/sctp.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
+#include <netinet/udplite.h>
 #include <nfsserver/nfs.h>
 #include <ufs/ufs/quota.h>
 #include <vm/vm.h>
@@ -485,6 +487,13 @@ sysdecode_getfsstat_mode(int mode)
 }
 
 const char *
+sysdecode_getrusage_who(int who)
+{
+
+	return (lookup_value(rusage, who));
+}
+
+const char *
 sysdecode_kldsym_cmd(int cmd)
 {
 
@@ -625,8 +634,19 @@ sysdecode_quotactl_cmd(FILE *fp, int cmd)
 bool
 sysdecode_reboot_howto(FILE *fp, int howto, int *rem)
 {
+	bool printed;
 
-	return (print_mask_int(fp, rebootopt, howto, rem));
+	/*
+	 * RB_AUTOBOOT is special in that its value is zero, but it is
+	 * also an implied argument if a different operation is not
+	 * requested via RB_HALT, RB_POWEROFF, or RB_REROOT.
+	 */
+	if (howto != 0 && (howto & (RB_HALT | RB_POWEROFF | RB_REROOT)) == 0) {
+		fputs("RB_AUTOBOOT|", fp);
+		printed = true;
+	} else
+		printed = false;
+	return (print_mask_int(fp, rebootopt, howto, rem) || printed);
 }
 
 bool
@@ -728,6 +748,19 @@ sysdecode_socketdomain(int domain)
 }
 
 const char *
+sysdecode_socket_protocol(int domain, int protocol)
+{
+
+	switch (domain) {
+	case PF_INET:
+	case PF_INET6:
+		return (lookup_value(sockipproto, protocol));
+	default:
+		return (NULL);
+	}
+}
+
+const char *
 sysdecode_sockaddr_family(int sa_family)
 {
 
@@ -750,10 +783,16 @@ sysdecode_sockopt_name(int level, int optname)
 	if (level == IPPROTO_IP)
 		/* XXX: UNIX domain socket options use a level of 0 also. */
 		return (lookup_value(sockoptip, optname));
+	if (level == IPPROTO_IPV6)
+		return (lookup_value(sockoptipv6, optname));
+	if (level == IPPROTO_SCTP)
+		return (lookup_value(sockoptsctp, optname));
 	if (level == IPPROTO_TCP)
 		return (lookup_value(sockopttcp, optname));
 	if (level == IPPROTO_UDP)
 		return (lookup_value(sockoptudp, optname));
+	if (level == IPPROTO_UDPLITE)
+		return (lookup_value(sockoptudplite, optname));
 	return (NULL);
 }
 
