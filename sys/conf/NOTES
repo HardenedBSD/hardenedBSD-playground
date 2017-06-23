@@ -2627,8 +2627,7 @@ options 	DEADLKRES
 # it back on at run-time.
 #
 # This is sometimes usable for systems which don't have any swap space
-# (see also sysctls "vm.defer_swapspace_pageouts" and
-# "vm.disable_swapspace_pageouts")
+# (see also sysctl "vm.disable_swapspace_pageouts")
 #
 #options 	NO_SWAPPING
 
@@ -3032,6 +3031,7 @@ options 	PAX_NOEXEC	# Remove WX pages from user-space and enforce W^X
 options 	PAX_SEGVGUARD	# Track and ban failing process
 options 	PAX_SYSCTLS	# Run-time settings for PAX and Hardening
 options 	PAX_INSECURE_MODE	# Allow to override INVARIANTS enforcements
+options 	STACK_GUARD_SIZE=(2*1024*1024)	# Stack guard size (divisible by PAGE_SIZE)
 options 	HBSD_DEBUG
 
 # BHND(4) drivers
