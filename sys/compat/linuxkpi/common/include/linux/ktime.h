@@ -173,15 +173,6 @@ ktime_get(void)
 	return (timespec_to_ktime(ts));
 }
 
-static inline ktime_t
-ns_to_ktime(u64 ns)
-{
-	ktime_t kt;
-
-	kt.tv64 = ns;
-	return (kt);
-}
-
 #include <linux/timekeeping.h>
 
 #endif	/* _LINUX_KTIME_H */
