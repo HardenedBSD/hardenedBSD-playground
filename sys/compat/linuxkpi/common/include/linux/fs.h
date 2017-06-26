@@ -60,6 +60,7 @@ struct files_struct;
 
 #define	inode	vnode
 #define	i_cdev	v_rdev
+#define	i_private v_data
 
 #define	S_IRUGO	(S_IRUSR | S_IRGRP | S_IROTH)
 #define	S_IWUGO	(S_IWUSR | S_IWGRP | S_IWOTH)
@@ -68,9 +69,7 @@ typedef struct files_struct *fl_owner_t;
 
 struct file_operations;
 
-#define address_space vm_object
 #define i_mapping v_bufobj.bo_object
-#define i_private v_data
 #define file_inode(f) ((f)->f_vnode)
 
 /* this value isn't needed by the compat layer */
@@ -92,7 +91,9 @@ struct linux_file {
 	struct sigio	*f_sigio;
 	struct vnode	*f_vnode;
 	volatile u_int	f_count;
-	vm_object_t	f_mapping;
+
+	/* anonymous shmem object */
+	vm_object_t	_shmem;
 
 	/* kqfilter support */
 	int		f_kqflags;
@@ -279,7 +280,12 @@ igrab(struct inode *inode)
 	return (inode);
 }
 
-extern loff_t default_llseek(struct file *file, loff_t offset, int whence);
+static inline void
+iput(struct inode *inode)
+{
+
+	vrele(inode);
+}
 
 static inline loff_t 
 no_llseek(struct linux_file *file, loff_t offset, int whence)
@@ -292,30 +298,5 @@ noop_llseek(struct linux_file *file, loff_t offset, int whence)
 {
         return file->_file->f_offset;
 }
-
-
-unsigned long invalidate_mapping_pages(struct address_space *mapping,
-					pgoff_t start, pgoff_t end);
-
-struct page *shmem_read_mapping_page_gfp(struct address_space *as, int idx, gfp_t gfp);
-
-static inline struct page *
-shmem_read_mapping_page(struct address_space *as, int idx)
-{
-
-	return (shmem_read_mapping_page_gfp(as, idx, 0));
-}
-
-extern struct linux_file *shmem_file_setup(char *name, loff_t size, unsigned long flags);
-
-static inline void mapping_set_gfp_mask(struct address_space *m, gfp_t mask) {}
-static inline gfp_t mapping_gfp_mask(struct address_space *m)
-{
-	return (0);
-}
-void shmem_truncate_range(struct vnode *, loff_t, loff_t);
-
-extern struct address_space *alloc_anon_mapping(size_t);
-extern void free_anon_mapping(struct address_space *);
 
 #endif /* _LINUX_FS_H_ */
