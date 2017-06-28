@@ -915,8 +915,12 @@ pfs_readdir(struct vop_readdir_args *va)
 		free(pfsent, M_IOV);
 		i++;
 	}
+<<<<<<< HEAD
 	pfs_depopulate(deferred);
 	PFS_TRACE(("%d bytes", i * PFS_DELEN));
+=======
+	PFS_TRACE(("%ju bytes", (uintmax_t)(i * PFS_DELEN)));
+>>>>>>> upstream/hardened/current/master
 	PFS_RETURN (error);
 }
 
