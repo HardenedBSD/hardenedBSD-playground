@@ -149,6 +149,15 @@ static int vm_map_stack_locked(vm_map_t map, vm_offset_t addrbos,
     int cow);
 static void vm_map_wire_entry_failure(vm_map_t map, vm_map_entry_t entry,
     vm_offset_t failed_addr);
+static int sysctl_stack_guard_page(SYSCTL_HANDLER_ARGS);
+
+#ifndef STACK_GUARD_MAX_PAGES
+/*
+ * XXX - Shawn Webb (2017-07-02)
+ * Kostik's MAP_GUARD isn't ready for more than a single page.
+ */
+#define	STACK_GUARD_MAX_PAGES	1
+#endif
 
 #define	ENTRY_CHARGED(e) ((e)->cred != NULL || \
     ((e)->object.vm_object != NULL && (e)->object.vm_object->cred != NULL && \
@@ -3618,10 +3627,29 @@ out:
 	return (rv);
 }
 
-static int stack_guard_page = 16;
-SYSCTL_INT(_security_bsd, OID_AUTO, stack_guard_page, CTLFLAG_RWTUN,
-    &stack_guard_page, 0,
+static int stack_guard_page = 1;
+SYSCTL_PROC(_security_bsd, OID_AUTO, stack_guard_page, CTLTYPE_INT|
+    CTLFLAG_RWTUN|CTLFLAG_SECURE, NULL, 0, sysctl_stack_guard_page,
+    "I",
     "Specifies the number of guard pages for a stack that grows");
+
+static int
+sysctl_stack_guard_page(SYSCTL_HANDLER_ARGS)
+{
+	int err, val;
+
+	val = stack_guard_page;
+	err = sysctl_handle_int(oidp, &val, sizeof(int), req);
+	if (err || req->newptr == NULL)
+		return (err);
+
+	if (val < 0 || val > STACK_GUARD_MAX_PAGES)
+		return (EINVAL);
+
+	stack_guard_page = val;
+
+	return (0);
+}
 
 static int
 vm_map_stack_locked(vm_map_t map, vm_offset_t addrbos, vm_size_t max_ssize,
@@ -3717,7 +3745,7 @@ vm_map_growstack(vm_map_t map, vm_offset_t addr, vm_map_entry_t gap_entry)
 	struct vmspace *vm;
 	struct ucred *cred;
 	vm_offset_t gap_end, gap_start, grow_start;
-	size_t grow_amount, max_grow;
+	size_t grow_amount, guard, max_grow;
 	rlim_t lmemlim, stacklim, vmemlim;
 	int rv, rv1;
 	bool gap_deleted, grow_down, is_procstack;
@@ -3733,6 +3761,7 @@ vm_map_growstack(vm_map_t map, vm_offset_t addr, vm_map_entry_t gap_entry)
 	MPASS(map == &p->p_vmspace->vm_map);
 	MPASS(!map->system_map);
 
+	guard = stack_guard_page * PAGE_SIZE;
 	lmemlim = lim_cur(curthread, RLIMIT_MEMLOCK);
 	stacklim = lim_cur(curthread, RLIMIT_STACK);
 	vmemlim = lim_cur(curthread, RLIMIT_VMEM);
@@ -3759,8 +3788,10 @@ retry:
 	} else {
 		return (KERN_FAILURE);
 	}
-	max_grow = gap_entry->end - gap_entry->start - stack_guard_page *
-	    PAGE_SIZE;
+	max_grow = gap_entry->end - gap_entry->start;
+	if (guard > max_grow)
+		return (KERN_NO_SPACE);
+	max_grow -= guard;
 	if (grow_amount > max_grow)
 		return (KERN_NO_SPACE);
 
