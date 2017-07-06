@@ -95,8 +95,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/pmckern.h>
 #endif
 
-static int check_address_limit(struct thread *, vm_offset_t, bool);
-
 int old_mlock = 0;
 SYSCTL_INT(_vm, OID_AUTO, old_mlock, CTLFLAG_RWTUN, &old_mlock, 0,
     "Do not apply RLIMIT_MEMLOCK on mlockall");
@@ -110,25 +108,6 @@ struct sbrk_args {
 	int incr;
 };
 #endif
-
-static int
-check_address_limit(struct thread *td, vm_offset_t addr, bool needlock)
-{
-	rlim_t stacklim;
-	int error;
-
-	error = 0;
-	stacklim = lim_cur(td, RLIMIT_STACK);
-
-	if (needlock)
-		PROC_LOCK(td->td_proc);
-	if (addr >= td->td_proc->p_usrstack - stacklim)
-		error = EINVAL;
-	if (needlock)
-		PROC_UNLOCK(td->td_proc);
-
-	return (error);
-}
 
 int
 sys_sbrk(struct thread *td, struct sbrk_args *uap)
@@ -314,11 +293,6 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 			return (EINVAL);
 		if (addr + size < addr)
 			return (EINVAL);
-
-		/* Address range must be below stack limits. */
-		error = check_address_limit(td, addr, true);
-		if (error)
-			return (error);
 #ifdef MAP_32BIT
 		if (flags & MAP_32BIT && addr + size > MAP_32BIT_MAX_ADDR)
 			return (EINVAL);
@@ -356,10 +330,7 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 		PROC_LOCK(td->td_proc);
 		pax_aslr_mmap(td->td_proc, &addr, orig_addr, flags);
 		pax_aslr_done = 1;
-		error = check_address_limit(td, addr, false);
 		PROC_UNLOCK(td->td_proc);
-		if (error)
-			return (error);
 #endif
 	}
 	if (size == 0) {
@@ -1599,15 +1570,7 @@ vm_mmap_object(vm_map_t map, vm_offset_t *addr, vm_size_t size, vm_prot_t prot,
 		if ((flags & MAP_32BIT) != 0)
 			max_addr = MAP_32BIT_MAX_ADDR;
 #endif
-		/*
-		 * XXX - Shawn Webb
-		 * Checking for MAP_STACK here is only a temporary
-		 * solution. Using vm_map_find_min here for the stack
-		 * can cause major issues, likely stemming from
-		 * SafeStack using libthr to create the additional
-		 * stacks.
-		 */
-		if ((flags & MAP_STACK) != MAP_STACK && curmap) {
+		if (curmap) {
 			rv = vm_map_find_min(map, object, foff, addr, size,
 			    round_page((vm_offset_t)td->td_proc->p_vmspace->
 			    vm_daddr + lim_max(td, RLIMIT_DATA)), max_addr,
