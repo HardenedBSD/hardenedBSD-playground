@@ -48,6 +48,7 @@ pt_reg_to_ucontext(const struct reg *r, ucontext_t *uc)
 	mc->mc_gpregs.gp_lr = r->lr;
 	mc->mc_gpregs.gp_elr = r->elr;
 	mc->mc_gpregs.gp_spsr = r->spsr;
+	mc->mc_gpregs.gp_esr = r->esr;
 }
 
 void
@@ -60,6 +61,7 @@ pt_ucontext_to_reg(const ucontext_t *uc, struct reg *r)
 	r->lr = mc->mc_gpregs.gp_lr;
 	r->elr = mc->mc_gpregs.gp_elr;
 	r->spsr = mc->mc_gpregs.gp_spsr;
+	r->esr = mc->mc_gpregs.gp_esr;
 }
 
 void

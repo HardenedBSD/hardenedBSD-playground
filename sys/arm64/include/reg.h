@@ -39,6 +39,7 @@ struct reg {
 	uint64_t sp;
 	uint64_t elr;
 	uint32_t spsr;
+	uint64_t esr;
 };
 
 struct fpreg {
