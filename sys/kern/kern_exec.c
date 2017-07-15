@@ -1189,8 +1189,9 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 #ifdef PAX_NOEXEC
 	pax_noexec_nx(p, &stackprot, &stackmaxprot);
 #endif
-	error = vm_map_stack(map, stack_addr, (vm_size_t)ssiz, stackprot, stackmaxprot, MAP_STACK_GROWS_DOWN);
-	if (error) {
+	error = vm_map_stack(map, stack_addr, (vm_size_t)ssiz,
+	    stackprot, stackmaxprot, MAP_STACK_GROWS_DOWN);
+	if (error != KERN_SUCCESS) {
 #ifdef PAX_ASLR
 		pax_log_aslr(p, PAX_LOG_DEFAULT,
 		    "failed to map the main stack @%p",
