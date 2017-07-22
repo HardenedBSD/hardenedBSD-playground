@@ -88,6 +88,7 @@ usage() {
 	debug_print "\t-j jailname\tInstall updates to jail <jailname>"
 	debug_print "\t-K backupkern\tBackup the previous kernel to <backupkern>"
 	debug_print "\t-k kernel\tUse kernel <kernel>"
+	debug_print "\t-n\t\tDo not install kernel"
 	debug_print "\t-o\t\tDo not remove obsolete files/directories"
 	debug_print "\t-s\t\tInstall sources (if present)"
 	debug_print "\t-t tmpdir\tTemporary directory"
@@ -824,6 +825,11 @@ check_sanity() {
 		debug_print "[-] ZFS BE and Jail options are mutually exclusive"
 		exit 1
 	fi
+
+	if [ ! -z "${zfsbe}" ] && [ ! -x ${BEADM} ]; then
+		debug_print "[-] Please install sysutils/beadm"
+		exit 1
+	fi
 }
 
 report_version() {
@@ -867,11 +873,6 @@ main() {
 	while getopts 'dhinosCITUVb:c:j:K:k:t:u:v:' opt; do
 		case "${opt}" in
 			b)
-				if ! which -s ${BEADM}; then
-					debug_print "[*] Please install the beadm pkg."
-					exit 1
-				fi
-
 				zfsbe="${OPTARG}"
 				;;
 			c)
