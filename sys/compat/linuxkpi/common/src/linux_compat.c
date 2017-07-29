@@ -181,7 +181,7 @@ kobject_add_complete(struct kobject *kobj, struct kobject *parent)
 	int error;
 
 	kobj->parent = kobject_get(parent);
-	error = sysfs_create_dir_ns(kobj, NULL);
+	error = sysfs_create_dir(kobj);
 	if (error == 0 && kobj->ktype && kobj->ktype->default_attrs) {
 		struct attribute **attr;
 		t = kobj->ktype;
@@ -195,8 +195,6 @@ kobject_add_complete(struct kobject *kobj, struct kobject *parent)
 			sysfs_remove_dir(kobj);
 		
 	}
-	if (error == 0)
-		kobj->state_in_sysfs = 1;
 	return (error);
 }
 
@@ -222,10 +220,7 @@ linux_kobject_release(struct kref *kref)
 	char *name;
 
 	kobj = container_of(kref, struct kobject, kref);
-	/* we need to work out how to do this in a way that it works */
-	if (kobj->state_in_sysfs) {
-		kobject_del(kobj);
-	}
+	sysfs_remove_dir(kobj);
 	name = kobj->name;
 	if (kobj->ktype && kobj->ktype->release)
 		kobj->ktype->release(kobj);
@@ -1523,7 +1518,7 @@ void *
 vmap(struct page **pages, unsigned int count, unsigned long flags, int prot)
 {
 	vm_offset_t off;
-	size_t size;
+	vm_size_t size;
 	int attr;
 
 	size = count * PAGE_SIZE;
@@ -1533,6 +1528,10 @@ vmap(struct page **pages, unsigned int count, unsigned long flags, int prot)
 	vmmap_add((void *)off, size);
 	attr = pgprot2cachemode(prot);
 	pmap_qenter(off, pages, count);
+	if (pmap_change_attr(off, size, attr) != 0) {
+		vunmap((void *)off);
+		return (NULL);
+	}
 
 	return ((void *)off);
 }
@@ -2094,7 +2093,7 @@ linux_compat_init(void *arg)
 	for (i = 0; i < VMMAP_HASH_SIZE; i++)
 		LIST_INIT(&vmmaphead[i]);
 }
-SYSINIT(linux_compat, SI_SUB_VFS, SI_ORDER_ANY, linux_compat_init, NULL);
+SYSINIT(linux_compat, SI_SUB_DRIVERS, SI_ORDER_SECOND, linux_compat_init, NULL);
 
 static void
 linux_compat_uninit(void *arg)
@@ -2107,7 +2106,7 @@ linux_compat_uninit(void *arg)
 	spin_lock_destroy(&pci_lock);
 	rw_destroy(&linux_vma_lock);
 }
-SYSUNINIT(linux_compat, SI_SUB_VFS, SI_ORDER_ANY, linux_compat_uninit, NULL);
+SYSUNINIT(linux_compat, SI_SUB_DRIVERS, SI_ORDER_SECOND, linux_compat_uninit, NULL);
 
 /*
  * NOTE: Linux frequently uses "unsigned long" for pointer to integer

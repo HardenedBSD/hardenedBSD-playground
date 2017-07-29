@@ -69,7 +69,6 @@ struct class {
 
 struct device_driver {
 	const char		*name;
-	struct bus_type		*bus;
 	struct module		*owner;
 	int (*probe) (struct device *dev);
 	int (*remove) (struct device *dev);
@@ -88,40 +87,6 @@ struct device_driver {
 	struct device_attribute dev_attr_##_name = __ATTR_RO(_name)
 #define DEVICE_ATTR_WO(_name) \
 	struct device_attribute dev_attr_##_name = __ATTR_WO(_name)
-
-/*
- * The type of device, "struct device" is embedded in. A class
- * or bus can contain devices of different types
- * like "partitions" and "disks", "mouse" and "event".
- * This identifies the device type and carries type-specific
- * information, equivalent to the kobj_type of a kobject.
- * If "name" is specified, the uevent will contain it in
- * the DEVTYPE variable.
- */
-
-struct bus_type {
-	const char		*name;
-	const char		*dev_name;
-	struct device		*dev_root;
-	struct device_attribute	*dev_attrs;	/* use dev_groups instead */
-	const struct attribute_group **bus_groups;
-	const struct attribute_group **dev_groups;
-	const struct attribute_group **drv_groups;
-
-	int (*match)(struct device *dev, struct device_driver *drv);
-	int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
-	int (*probe)(struct device *dev);
-	int (*remove)(struct device *dev);
-	void (*shutdown)(struct device *dev);
-
-	int (*online)(struct device *dev);
-	int (*offline)(struct device *dev);
-
-	int (*suspend)(struct device *dev, pm_message_t state);
-	int (*resume)(struct device *dev);
-
-	const struct dev_pm_ops *pm;
-};
 
 struct device_type {
 	const char *name;
@@ -193,7 +158,6 @@ struct device {
 	const struct attribute_group **groups;
 	struct fwnode_handle	*fwnode;
 	struct dev_pm_info	power;
-	struct bus_type	*bus;		/* type of bus device is on */
 
 	spinlock_t		devres_lock;
 	struct list_head	devres_head;
@@ -320,14 +284,12 @@ class_register(struct class *class)
 	kobject_init(&class->kobj, &linux_class_ktype);
 	kobject_set_name(&class->kobj, class->name);
 	kobject_add(&class->kobj, &linux_class_root, class->name);
-	class->sd = linsysfs_create_class_dir(class, class->name);
 	return (0);
 }
 
 static inline void
 class_unregister(struct class *class)
 {
-	linsysfs_destroy_class_dir(class);
 	kobject_put(&class->kobj);
 }
 
@@ -584,21 +546,6 @@ static inline void
 device_remove_file(struct device *dev, const struct device_attribute *attr)
 {
 
-	if (dev)
-		sysfs_remove_file(&dev->kobj, &attr->attr);
-}
-
-static inline int __must_check
-device_create_bin_file(struct device *dev, const struct bin_attribute *attr)
-{
-	if (dev)
-		return sysfs_create_bin_file(&dev->kobj, attr);
-	return -EINVAL;
-}
-
-static inline void
-device_remove_bin_file(struct device *dev, const struct bin_attribute *attr)
-{
 	if (dev)
 		sysfs_remove_file(&dev->kobj, &attr->attr);
 }
