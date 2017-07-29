@@ -188,9 +188,9 @@ char *arcnames[] = {
 	NULL
 };
 
-int carc_stats[5];
+int carc_stats[4];
 char *carcnames[] = {
-	"K Compressed, ", "K Uncompressed, ", ":1 Ratio, ", "K Overhead",
+	"K Compressed, ", "K Uncompressed, ", ":1 Ratio, ",
 	NULL
 };
 
@@ -328,14 +328,15 @@ machine_init(struct statics *statics, char do_unames)
 	    size != sizeof(smpmode))
 		smpmode = 0;
 
-	size = sizeof(carc_en);
-	if (sysctlbyname("vfs.zfs.compressed_arc_enabled", &carc_en, &size,
-	    NULL, 0) == 0 && carc_en == 1)
-		carc_enabled = 1;
 	size = sizeof(arc_size);
 	if (sysctlbyname("kstat.zfs.misc.arcstats.size", &arc_size, &size,
 	    NULL, 0) == 0 && arc_size != 0)
 		arc_enabled = 1;
+	size = sizeof(carc_en);
+	if (arc_enabled &&
+	    sysctlbyname("vfs.zfs.compressed_arc_enabled", &carc_en, &size,
+	    NULL, 0) == 0 && carc_en == 1)
+		carc_enabled = 1;
 
 	if (do_unames) {
 	    while ((pw = getpwent()) != NULL) {
@@ -580,11 +581,9 @@ get_system_info(struct system_info *si)
 	if (carc_enabled) {
 		GETSYSCTL("kstat.zfs.misc.arcstats.compressed_size", arc_stat);
 		carc_stats[0] = arc_stat >> 10;
+		carc_stats[2] = arc_stat >> 10; /* For ratio */
 		GETSYSCTL("kstat.zfs.misc.arcstats.uncompressed_size", arc_stat);
 		carc_stats[1] = arc_stat >> 10;
-		carc_stats[2] = arc_stats[0]; /* ARC Total */
-		GETSYSCTL("kstat.zfs.misc.arcstats.overhead_size", arc_stat);
-		carc_stats[3] = arc_stat >> 10;
 		si->carc = carc_stats;
 	}
 

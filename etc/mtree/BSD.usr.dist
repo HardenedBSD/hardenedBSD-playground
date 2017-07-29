@@ -23,7 +23,7 @@
     ..
     lib
         clang
-            4.0.0
+            5.0.0
                 include
                     sanitizer
                     ..
@@ -1311,6 +1311,8 @@
                 man1
                 ..
                 man3
+                ..
+                man8
                 ..
             ..
         ..

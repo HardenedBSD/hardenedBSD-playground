@@ -4,7 +4,8 @@ OPENNTPD_SRC=	${.CURDIR}/../../../contrib/openntpd/src
 
 PROG=	ntpd
 # compat
-SRCS=	imsg.c imsg-buffer.c adjfreq_freebsd.c progname.c setproctitle.c
+SRCS=	freezero.c imsg.c imsg-buffer.c adjfreq_freebsd.c \
+	progname.c setproctitle.c
 # Imported from OpenBSD src makefile
 SRCS+=	ntpd.c log.c ntp.c ntp_msg.c parse.y config.c \
 	server.c client.c fake-sensors.c util.c ntp_dns.c \
@@ -20,10 +21,13 @@ CFLAGS+= -I${OPENNTPD_SRC}
 CFLAGS+= -I${OPENNTPD_SRC}/../include
 CFLAGS+= -DHAVE_CLOSEFROM=1
 CFLAGS+= -DHAVE_LIBTLS=yes
+CFLAGS+= -DHAVE___PROGNAME=1
+CFLAGS+= -DHAVE_SETPROCTITLE=1
 
 LIBADD+=	m md util tls ssl crypto
 LINKS=	${BINDIR}/ntpd ${BINDIR}/ntpctl
-MAN=	ntpd.8 ntpd.conf.5 ntpctl.8
+MAN5=	ntpd.conf.5
+MAN8=	ntpd.8 ntpctl.8
 
 .PATH:	${OPENNTPD_SRC}/../compat ${OPENNTPD_SRC}
 
