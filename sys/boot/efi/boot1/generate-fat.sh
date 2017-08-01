@@ -13,7 +13,7 @@
 
 FAT_SIZE=1600 			#Size in 512-byte blocks of the produced image
 
-BOOT1_SIZE=128k
+BOOT1_SIZE=512k
 
 #
 # Known filenames
@@ -72,11 +72,4 @@ echo "# \$FreeBSD\$" >> Makefile.fat
 echo "BOOT1_OFFSET=0x$BOOT1_OFFSET" >> Makefile.fat
 echo "BOOT1_MAXSIZE=$BOOT1_MAXSIZE" >> Makefile.fat
 
-bzip2 $OUTPUT_FILE
-echo 'FAT template boot filesystem created by generate-fat.sh' > $OUTPUT_FILE.bz2.uu
-echo 'DO NOT EDIT' >> $OUTPUT_FILE.bz2.uu
-echo "\$FreeBSD\$" >> $OUTPUT_FILE.bz2.uu
-
-uuencode $OUTPUT_FILE.bz2 $OUTPUT_FILE.bz2 >> $OUTPUT_FILE.bz2.uu
-rm $OUTPUT_FILE.bz2
-
+xz $OUTPUT_FILE
