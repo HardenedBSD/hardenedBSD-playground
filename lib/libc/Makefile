@@ -173,11 +173,8 @@ libkern.${LIBC_ARCH}:: ${KMSRCS}
 	${CP} ${.ALLSRC} ${DESTDIR}/sys/libkern/${LIBC_ARCH}
 .endif
 
-<<<<<<< HEAD
-=======
 SUBDIR.${MK_TESTS}+= tests
 
->>>>>>> origin/hardened/current/master
 .include <bsd.lib.mk>
 
 .if !defined(_SKIP_BUILD)
