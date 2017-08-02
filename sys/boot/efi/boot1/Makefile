@@ -12,17 +12,23 @@ MK_SSP=		no
 
 PROG=		boot1.sym
 INTERNALPROG=
-WARNS?=		6
+WARNS?=		3
+
+# Include bcache code.
+HAVE_BCACHE=    yes
 
 .if ${MK_ZFS} != "no"
 # Disable warnings that are currently incompatible with the zfs boot code
-CWARNFLAGS.zfs_module.c += -Wno-array-bounds
-CWARNFLAGS.zfs_module.c += -Wno-cast-align
-CWARNFLAGS.zfs_module.c += -Wno-cast-qual
-CWARNFLAGS.zfs_module.c += -Wno-missing-prototypes
-CWARNFLAGS.zfs_module.c += -Wno-sign-compare
-CWARNFLAGS.zfs_module.c += -Wno-unused-parameter
-CWARNFLAGS.zfs_module.c += -Wno-unused-function
+CWARNFLAGS.boot1.c += -Wno-missing-variable-declarations
+CWARNFLAGS.zfs.c += -Wno-incompatible-pointer-types-discards-qualifiers
+CWARNFLAGS.zfs.c += -Wno-missing-variable-declarations
+CWARNFLAGS.zfs.c += -Wno-array-bounds
+CWARNFLAGS.zfs.c += -Wno-cast-align
+CWARNFLAGS.zfs.c += -Wno-cast-qual
+CWARNFLAGS.zfs.c += -Wno-missing-prototypes
+CWARNFLAGS.zfs.c += -Wno-sign-compare
+CWARNFLAGS.zfs.c += -Wno-unused-parameter
+CWARNFLAGS.zfs.c += -Wno-unused-function
 CWARNFLAGS.skein.c += -Wno-cast-align
 .if ${COMPILER_TYPE} == "clang"
 CWARNFLAGS.skein.c += -Wno-missing-variable-declarations
@@ -31,19 +37,28 @@ CWARNFLAGS.skein.c += -Wno-missing-declarations
 .endif
 .endif
 
+
 # architecture-specific loader code
-SRCS=	boot1.c self_reloc.c start.S ufs_module.c
+SRCS=	boot1.c self_reloc.c start.S
 .if ${MK_ZFS} != "no"
-SRCS+=		zfs_module.c
+.PATH:		${.CURDIR}/../../../crypto/skein
 SRCS+=		skein.c skein_block.c
 # Do not unroll skein loops, reduce code size
 CFLAGS+=	-DSKEIN_LOOP=111
-.PATH:		${.CURDIR}/../../../crypto/skein
+.PATH:		${.CURDIR}/../../zfs
+SRCS+=		zfs.c
 .endif
 
 .if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} > 40201
 CWARNFLAGS.self_reloc.c+=	-Wno-error=maybe-uninitialized
 .endif
+
+# Always add MI sources
+.PATH:		${.CURDIR}/../../common
+.include	"${.CURDIR}/../../common/Makefile.inc"
+CFLAGS+=	-I${.CURDIR}/../../common
+
+.PATH: ${.CURDIR}/arch/${MACHINE}
 
 CFLAGS+=	-I.
 CFLAGS+=	-I${.CURDIR}/../include
@@ -68,6 +83,17 @@ CFLAGS+=	-DEFI_ZFS_BOOT
 .PATH:		${.CURDIR}/../../common
 CFLAGS+=	-I${.CURDIR}/../../common
 
+# make buildenv doesn't set DESTDIR, this means LIBSTAND
+# will be wrong when crossbuilding.
+.if exists(${.OBJDIR}/../../../../lib/libstand/libstand.a)
+LIBSTAND=	${.OBJDIR}/../../../../lib/libstand/libstand.a
+.endif
+
+# Add libefi
+.PATH:		${.CURDIR}/../libefi
+LIBEFI=		${.OBJDIR}/../libefi/libefi.a
+
+
 FILES=	boot1.efi boot1.efifat
 FILESMODE_boot1.efi=	${BINMODE}
 
@@ -87,8 +113,8 @@ LDFLAGS+=	-Wl,-znocombreloc
 # __aeabi_* (arm) or __divdi3 (i386).
 # as well as required string and memory functions for all platforms.
 #
-DPADD+=		${LIBSTAND}
-LDADD+=		-lstand
+DPADD+=		${LIBEFI} ${LIBSTAND}
+LDADD+=		${LIBEFI} ${LIBSTAND}
 
 DPADD+=		${LDSCRIPT}
 
@@ -114,7 +140,7 @@ boot1.efi: ${PROG}
 	SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
 	${OBJCOPY} -j .peheader -j .text -j .sdata -j .data \
 		-j .dynamic -j .dynsym -j .rel.dyn \
-		-j .rela.dyn -j .reloc -j .eh_frame \
+		-j .rela.dyn -j .reloc -j .eh_frame -j set_Xcommand_set \
 		--output-target=${EFI_TARGET} ${.ALLSRC} ${.TARGET}
 
 boot1.o: ${.CURDIR}/../../common/ufsread.c

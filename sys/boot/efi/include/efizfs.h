@@ -1,9 +1,7 @@
 /*-
- * Copyright (c) 2013 The FreeBSD Foundation
+ * Copyright (c) 2016 Eric McCorkle
  * All rights reserved.
  *
- * This software was developed by Benno Rice under sponsorship from
- * the FreeBSD Foundation.
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +14,7 @@
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -28,20 +26,26 @@
  * $FreeBSD$
  */
 
-#ifndef	_LOADER_EFI_COPY_H_
-#define	_LOADER_EFI_COPY_H_
+#include <stdint.h>
 
-#include <stand.h>
+#ifndef _EFIZFS_H_
+#define _EFIZFS_H_
 
-int	efi_autoload(void);
+#ifdef EFI_ZFS_BOOT
+typedef STAILQ_HEAD(zfsinfo_list, zfsinfo) zfsinfo_list_t;
 
-int	efi_copy_init(void);
+typedef struct zfsinfo
+{
+	STAILQ_ENTRY(zfsinfo) zi_link;
+	EFI_HANDLE zi_handle;
+        uint64_t zi_pool_guid;
+} zfsinfo_t;
 
-ssize_t	efi_copyin(const void *src, vm_offset_t dest, const size_t len);
-ssize_t	efi_copyout(const vm_offset_t src, void *dest, const size_t len);
-ssize_t	efi_readin(const int fd, vm_offset_t dest, const size_t len);
-void * efi_translate(vm_offset_t ptr);
+extern uint64_t pool_guid;
 
-void	efi_copy_finish(void);
+extern void efi_zfs_probe(void);
+extern zfsinfo_list_t *efizfs_get_zfsinfo_list(void);
 
-#endif	/* _LOADER_EFI_COPY_H_ */
+#endif
+
+#endif

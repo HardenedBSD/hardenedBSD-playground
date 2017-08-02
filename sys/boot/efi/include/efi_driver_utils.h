@@ -1,9 +1,7 @@
 /*-
- * Copyright (c) 2013 The FreeBSD Foundation
+ * Copyright (c) 2017 Eric McCorkle
  * All rights reserved.
  *
- * This software was developed by Benno Rice under sponsorship from
- * the FreeBSD Foundation.
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +14,7 @@
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -28,20 +26,13 @@
  * $FreeBSD$
  */
 
-#ifndef	_LOADER_EFI_COPY_H_
-#define	_LOADER_EFI_COPY_H_
+#ifndef _EFI_DRIVER_UTILS_H_
+#define _EFI_DRIVER_UTILS_H_
 
-#include <stand.h>
+#include <efi.h>
+#include <efiprot.h>
 
-int	efi_autoload(void);
+extern EFI_STATUS install_driver(EFI_DRIVER_BINDING *driver);
+extern EFI_STATUS connect_controllers(EFI_GUID *filter);
 
-int	efi_copy_init(void);
-
-ssize_t	efi_copyin(const void *src, vm_offset_t dest, const size_t len);
-ssize_t	efi_copyout(const vm_offset_t src, void *dest, const size_t len);
-ssize_t	efi_readin(const int fd, vm_offset_t dest, const size_t len);
-void * efi_translate(vm_offset_t ptr);
-
-void	efi_copy_finish(void);
-
-#endif	/* _LOADER_EFI_COPY_H_ */
+#endif
