@@ -67,6 +67,7 @@ enum g_part_alias {
 	G_PART_ALIAS_FREEBSD_UFS,	/* A UFS/UFS2 file system entry. */
 	G_PART_ALIAS_FREEBSD_VINUM,	/* A Vinum partition entry. */
 	G_PART_ALIAS_FREEBSD_ZFS,	/* A ZFS file system entry. */
+        G_PART_ALIAS_FREEBSD_GELI,      /* A GELI encrypted partition */
 	G_PART_ALIAS_LINUX_DATA,	/* A Linux data partition entry. */
 	G_PART_ALIAS_LINUX_LVM,		/* A Linux LVM partition entry. */
 	G_PART_ALIAS_LINUX_RAID,	/* A Linux RAID partition entry. */

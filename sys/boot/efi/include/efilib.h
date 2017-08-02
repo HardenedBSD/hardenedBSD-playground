@@ -30,6 +30,9 @@
 #ifndef _LOADER_EFILIB_H
 #define	_LOADER_EFILIB_H
 
+#define FREEBSD_GELI_GUID { 0x516e7cbc, 0x6ecf, 0x11d6, \
+    {0x8f, 0xf8, 0x00, 0x02, 0x2d, 0x09, 0x71, 0x2b } }
+
 #include <stand.h>
 #include <sys/queue.h>
 

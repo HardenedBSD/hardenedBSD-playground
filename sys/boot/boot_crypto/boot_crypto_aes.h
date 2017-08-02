@@ -26,22 +26,29 @@
  * $FreeBSD$
  */
 
-#ifndef _EFI_DRIVERS_H_
-#define _EFI_DRIVERS_H_
+#ifndef _BOOT_CRYPTO_AES_H_
+#define _BOOT_CRYPTO_AES_H_
 
-#include <bootstrap.h>
+#include "boot_crypto_types.h"
 
-typedef struct efi_driver_t {
-        const char *name;
-        void (*init)(void);
-} efi_driver_t;
+#include <crypto/rijndael/rijndael-api-fst.h>
 
-extern const efi_driver_t *efi_drivers[];
+#define	AES_XTS_BLOCKSIZE	16
+#define	AES_XTS_IVSIZE		8
+#define	AES_XTS_ALPHA		0x87	/* GF(2^128) generator polynomial */
 
-extern int efipart_getdesc(struct devdesc *dev, char **out);
+struct aes_xts_ctx {
+	rijndael_ctx key1;
+	rijndael_ctx key2;
+	u_int8_t tweak[AES_XTS_BLOCKSIZE];
+};
 
-/* EFI drivers. */
-extern const efi_driver_t key_inject_driver;
-extern const efi_driver_t geli_driver;
+struct aes_cbc_ctx {
+	keyInstance aeskey;
+	cipherInstance cipher;
+};
+
+extern const symmetric_alg_t alg_aes_cbc;
+extern const symmetric_alg_t alg_aes_xts;
 
 #endif

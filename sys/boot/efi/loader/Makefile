@@ -103,6 +103,8 @@ LIBEFI_FDT=	${.OBJDIR}/../../efi/fdt/libefi_fdt.a
 LIBFDT=		${.OBJDIR}/../../fdt/libfdt.a
 .endif
 
+LIBBOOT_CRYPTO= ${.OBJDIR}/../../boot_crypto/libboot_crypto.a
+
 # Include bcache code.
 HAVE_BCACHE=    yes
 
@@ -154,8 +156,9 @@ loader.efi: ${PROG}
 LIBEFI=		${.OBJDIR}/../libefi/libefi.a
 
 DPADD=		${LIBFICL} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBSTAND} \
-		${LDSCRIPT}
-LDADD=		${LIBFICL} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBSTAND}
+		${LDSCRIPT} ${LIBBOOT_CRYPTO}
+LDADD=		${LIBFICL} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBSTAND} \
+                ${LIBBOOT_CRYPTO}
 
 .include <bsd.prog.mk>
 

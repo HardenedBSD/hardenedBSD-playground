@@ -9,6 +9,7 @@ SUBDIR+=		forth
 .endif
 
 SUBDIR+=		common
+SUBDIR+=		boot_crypto
 
 .include <bsd.arch.inc.mk>
 

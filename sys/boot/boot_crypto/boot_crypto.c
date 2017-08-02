@@ -26,22 +26,46 @@
  * $FreeBSD$
  */
 
-#ifndef _EFI_DRIVERS_H_
-#define _EFI_DRIVERS_H_
+#include <stddef.h>
+#include <string.h>
 
-#include <bootstrap.h>
+#include "boot_crypto.h"
+#include "boot_crypto_aes.h"
 
-typedef struct efi_driver_t {
-        const char *name;
-        void (*init)(void);
-} efi_driver_t;
+int decrypt_symmetric(const symmetric_alg_t *alg, u_char *data, size_t datalen,
+                      const u_char *key, size_t keylen, u_char *iv)
+{
+        symmetric_alg_ctx_t ctx;
+        int res;
 
-extern const efi_driver_t *efi_drivers[];
+        res = alg->ctxinit(&ctx, 0, key, keylen, iv);
 
-extern int efipart_getdesc(struct devdesc *dev, char **out);
+        if(0 != res) {
+                return (res);
+        } else {
+                return alg->decrypt(&ctx, data, datalen);
+        }
+}
 
-/* EFI drivers. */
-extern const efi_driver_t key_inject_driver;
-extern const efi_driver_t geli_driver;
+int encrypt_symmetric(const symmetric_alg_t *alg, u_char *data, size_t datalen,
+                      const u_char *key, size_t keylen, u_char *iv)
+{
+        symmetric_alg_ctx_t ctx;
+        int res;
 
-#endif
+        res = alg->ctxinit(&ctx, 1, key, keylen, iv);
+
+        if(0 != res) {
+                return (res);
+        } else {
+                return alg->encrypt(&ctx, data, datalen);
+        }
+}
+
+const symmetric_alg_t* get_symmetric_alg(int alg) {
+        switch(alg) {
+        case CRYPTO_AES_XTS: return &alg_aes_xts;
+        case CRYPTO_AES_CBC: return &alg_aes_cbc;
+        default: return NULL;
+        }
+}

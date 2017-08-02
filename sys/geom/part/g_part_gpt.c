@@ -176,6 +176,7 @@ static struct uuid gpt_uuid_freebsd_swap = GPT_ENT_TYPE_FREEBSD_SWAP;
 static struct uuid gpt_uuid_freebsd_ufs = GPT_ENT_TYPE_FREEBSD_UFS;
 static struct uuid gpt_uuid_freebsd_vinum = GPT_ENT_TYPE_FREEBSD_VINUM;
 static struct uuid gpt_uuid_freebsd_zfs = GPT_ENT_TYPE_FREEBSD_ZFS;
+static struct uuid gpt_uuid_freebsd_geli = GPT_ENT_TYPE_FREEBSD_GELI;
 static struct uuid gpt_uuid_linux_data = GPT_ENT_TYPE_LINUX_DATA;
 static struct uuid gpt_uuid_linux_lvm = GPT_ENT_TYPE_LINUX_LVM;
 static struct uuid gpt_uuid_linux_raid = GPT_ENT_TYPE_LINUX_RAID;
@@ -236,6 +237,7 @@ static struct g_part_uuid_alias {
 	{ &gpt_uuid_freebsd_ufs,	G_PART_ALIAS_FREEBSD_UFS,	 0 },
 	{ &gpt_uuid_freebsd_vinum,	G_PART_ALIAS_FREEBSD_VINUM,	 0 },
 	{ &gpt_uuid_freebsd_zfs,	G_PART_ALIAS_FREEBSD_ZFS,	 0 },
+	{ &gpt_uuid_freebsd_geli,	G_PART_ALIAS_FREEBSD_GELI,	 0 },
 	{ &gpt_uuid_linux_data,		G_PART_ALIAS_LINUX_DATA,	 0x0b },
 	{ &gpt_uuid_linux_lvm,		G_PART_ALIAS_LINUX_LVM,		 0 },
 	{ &gpt_uuid_linux_raid,		G_PART_ALIAS_LINUX_RAID,	 0 },

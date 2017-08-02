@@ -26,22 +26,12 @@
  * $FreeBSD$
  */
 
-#ifndef _EFI_DRIVERS_H_
-#define _EFI_DRIVERS_H_
+#ifndef _BOOT_CRYPTO_TYPES_H_
+#define _BOOT_CRYPTO_TYPES_H_
 
-#include <bootstrap.h>
+#include <sys/types.h>
 
-typedef struct efi_driver_t {
-        const char *name;
-        void (*init)(void);
-} efi_driver_t;
-
-extern const efi_driver_t *efi_drivers[];
-
-extern int efipart_getdesc(struct devdesc *dev, char **out);
-
-/* EFI drivers. */
-extern const efi_driver_t key_inject_driver;
-extern const efi_driver_t geli_driver;
+typedef struct symmetric_alg_t symmetric_alg_t;
+typedef union symmetric_alg_ctx_t symmetric_alg_ctx_t;
 
 #endif

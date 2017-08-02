@@ -31,6 +31,7 @@ __FBSDID("$FreeBSD$");
 
 #include <stand.h>
 #include <string.h>
+#include <stdbool.h>
 #include <sys/param.h>
 #include <sys/reboot.h>
 #include <sys/linker.h>
@@ -42,9 +43,11 @@ __FBSDID("$FreeBSD$");
 
 #include <efi.h>
 #include <efilib.h>
+#include <efisec.h>
 
 #include "bootstrap.h"
 #include "loader_efi.h"
+#include "key_inject.h"
 
 #if defined(__amd64__)
 #include <machine/specialreg.h>
@@ -58,6 +61,8 @@ __FBSDID("$FreeBSD$");
 int bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp);
 
 extern EFI_SYSTEM_TABLE	*ST;
+static EFI_GUID EfiKmsProtocolGuid = EFI_KMS_PROTOCOL;
+static EFI_GUID KernelKeyInjectorGuid = KERNEL_KEY_INJECTOR_GUID;
 
 static const char howto_switches[] = "aCdrgDmphsv";
 static int howto_masks[] = {
@@ -235,6 +240,76 @@ bi_copymodules(vm_offset_t addr)
 	return(addr);
 }
 
+static void
+key_inject_set_client(struct preloaded_file *kfp)
+{
+        EFI_KMS_CLIENT_INFO client;
+        EFI_KMS_SERVICE *kms;
+	EFI_HANDLE *handles;
+	EFI_STATUS status;
+	UINTN sz;
+	u_int n, nin;
+
+        /* Try and find a usable KMS instance */
+	sz = 0;
+	handles = NULL;
+	status = BS->LocateHandle(ByProtocol, &EfiKmsProtocolGuid, 0, &sz, 0);
+
+	if (status == EFI_BUFFER_TOO_SMALL) {
+		handles = (EFI_HANDLE *)malloc(sz);
+		status = BS->LocateHandle(ByProtocol, &EfiKmsProtocolGuid,
+                                          0, &sz, handles);
+		if (EFI_ERROR(status)) {
+                        printf("Error getting handles for kernel KMS %lu\n",
+                               EFI_ERROR_CODE(status));
+			free(handles);
+                }
+        } else  {
+                printf("Error getting handles for kernel KMS %lu\n",
+                       EFI_ERROR_CODE(status));
+                return;
+        }
+
+	nin = sz / sizeof(EFI_HANDLE);
+
+	for (n = 0; n < nin; n++) {
+                status = BS->OpenProtocol(handles[n], &EfiKmsProtocolGuid,
+                                          (void**)&kms, IH, handles[n],
+                                          EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+
+                if (EFI_ERROR(status)) {
+                        printf("Error getting protocol for kernel KMS %lu\n",
+                               EFI_ERROR_CODE(status));
+                        return;
+                }
+
+
+                if (!memcmp(&KernelKeyInjectorGuid, &(kms->ServiceId),
+                            sizeof(EFI_GUID))) {
+                        client.ClientIdSize = sizeof(struct preloaded_file *);
+                        client.ClientId = kfp;
+                        client.ClientNameType = EFI_KMS_DATA_TYPE_UTF8;
+                        client.ClientNameCount = strlen(kfp->f_name);
+                        client.ClientName = kfp->f_name;
+                        status = kms->RegisterClient(kms, &client, NULL, NULL);
+
+                        if (EFI_ERROR(status)) {
+                                printf("Error registering client for kernel KMS %lu\n",
+                                       EFI_ERROR_CODE(status));
+                        }
+
+                        BS->CloseProtocol(handles[n], &EfiKmsProtocolGuid,
+                                          IH, handles[n]);
+                        free(handles);
+
+                        return;
+                }
+
+                BS->CloseProtocol(handles[n], &EfiKmsProtocolGuid,
+                                  IH, handles[n]);
+	}
+}
+
 static int
 bi_load_efi_data(struct preloaded_file *kfp)
 {
@@ -247,6 +322,7 @@ bi_load_efi_data(struct preloaded_file *kfp)
 	UINT32 mmver;
 	struct efi_map_header *efihdr;
 
+        key_inject_set_client(kfp);
 #if defined(__amd64__)
 	struct efi_fb efifb;
 
@@ -413,8 +489,10 @@ bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp)
 	kfp = file_findfile(NULL, "elf kernel");
 	if (kfp == NULL)
 		kfp = file_findfile(NULL, "elf64 kernel");
-	if (kfp == NULL)
-		panic("can't find kernel file");
+
+        if (kfp == NULL)
+          panic("can't find kernel file");
+
 	kernend = 0;	/* fill it in later */
 	file_addmetadata(kfp, MODINFOMD_HOWTO, sizeof howto, &howto);
 	file_addmetadata(kfp, MODINFOMD_ENVP, sizeof envp, &envp);

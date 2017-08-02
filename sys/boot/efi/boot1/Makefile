@@ -65,6 +65,7 @@ CFLAGS+=	-I${.CURDIR}/../include
 CFLAGS+=	-I${.CURDIR}/../include/${MACHINE}
 CFLAGS+=	-I${.CURDIR}/../../../contrib/dev/acpica/include
 CFLAGS+=	-I${.CURDIR}/../../..
+CFLAGS+=	-I${.CURDIR}/../../boot_crypto
 CFLAGS+=	-DEFI_UFS_BOOT
 .ifdef(EFI_DEBUG)
 CFLAGS+=	-DEFI_DEBUG
@@ -108,13 +109,15 @@ CFLAGS+=	-fPIC
 LDFLAGS+=	-Wl,-znocombreloc
 .endif
 
+LIBBOOT_CRYPTO= ${.OBJDIR}/../../boot_crypto/libboot_crypto.a
+
 #
 # Add libstand for the runtime functions used by the compiler - for example
 # __aeabi_* (arm) or __divdi3 (i386).
 # as well as required string and memory functions for all platforms.
 #
-DPADD+=		${LIBEFI} ${LIBSTAND}
-LDADD+=		${LIBEFI} ${LIBSTAND}
+DPADD+=		${LIBEFI} ${LIBSTAND} ${LIBBOOT_CRYPTO}
+LDADD+=		${LIBEFI} ${LIBSTAND} ${LIBBOOT_CRYPTO}
 
 DPADD+=		${LDSCRIPT}
 

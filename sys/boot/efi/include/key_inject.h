@@ -26,22 +26,25 @@
  * $FreeBSD$
  */
 
-#ifndef _EFI_DRIVERS_H_
-#define _EFI_DRIVERS_H_
+#ifndef _KEY_INJECT_H_
+#define _KEY_INJECT_H_
 
-#include <bootstrap.h>
+/* Registering a client with the name KERNEL and an ID structure as
+ * shown below sets the injection point for keys into the kernel.
+ */
+#define KERNEL_CLIENT_NAME "KERNEL"
+#define KERNEL_CLIENT_NAME_LEN 6
 
-typedef struct efi_driver_t {
-        const char *name;
-        void (*init)(void);
-} efi_driver_t;
+#define KERNEL_KEY_INJECTOR_GUID                                        \
+  { 0x53badd16, 0x1e9c, 0x493b, { 0x9d, 0x22, 0xe0, 0xab, 0x24, 0xb1, 0xc0, 0x11 } }
 
-extern const efi_driver_t *efi_drivers[];
+extern EFI_KMS_KEY_ATTRIBUTE * const key_attr_service_id_geli;
+extern EFI_KMS_KEY_ATTRIBUTE * const key_attr_service_id_passphrase;
 
-extern int efipart_getdesc(struct devdesc *dev, char **out);
-
-/* EFI drivers. */
-extern const efi_driver_t key_inject_driver;
-extern const efi_driver_t geli_driver;
+/* Structure used as client ID for the "KERNEL" client */
+typedef struct {
+        void *keybuf;
+        size_t nents;
+} kernel_client_id_t;
 
 #endif

@@ -12,13 +12,18 @@ INTERNALLIB=
 WARNS?=	2
 
 SRCS=	delay.c devpath.c efi_console.c efinet.c efipart.c env.c errno.c \
-	handles.c wchar.c libefi.c efizfs.c devicename.c
+	handles.c wchar.c libefi.c efizfs.c devicename.c key_inject.c \
+        geli_driver.c
 
 .if ${MACHINE_CPUARCH} == "amd64" || ${MACHINE_CPUARCH} == "i386"
 SRCS+=	time.c
 .elif ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "arm"
 SRCS+=	time_event.c
 .endif
+
+.PATH: ${.CURDIR}/../../../geom/eli
+CFLAGS+= -D_STAND
+SRCS+=		g_eli_hmac.c g_eli_key.c g_eli_key_cache.c pkcs5v2.c
 
 # We implement a slightly non-standard %S in that it always takes a
 # CHAR16 that's common in UEFI-land instead of a wchar_t. This only
@@ -46,6 +51,9 @@ CFLAGS+=	-I${.CURDIR}/../../../crypto/skein
 CFLAGS+=	-DEFI_ZFS_BOOT
 .endif
 
+CFLAGS+= -I${.CURDIR}/../../boot_crypto
+CFLAGS+= -I${.CURDIR}/../../..
+
 # Pick up the bootstrap header for some interface items
 CFLAGS+= -I${.CURDIR}/../../common
 
@@ -56,5 +64,13 @@ CFLAGS+= ${FORMAT_EXTENSIONS}
 .if ${MACHINE_CPUARCH} != "arm" && ${MACHINE_CPUARCH} != "aarch64"
 CFLAGS+= -DTERM_EMU
 .endif
+
+beforedepend ${OBJS}: machine
+
+CLEANFILES+=   machine
+
+machine: .NOMETA
+	ln -sf ${.CURDIR}/../../../${MACHINE}/include machine
+
 
 .include <bsd.lib.mk>

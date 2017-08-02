@@ -52,6 +52,7 @@ __FBSDID("$FreeBSD$");
 #include "efizfs.h"
 #endif
 
+#include "efi_drivers.h"
 #include "loader_efi.h"
 
 extern char bootprog_info[];
@@ -336,6 +337,11 @@ main(int argc, CHAR16 *argv[])
 	 * Initialise the block cache. Set the upper limit.
 	 */
 	bcache_init(32768, 512);
+
+	for (i = 0; efi_drivers[i] != NULL; i++) {
+                if (efi_drivers[i]->init != NULL)
+			efi_drivers[i]->init();
+	}
 
 	/*
 	 * Parse the args to set the console settings, etc

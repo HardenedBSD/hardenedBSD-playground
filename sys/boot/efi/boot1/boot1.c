@@ -53,7 +53,9 @@ __FBSDID("$FreeBSD$");
 
 struct arch_switch archsw;	/* MI/MD interface boundary */
 
-static const efi_driver_t *efi_drivers[] = {
+const efi_driver_t *efi_drivers[] = {
+        &key_inject_driver,
+        &geli_driver,
         NULL
 };
 
@@ -484,7 +486,6 @@ load_preferred(EFI_LOADED_IMAGE *img, const char *filepath, void **bufp,
 		currdev.pool_guid = pool_guid;
 		currdev.root_guid = 0;
 		devname = efi_fmtdev(&currdev);
-
 		env_setenv("currdev", EV_VOLATILE, devname, efi_setcurrdev,
 		    env_nounset);
 
@@ -508,7 +509,6 @@ load_preferred(EFI_LOADED_IMAGE *img, const char *filepath, void **bufp,
 		currdev.d_slice = -1;
 		currdev.d_partition = -1;
 		devname = efi_fmtdev(&currdev);
-
 		env_setenv("currdev", EV_VOLATILE, devname, efi_setcurrdev,
 		    env_nounset);
 
@@ -525,7 +525,6 @@ load_preferred(EFI_LOADED_IMAGE *img, const char *filepath, void **bufp,
 				currdev.d_slice = pp->pd_unit;
 				currdev.d_partition = 255;
                                 devname = efi_fmtdev(&currdev);
-
                                 env_setenv("currdev", EV_VOLATILE, devname,
                                     efi_setcurrdev, env_nounset);
 
@@ -623,14 +622,12 @@ load_all(const char *filepath, void **bufp, size_t *bufsize,
 		currdev.pool_guid = zi->zi_pool_guid;
 		currdev.root_guid = 0;
 		devname = efi_fmtdev(&currdev);
-
 		env_setenv("currdev", EV_VOLATILE, devname, efi_setcurrdev,
 		    env_nounset);
 
                 if (probe_fs(filepath) == 0 &&
                     do_load(filepath, bufp, bufsize) == EFI_SUCCESS) {
                         *handlep = zi->zi_handle;
-                        printf("Succeeded\n");
 
                         return (0);
                 }
@@ -649,7 +646,6 @@ load_all(const char *filepath, void **bufp, size_t *bufsize,
 		currdev.d_slice = -1;
 		currdev.d_partition = -1;
 		devname = efi_fmtdev(&currdev);
-
 		env_setenv("currdev", EV_VOLATILE, devname, efi_setcurrdev,
 		    env_nounset);
 
@@ -663,7 +659,7 @@ load_all(const char *filepath, void **bufp, size_t *bufsize,
                 /* Assuming GPT partitioning. */
 		STAILQ_FOREACH(pp, &dp->pd_part, pd_link) {
                         currdev.d_slice = pp->pd_unit;
-                        currdev.d_partition = 255;
+                        currdev.d_partition = -1;
                         devname = efi_fmtdev(&currdev);
 
                         env_setenv("currdev", EV_VOLATILE, devname,
@@ -899,14 +895,14 @@ main(int argc __unused, CHAR16 *argv[] __unused)
 	printf("   Initializing modules:");
 
 	for (i = 0; efi_drivers[i] != NULL; i++) {
-		printf(" %s", efi_drivers[i]->name);
 		if (efi_drivers[i]->init != NULL)
 			efi_drivers[i]->init();
 	}
 
+        printf("Probing devices:");
 	for (i = 0; devsw[i] != NULL; i++) {
+                printf(" %s", devsw[i]->dv_name);
                 if (devsw[i]->dv_init != NULL) {
-                        printf(" %s", devsw[i]->dv_name);
 			(devsw[i]->dv_init)();
                 }
         }

@@ -35,6 +35,14 @@ __FBSDID("$FreeBSD$");
 #include <libzfs.h>
 #endif
 
+#include "efi_drivers.h"
+
+const efi_driver_t *efi_drivers[] = {
+        &key_inject_driver,
+        &geli_driver,
+        NULL
+};
+
 struct devsw *devsw[] = {
 	&efipart_fddev,
 	&efipart_cddev,
