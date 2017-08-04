@@ -240,8 +240,6 @@ struct pci_dev {
 	uint16_t		subsystem_vendor;
 	uint16_t		subsystem_device;
 	unsigned int		irq;
-	uint16_t		subsystem_vendor; /* XXXMJ are these set? */
-	uint16_t		subsystem_device;
 	uint32_t		class;
 	uint8_t			revision;
 
