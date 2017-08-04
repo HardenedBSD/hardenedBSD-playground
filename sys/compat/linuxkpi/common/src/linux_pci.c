@@ -138,12 +138,9 @@ linux_pci_attach(device_t dev)
 	device_t ggparent, gparent, parent;
 	int error, isroot;
 
-<<<<<<< HEAD
 	isroot = error = 0;
-=======
 	dinfo = device_get_ivars(dev);
 
->>>>>>> origin/hardened/current/master
 	linux_set_current(curthread);
 	parent = device_get_parent(dev);
 	dc = device_get_devclass(parent);
