@@ -237,6 +237,8 @@ struct pci_dev {
 	unsigned int		devfn;
 	uint16_t		device;
 	uint16_t		vendor;
+	uint16_t		subsystem_vendor;
+	uint16_t		subsystem_device;
 	unsigned int		irq;
 	uint16_t		subsystem_vendor; /* XXXMJ are these set? */
 	uint16_t		subsystem_device;
