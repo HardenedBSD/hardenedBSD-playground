@@ -188,6 +188,19 @@ struct device_attribute {
 					size_t);
 };
 
+<<<<<<< HEAD
+=======
+#define	DEVICE_ATTR(_name, _mode, _show, _store)			\
+	struct device_attribute dev_attr_##_name =			\
+	    __ATTR(_name, _mode, _show, _store)
+#define	DEVICE_ATTR_RO(_name)						\
+	struct device_attribute dev_attr_##_name = __ATTR_RO(_name)
+#define	DEVICE_ATTR_WO(_name)						\
+	struct device_attribute dev_attr_##_name = __ATTR_WO(_name)
+#define	DEVICE_ATTR_RW(_name)						\
+	struct device_attribute dev_attr_##_name = __ATTR_RW(_name)
+
+>>>>>>> origin/hardened/current/master
 /* Simple class attribute that is just a static string */
 struct class_attribute_string {
 	struct class_attribute attr;
