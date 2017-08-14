@@ -216,6 +216,10 @@ struct vm_rtc_data {
 	uint8_t		value;
 };
 
+struct vm_bhyve_id {
+	char		bhyve_id[12];
+};
+
 enum {
 	/* general routines */
 	IOCNUM_ABIVERS = 0,
@@ -286,6 +290,9 @@ enum {
 	IOCNUM_RTC_WRITE = 101,
 	IOCNUM_RTC_SETTIME = 102,
 	IOCNUM_RTC_GETTIME = 103,
+
+	/* Hypervisor emulation */
+	IOCNUM_SET_BHYVE_ID = 200,
 };
 
 #define	VM_RUN		\
@@ -382,4 +389,6 @@ enum {
 	_IOR('v', IOCNUM_RTC_GETTIME, struct vm_rtc_time)
 #define	VM_RESTART_INSTRUCTION \
 	_IOW('v', IOCNUM_RESTART_INSTRUCTION, int)
+#define	VM_SET_BHYVE_ID \
+	_IOW('v', IOCNUM_SET_BHYVE_ID, struct vm_bhyve_id)
 #endif

@@ -105,6 +105,7 @@ enum x2apic_state {
 #ifdef _KERNEL
 
 #define	VM_MAX_NAMELEN	32
+#define	VM_BHYVE_ID	"bhyve bhyve "
 
 struct vm;
 struct vm_exception;
@@ -321,6 +322,8 @@ struct vatpic *vm_atpic(struct vm *vm);
 struct vatpit *vm_atpit(struct vm *vm);
 struct vpmtmr *vm_pmtmr(struct vm *vm);
 struct vrtc *vm_rtc(struct vm *vm);
+char *vm_get_bhyve_id(struct vm *vm);
+int vm_set_bhyve_id(struct vm *vm, char *bhyve_id);
 
 /*
  * Inject exception 'vector' into the guest vcpu. This function returns 0 on

@@ -794,6 +794,7 @@ main(int argc, char *argv[])
 	uint64_t rip;
 	size_t memsize;
 	char *optstr;
+	const char *bhyve_id;
 
 	bvmcons = 0;
 	progname = basename(argv[0]);
@@ -803,8 +804,9 @@ main(int argc, char *argv[])
 	mptgen = 1;
 	rtc_localtime = 1;
 	memflags = 0;
+	bhyve_id = NULL;
 
-	optstr = "abehuwxACHIPSWYp:g:c:s:m:l:U:";
+	optstr = "abehuwxACHIPSWYB:i:p:g:c:s:m:l:U:";
 	while ((c = getopt(argc, argv, optstr)) != -1) {
 		switch (c) {
 		case 'a':
@@ -815,6 +817,9 @@ main(int argc, char *argv[])
 			break;
 		case 'b':
 			bvmcons = 1;
+			break;
+		case 'B':
+			bhyve_id = optarg;
 			break;
 		case 'p':
                         if (pincpu_parse(optarg) != 0) {
@@ -830,6 +835,12 @@ main(int argc, char *argv[])
 			break;
 		case 'g':
 			gdb_port = atoi(optarg);
+			break;
+		case 'i':
+			if (strlen(optarg) != 12) {
+				errx(EX_USAGE, "hypervisor id must "
+				    "be exactly 12 characters long");
+			}
 			break;
 		case 'l':
 			if (lpc_device_parse(optarg) != 0) {
@@ -911,6 +922,15 @@ main(int argc, char *argv[])
 		fprintf(stderr, "%d vCPUs requested but only %d available\n",
 			guest_ncpus, max_vcpus);
 		exit(1);
+	}
+
+	if (bhyve_id != NULL) {
+		err = vm_set_bhyve_id(ctx, bhyve_id);
+		if (err != 0) {
+			fprintf(stderr, "Unable to set the hypervisor "
+			    "id (%d)\n", errno);
+			exit(1);
+		}
 	}
 
 	fbsdrun_set_capabilities(ctx, BSP);

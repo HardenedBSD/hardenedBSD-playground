@@ -312,6 +312,7 @@ vmmdev_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
 	struct vm_intinfo *vmii;
 	struct vm_rtc_time *rtctime;
 	struct vm_rtc_data *rtcdata;
+	struct vm_bhyve_id *bhyveid;
 	struct vm_memmap *mm;
 
 	sc = vmmdev_lookup2(cdev);
@@ -639,6 +640,10 @@ vmmdev_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
 		break;
 	case VM_RESTART_INSTRUCTION:
 		error = vm_restart_instruction(sc->vm, vcpu);
+		break;
+	case VM_SET_BHYVE_ID:
+		bhyveid = (struct vm_bhyve_id *)data;
+		error = vm_set_bhyve_id(sc->vm, bhyveid->bhyve_id);
 		break;
 	default:
 		error = ENOTTY;
