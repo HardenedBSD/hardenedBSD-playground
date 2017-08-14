@@ -1214,7 +1214,7 @@ linux_dev_mmap_single(struct cdev *dev, vm_ooffset_t *offset,
 	vmap->vm_end = size;
 	vmap->vm_pgoff = *offset / PAGE_SIZE;
 	vmap->vm_pfn = 0;
-	vmap->vm_flags = vmap->vm_page_prot = nprot;
+	vmap->vm_flags = vmap->vm_page_prot = (nprot & VM_PROT_ALL);
 	vmap->vm_ops = NULL;
 	vmap->vm_file = get_file(filp);
 	vmap->vm_mm = mm;
@@ -1607,7 +1607,7 @@ linux_timer_callback_wrapper(void *context)
 }
 
 void
-mod_timer(struct timer_list *timer, unsigned long expires)
+mod_timer(struct timer_list *timer, int expires)
 {
 
 	timer->expires = expires;
@@ -1669,10 +1669,10 @@ linux_complete_common(struct completion *c, int all)
 /*
  * Indefinite wait for done != 0 with or without signals.
  */
-long
+int
 linux_wait_for_common(struct completion *c, int flags)
 {
-	long error;
+	int error;
 
 	if (unlikely(SKIP_SLEEP()))
 		return (0);
@@ -1709,10 +1709,11 @@ intr:
 /*
  * Time limited wait for done != 0 with or without signals.
  */
-long
-linux_wait_for_timeout_common(struct completion *c, long timeout, int flags)
+int
+linux_wait_for_timeout_common(struct completion *c, int timeout, int flags)
 {
-	long end = jiffies + timeout, error;
+	int end = jiffies + timeout;
+	int error;
 	int ret;
 
 	if (SKIP_SLEEP())
