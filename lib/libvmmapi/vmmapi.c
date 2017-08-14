@@ -1197,6 +1197,17 @@ vm_gla2gpa(struct vmctx *ctx, int vcpu, struct vm_guest_paging *paging,
 	return (error);
 }
 
+int
+vm_set_bhyve_id(struct vmctx *ctx, const char *bhyve_id)
+{
+	struct vm_bhyve_id vmid;
+	int error;
+
+	memcpy(vmid.bhyve_id, bhyve_id, 12);
+	error = ioctl(ctx->fd, VM_SET_BHYVE_ID, &vmid);
+	return (error);
+}
+
 #ifndef min
 #define	min(a,b)	(((a) < (b)) ? (a) : (b))
 #endif
@@ -1444,7 +1455,7 @@ vm_get_ioctls(size_t *len)
 	    VM_GET_HPET_CAPABILITIES, VM_GET_GPA_PMAP, VM_GLA2GPA,
 	    VM_ACTIVATE_CPU, VM_GET_CPUS, VM_SET_INTINFO, VM_GET_INTINFO,
 	    VM_RTC_WRITE, VM_RTC_READ, VM_RTC_SETTIME, VM_RTC_GETTIME,
-	    VM_RESTART_INSTRUCTION };
+	    VM_RESTART_INSTRUCTION, VM_SET_BHYVE_ID };
 
 	if (len == NULL) {
 		cmds = malloc(sizeof(vm_ioctl_cmds));
