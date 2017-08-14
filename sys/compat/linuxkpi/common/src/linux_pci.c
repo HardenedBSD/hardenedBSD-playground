@@ -154,15 +154,7 @@ linux_pci_attach(device_t dev)
 
 	pdev->dev.parent = &linux_root_device;
 	pdev->dev.bsddev = dev;
-	if (pdev->bus == NULL) {
-		pbus = malloc(sizeof(*pbus), M_DEVBUF, M_WAITOK|M_ZERO);
-		if (isroot == 0)
-			pbus->self = pdev;
-		pdev->bus = pbus;
-	}
-
 	INIT_LIST_HEAD(&pdev->dev.irqents);
-	pdev->bus->number = pci_get_bus(dev);
 	pdev->devfn = PCI_DEVFN(pci_get_slot(dev), pci_get_function(dev));
 	pdev->device = id->device;
 	pdev->vendor = id->vendor;
@@ -187,6 +179,7 @@ linux_pci_attach(device_t dev)
 		pbus = malloc(sizeof(*pbus), M_DEVBUF, M_WAITOK | M_ZERO);
 		pbus->self = pdev;
 		pdev->bus = pbus;
+		pdev->bus->number = pci_get_bus(dev);
 	}
 
 	DROP_GIANT();
@@ -288,17 +281,7 @@ linux_pci_shutdown(device_t dev)
 static int
 _linux_pci_register_driver(struct pci_driver *pdrv, devclass_t dc)
 {
-<<<<<<< HEAD
-	devclass_t bus;
-	int error = 0;
-
-	if (pdrv->busname != NULL)
-		bus = devclass_create(pdrv->busname);
-	else
-		bus = devclass_find("pci");
-=======
 	int error;
->>>>>>> hardened/current/master
 
 	linux_set_current(curthread);
 	spin_lock(&pci_lock);
@@ -346,10 +329,7 @@ linux_pci_unregister_driver(struct pci_driver *pdrv)
 {
 	devclass_t bus;
 
-	if (pdrv->busname != NULL)
-		bus = devclass_create(pdrv->busname);
-	else
-		bus = devclass_find("pci");
+	bus = devclass_find("pci");
 
 	spin_lock(&pci_lock);
 	list_del(&pdrv->links);

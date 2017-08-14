@@ -44,11 +44,6 @@
 #include <linux/mm_types.h>
 #include <linux/pid.h>
 #include <linux/slab.h>
-#include <linux/mm_types.h>
-#include <linux/time64.h>
-#include <linux/bitmap.h>
-#include <linux/atomic.h>
-#include <linux/smp.h>
 #include <linux/string.h>
 #include <linux/time.h>
 
@@ -157,11 +152,6 @@ int linux_schedule_timeout(int timeout);
 	set_current_state(TASK_UNINTERRUPTIBLE);	\
 	schedule_timeout(timeout);			\
 })
-
-#define	io_schedule()			schedule()
-#define	io_schedule_timeout(timeout)	schedule_timeout(timeout)
-
-#define	yield() kern_yield(PRI_UNCHANGED)
 
 #define	io_schedule()			schedule()
 #define	io_schedule_timeout(timeout)	schedule_timeout(timeout)

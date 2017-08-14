@@ -216,26 +216,8 @@ extern spinlock_t pci_lock;
 
 #define	__devexit_p(x)	x
 
-struct pci_bus {
-	struct list_head node;		/* node in list of buses */
-	struct pci_bus	*parent;	/* parent bus this bridge is on */
-	struct list_head children;	/* list of child buses */
-	struct list_head devices;	/* list of devices on this bus */
-	struct pci_dev	*self;		/* bridge device as seen by parent */
-	struct list_head slots;		/* list of slots on this bus */
-	struct list_head resources;	/* address space routed to this bus */
-
-	struct pci_ops	*ops;		/* configuration access functions */
-
-	unsigned char	number;		/* bus number */
-	struct device		dev;
-};
-
 struct pci_dev {
-	struct pci_bus	*bus;		/* bus this device is on */
-
 	struct device		dev;
-
 	struct list_head	links;
 	struct pci_driver	*pdrv;
 	struct pci_bus		*bus;
