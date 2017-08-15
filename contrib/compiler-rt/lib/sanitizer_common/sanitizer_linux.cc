@@ -70,12 +70,9 @@
 #if SANITIZER_FREEBSD
 #include <sys/exec.h>
 #include <sys/sysctl.h>
-<<<<<<< HEAD
 #include <vm/vm.h>
 #include <vm/vm_param.h>
 #include <vm/pmap.h>
-=======
->>>>>>> origin/hardened/current/master
 #include <machine/atomic.h>
 extern "C" {
 // <sys/umtx.h> must be included after <errno.h> and <sys/types.h> on
