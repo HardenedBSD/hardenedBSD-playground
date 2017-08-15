@@ -745,7 +745,7 @@ vdev_geom_open_by_guids(vdev_t *vd)
 
 		ZFS_LOG(1, "Attach by guid [%ju:%ju] succeeded, provider %s.",
 		    (uintmax_t)spa_guid(vd->vdev_spa),
-		    (uintmax_t)vd->vdev_guid, vd->vdev_path);
+		    (uintmax_t)vd->vdev_guid, cp->provider->name);
 	} else {
 		ZFS_LOG(1, "Search by guid [%ju:%ju] failed.",
 		    (uintmax_t)spa_guid(vd->vdev_spa),
@@ -847,12 +847,12 @@ vdev_geom_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	VERIFY(tsd_set(zfs_geom_probe_vdev_key, NULL) == 0);
 
 	if (cp == NULL) {
-		ZFS_LOG(1, "Provider %s not found.", vd->vdev_path);
+		ZFS_LOG(1, "Vdev %s not found.", vd->vdev_path);
 		error = ENOENT;
 	} else if (cp->provider->sectorsize > VDEV_PAD_SIZE ||
 	    !ISP2(cp->provider->sectorsize)) {
 		ZFS_LOG(1, "Provider %s has unsupported sectorsize.",
-		    vd->vdev_path);
+		    cp->provider->name);
 
 		vdev_geom_close_locked(vd);
 		error = EINVAL;
@@ -870,7 +870,7 @@ vdev_geom_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 		}
 		if (error != 0) {
 			printf("ZFS WARNING: Unable to open %s for writing (error=%d).\n",
-			    vd->vdev_path, error);
+			    cp->provider->name, error);
 			vdev_geom_close_locked(vd);
 			cp = NULL;
 		}
@@ -1089,6 +1089,14 @@ static void
 vdev_geom_io_done(zio_t *zio)
 {
 	struct bio *bp = zio->io_bio;
+
+	if (bp == NULL) {
+		ASSERT3S(zio->io_error, !=, 0);
+		IMPLY(zio->io_type == ZIO_TYPE_READ ||
+		    zio->io_type == ZIO_TYPE_WRITE,
+		    zio->io_error == ENXIO);
+		return;
+	}
 
 	if (zio->io_type == ZIO_TYPE_READ) {
 		abd_return_buf_copy(zio->io_abd, bp->bio_data, zio->io_size);

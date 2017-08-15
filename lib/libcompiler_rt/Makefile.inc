@@ -38,8 +38,8 @@ SRCF+=		divxc3
 SRCF+=		enable_execute_stack
 SRCF+=		eprintf
 SRCF+=		extendhfsf2
-SRCF+=		ffssi2
 SRCF+=		ffsdi2
+SRCF+=		ffssi2
 SRCF+=		ffsti2
 SRCF+=		fixdfdi
 SRCF+=		fixdfti
@@ -184,7 +184,7 @@ SRCF+=		umodsi3
 .endif
 
 # FreeBSD-specific atomic intrinsics.
-.if ${MACHINE_CPUARCH} == "arm" || ${MACHINE_CPUARCH} == "armv6"
+.if ${MACHINE_CPUARCH} == "arm"
 .PATH:		${SRCTOP}/sys/arm/arm
 
 SRCF+=		stdatomic

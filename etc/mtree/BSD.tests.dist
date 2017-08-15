@@ -39,6 +39,8 @@
             ..
             expansion
             ..
+            invocation
+            ..
             parameters
             ..
             parser
@@ -377,6 +379,10 @@
         ifconfig
         ..
         mdconfig
+        ..
+        pfctl
+            files
+            ..
         ..
     ..
     secure
