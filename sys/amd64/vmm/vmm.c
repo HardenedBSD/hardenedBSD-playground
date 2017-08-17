@@ -162,7 +162,7 @@ struct vm {
 	struct vmspace	*vmspace;		/* (o) guest's address space */
 	char		name[VM_MAX_NAMELEN];	/* (o) virtual machine name */
 	struct vcpu	vcpu[VM_MAXCPU];	/* (i) guest vcpus */
-	char		bhyve_id[12];		/* (o) hypervisor ID */
+	char		bhyve_id[VM_BHYVE_ID_LEN];	/* (o) hypervisor ID */
 };
 
 static int vmm_initialized;
@@ -442,7 +442,7 @@ vm_create(const char *name, struct vm **retvm)
 
 	vm = malloc(sizeof(struct vm), M_VM, M_WAITOK | M_ZERO);
 	strcpy(vm->name, name);
-	memcpy(vm->bhyve_id, VM_BHYVE_ID, 12);
+	memcpy(vm->bhyve_id, VM_BHYVE_ID, VM_BHYVE_ID_LEN);
 	vm->vmspace = vmspace;
 	mtx_init(&vm->rendezvous_mtx, "vm rendezvous lock", 0, MTX_DEF);
 
@@ -2461,7 +2461,7 @@ int
 vm_set_bhyve_id(struct vm *vm, char *bhyve_id)
 {
 
-	memcpy(vm->bhyve_id, bhyve_id, 12);
+	memcpy(vm->bhyve_id, bhyve_id, VM_BHYVE_ID_LEN);
 	return (0);
 }
 

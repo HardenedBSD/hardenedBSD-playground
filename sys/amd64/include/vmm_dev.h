@@ -217,7 +217,7 @@ struct vm_rtc_data {
 };
 
 struct vm_bhyve_id {
-	char		bhyve_id[12];
+	char		bhyve_id[VM_BHYVE_ID_LEN];
 };
 
 enum {
