@@ -102,11 +102,12 @@ enum x2apic_state {
 #define	VM_INTINFO_HWEXCEPTION	(3 << 8)
 #define	VM_INTINFO_SWINTR	(4 << 8)
 
+#define	VM_BHYVE_ID_LEN	12
+
 #ifdef _KERNEL
 
 #define	VM_MAX_NAMELEN	32
 #define	VM_BHYVE_ID	"bhyve bhyve "
-#define	VM_BHYVE_ID_LEN	12
 
 struct vm;
 struct vm_exception;
