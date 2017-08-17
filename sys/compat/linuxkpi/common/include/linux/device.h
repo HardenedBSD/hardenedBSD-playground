@@ -147,17 +147,12 @@ struct device {
 	unsigned int	msix;
 	unsigned int	msix_max;
 	const struct attribute_group **groups;
-<<<<<<< HEAD
 	struct fwnode_handle	*fwnode;
 	struct dev_pm_info	power;
 
-	spinlock_t		devres_lock;
-	struct list_head	devres_head;
-=======
 
 	spinlock_t	devres_lock;
 	struct list_head devres_head;
->>>>>>> origin/hardened/current/master
 };
 
 extern struct device linux_root_device;
