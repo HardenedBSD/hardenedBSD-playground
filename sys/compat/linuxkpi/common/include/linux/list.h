@@ -65,14 +65,9 @@
 #include <vm/vm_object.h>
 #include <vm/pmap.h>
 
-<<<<<<< HEAD
-/* CEM: TODO: Port some of the queue(9) invariants? */
-
-=======
 #ifndef prefetch
 #define	prefetch(x)
 #endif
->>>>>>> origin/hardened/current/master
 
 #define LINUX_LIST_HEAD_INIT(name) { &(name), &(name) }
 
