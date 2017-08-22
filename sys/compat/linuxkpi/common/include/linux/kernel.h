@@ -463,10 +463,6 @@ abs64(int64_t x)
 	return (x < 0 ? -x : x);
 }
 
-/* XXX move us */
-#define rdmsrl(msr, val)			\
-	((val) = rdmsr((msr)))
-
 typedef struct linux_ratelimit {
 	struct timeval lasttime;
 	int counter;
