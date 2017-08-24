@@ -247,6 +247,7 @@ SUBDIR=	\
 	${_mlx4en} \
 	${_mlx5} \
 	${_mlx5en} \
+	${_mlx5ib} \
 	${_mly} \
 	mmc \
 	mmcsd \
@@ -343,6 +344,8 @@ SUBDIR=	\
 	${_sf} \
 	${_sfxge} \
 	sge \
+	${_sgx} \
+	${_sgx_linux} \
 	siba_bwn \
 	siftr \
 	siis \
@@ -562,7 +565,9 @@ _agp=		agp
 _an=		an
 _bios=		bios
 _bktr=		bktr
+.if ${MK_SOURCELESS_UCODE} != "no"
 _bxe=		bxe
+.endif
 _cardbus=	cardbus
 _cbb=		cbb
 _cpuctl=	cpuctl
@@ -662,6 +667,7 @@ _mlx5en=	mlx5en
 .endif
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
 _mlx4ib=	mlx4ib
+_mlx5ib=	mlx5ib
 .endif
 _mly=		mly
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
@@ -702,9 +708,13 @@ _ntb=		ntb
 _pms=		pms
 _qlxge=		qlxge
 _qlxgb=		qlxgb
+.if ${MK_SOURCELESS_UCODE} != "no"
 _qlxgbe=	qlxgbe
+.endif
 _qlnx=		qlnx
 _sfxge=		sfxge
+_sgx=		sgx
+_sgx_linux=	sgx_linux
 
 .if ${MK_BHYVE} != "no" || defined(ALL_MODULES)
 _vmm=		vmm
