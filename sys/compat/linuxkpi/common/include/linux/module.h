@@ -89,7 +89,6 @@ _module_run(void *arg)
 	SYSUNINIT(fn, SI_SUB_OFED_MODINIT, SI_ORDER_SECOND, _module_run, (fn))
 
 
-#define postcore_initcall(fn)		module_init(fn)
 #define late_initcall(fn)		module_init(fn)
 
 /*
@@ -106,10 +105,7 @@ _module_run(void *arg)
 #define	module_put(module)
 #define	try_module_get(module)	1
 
-<<<<<<< HEAD
 #define symbol_put(x)
-=======
 #define	postcore_initcall(fn)	module_init(fn)
->>>>>>> origin/hardened/current/master
 
 #endif	/* _LINUX_MODULE_H_ */
