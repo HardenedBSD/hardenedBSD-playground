@@ -50,17 +50,25 @@ enum irqreturn	{ IRQ_NONE = 0, IRQ_HANDLED, IRQ_WAKE_THREAD, };
 typedef enum irqreturn	irqreturn_t;
 
 struct device;
+<<<<<<< HEAD
 struct dev_pm_ops;
 struct fwnode_handle;
 struct kobj_uevent_env;
+=======
+struct fwnode_handle;
+>>>>>>> origin/hardened/current/master
 
 struct class {
 	const char	*name;
 	struct module	*owner;
 	struct kobject	kobj;
 	devclass_t	bsdclass;
+<<<<<<< HEAD
 	struct pfs_node	*sd;
 	const struct attribute_group	**dev_groups;
+=======
+	const struct dev_pm_ops *pm;
+>>>>>>> origin/hardened/current/master
 	void		(*class_release)(struct class *class);
 	void		(*dev_release)(struct device *dev);
 	char *		(*devnode)(struct device *dev, umode_t *mode);
@@ -147,9 +155,13 @@ struct device {
 	unsigned int	msix;
 	unsigned int	msix_max;
 	const struct attribute_group **groups;
+<<<<<<< HEAD
 	struct fwnode_handle	*fwnode;
 	struct dev_pm_info	power;
 
+=======
+	struct fwnode_handle *fwnode;
+>>>>>>> origin/hardened/current/master
 
 	spinlock_t	devres_lock;
 	struct list_head devres_head;
@@ -220,7 +232,11 @@ show_class_attr_string(struct class *class,
 #define	dev_warn(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
 #define	dev_info(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
 #define	dev_notice(dev, fmt, ...)	device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+<<<<<<< HEAD
 #define	dev_dbg(dev, fmt, ...)
+=======
+#define	dev_dbg(dev, fmt, ...)	do { } while (0)
+>>>>>>> origin/hardened/current/master
 #define	dev_printk(lvl, dev, fmt, ...)					\
 	    device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
 

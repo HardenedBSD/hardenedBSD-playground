@@ -51,4 +51,6 @@ struct lock_class_key {
 /* XXX */
 #define lockdep_is_held(m) 
 
+#define	might_lock(m)	do { } while (0)
+
 #endif /* _LINUX_LOCKDEP_H_ */
