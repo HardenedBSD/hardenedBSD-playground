@@ -88,12 +88,9 @@ _module_run(void *arg)
 #define	module_exit(fn)						\
 	SYSUNINIT(fn, SI_SUB_OFED_MODINIT, SI_ORDER_SECOND, _module_run, (fn))
 
-<<<<<<< HEAD
 
 #define late_initcall(fn)		module_init(fn)
 
-=======
->>>>>>> freebsd-base-graphics/drm-next
 /*
  * The following two macros are a workaround for not having a module
  * load and unload order resolver:
@@ -108,10 +105,7 @@ _module_run(void *arg)
 #define	module_put(module)
 #define	try_module_get(module)	1
 
-<<<<<<< HEAD
 #define symbol_put(x)
-=======
->>>>>>> freebsd-base-graphics/drm-next
 #define	postcore_initcall(fn)	module_init(fn)
 
 #endif	/* _LINUX_MODULE_H_ */
