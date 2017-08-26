@@ -41,7 +41,6 @@
 
 #include <linux/types.h>
 #include <linux/wait.h>
-#include <linux/dcache.h>
 #include <linux/semaphore.h>
 #include <linux/atomic.h>
 #include <linux/spinlock.h>
@@ -68,6 +67,14 @@ struct pfs_node;
 
 typedef struct files_struct *fl_owner_t;
 
+<<<<<<< HEAD
+=======
+struct dentry {
+	struct inode	*d_inode;
+	struct pfs_node	*d_pfs_node;
+};
+
+>>>>>>> freebsd-base-graphics/drm-next
 struct file_operations;
 
 #define i_mapping v_bufobj.bo_object

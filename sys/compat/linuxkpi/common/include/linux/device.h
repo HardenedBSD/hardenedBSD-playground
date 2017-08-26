@@ -59,7 +59,10 @@ struct class {
 	struct module	*owner;
 	struct kobject	kobj;
 	devclass_t	bsdclass;
+<<<<<<< HEAD
 	struct pfs_node	*sd;
+=======
+>>>>>>> freebsd-base-graphics/drm-next
 	const struct attribute_group	**dev_groups;
 	const struct dev_pm_ops *pm;
 	void		(*class_release)(struct class *class);
@@ -147,10 +150,16 @@ struct device {
 	unsigned int	msix;
 	unsigned int	msix_max;
 	const struct attribute_group **groups;
+<<<<<<< HEAD
 	struct dev_pm_info	power;
 
 	struct fwnode_handle *fwnode;
 
+=======
+	struct fwnode_handle	*fwnode;
+	struct dev_pm_info	power;
+
+>>>>>>> freebsd-base-graphics/drm-next
 	spinlock_t	devres_lock;
 	struct list_head devres_head;
 };
