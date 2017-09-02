@@ -442,12 +442,12 @@ ntb_transport_attach(device_t dev)
 	callout_init(&nt->link_work, 0);
 	callout_init(&nt->link_watchdog, 0);
 	TASK_INIT(&nt->link_cleanup, 0, ntb_transport_link_cleanup_work, nt);
+	nt->link_is_up = false;
 
 	rc = ntb_set_ctx(dev, nt, &ntb_transport_ops);
 	if (rc != 0)
 		goto err;
 
-	nt->link_is_up = false;
 	ntb_link_enable(dev, NTB_SPEED_AUTO, NTB_WIDTH_AUTO);
 
 	if (enable_xeon_watchdog != 0)
@@ -835,6 +835,7 @@ static void
 ntb_transport_rxc_db(void *arg, int pending __unused)
 {
 	struct ntb_transport_qp *qp = arg;
+	uint64_t qp_mask = 1ull << qp->qp_num;
 	int rc;
 
 	CTR0(KTR_NTB, "RX: transport_rx");
@@ -843,11 +844,13 @@ again:
 		;
 	CTR1(KTR_NTB, "RX: process_rxc returned %d", rc);
 
-	if ((ntb_db_read(qp->dev) & (1ull << qp->qp_num)) != 0) {
+	if ((ntb_db_read(qp->dev) & qp_mask) != 0) {
 		/* If db is set, clear it and check queue once more. */
-		ntb_db_clear(qp->dev, 1ull << qp->qp_num);
+		ntb_db_clear(qp->dev, qp_mask);
 		goto again;
 	}
+	if (qp->link_is_up)
+		ntb_db_clear_mask(qp->dev, qp_mask);
 }
 
 static int
@@ -1009,6 +1012,10 @@ ntb_transport_doorbell_callback(void *data, uint32_t vector)
 	vec_mask &= nt->qp_bitmap;
 	if ((vec_mask & (vec_mask - 1)) != 0)
 		vec_mask &= ntb_db_read(nt->dev);
+	if (vec_mask != 0) {
+		ntb_db_set_mask(nt->dev, vec_mask);
+		ntb_db_clear(nt->dev, vec_mask);
+	}
 	while (vec_mask != 0) {
 		qp_num = ffsll(vec_mask) - 1;
 
@@ -1274,6 +1281,9 @@ ntb_transport_link_cleanup(struct ntb_transport_ctx *nt)
 	struct ntb_transport_qp *qp;
 	int i;
 
+	callout_drain(&nt->link_work);
+	nt->link_is_up = 0;
+
 	/* Pass along the info to any clients */
 	for (i = 0; i < nt->qp_count; i++) {
 		if ((nt->qp_bitmap & (1 << i)) != 0) {
@@ -1282,9 +1292,6 @@ ntb_transport_link_cleanup(struct ntb_transport_ctx *nt)
 			callout_drain(&qp->link_work);
 		}
 	}
-
-	if (!nt->link_is_up)
-		callout_drain(&nt->link_work);
 
 	/*
 	 * The scratchpad registers keep the values if the remote side
