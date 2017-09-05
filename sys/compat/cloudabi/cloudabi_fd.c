@@ -57,7 +57,6 @@ __FBSDID("$FreeBSD$");
 	MAPPING(CLOUDABI_RIGHT_FILE_ALLOCATE, CAP_WRITE)		\
 	MAPPING(CLOUDABI_RIGHT_FILE_CREATE_DIRECTORY, CAP_MKDIRAT)	\
 	MAPPING(CLOUDABI_RIGHT_FILE_CREATE_FILE, CAP_CREATE)		\
-	MAPPING(CLOUDABI_RIGHT_FILE_CREATE_FIFO, CAP_MKFIFOAT)		\
 	MAPPING(CLOUDABI_RIGHT_FILE_LINK_SOURCE, CAP_LINKAT_SOURCE)	\
 	MAPPING(CLOUDABI_RIGHT_FILE_LINK_TARGET, CAP_LINKAT_TARGET)	\
 	MAPPING(CLOUDABI_RIGHT_FILE_OPEN, CAP_LOOKUP)			\
@@ -111,34 +110,21 @@ int
 cloudabi_sys_fd_create2(struct thread *td,
     struct cloudabi_sys_fd_create2_args *uap)
 {
-	struct filecaps fcaps1 = {}, fcaps2 = {};
 	int fds[2];
-	int error;
+	int error, type;
 
 	switch (uap->type) {
-	case CLOUDABI_FILETYPE_FIFO:
-		/*
-		 * CloudABI pipes are unidirectional. Restrict rights on
-		 * the pipe to simulate this.
-		 */
-		cap_rights_init(&fcaps1.fc_rights, CAP_EVENT, CAP_FCNTL,
-		    CAP_FSTAT, CAP_READ);
-		fcaps1.fc_fcntls = CAP_FCNTL_SETFL;
-		cap_rights_init(&fcaps2.fc_rights, CAP_EVENT, CAP_FCNTL,
-		    CAP_FSTAT, CAP_WRITE);
-		fcaps2.fc_fcntls = CAP_FCNTL_SETFL;
-		error = kern_pipe(td, fds, 0, &fcaps1, &fcaps2);
-		break;
 	case CLOUDABI_FILETYPE_SOCKET_DGRAM:
-		error = kern_socketpair(td, AF_UNIX, SOCK_DGRAM, 0, fds);
+		type = SOCK_DGRAM;
 		break;
 	case CLOUDABI_FILETYPE_SOCKET_STREAM:
-		error = kern_socketpair(td, AF_UNIX, SOCK_STREAM, 0, fds);
+		type = SOCK_STREAM;
 		break;
 	default:
 		return (EINVAL);
 	}
 
+	error = kern_socketpair(td, AF_UNIX, type, 0, fds);
 	if (error == 0) {
 		td->td_retval[0] = fds[0];
 		td->td_retval[1] = fds[1];
@@ -215,11 +201,11 @@ cloudabi_convert_filetype(const struct file *fp)
 
 	switch (fp->f_type) {
 	case DTYPE_FIFO:
-		return (CLOUDABI_FILETYPE_FIFO);
+		return (CLOUDABI_FILETYPE_SOCKET_STREAM);
 	case DTYPE_KQUEUE:
 		return (CLOUDABI_FILETYPE_POLL);
 	case DTYPE_PIPE:
-		return (CLOUDABI_FILETYPE_FIFO);
+		return (CLOUDABI_FILETYPE_SOCKET_STREAM);
 	case DTYPE_PROCDESC:
 		return (CLOUDABI_FILETYPE_PROCESS);
 	case DTYPE_SHM:
@@ -244,7 +230,7 @@ cloudabi_convert_filetype(const struct file *fp)
 		case VDIR:
 			return (CLOUDABI_FILETYPE_DIRECTORY);
 		case VFIFO:
-			return (CLOUDABI_FILETYPE_FIFO);
+			return (CLOUDABI_FILETYPE_SOCKET_STREAM);
 		case VLNK:
 			return (CLOUDABI_FILETYPE_SYMBOLIC_LINK);
 		case VREG:
@@ -287,7 +273,6 @@ cloudabi_remove_conflicting_rights(cloudabi_filetype_t filetype,
 		    CLOUDABI_RIGHT_FD_SYNC | CLOUDABI_RIGHT_FILE_ADVISE |
 		    CLOUDABI_RIGHT_FILE_CREATE_DIRECTORY |
 		    CLOUDABI_RIGHT_FILE_CREATE_FILE |
-		    CLOUDABI_RIGHT_FILE_CREATE_FIFO |
 		    CLOUDABI_RIGHT_FILE_LINK_SOURCE |
 		    CLOUDABI_RIGHT_FILE_LINK_TARGET |
 		    CLOUDABI_RIGHT_FILE_OPEN |
@@ -313,7 +298,6 @@ cloudabi_remove_conflicting_rights(cloudabi_filetype_t filetype,
 		    CLOUDABI_RIGHT_FILE_ALLOCATE |
 		    CLOUDABI_RIGHT_FILE_CREATE_DIRECTORY |
 		    CLOUDABI_RIGHT_FILE_CREATE_FILE |
-		    CLOUDABI_RIGHT_FILE_CREATE_FIFO |
 		    CLOUDABI_RIGHT_FILE_LINK_SOURCE |
 		    CLOUDABI_RIGHT_FILE_LINK_TARGET |
 		    CLOUDABI_RIGHT_FILE_OPEN |
@@ -332,14 +316,6 @@ cloudabi_remove_conflicting_rights(cloudabi_filetype_t filetype,
 		    CLOUDABI_RIGHT_MEM_MAP_EXEC |
 		    CLOUDABI_RIGHT_POLL_FD_READWRITE |
 		    CLOUDABI_RIGHT_PROC_EXEC;
-		break;
-	case CLOUDABI_FILETYPE_FIFO:
-		*base &= CLOUDABI_RIGHT_FD_READ |
-		    CLOUDABI_RIGHT_FD_STAT_PUT_FLAGS |
-		    CLOUDABI_RIGHT_FD_WRITE |
-		    CLOUDABI_RIGHT_FILE_STAT_FGET |
-		    CLOUDABI_RIGHT_POLL_FD_READWRITE;
-		*inheriting = 0;
 		break;
 	case CLOUDABI_FILETYPE_POLL:
 		*base &= ~CLOUDABI_RIGHT_FILE_ADVISE;
