@@ -49,7 +49,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/wait.h>
-#include <machine/sysarch.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -697,35 +696,6 @@ static struct xlat sigaction_flags[] = {
 	X(SA_NODEFER) X(SA_NOCLDWAIT) X(SA_SIGINFO) XEND
 };
 
-static struct xlat pathconf_arg[] = {
-	X(_PC_LINK_MAX)  X(_PC_MAX_CANON)  X(_PC_MAX_INPUT)
-	X(_PC_NAME_MAX) X(_PC_PATH_MAX) X(_PC_PIPE_BUF)
-	X(_PC_CHOWN_RESTRICTED) X(_PC_NO_TRUNC) X(_PC_VDISABLE)
-	X(_PC_ASYNC_IO) X(_PC_PRIO_IO) X(_PC_SYNC_IO)
-	X(_PC_ALLOC_SIZE_MIN) X(_PC_FILESIZEBITS)
-	X(_PC_REC_INCR_XFER_SIZE) X(_PC_REC_MAX_XFER_SIZE)
-	X(_PC_REC_MIN_XFER_SIZE) X(_PC_REC_XFER_ALIGN)
-	X(_PC_SYMLINK_MAX) X(_PC_ACL_EXTENDED) X(_PC_ACL_PATH_MAX)
-	X(_PC_CAP_PRESENT) X(_PC_INF_PRESENT) X(_PC_MAC_PRESENT)
-	X(_PC_ACL_NFS4) X(_PC_MIN_HOLE_SIZE) XEND
-};
-
-static struct xlat at_flags[] = {
-	X(AT_EACCESS) X(AT_SYMLINK_NOFOLLOW) X(AT_SYMLINK_FOLLOW)
-	X(AT_REMOVEDIR) XEND
-};
-
-static struct xlat sysarch_ops[] = {
-#if defined(__i386__) || defined(__amd64__)
-	X(I386_GET_LDT) X(I386_SET_LDT) X(I386_GET_IOPERM) X(I386_SET_IOPERM)
-	X(I386_VM86) X(I386_GET_FSBASE) X(I386_SET_FSBASE) X(I386_GET_GSBASE)
-	X(I386_SET_GSBASE) X(I386_GET_XFPUSTATE) X(AMD64_GET_FSBASE)
-	X(AMD64_SET_FSBASE) X(AMD64_GET_GSBASE) X(AMD64_SET_GSBASE)
-	X(AMD64_GET_XFPUSTATE)
-#endif
-	XEND
-};
-
 static struct xlat linux_socketcall_ops[] = {
 	X(LINUX_SOCKET) X(LINUX_BIND) X(LINUX_CONNECT) X(LINUX_LISTEN)
 	X(LINUX_ACCEPT) X(LINUX_GETSOCKNAME) X(LINUX_GETPEERNAME)
@@ -764,10 +734,9 @@ static struct xlat cloudabi_fdsflags[] = {
 static struct xlat cloudabi_filetype[] = {
 	X(FILETYPE_UNKNOWN) X(FILETYPE_BLOCK_DEVICE)
 	X(FILETYPE_CHARACTER_DEVICE) X(FILETYPE_DIRECTORY)
-	X(FILETYPE_FIFO) X(FILETYPE_POLL) X(FILETYPE_PROCESS)
-	X(FILETYPE_REGULAR_FILE) X(FILETYPE_SHARED_MEMORY)
-	X(FILETYPE_SOCKET_DGRAM) X(FILETYPE_SOCKET_STREAM)
-	X(FILETYPE_SYMBOLIC_LINK)
+	X(FILETYPE_POLL) X(FILETYPE_PROCESS) X(FILETYPE_REGULAR_FILE)
+	X(FILETYPE_SHARED_MEMORY) X(FILETYPE_SOCKET_DGRAM)
+	X(FILETYPE_SOCKET_STREAM) X(FILETYPE_SYMBOLIC_LINK)
 	XEND
 };
 
@@ -1689,7 +1658,7 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 		print_integer_arg(sysdecode_getrusage_who, fp, args[sc->offset]);
 		break;
 	case Pathconf:
-		fputs(xlookup(pathconf_arg, args[sc->offset]), fp);
+		print_integer_arg(sysdecode_pathconf_name, fp, args[sc->offset]);
 		break;
 	case Rforkflags:
 		print_mask_arg(sysdecode_rfork_flags, fp, args[sc->offset]);
@@ -1955,13 +1924,14 @@ print_arg(struct syscall_args *sc, unsigned long *args, long *retval,
 		print_integer_arg(sysdecode_atfd, fp, args[sc->offset]);
 		break;
 	case Atflags:
-		fputs(xlookup_bits(at_flags, args[sc->offset]), fp);
+		print_mask_arg(sysdecode_atflags, fp, args[sc->offset]);
 		break;
 	case Accessmode:
 		print_mask_arg(sysdecode_access_mode, fp, args[sc->offset]);
 		break;
 	case Sysarch:
-		fputs(xlookup(sysarch_ops, args[sc->offset]), fp);
+		print_integer_arg(sysdecode_sysarch_number, fp,
+		    args[sc->offset]);
 		break;
 	case PipeFds:
 		/*
