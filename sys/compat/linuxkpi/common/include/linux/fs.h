@@ -74,10 +74,9 @@ struct dentry {
 
 struct file_operations;
 
-<<<<<<< HEAD
 #define i_mapping v_bufobj.bo_object
 #define file_inode(f) ((f)->f_vnode)
-=======
+
 struct linux_file_wait_queue {
 	struct wait_queue wq;
 	struct wait_queue_head *wqh;
@@ -88,7 +87,6 @@ struct linux_file_wait_queue {
 #define	LINUX_FWQ_STATE_READY 3
 #define	LINUX_FWQ_STATE_MAX 4
 };
->>>>>>> origin/hardened/current/master
 
 struct linux_file {
 	struct file	*_file;
