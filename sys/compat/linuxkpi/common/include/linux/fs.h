@@ -74,8 +74,21 @@ struct dentry {
 
 struct file_operations;
 
+<<<<<<< HEAD
 #define i_mapping v_bufobj.bo_object
 #define file_inode(f) ((f)->f_vnode)
+=======
+struct linux_file_wait_queue {
+	struct wait_queue wq;
+	struct wait_queue_head *wqh;
+	atomic_t state;
+#define	LINUX_FWQ_STATE_INIT 0
+#define	LINUX_FWQ_STATE_NOT_READY 1
+#define	LINUX_FWQ_STATE_QUEUED 2
+#define	LINUX_FWQ_STATE_READY 3
+#define	LINUX_FWQ_STATE_MAX 4
+};
+>>>>>>> origin/hardened/current/master
 
 struct linux_file {
 	struct file	*_file;
@@ -102,6 +115,7 @@ struct linux_file {
 #define	LINUX_KQ_FLAG_NEED_WRITE (1 << 3)
 	/* protects f_selinfo.si_note */
 	spinlock_t	f_kqlock;
+	struct linux_file_wait_queue f_wait_queue;
 };
 
 #define f_inode		f_vnode
