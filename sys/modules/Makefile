@@ -221,11 +221,8 @@ SUBDIR=	\
 	${_linux_common} \
 	${_linux64} \
 	linuxkpi \
-<<<<<<< HEAD
 	linuxkpi_gplv2 \
-=======
 	${_lio} \
->>>>>>> origin/hardened/current/master
 	lmc \
 	lpt \
 	mac_biba \
