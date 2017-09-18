@@ -38,13 +38,10 @@
 #include <sys/vnode.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
-
 #include <linux/types.h>
 #include <linux/wait.h>
 #include <linux/semaphore.h>
-#include <linux/atomic.h>
 #include <linux/spinlock.h>
-#include <linux/interrupt.h>
 
 struct module;
 struct kiocb;
@@ -65,6 +62,7 @@ struct pfs_node;
 #define	S_IRUGO	(S_IRUSR | S_IRGRP | S_IROTH)
 #define	S_IWUGO	(S_IWUSR | S_IWGRP | S_IWOTH)
 
+
 typedef struct files_struct *fl_owner_t;
 
 struct dentry {
@@ -74,8 +72,16 @@ struct dentry {
 
 struct file_operations;
 
-#define i_mapping v_bufobj.bo_object
-#define file_inode(f) ((f)->f_vnode)
+struct linux_file_wait_queue {
+	struct wait_queue wq;
+	struct wait_queue_head *wqh;
+	atomic_t state;
+#define	LINUX_FWQ_STATE_INIT 0
+#define	LINUX_FWQ_STATE_NOT_READY 1
+#define	LINUX_FWQ_STATE_QUEUED 2
+#define	LINUX_FWQ_STATE_READY 3
+#define	LINUX_FWQ_STATE_MAX 4
+};
 
 struct linux_file {
 	struct file	*_file;
@@ -102,6 +108,7 @@ struct linux_file {
 #define	LINUX_KQ_FLAG_NEED_WRITE (1 << 3)
 	/* protects f_selinfo.si_note */
 	spinlock_t	f_kqlock;
+	struct linux_file_wait_queue f_wait_queue;
 };
 
 #define f_inode		f_vnode
@@ -175,10 +182,6 @@ struct file_operations {
 #define	FMODE_READ	FREAD
 #define	FMODE_WRITE	FWRITE
 #define	FMODE_EXEC	FEXEC
-
-/* Alas, no aliases. Too much hassle with bringing module.h everywhere */
-#define fops_put(fops) \
-	do { if (fops) module_put((fops)->owner); } while(0)
 
 int __register_chrdev(unsigned int major, unsigned int baseminor,
     unsigned int count, const char *name,
