@@ -92,6 +92,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/resource.h>
 #include <sys/resourcevar.h>
 #include <sys/rwlock.h>
+#include <sys/sbuf.h>
 #include <sys/sysctl.h>
 #include <sys/sysproto.h>
 #include <sys/blist.h>
@@ -323,6 +324,10 @@ static int sysctl_swap_async_max(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_vm, OID_AUTO, swap_async_max, CTLTYPE_INT | CTLFLAG_RW |
     CTLFLAG_MPSAFE, NULL, 0, sysctl_swap_async_max, "I",
     "Maximum running async swap ops");
+static int sysctl_swap_fragmentation(SYSCTL_HANDLER_ARGS);
+SYSCTL_PROC(_vm, OID_AUTO, swap_fragmentation, CTLTYPE_STRING | CTLFLAG_RD |
+    CTLFLAG_MPSAFE, NULL, 0, sysctl_swap_fragmentation, "A",
+    "Swap Fragmentation Info");
 
 static struct sx sw_alloc_sx;
 
@@ -777,6 +782,36 @@ swp_pager_freeswapspace(daddr_t blk, int npages)
 		}
 	}
 	panic("Swapdev not found");
+}
+
+/*
+ * SYSCTL_SWAP_FRAGMENTATION() -	produce raw swap space stats
+ */
+static int
+sysctl_swap_fragmentation(SYSCTL_HANDLER_ARGS)
+{
+	struct sbuf sbuf;
+	struct swdevt *sp;
+	const char *devname;
+	int error;
+
+	error = sysctl_wire_old_buffer(req, 0);
+	if (error != 0)
+		return (error);
+	sbuf_new_for_sysctl(&sbuf, NULL, 128, req);
+	mtx_lock(&sw_dev_mtx);
+	TAILQ_FOREACH(sp, &swtailq, sw_list) {
+		if (vn_isdisk(sp->sw_vp, NULL))
+			devname = devtoname(sp->sw_vp->v_rdev);
+		else
+			devname = "[file]";
+		sbuf_printf(&sbuf, "\nFree space on device %s:\n", devname);
+		blist_stats(sp->sw_blist, &sbuf);
+	}
+	mtx_unlock(&sw_dev_mtx);
+	error = sbuf_finish(&sbuf);
+	sbuf_delete(&sbuf);
+	return (error);
 }
 
 /*
@@ -1726,7 +1761,7 @@ static void
 swp_pager_meta_build(vm_object_t object, vm_pindex_t pindex, daddr_t swapblk)
 {
 	static volatile int swblk_zone_exhausted, swpctrie_zone_exhausted;
-	struct swblk *sb;
+	struct swblk *sb, *sb1;
 	vm_pindex_t modpi, rdpi;
 	int error, i;
 
@@ -1776,6 +1811,15 @@ swp_pager_meta_build(vm_object_t object, vm_pindex_t pindex, daddr_t swapblk)
 			} else
 				VM_WAIT;
 			VM_OBJECT_WLOCK(object);
+			sb = SWAP_PCTRIE_LOOKUP(&object->un_pager.swp.swp_blks,
+			    rdpi);
+			if (sb != NULL)
+				/*
+				 * Somebody swapped out a nearby page,
+				 * allocating swblk at the rdpi index,
+				 * while we dropped the object lock.
+				 */
+				goto allocated;
 		}
 		for (;;) {
 			error = SWAP_PCTRIE_INSERT(
@@ -1797,8 +1841,16 @@ swp_pager_meta_build(vm_object_t object, vm_pindex_t pindex, daddr_t swapblk)
 			} else
 				VM_WAIT;
 			VM_OBJECT_WLOCK(object);
+			sb1 = SWAP_PCTRIE_LOOKUP(&object->un_pager.swp.swp_blks,
+			    rdpi);
+			if (sb1 != NULL) {
+				uma_zfree(swblk_zone, sb);
+				sb = sb1;
+				goto allocated;
+			}
 		}
 	}
+allocated:
 	MPASS(sb->p == rdpi);
 
 	modpi = pindex % SWAP_META_PAGES;
@@ -1807,6 +1859,21 @@ swp_pager_meta_build(vm_object_t object, vm_pindex_t pindex, daddr_t swapblk)
 		swp_pager_freeswapspace(sb->d[modpi], 1);
 	/* Enter block into metadata. */
 	sb->d[modpi] = swapblk;
+
+	/*
+	 * Free the swblk if we end up with the empty page run.
+	 */
+	if (swapblk == SWAPBLK_NONE) {
+		for (i = 0; i < SWAP_META_PAGES; i++) {
+			if (sb->d[i] != SWAPBLK_NONE)
+				break;
+		}
+		if (i == SWAP_META_PAGES) {
+			SWAP_PCTRIE_REMOVE(&object->un_pager.swp.swp_blks,
+			    rdpi);
+			uma_zfree(swblk_zone, sb);
+		}
+	}
 }
 
 /*

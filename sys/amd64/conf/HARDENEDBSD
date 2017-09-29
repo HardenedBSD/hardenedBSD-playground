@@ -85,12 +85,14 @@ options 	RCTL			# Resource limits
 
 # HardenedBSD hardening options
 options 	PAX			# PaX framework
+options 	PAX_CONTROL_ACL		# PaX MAC framework, required for secadm
+options 	PAX_CONTROL_ACL_OVERRIDE_SUPPORT # Allow to override hbsdcontrol settings with ACLs
+options 	PAX_CONTROL_EXTATTR	# extattr based control framework for hbsdcontrol
 options 	PAX_SYSCTLS		# sysctls for run-time options
 options 	PAX_ASLR		# Address Space Layout Randomization
 options 	PAX_NOEXEC		# Remove WX pages from user-space and enforce W^X
 options 	PAX_HARDENING		# Various hardening options
 options 	PAX_SEGVGUARD		# prevent brute-force attacks
-options		HARDEN_RANDOMPID	# Force random PIDs
 options 	HBSD_DEBUG
 
 # Debugging support.  Always need this:
