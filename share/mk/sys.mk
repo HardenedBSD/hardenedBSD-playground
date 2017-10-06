@@ -13,7 +13,7 @@ unix		?=	We run FreeBSD, not UNIX.
 # and/or endian.  This is called MACHINE_CPU in NetBSD, but that's used
 # for something different in FreeBSD.
 #
-__TO_CPUARCH=C/mips(n32|64)?(el)?(hf)?/mips/:C/arm(v6)?(eb)?/arm/:C/powerpc(64|spe)/powerpc/:C/riscv64(sf)?/riscv/
+__TO_CPUARCH=C/mips(n32|64)?(el)?(hf)?/mips/:C/arm(v[67])?(eb)?/arm/:C/powerpc(64|spe)/powerpc/:C/riscv64(sf)?/riscv/
 MACHINE_CPUARCH=${MACHINE_ARCH:${__TO_CPUARCH}}
 .endif
 
@@ -134,16 +134,20 @@ NO_META_IGNORE_HOST_HEADERS=	1
 .SUFFIXES:	.out .a .ln .o .bco .llo .c .cc .cpp .cxx .C .m .F .f .e .r .y .l .S .asm .s .cl .p .h .sh
 .endif
 
+_TEST_AR=	/usr/bin/ar
 AR		?=	ar
 .if defined(%POSIX)
 ARFLAGS		?=	-rv
+.elif ${_TEST_AR:tA} == "/usr/bin/llvm-ar"
+ARFLAGS		?=	crD
 .else
 ARFLAGS		?=	crD
 .endif
+_TEST_RANLIB=	/usr/bin/ranlib
 RANLIB		?=	ranlib
-#.if !defined(%POSIX)
-#RANLIBFLAGS	?=	-D
-#.endif
+.if !defined(%POSIX) && ${_TEST_RANLIB:tA} != "/usr/bin/llvm-ar"
+RANLIBFLAGS	?=	-D
+.endif
 
 AS		?=	as
 AFLAGS		?=
