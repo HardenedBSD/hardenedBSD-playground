@@ -215,7 +215,6 @@ SUBDIR=	\
 	lge \
 	libalias \
 	libiconv \
-	libmbpool \
 	libmchain \
 	${_linprocfs} \
 	${_linsysfs} \
@@ -559,6 +558,7 @@ _cxgb=		cxgb
 
 .if ${MACHINE_CPUARCH} == "aarch64"
 _armv8crypto=	armv8crypto
+_efirt=		efirt
 _em=		em
 .endif
 

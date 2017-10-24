@@ -500,7 +500,7 @@ user_ldt_free(struct thread *td)
 	struct mdproc *mdp = &p->p_md;
 	struct proc_ldt *pldt;
 
-	mtx_assert(&dt_lock, MA_OWNED);
+	mtx_lock(&dt_lock);
 	if ((pldt = mdp->md_ldt) == NULL) {
 		mtx_unlock(&dt_lock);
 		return;
@@ -556,12 +556,12 @@ amd64_get_ldt(struct thread *td, struct i386_ldt_args *uap)
 	    uap->start, uap->num, (void *)uap->descs);
 #endif
 
-	if (uap->start >= max_ldt_segment)
-		return (EINVAL);
-	num = min(uap->num, max_ldt_segment - uap->start);
 	pldt = td->td_proc->p_md.md_ldt;
-	if (pldt == NULL)
-		return (EINVAL);
+	if (pldt == NULL || uap->start >= max_ldt_segment || uap->num == 0) {
+		td->td_retval[0] = 0;
+		return (0);
+	}
+	num = min(uap->num, max_ldt_segment - uap->start);
 	lp = &((struct user_segment_descriptor *)(pldt->ldt_base))[uap->start];
 	data = malloc(num * sizeof(struct user_segment_descriptor), M_TEMP,
 	    M_WAITOK);
