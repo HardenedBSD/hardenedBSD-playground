@@ -463,8 +463,13 @@ MK_SAFESTACK:=	no
 MK_CFI:=	no
 .endif
 
+<<<<<<< HEAD
 .if ${MK_CFI} == "no"
 MK_CROSS_DSO_CFI:=	no
+=======
+.if ${MK_LIBRESSL} == "no"
+MK_OPENNTPD:=	no
+>>>>>>> origin/hardened/current/master
 .endif
 
 .if ${MK_OPENNTPD} != "no"
