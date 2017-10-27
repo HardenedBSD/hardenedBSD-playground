@@ -5,6 +5,7 @@
 PACKAGE=	lib${LIB}
 LIB=		compiler_rt
 NO_PIC=
+MK_CROSS_DSO_CFI=	no
 WARNS?=		2
 
 CFLAGS+=	${PICFLAG}

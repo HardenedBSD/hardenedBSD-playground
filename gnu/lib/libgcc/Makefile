@@ -14,6 +14,7 @@ SHLIBDIR?=	/lib
 # from earlier libraries. Disable stack protection for this library.
 #
 MK_SSP=	no
+MK_CROSS_DSO_CFI=	no
 
 .include "${CCDIR}/Makefile.tgt"
 .include "${CCDIR}/cc_tools/Makefile.hdrs"
