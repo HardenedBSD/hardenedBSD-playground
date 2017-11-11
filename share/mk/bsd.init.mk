@@ -10,12 +10,24 @@
 __<bsd.init.mk>__:
 .include <bsd.opts.mk>
 .-include "local.init.mk"
+
+.if ${MK_AUTO_OBJ} == "yes"
+# This is also done in bsd.obj.mk
+.if defined(NO_OBJ) && ${.OBJDIR} != ${.CURDIR}
+.OBJDIR: ${.CURDIR}
+.endif
+.endif
+
 .if exists(${.CURDIR}/../Makefile.inc)
 .include "${.CURDIR}/../Makefile.inc"
 .endif
 .sinclude <src.opts.mk>
 .include <bsd.own.mk>
 .MAIN: all
+
+# This is used in bsd.{dep,lib,prog}.mk as ${OBJS_SRCS_FILTER:ts:}
+# Some makefiles may want T as well to avoid nested objdirs.
+OBJS_SRCS_FILTER+= R
 
 # Handle INSTALL_AS_USER here to maximize the chance that
 # it has final authority over fooOWN and fooGRP.
@@ -53,7 +65,8 @@ _SKIP_BUILD=	not building at level 0
     ${.TARGETS:M*install*} == ${.TARGETS} || \
     ${.TARGETS:Mclean*} == ${.TARGETS} || \
     ${.TARGETS:Mdestroy*} == ${.TARGETS} || \
-    make(obj) || make(analyze) || make(print-dir)
+    ${.TARGETS:Mobj} == ${.TARGETS} || \
+    make(analyze) || make(print-dir)
 # Skip building, but don't show a warning.
 _SKIP_BUILD=
 .endif

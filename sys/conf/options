@@ -431,7 +431,6 @@ IPSEC_SUPPORT		opt_ipsec.h
 IPSTEALTH
 KRPC
 LIBALIAS
-LIBMBPOOL
 LIBMCHAIN
 MBUF_PROFILING
 MBUF_STRESS_TEST
@@ -973,8 +972,11 @@ PAX_SEGVGUARD	opt_pax.h
 PAX_HARDENING	opt_pax.h
 PAX_NOEXEC	opt_pax.h
 PAX_INSECURE_MODE	opt_pax.h
+PAX_CONTROL_ACL		opt_pax.h
+PAX_CONTROL_ACL_OVERRIDE_SUPPORT	opt_pax.h
+PAX_CONTROL_EXTATTR	opt_pax.h
 HBSD_DEBUG	opt_pax.h
-STACK_GUARD_MAX_PAGES	opt_pax.h
+HBSD_RANDOM_HIGH_ENTROPY	opt_pax.h
 
 # ASLR overwritable defaults
 PAX_ASLR_DELTA_MMAP_DEF_LEN		opt_pax.h
@@ -985,10 +987,6 @@ PAX_ASLR_COMPAT_DELTA_MMAP_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_STACK_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_EXEC_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_VDSO_DEF_LEN	opt_pax.h
-
-# Other hardening features
-HARDEN_RANDOMPID	opt_pax.h
-STACK_GUARD_SIZE	opt_pax.h
 
 # Random number generator(s)
 # Which CSPRNG hash we get.
@@ -1023,3 +1021,6 @@ HN_DEBUG	opt_hn.h
 MMCCAM
 # Encrypted kernel crash dumps
 EKCD		opt_ekcd.h
+
+# NVME options
+NVME_USE_NVD	opt_nvme.h

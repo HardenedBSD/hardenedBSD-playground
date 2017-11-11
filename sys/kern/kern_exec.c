@@ -142,6 +142,8 @@ SYSCTL_INT(_kern, OID_AUTO, disallow_high_osrel, CTLFLAG_RW,
     &disallow_high_osrel, 0,
     "Disallow execution of binaries built for higher version of the world");
 
+EVENTHANDLER_LIST_DECLARE(process_exec);
+
 static int
 sysctl_kern_ps_strings(SYSCTL_HANDLER_ARGS)
 {
@@ -380,6 +382,10 @@ do_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
 	struct pmckern_procexec pe;
 #endif
 	static const char fexecv_proc_title[] = "(fexecv)";
+#ifdef PAX
+	image_params.pax.req_acl_flags = 0;
+	image_params.pax.req_extattr_flags = 0;
+#endif
 
 	imgp = &image_params;
 
@@ -459,18 +465,25 @@ interpret:
 		imgp->vp = newtextvp;
 	}
 
-#ifdef PAX
-	error = pax_elf(imgp, td, 0);
-	if (error)
-		goto exec_fail_dealloc;
-#endif
-
 	/*
 	 * Check file permissions (also 'opens' file)
 	 */
 	error = exec_check_permissions(imgp);
 	if (error)
 		goto exec_fail_dealloc;
+
+#ifdef PAX_CONTROL_EXTATTR
+	error = pax_control_extattr_parse_flags(td, imgp);
+	if (error)
+		goto exec_fail_dealloc;
+#endif
+
+#ifdef PAX
+	error = pax_elf(td, imgp);
+	if (error) {
+		goto exec_fail_dealloc;
+	}
+#endif
 
 	imgp->object = imgp->vp->v_object;
 	if (imgp->object != NULL)
@@ -864,28 +877,23 @@ interpret:
 	p->p_args = newargs;
 	newargs = NULL;
 
+	PROC_UNLOCK(p);
+
 #ifdef	HWPMC_HOOKS
 	/*
 	 * Check if system-wide sampling is in effect or if the
 	 * current process is using PMCs.  If so, do exec() time
 	 * processing.  This processing needs to happen AFTER the
 	 * P_INEXEC flag is cleared.
-	 *
-	 * The proc lock needs to be released before taking the PMC
-	 * SX.
 	 */
 	if (PMC_SYSTEM_SAMPLING_ACTIVE() || PMC_PROC_IS_USING_PMCS(p)) {
-		PROC_UNLOCK(p);
 		VOP_UNLOCK(imgp->vp, 0);
 		pe.pm_credentialschanged = credential_changing;
 		pe.pm_entryaddr = imgp->entry_addr;
 
 		PMC_CALL_HOOK_X(td, PMC_FN_PROCESS_EXEC, (void *) &pe);
 		vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
-	} else
-		PROC_UNLOCK(p);
-#else  /* !HWPMC_HOOKS */
-	PROC_UNLOCK(p);
+	}
 #endif
 
 	/* Set values passed into the program in registers. */
@@ -920,10 +928,12 @@ exec_fail_dealloc:
 	free(imgp->freepath, M_TEMP);
 
 	if (error == 0) {
-		PROC_LOCK(p);
-		if (p->p_ptevents & PTRACE_EXEC)
-			td->td_dbgflags |= TDB_EXEC;
-		PROC_UNLOCK(p);
+		if (p->p_ptevents & PTRACE_EXEC) {
+			PROC_LOCK(p);
+			if (p->p_ptevents & PTRACE_EXEC)
+				td->td_dbgflags |= TDB_EXEC;
+			PROC_UNLOCK(p);
+		}
 
 		/*
 		 * Stop the process here if its stop event mask has
@@ -1091,7 +1101,7 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 	imgp->sysent = sv;
 
 	/* May be called with Giant held */
-	EVENTHANDLER_INVOKE(process_exec, p, imgp);
+	EVENTHANDLER_DIRECT_INVOKE(process_exec, p, imgp);
 
 	/*
 	 * Blow away entire process VM, if address space not shared,

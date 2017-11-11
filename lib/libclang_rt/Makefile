@@ -1,11 +1,14 @@
 # $FreeBSD$
 
+<<<<<<< HEAD
 .include <src.opts.mk>
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_ARCH} == "amd64" || \
     ${MACHINE_CPUARCH} == "aarch64"
 SUBDIR+=	include
 .endif
 
+=======
+>>>>>>> upstream/hardened/current/master
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_CPUARCH} == "amd64"
 SUBDIR+=	asan
 SUBDIR+=	asan-preinit

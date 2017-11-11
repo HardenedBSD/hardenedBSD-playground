@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2014, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2014-2017, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -86,7 +86,7 @@ static void pax_log_ulog(const char *prefix, const char *fmt, va_list ap);
 		    "\035<f28>"		\
 		    "\036<f29>"		\
 		    "\037<f30>"		\
-		    "\040<f31>"
+		    "\040EXPLICIT_ACL"
 
 #define __HARDENING_LOG_TEMPLATE(MAIN, SUBJECT, prefix, name)		\
 void									\
@@ -152,8 +152,10 @@ hardening_log_sysinit(void)
 		    " (hardening.log.log = %d)\n", hardening_log_log);
 		hardening_log_log = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[HBSD LOG] logging to system: %s\n",
-	    pax_status_simple_str[hardening_log_log]);
+	if (bootverbose) {
+		printf("[HBSD LOG] logging to system: %s\n",
+		    pax_status_simple_str[hardening_log_log]);
+	}
 
 	switch (hardening_log_ulog) {
 	case PAX_FEATURE_SIMPLE_DISABLED:
@@ -164,8 +166,10 @@ hardening_log_sysinit(void)
 		    " (hardening.log.ulog = %d)\n", hardening_log_ulog);
 		hardening_log_ulog = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[HBSD LOG] logging to user: %s\n",
-	    pax_status_simple_str[hardening_log_ulog]);
+	if (bootverbose) {
+		printf("[HBSD LOG] logging to user: %s\n",
+		    pax_status_simple_str[hardening_log_ulog]);
+	}
 }
 SYSINIT(hardening_log, SI_SUB_PAX, SI_ORDER_SECOND, hardening_log_sysinit, NULL);
 

@@ -802,8 +802,8 @@ options 	NGATM_CCATM
 device		mn	# Munich32x/Falc54 Nx64kbit/sec cards.
 
 # Network stack virtualization.
-#options	VIMAGE
-#options	VNET_DEBUG	# debug for VIMAGE
+options	VIMAGE
+options	VNET_DEBUG	# debug for VIMAGE
 
 #
 # Network interfaces:
@@ -1984,6 +1984,7 @@ device		xmphy		# XaQti XMAC II
 # lge:	Support for PCI gigabit ethernet adapters based on the Level 1
 #	LXT1001 NetCellerator chipset. This includes the D-Link DGE-500SX,
 #	SMC TigerCard 1000 (SMC9462SX), and some Addtron cards.
+# lio:  Support for Cavium 23XX Ethernet adapters
 # malo: Marvell Libertas wireless NICs.
 # mwl:  Marvell 88W8363 802.11n wireless NICs.
 #	Requires the mwl firmware module
@@ -2208,8 +2209,6 @@ device		rtwnfw
 # detect a mismatch is ti(4).
 options 	MCLSHIFT=12	# mbuf cluster shift in bits, 12 == 4KB
 options 	MSIZE=512	# mbuf size in bytes
-
-options 	LIBMBPOOL
 
 #
 # Sound drivers
@@ -3021,6 +3020,9 @@ options 	GZIO
 
 # PAX and HardenedBSD related knobs
 options 	PAX		# Enable the PAX framework
+options 	PAX_CONTROL_ACL	# PaX MAC framework, required for secadm
+options 	PAX_CONTROL_ACL_OVERRIDE_SUPPORT # Allow to override hbsdcontrol settings with ACLs
+options 	PAX_CONTROL_EXTATTR # extattr based control framework for hbsdcontrol
 options 	PAX_ASLR	# Address Space Layout Randomization
 options 	PAX_HARDENING	# Other hardening features
 options 	PAX_NOEXEC	# Remove WX pages from user-space and enforce W^X
@@ -3028,7 +3030,6 @@ options 	PAX_SEGVGUARD	# Track and ban failing process
 options 	PAX_SYSCTLS	# Run-time settings for PAX and Hardening
 options 	PAX_INSECURE_MODE	# Allow to override INVARIANTS enforcements
 options 	HBSD_DEBUG
-options 	STACK_GUARD_MAX_PAGES=1
 
 # BHND(4) drivers
 options		BHND_LOGLEVEL	# Logging threshold level
