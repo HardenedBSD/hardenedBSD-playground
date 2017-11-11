@@ -184,7 +184,6 @@ MAN=	accept_filter.9 \
 	make_dev.9 \
 	malloc.9 \
 	mbchain.9 \
-	mbpool.9 \
 	mbuf.9 \
 	mbuf_tags.9 \
 	MD5.9 \
@@ -414,6 +413,7 @@ MAN=	accept_filter.9 \
 MLINKS=	unr.9 alloc_unr.9 \
 	unr.9 alloc_unrl.9 \
 	unr.9 alloc_unr_specific.9 \
+	unr.9 clear_unrhdr.9 \
 	unr.9 delete_unrhdr.9 \
 	unr.9 free_unr.9 \
 	unr.9 new_unrhdr.9
@@ -760,7 +760,8 @@ MLINKS+=devstat.9 devicestat.9 \
 	devstat.9 devstat_end_transaction.9 \
 	devstat.9 devstat_remove_entry.9 \
 	devstat.9 devstat_start_transaction.9
-MLINKS+=disk.9 disk_alloc.9 \
+MLINKS+=disk.9 disk_add_alias.9 \
+	disk.9 disk_alloc.9 \
 	disk.9 disk_create.9 \
 	disk.9 disk_destroy.9 \
 	disk.9 disk_gone.9 \
@@ -1161,16 +1162,6 @@ MLINKS+=mbchain.9 mb_detach.9 \
 	mbchain.9 mb_put_uint8.9 \
 	mbchain.9 mb_put_uio.9 \
 	mbchain.9 mb_reserve.9
-MLINKS+=mbpool.9 mbp_alloc.9 \
-	mbpool.9 mbp_card_free.9 \
-	mbpool.9 mbp_count.9 \
-	mbpool.9 mbp_create.9 \
-	mbpool.9 mbp_destroy.9 \
-	mbpool.9 mbp_ext_free.9 \
-	mbpool.9 mbp_free.9 \
-	mbpool.9 mbp_get.9 \
-	mbpool.9 mbp_get_keep.9 \
-	mbpool.9 mbp_sync.9
 MLINKS+=\
 	mbuf.9 m_adj.9 \
 	mbuf.9 m_align.9 \
@@ -1929,7 +1920,6 @@ MLINKS+=ucred.9 cred_update_thread.9 \
 	ucred.9 crget.9 \
 	ucred.9 crhold.9 \
 	ucred.9 crsetgroups.9 \
-	ucred.9 crshared.9 \
 	ucred.9 cru2x.9
 MLINKS+=uidinfo.9 uifind.9 \
 	uidinfo.9 uifree.9 \

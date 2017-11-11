@@ -2480,11 +2480,8 @@ OLD_FILES+=usr/share/man/man8/gpioctl.8.gz
 .endif
 
 .if ${MK_GNU_DIFF} == no
-OLD_FILES+=usr/bin/diff
 OLD_FILES+=usr/bin/diff3
-OLD_FILES+=usr/share/man/man1/diff.1.gz
 OLD_FILES+=usr/share/man/man1/diff3.1.gz
-OLD_FILES+=usr/share/man/man7/diff.7.gz
 .endif
 
 .if ${MK_GNU_GREP} == no
@@ -6156,7 +6153,7 @@ OLD_FILES+=usr/share/man/man3/NgRecvMsg.3.gz
 OLD_FILES+=usr/share/man/man3/NgSendAsciiMsg.3.gz
 OLD_FILES+=usr/share/man/man3/NgSendData.3.gz
 OLD_FILES+=usr/share/man/man3/NgSendMsg.3.gz
-OLD_FILES+=usr/share/man/man3/NgSendMsgReply.3.gz
+OLD_FILES+=usr/share/man/man3/NgSendReplyMsg.3.gz
 OLD_FILES+=usr/share/man/man3/NgSetDebug.3.gz
 OLD_FILES+=usr/share/man/man3/NgSetErrLog.3.gz
 OLD_FILES+=usr/share/man/man3/netgraph.3.gz
@@ -7105,20 +7102,6 @@ OLD_FILES+=usr/share/man/man8/repquota.8.gz
 .if ${MK_RBOOTD} == no
 OLD_FILES+=usr/libexec/rbootd
 OLD_FILES+=usr/share/man/man8/rbootd.8.gz
-.endif
-
-.if ${MK_RCMDS} == no
-OLD_FILES+=bin/rcp
-OLD_FILES+=rescue/rcp
-OLD_FILES+=usr/bin/rlogin
-OLD_FILES+=usr/bin/rsh
-OLD_FILES+=usr/libexec/rlogind
-OLD_FILES+=usr/libexec/rshd
-OLD_FILES+=usr/share/man/man1/rcp.1.gz
-OLD_FILES+=usr/share/man/man1/rlogin.1.gz
-OLD_FILES+=usr/share/man/man1/rsh.1.gz
-OLD_FILES+=usr/share/man/man8/rlogind.8.gz
-OLD_FILES+=usr/share/man/man8/rshd.8.gz
 .endif
 
 .if ${MK_RESCUE} == no

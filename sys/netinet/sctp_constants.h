@@ -97,10 +97,6 @@ __FBSDID("$FreeBSD$");
  */
 #define SCTP_DEFAULT_VRF_SIZE 4
 
-/* constants for rto calc */
-#define sctp_align_safe_nocopy 0
-#define sctp_align_unsafe_makecopy 1
-
 /* JRS - Values defined for the HTCP algorithm */
 #define ALPHA_BASE	(1<<7)	/* 1.0 with shift << 7 */
 #define BETA_MIN	(1<<6)	/* 0.5 with shift << 7 */
@@ -968,9 +964,6 @@ __FBSDID("$FreeBSD$");
 #define SCTP_SO_LOCKED		1
 #define SCTP_SO_NOT_LOCKED	0
 
-
-#define SCTP_HOLDS_LOCK 1
-#define SCTP_NOT_LOCKED 0
 
 /*-
  * For address locks, do we hold the lock?
