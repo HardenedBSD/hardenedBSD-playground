@@ -119,6 +119,7 @@ SRCS	= \
 	vce_v2_0.c
 
 CFLAGS+= -I${SRCTOP}/sys
+CFLAGS+= -I${SRCTOP}/sys/compat/linuxkpi/dummy/include
 CFLAGS+= -I${SRCTOP}/sys/compat/linuxkpi/gplv2/include
 CFLAGS+= -I${SRCTOP}/sys/compat/linuxkpi/common/include
 CFLAGS+= -I${SRCTOP}/sys/compat/linuxkpi/common/include/drm

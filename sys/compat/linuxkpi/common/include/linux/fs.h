@@ -111,7 +111,6 @@ struct linux_file {
 	struct linux_file_wait_queue f_wait_queue;
 };
 
-#define f_inode		f_vnode
 #define	file		linux_file
 #define	fasync_struct	sigio *
 
@@ -138,6 +137,7 @@ struct file_operations {
 	ssize_t (*write)(struct file *, const char __user *, size_t, loff_t *);
 	unsigned int (*poll) (struct file *, struct poll_table_struct *);
 	long (*unlocked_ioctl)(struct file *, unsigned int, unsigned long);
+	long (*compat_ioctl)(struct file *, unsigned int, unsigned long);
 	int (*mmap)(struct file *, struct vm_area_struct *);
 	int (*open)(struct inode *, struct file *);
 	int (*release)(struct inode *, struct file *);
@@ -158,7 +158,6 @@ struct file_operations {
 	int (*readdir)(struct file *, void *, filldir_t);
 	int (*ioctl)(struct inode *, struct file *, unsigned int,
 	    unsigned long);
-	long (*compat_ioctl)(struct file *, unsigned int, unsigned long);
 	int (*flush)(struct file *, fl_owner_t id);
 	int (*fsync)(struct file *, struct dentry *, int datasync);
 	int (*aio_fsync)(struct kiocb *, int datasync);
@@ -276,7 +275,7 @@ iput(struct inode *inode)
 }
 
 static inline loff_t 
-no_llseek(struct linux_file *file, loff_t offset, int whence)
+no_llseek(struct file *file, loff_t offset, int whence)
 {
 
 	return (-ESPIPE);

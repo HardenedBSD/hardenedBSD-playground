@@ -81,6 +81,7 @@ SRCS	= \
 	ttm_page_alloc_dma.c \
 	ttm_bo_vm.c
 
+CFLAGS+= -I${SRCTOP}/sys/compat/linuxkpi/dummy/include
 CFLAGS+= -I${SRCTOP}/sys/compat/linuxkpi/gplv2/include
 CFLAGS+= -I${SRCTOP}/sys/compat/linuxkpi/common/include
 CFLAGS+= -I${SRCTOP}/sys/compat/linuxkpi/common/include/drm
