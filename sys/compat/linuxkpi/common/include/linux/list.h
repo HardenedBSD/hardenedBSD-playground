@@ -70,6 +70,10 @@
 #include <vm/vm_object.h>
 #include <vm/pmap.h>
 
+#ifdef DDB
+#include <ddb/ddb.h>
+#endif
+
 #ifndef prefetch
 #define	prefetch(x)
 #endif
