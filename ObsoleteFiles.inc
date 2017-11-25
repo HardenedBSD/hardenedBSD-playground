@@ -38,6 +38,39 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20171118: Remove old etc capser failes
+OLD_FILES+=etc/casper/system.dns
+OLD_FILES+=etc/casper/system.grp
+OLD_FILES+=etc/casper/system.pwd
+OLD_FILES+=etc/casper/system.random
+OLD_FILES+=etc/casper/system.sysctl
+OLD_DIRS+=etc/casper
+# 20171116: lint(1) removal
+OLD_FILES+=usr/bin/lint
+OLD_FILES+=usr/libexec/lint1
+OLD_FILES+=usr/libexec/lint2
+OLD_FILES+=usr/libdata/lint/llib-lposix.ln
+OLD_FILES+=usr/libdata/lint/llib-lstdc.ln
+OLD_FILES+=usr/share/man/man1/lint.1.gz
+OLD_FILES+=usr/share/man/man7/lint.7.gz
+OLD_DIRS+=usr/libdata/lint
+# 20171114: Removal of all fortune datfiles other than freebsd-tips
+OLD_FILES+=usr/share/games/fortune/fortunes
+OLD_FILES+=usr/share/games/fortune/fortunes.dat
+OLD_FILES+=usr/share/games/fortune/gerrold.limerick
+OLD_FILES+=usr/share/games/fortune/gerrold.limerick.dat
+OLD_FILES+=usr/share/games/fortune/limerick
+OLD_FILES+=usr/share/games/fortune/limerick.dat
+OLD_FILES+=usr/share/games/fortune/murphy
+OLD_FILES+=usr/share/games/fortune/murphy-o
+OLD_FILES+=usr/share/games/fortune/murphy-o.dat
+OLD_FILES+=usr/share/games/fortune/murphy.dat
+OLD_FILES+=usr/share/games/fortune/startrek
+OLD_FILES+=usr/share/games/fortune/startrek.dat
+OLD_FILES+=usr/share/games/fortune/zippy
+OLD_FILES+=usr/share/games/fortune/zippy.dat
+# 20171112: Removal of eqnchar definition
+OLD_FILES+=usr/share/misc/eqnchar
 # 20171110: Removal of mailaddr man page
 OLD_FILES+=usr/share/man/man7/mailaddr.7.gz
 # 20171108: badsect(8) removal
@@ -1220,7 +1253,6 @@ OLD_LIBS+=usr/lib/libbsnmptools.so
 OLD_FILES+=usr/share/man/man3/sysdecode_getfsstat_flags.3.gz
 # 20170102: librt move to /lib
 OLD_LIBS+=usr/lib/librt.so.1
-OLD_LIBS+=usr/lib/librt_p.a
 # 20161230: libarchive ACL pax test renamed to test_acl_pax_posix1e.tar.uu
 OLD_FILES+=usr/tests/lib/libarchive/test_acl_pax.tar.uu
 # 20161229: Three files from gnop tests consolidated into one

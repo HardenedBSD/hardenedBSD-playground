@@ -15,9 +15,19 @@ SRCS+=	bhnd_erom_if.c bhnd_erom_if.h
 
 # ChipCommon
 SRCS+=	chipc.c chipc_subr.c
+
+SRCS+=	chipc_gpio.c
+SRCS+=	gpio_if.h ofw_bus_if.h
+
 SRCS+=	bhnd_sprom_chipc.c \
-	bhnd_pmu_chipc.c \
-	bhnd_pwrctl.c bhnd_pwrctl_subr.c
+	bhnd_pmu_chipc.c
+	
+SRCS+=	bhnd_pwrctl.c \
+	bhnd_pwrctl_subr.c \
+	bhnd_pwrctl_if.c \
+	bhnd_pwrctl_if.h
+SRCS+=	bhnd_pwrctl_hostb_if.c bhnd_pwrctl_hostb_if.h
+
 SRCS+=	bhnd_chipc_if.c bhnd_chipc_if.h
 
 # PMU
@@ -50,7 +60,7 @@ SRCS+=	bhnd_nvram_data.c \
 SRCS+=	bhnd_nvram_map.h bhnd_nvram_map_data.h
 SRCS+=	bhnd_nvram_if.c bhnd_nvram_if.h
 
-SRCS+=	device_if.h bus_if.h
+SRCS+=	device_if.h bus_if.h ofw_bus_if.h
 
 SUBDIR=	bcma \
 	bcma_bhndb \
