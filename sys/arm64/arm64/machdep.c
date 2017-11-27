@@ -1018,6 +1018,7 @@ initarm(struct arm64_bootparams *abp)
 {
 	struct efi_map_header *efihdr;
 	struct pcpu *pcpup;
+	char *env;
 #ifdef FDT
 	struct mem_region mem_regions[FDT_MEM_REGIONS];
 	int mem_regions_sz;
@@ -1117,6 +1118,10 @@ initarm(struct arm64_bootparams *abp)
 	dbg_init();
 	kdb_init();
 	pan_enable();
+
+	env = kern_getenv("kernelname");
+	if (env != NULL)
+		strlcpy(kernelname, env, sizeof(kernelname));
 
 	early_boot = 0;
 }
