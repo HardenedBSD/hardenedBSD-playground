@@ -65,6 +65,8 @@ __FBSDID("$FreeBSD$");
 #include <machine/ofw_machdep.h>
 #include <machine/trap.h>
 
+#include <contrib/libfdt/libfdt.h>
+
 static void	*fdt;
 int		ofw_real_mode;
 
@@ -233,8 +235,17 @@ excise_fdt_reserved(struct mem_region *avail, int asz)
 	fdtmapsize = OF_getprop(chosen, "fdtmemreserv", fdtmap, sizeof(fdtmap));
 
 	for (j = 0; j < fdtmapsize/sizeof(fdtmap[0]); j++) {
-		fdtmap[j].address = be64toh(fdtmap[j].address);
-		fdtmap[j].size = be64toh(fdtmap[j].size);
+		fdtmap[j].address = be64toh(fdtmap[j].address) & ~PAGE_MASK;
+		fdtmap[j].size = round_page(be64toh(fdtmap[j].size));
+	}
+
+	KASSERT(j*sizeof(fdtmap[0]) < sizeof(fdtmap),
+	    ("Exceeded number of FDT reservations"));
+	/* Add a virtual entry for the FDT itself */
+	if (fdt != NULL) {
+		fdtmap[j].address = (vm_offset_t)fdt & ~PAGE_MASK;
+		fdtmap[j].size = round_page(fdt_totalsize(fdt));
+		fdtmapsize += sizeof(fdtmap[0]);
 	}
 
 	for (i = 0; i < asz; i++) {
@@ -519,11 +530,16 @@ openfirmware(void *args)
 		return (-1);
 
 	#ifdef SMP
-	rv_args.args = args;
-	rv_args.in_progress = 1;
-	smp_rendezvous(smp_no_rendezvous_barrier, ofw_rendezvous_dispatch,
-	    smp_no_rendezvous_barrier, &rv_args);
-	result = rv_args.retval;
+	if (cold) {
+		result = openfirmware_core(args);
+	} else {
+		rv_args.args = args;
+		rv_args.in_progress = 1;
+		smp_rendezvous(smp_no_rendezvous_barrier,
+		    ofw_rendezvous_dispatch, smp_no_rendezvous_barrier,
+		    &rv_args);
+		result = rv_args.retval;
+	}
 	#else
 	result = openfirmware_core(args);
 	#endif
