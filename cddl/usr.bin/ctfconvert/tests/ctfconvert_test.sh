@@ -1,5 +1,5 @@
-#!/bin/sh
-# Copyright (c) 1998 by Wolfram Schneider <wosch@FreeBSD.org>, Berlin.
+#
+# Copyright 2017 Shivansh
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -23,40 +23,40 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 #
-#
-# httpd-error - check for Web files which do not exist on your host
-#
 # $FreeBSD$
+#
 
-mode=${1}
+usage_output='Usage: ctfconvert'
 
-case "$mode" in
-    -host)
-	grep 'File does not exist$' |
-	    awk '{print $11}' | 
-	    sort | uniq -c | sort -nr | perl -npe 's/,$//'
-	;;
-    -filehits)
-	grep 'File does not exist$' |
-	    awk '{print $8}' | 
-	    sort | uniq -c | sort -nr 
-	;;
-    -user)
-	grep 'File does not exist$' |
-	    awk '{print $8}' | 
-	    sort | uniq -c | sort -k 2
-	;;
-    -userhits)
-	grep 'File does not exist$' |
-		awk '{print $8}' | sort |
-		perl -npe 's#/home/([^/]+)/public_html.*#/~$1/#;
-	                   s#/usr/local/www/data/.*#/usr/local/www/data/#' |
-		uniq -c | sort -nr
-	;;
+atf_test_case invalid_usage
+invalid_usage_head()
+{
+	atf_set "descr" "Verify that an invalid usage with a supported option produces a valid error message"
+}
 
-    *) echo "usage $0 {-host|-filehits|-user|-userhits} < error.log" >&2
-       exit 1
-       ;;
-esac
+invalid_usage_body()
+{
+	atf_check -s not-exit:0 -e match:"$usage_output" ctfconvert -l
+	atf_check -s not-exit:0 -e match:"$usage_output" ctfconvert -L
+	atf_check -s not-exit:0 -e match:"$usage_output" ctfconvert -g
+	atf_check -s not-exit:0 -e match:"$usage_output" ctfconvert -i
+	atf_check -s not-exit:0 -e match:"$usage_output" ctfconvert -s
+	atf_check -s not-exit:0 -e match:"$usage_output" ctfconvert -o
+}
 
+atf_test_case no_arguments
+no_arguments_head()
+{
+	atf_set "descr" "Verify that ctfconvert(1) fails and generates a valid usage message when no arguments are supplied"
+}
 
+no_arguments_body()
+{
+	atf_check -s not-exit:0 -e match:"$usage_output" ctfconvert
+}
+
+atf_init_test_cases()
+{
+	atf_add_test_case invalid_usage
+	atf_add_test_case no_arguments
+}
