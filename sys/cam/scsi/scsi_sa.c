@@ -2427,10 +2427,7 @@ saregister(struct cam_periph *periph, void *arg)
 			softc->flags |= SA_FLAG_PROTECT_SUPP;
 	}
 
-	bzero(&cpi, sizeof(cpi));
-	xpt_setup_ccb(&cpi.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
-	cpi.ccb_h.func_code = XPT_PATH_INQ;
-	xpt_action((union ccb *)&cpi);
+	xpt_path_inq(&cpi, periph->path);
 
 	/*
 	 * The SA driver supports a blocksize, but we don't know the
@@ -3469,7 +3466,7 @@ saerror(union ccb *ccb, u_int32_t cflgs, u_int32_t sflgs)
 		/*
 		 * Otherwise, we let the common code handle this.
 		 */
-		return (cam_periph_error(ccb, cflgs, sflgs, &softc->saved_ccb));
+		return (cam_periph_error(ccb, cflgs, sflgs));
 
 	/*
 	 * XXX: To Be Fixed
@@ -3482,7 +3479,7 @@ saerror(union ccb *ccb, u_int32_t cflgs, u_int32_t sflgs)
 		}
 		/* FALLTHROUGH */
 	default:
-		return (cam_periph_error(ccb, cflgs, sflgs, &softc->saved_ccb));
+		return (cam_periph_error(ccb, cflgs, sflgs));
 	}
 
 	/*

@@ -45,18 +45,14 @@ extern char	command_errbuf[COMMAND_ERRBUFSZ];
 #define CMD_FATAL	4
 
 /* interp.c */
-void	interact(const char *rc);
+void	interact(void);
 int	include(const char *filename);
 
 /* interp_backslash.c */
-char	*backslash(char *str);
+char	*backslash(const char *str);
 
 /* interp_parse.c */
-int	parse(int *argc, char ***argv, char *str);
-
-/* interp_forth.c */
-void	bf_init(const char *rc);
-int	bf_run(char *line);
+int	parse(int *argc, char ***argv, const char *str);
 
 /* boot.c */
 int	autoboot(int timeout, char *prompt);

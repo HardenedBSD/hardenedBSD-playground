@@ -457,7 +457,6 @@ XBONEHACK
 #
 SCTP			opt_sctp.h
 SCTP_DEBUG		opt_sctp.h # Enable debug printfs
-SCTP_WITH_NO_CSUM	opt_sctp.h # Use this at your peril
 SCTP_LOCK_LOGGING	opt_sctp.h # Log to KTR lock activity
 SCTP_MBUF_LOGGING	opt_sctp.h # Log to KTR general mbuf aloc/free
 SCTP_MBCNT_LOGGING	opt_sctp.h # Log to KTR mbcnt activity
@@ -984,6 +983,11 @@ PAX_ASLR_COMPAT_DELTA_MMAP_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_STACK_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_EXEC_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_VDSO_DEF_LEN	opt_pax.h
+PAX_ASLR_DELTA_MMAP_LSB			opt_pax.h
+PAX_ASLR_DELTA_STACK_LSB		opt_pax.h
+PAX_ASLR_DELTA_STACK_WITH_GAP_LSB	opt_pax.h
+PAX_ASLR_DELTA_EXEC_LSB			opt_pax.h
+PAX_ASLR_DELTA_VDSO_LSB			opt_pax.h
 
 # Random number generator(s)
 # Which CSPRNG hash we get.

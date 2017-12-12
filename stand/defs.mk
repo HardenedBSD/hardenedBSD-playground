@@ -44,6 +44,12 @@ LIBSA32=	${BOOTOBJ}/libsa32/libsa32.a
 .endif
 
 # Standard options:
+CFLAGS+=	-nostdinc
+.if ${MACHINE_ARCH} == "amd64" && ${DO32:U0} == 1
+CFLAGS+=	-I${BOOTOBJ}/libsa32
+.else
+CFLAGS+=	-I${BOOTOBJ}/libsa
+.endif
 CFLAGS+=	-I${SASRC} -D_STANDALONE
 CFLAGS+=	-I${SYSDIR}
 
@@ -93,7 +99,7 @@ CFLAGS+= -DLOADER_GPT_SUPPORT
 CFLAGS+= -DLOADER_MBR_SUPPORT
 .endif
 
-# GELI Support, with backward compat hooks
+# GELI Support, with backward compat hooks (mostly)
 .if defined(HAVE_GELI)
 .if defined(LOADER_NO_GELI_SUPPORT)
 MK_LOADER_GELI=no
