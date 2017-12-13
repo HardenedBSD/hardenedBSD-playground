@@ -261,7 +261,6 @@ SUBDIR=	\
 	msdosfs_iconv \
 	${_mse} \
 	msk \
-	${_mthca} \
 	mvs \
 	mwl \
 	${_mwlfw} \
@@ -676,9 +675,6 @@ _mlx4ib=	mlx4ib
 _mlx5ib=	mlx5ib
 .endif
 _mly=		mly
-.if ${MK_OFED} != "no" || defined(ALL_MODULES)
-_mthca=		mthca
-.endif
 _nfe=		nfe
 _nvd=		nvd
 _nvme=		nvme
@@ -794,8 +790,8 @@ _em=		em
 _epic=		epic
 .endif
 
-.if (${MACHINE_CPUARCH} == "amd64" || ${MACHINE_ARCH:Marmv[67]*} != "" || \
-     ${MACHINE_CPUARCH} == "i386")
+.if (${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64" || \
+     ${MACHINE_ARCH:Marmv[67]*} != "" || ${MACHINE_CPUARCH} == "i386")
 _cloudabi32=	cloudabi32
 .endif
 .if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64"

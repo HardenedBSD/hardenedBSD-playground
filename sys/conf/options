@@ -69,7 +69,6 @@ TEXTDUMP_VERBOSE	opt_ddb.h
 NUM_CORE_FILES	opt_global.h
 
 # Miscellaneous options.
-ADAPTIVE_LOCKMGRS
 ALQ
 ALTERA_SDCARD_FAST_SIM	opt_altera_sdcard.h
 ATSE_CFI_HACK	opt_cfi.h
@@ -458,7 +457,6 @@ XBONEHACK
 #
 SCTP			opt_sctp.h
 SCTP_DEBUG		opt_sctp.h # Enable debug printfs
-SCTP_WITH_NO_CSUM	opt_sctp.h # Use this at your peril
 SCTP_LOCK_LOGGING	opt_sctp.h # Log to KTR lock activity
 SCTP_MBUF_LOGGING	opt_sctp.h # Log to KTR general mbuf aloc/free
 SCTP_MBCNT_LOGGING	opt_sctp.h # Log to KTR mbcnt activity
@@ -851,6 +849,7 @@ BWI_DEBUG_VERBOSE	opt_bwi.h
 # options for the Brodacom BCM43xx driver (bwn)
 BWN_DEBUG		opt_bwn.h
 BWN_GPL_PHY		opt_bwn.h
+BWN_USE_SIBA		opt_bwn.h
 
 # Options for the SIBA driver
 SIBA_DEBUG		opt_siba.h
@@ -891,9 +890,6 @@ DCONS_FORCE_GDB		opt_dcons.h
 HWPMC_DEBUG		opt_global.h
 HWPMC_HOOKS
 HWPMC_MIPS_BACKTRACE 	opt_hwpmc_hooks.h
-
-# XBOX options for FreeBSD/i386, but some files are MI
-XBOX			opt_xbox.h
 
 # Interrupt filtering
 INTR_FILTER
@@ -987,6 +983,11 @@ PAX_ASLR_COMPAT_DELTA_MMAP_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_STACK_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_EXEC_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_VDSO_DEF_LEN	opt_pax.h
+PAX_ASLR_DELTA_MMAP_LSB			opt_pax.h
+PAX_ASLR_DELTA_STACK_LSB		opt_pax.h
+PAX_ASLR_DELTA_STACK_WITH_GAP_LSB	opt_pax.h
+PAX_ASLR_DELTA_EXEC_LSB			opt_pax.h
+PAX_ASLR_DELTA_VDSO_LSB			opt_pax.h
 
 # Random number generator(s)
 # Which CSPRNG hash we get.

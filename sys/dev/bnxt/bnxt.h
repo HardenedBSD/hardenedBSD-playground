@@ -231,6 +231,13 @@ __FBSDID("$FreeBSD$");
 
 #define clamp_t(type, _x, min, max)     min_t(type, max_t(type, _x, min), max)
 
+#define BNXT_IFMEDIA_ADD(supported, fw_speed, ifm_speed) do {			\
+	if ((supported) & HWRM_PORT_PHY_QCFG_OUTPUT_SUPPORT_ ## fw_speed)	\
+		ifmedia_add(softc->media, IFM_ETHER | (ifm_speed), 0, NULL);	\
+} while(0)
+
+#define BNXT_MIN_FRAME_SIZE	52	/* Frames must be padded to this size for some A0 chips */
+
 /* NVRAM access */
 enum bnxt_nvm_directory_type {
 	BNX_DIR_TYPE_UNUSED = 0,

@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2010 Edward Tomasz Napierala <trasz@FreeBSD.org>
  * Copyright (c) 2004-2006 Pawel Jakub Dawidek <pjd@FreeBSD.org>
  * All rights reserved.
@@ -257,7 +259,7 @@ g_mountver_create(struct gctl_req *req, struct g_class *mp, struct g_provider *p
 	}
 	gp = g_new_geomf(mp, "%s", name);
 	sc = g_malloc(sizeof(*sc), M_WAITOK | M_ZERO);
-	mtx_init(&sc->sc_mtx, "gmountver", NULL, MTX_RECURSE);
+	mtx_init(&sc->sc_mtx, "gmountver", NULL, MTX_DEF | MTX_RECURSE);
 	TAILQ_INIT(&sc->sc_queue);
 	sc->sc_provider_name = strdup(pp->name, M_GEOM);
 	gp->softc = sc;

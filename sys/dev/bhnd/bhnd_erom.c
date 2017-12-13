@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2016 Landon Fuller <landonf@FreeBSD.org>
  * Copyright (c) 2017 The FreeBSD Foundation
  * All rights reserved.
@@ -398,6 +400,7 @@ bhnd_erom_iores_fini(struct bhnd_erom_io *eio)
  * Initialize an I/O instance that will perform mapping directly from the
  * given bus space tag and handle.
  * 
+ * @param iobus	The I/O instance to be initialized.
  * @param addr	The base address mapped by @p bsh.
  * @param size	The total size mapped by @p bsh.
  * @param bst	Bus space tag for @p bsh.

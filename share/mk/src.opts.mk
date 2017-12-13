@@ -121,9 +121,13 @@ __DEFAULT_YES_OPTIONS = \
     LIBPTHREAD \
     LIBRESSL \
     LIBTHR \
+<<<<<<< HEAD
     LLVM_AR_IS_AR \
     LLVM_NM_IS_NM \
     LLVM_OBJDUMP_IS_OBJDUMP \
+=======
+    LOADER_GELI \
+>>>>>>> upstream/hardened/current/master
     LOCALES \
     LOCATE \
     LPR \
@@ -188,6 +192,13 @@ __DEFAULT_NO_OPTIONS = \
     HESIOD \
     LIB32 \
     LIBSOFT \
+<<<<<<< HEAD
+=======
+    LLVM_AR_IS_AR \
+    LLVM_NM_IS_NM \
+    LLVM_OBJDUMP_IS_OBJDUMP \
+    LOADER_FIREWIRE \
+>>>>>>> upstream/hardened/current/master
     LOADER_FORCE_LE \
     NAND \
     NTP \
@@ -237,8 +248,8 @@ __DEFAULT_NO_OPTIONS+=GCC GCC_BOOTSTRAP GNUCXX GPL_DTC
 # If an external compiler that supports C++11 is used as ${CC} and Clang
 # supports the target, then Clang is enabled but GCC is installed as the
 # default /usr/bin/cc.
-__DEFAULT_YES_OPTIONS+=CLANG CLANG_FULL GCC GCC_BOOTSTRAP GNUCXX
-__DEFAULT_NO_OPTIONS+=CLANG_BOOTSTRAP CLANG_IS_CC GPL_DTC LLD
+__DEFAULT_YES_OPTIONS+=CLANG CLANG_FULL GCC GCC_BOOTSTRAP GNUCXX GPL_DTC
+__DEFAULT_NO_OPTIONS+=CLANG_BOOTSTRAP CLANG_IS_CC LLD
 .else
 # Everything else disables Clang, and uses GCC instead.
 __DEFAULT_YES_OPTIONS+=GCC GCC_BOOTSTRAP GNUCXX GPL_DTC
