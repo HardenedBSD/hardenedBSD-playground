@@ -54,6 +54,10 @@ char	*backslash(const char *str);
 /* interp_parse.c */
 int	parse(int *argc, char ***argv, const char *str);
 
+/* interp_forth.c */
+void	bf_init(void);
+int	bf_run(char *line);
+
 /* boot.c */
 int	autoboot(int timeout, char *prompt);
 void	autoboot_maybe(void);
