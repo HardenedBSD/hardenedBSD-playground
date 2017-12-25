@@ -467,11 +467,10 @@ MK_SAFESTACK:=	no
 MK_CFI:=	no
 .endif
 
-<<<<<<< HEAD
 .if ${MK_ASAN} != "no"
 MK_SAFESTACK=	no
 MK_CFI=		no
-=======
+.endif
 .if ${MK_LIBRESSL} == "no"
 MK_OPENNTPD:=	no
 .endif
@@ -482,7 +481,6 @@ MK_NTP:=	no
 
 .if ${MK_NTP} != "no"
 MK_OPENNTPD:=	no
->>>>>>> upstream/hardened/current/master
 .endif
 
 #

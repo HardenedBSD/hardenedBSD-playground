@@ -6,13 +6,9 @@ MAN=	rpc.lockd.8
 MLINKS=	rpc.lockd.8 lockd.8
 SRCS=	kern.c nlm_prot_svc.c lockd.c lock_proc.c lockd_lock.c
 
-<<<<<<< HEAD
 NOASAN=	yes
 
-CFLAGS+= -I. -I${DESTDIR}/usr/include/rpcsvc
-=======
 CFLAGS+= -I. -I${SYSROOT:U${DESTDIR}}/usr/include/rpcsvc
->>>>>>> upstream/hardened/current/master
 WARNS?= 3
 
 LIBADD=	rpcsvc
