@@ -1649,7 +1649,7 @@ p_cansched(struct thread *td, struct proc *p)
  * XXX: Should modifying and reading this variable require locking?
  * XXX: data declarations should be together near the beginning of the file.
  */
-#ifdef PAX_HARDENING
+#if defined(PAX_HARDENING) && !defined(HBSD_ASAN)
 static int	unprivileged_proc_debug = 0;
 #else
 static int	unprivileged_proc_debug = 1;

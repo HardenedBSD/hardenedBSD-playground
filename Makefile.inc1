@@ -551,13 +551,8 @@ TMAKE=		\
 		SSP_CFLAGS= \
 		-DNO_LINT \
 		-DNO_CPU_CFLAGS MK_WARNS=no MK_CTF=no \
-<<<<<<< HEAD
-		MK_CLANG_EXTRAS=no MK_CLANG_FULL=no \
-		MK_LLDB=no MK_TESTS=no MK_CFI=no MK_ASAN=no
-=======
 		MK_CLANG_EXTRAS=yes MK_CLANG_FULL=no \
-		MK_LLDB=no MK_TESTS=no MK_CFI=no
->>>>>>> upstream/hardened/current/master
+		MK_LLDB=no MK_TESTS=no MK_ASAN=no MK_CFI=no
 
 # cross-tools stage
 # TOOLS_PREFIX set in BMAKE
