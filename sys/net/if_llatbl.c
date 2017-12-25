@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2004 Luigi Rizzo, Alessandro Cerri. All rights reserved.
  * Copyright (c) 2004-2008 Qing Li. All rights reserved.
  * Copyright (c) 2008 Kip Macy. All rights reserved.
@@ -534,7 +536,7 @@ lltable_drain(int af)
 {
 	struct lltable	*llt;
 	struct llentry	*lle;
-	register int i;
+	int i;
 
 	LLTABLE_LIST_RLOCK();
 	SLIST_FOREACH(llt, &V_lltables, llt_link) {

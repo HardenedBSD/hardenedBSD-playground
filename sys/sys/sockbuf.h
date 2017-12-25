@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1986, 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -32,16 +34,9 @@
  */
 #ifndef _SYS_SOCKBUF_H_
 #define _SYS_SOCKBUF_H_
-#include <sys/selinfo.h>		/* for struct selinfo */
-#include <sys/_lock.h>
-#include <sys/_mutex.h>
-#include <sys/_sx.h>
-#include <sys/_task.h>
-
-#define	SB_MAX		(2*1024*1024)	/* default for max chars in sockbuf */
 
 /*
- * Constants for sb_flags field of struct sockbuf.
+ * Constants for sb_flags field of struct sockbuf/xsockbuf.
  */
 #define	SB_WAIT		0x04		/* someone is waiting for data/space */
 #define	SB_SEL		0x08		/* someone is selecting */
@@ -60,22 +55,19 @@
 #define	SBS_CANTRCVMORE		0x0020	/* can't receive more data from peer */
 #define	SBS_RCVATMARK		0x0040	/* at mark on input */
 
+#if defined(_KERNEL) || defined(_WANT_SOCKET)
+#include <sys/_lock.h>
+#include <sys/_mutex.h>
+#include <sys/_sx.h>
+#include <sys/_task.h>
+
+#define	SB_MAX		(2*1024*1024)	/* default for max chars in sockbuf */
+
 struct mbuf;
 struct sockaddr;
 struct socket;
 struct thread;
-
-struct	xsockbuf {
-	u_int	sb_cc;
-	u_int	sb_hiwat;
-	u_int	sb_mbcnt;
-	u_int   sb_mcnt;
-	u_int   sb_ccnt;
-	u_int	sb_mbmax;
-	int	sb_lowat;
-	int	sb_timeo;
-	short	sb_flags;
-};
+struct selinfo;
 
 /*
  * Variables for socket buffering.
@@ -84,9 +76,9 @@ struct	xsockbuf {
  * (a) locked by SOCKBUF_LOCK().
  */
 struct	sockbuf {
-	struct	selinfo sb_sel;	/* process selecting read/write */
-	struct	mtx sb_mtx;	/* sockbuf lock */
-	struct	sx sb_sx;	/* prevent I/O interlacing */
+	struct	mtx sb_mtx;		/* sockbuf lock */
+	struct	sx sb_sx;		/* prevent I/O interlacing */
+	struct	selinfo *sb_sel;	/* process selecting read/write */
 	short	sb_state;	/* (a) socket state on sockbuf */
 #define	sb_startzero	sb_mb
 	struct	mbuf *sb_mb;	/* (a) the mbuf chain */
@@ -113,6 +105,7 @@ struct	sockbuf {
 	struct	task sb_aiotask; /* AIO task */
 };
 
+#endif	/* defined(_KERNEL) || defined(_WANT_SOCKET) */
 #ifdef _KERNEL
 
 /*
@@ -167,15 +160,13 @@ void	sbflush_locked(struct sockbuf *sb);
 void	sbrelease(struct sockbuf *sb, struct socket *so);
 void	sbrelease_internal(struct sockbuf *sb, struct socket *so);
 void	sbrelease_locked(struct sockbuf *sb, struct socket *so);
-int	sbreserve(struct sockbuf *sb, u_long cc, struct socket *so,
-	    struct thread *td);
+int	sbsetopt(struct socket *so, int cmd, u_long cc);
 int	sbreserve_locked(struct sockbuf *sb, u_long cc, struct socket *so,
 	    struct thread *td);
 struct mbuf *
 	sbsndptr(struct sockbuf *sb, u_int off, u_int len, u_int *moff);
 struct mbuf *
 	sbsndmbuf(struct sockbuf *sb, u_int off, u_int *moff);
-void	sbtoxsockbuf(struct sockbuf *sb, struct xsockbuf *xsb);
 int	sbwait(struct sockbuf *sb);
 int	sblock(struct sockbuf *sb, int flags);
 void	sbunlock(struct sockbuf *sb);

@@ -22,7 +22,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
- * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2016 by Delphix. All rights reserved.
  * Copyright (c) 2012 DEY Storage Systems, Inc.  All rights reserved.
  * Copyright (c) 2011-2012 Pawel Jakub Dawidek. All rights reserved.
  * Copyright (c) 2013 Martin Matuska. All rights reserved.
@@ -30,6 +30,7 @@
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2016 Nexenta Systems, Inc.
  * Copyright 2016 Igor Kozhukhov <ikozhukhov@gmail.com>
+ * Copyright 2017 RackTop Systems.
  */
 
 #include <ctype.h>
@@ -102,7 +103,6 @@ zfs_validate_name(libzfs_handle_t *hdl, const char *path, int type,
 	namecheck_err_t why;
 	char what;
 
-	(void) zfs_prop_get_table();
 	if (entity_namecheck(path, &why, &what) != 0) {
 		if (hdl != NULL) {
 			switch (why) {
@@ -2166,6 +2166,7 @@ get_numeric_property(zfs_handle_t *zhp, zfs_prop_t prop, zprop_source_t *src,
 			if (zfs_prop_readonly(prop) &&
 			    *source != NULL && (*source)[0] == '\0') {
 				*source = NULL;
+				return (-1);
 			}
 			break;
 
@@ -2355,6 +2356,74 @@ zfs_get_clones_nvl(zfs_handle_t *zhp)
 }
 
 /*
+ * Accepts a property and value and checks that the value
+ * matches the one found by the channel program. If they are
+ * not equal, print both of them.
+ */
+void
+zcp_check(zfs_handle_t *zhp, zfs_prop_t prop, uint64_t intval,
+    const char *strval)
+{
+	if (!zhp->zfs_hdl->libzfs_prop_debug)
+		return;
+	int error;
+	char *poolname = zhp->zpool_hdl->zpool_name;
+	const char *program =
+	    "args = ...\n"
+	    "ds = args['dataset']\n"
+	    "prop = args['property']\n"
+	    "value, setpoint = zfs.get_prop(ds, prop)\n"
+	    "return {value=value, setpoint=setpoint}\n";
+	nvlist_t *outnvl;
+	nvlist_t *retnvl;
+	nvlist_t *argnvl = fnvlist_alloc();
+
+	fnvlist_add_string(argnvl, "dataset", zhp->zfs_name);
+	fnvlist_add_string(argnvl, "property", zfs_prop_to_name(prop));
+
+	error = lzc_channel_program(poolname, program,
+	    10 * 1000 * 1000, 10 * 1024 * 1024, argnvl, &outnvl);
+
+	if (error == 0) {
+		retnvl = fnvlist_lookup_nvlist(outnvl, "return");
+		if (zfs_prop_get_type(prop) == PROP_TYPE_NUMBER) {
+			int64_t ans;
+			error = nvlist_lookup_int64(retnvl, "value", &ans);
+			if (error != 0) {
+				(void) fprintf(stderr, "zcp check error: %u\n",
+				    error);
+				return;
+			}
+			if (ans != intval) {
+				(void) fprintf(stderr,
+				    "%s: zfs found %lld, but zcp found %lld\n",
+				    zfs_prop_to_name(prop),
+				    (longlong_t)intval, (longlong_t)ans);
+			}
+		} else {
+			char *str_ans;
+			error = nvlist_lookup_string(retnvl, "value", &str_ans);
+			if (error != 0) {
+				(void) fprintf(stderr, "zcp check error: %u\n",
+				    error);
+				return;
+			}
+			if (strcmp(strval, str_ans) != 0) {
+				(void) fprintf(stderr,
+				    "%s: zfs found %s, but zcp found %s\n",
+				    zfs_prop_to_name(prop),
+				    strval, str_ans);
+			}
+		}
+	} else {
+		(void) fprintf(stderr,
+		    "zcp check failed, channel program error: %u\n", error);
+	}
+	nvlist_free(argnvl);
+	nvlist_free(outnvl);
+}
+
+/*
  * Retrieve a property from the given object.  If 'literal' is specified, then
  * numbers are left as exact values.  Otherwise, numbers are converted to a
  * human-readable form.
@@ -2400,6 +2469,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 			    &t) == 0)
 				(void) snprintf(propbuf, proplen, "%llu", val);
 		}
+		zcp_check(zhp, prop, val, NULL);
 		break;
 
 	case ZFS_PROP_MOUNTPOINT:
@@ -2468,7 +2538,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 			/* 'legacy' or 'none' */
 			(void) strlcpy(propbuf, str, proplen);
 		}
-
+		zcp_check(zhp, prop, NULL, propbuf);
 		break;
 
 	case ZFS_PROP_ORIGIN:
@@ -2476,6 +2546,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		if (str == NULL)
 			return (-1);
 		(void) strlcpy(propbuf, str, proplen);
+		zcp_check(zhp, prop, NULL, str);
 		break;
 
 	case ZFS_PROP_CLONES:
@@ -2490,7 +2561,6 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 
 		if (get_numeric_property(zhp, prop, src, &source, &val) != 0)
 			return (-1);
-
 		/*
 		 * If quota or reservation is 0, we translate this into 'none'
 		 * (unless literal is set), and indicate that it's the default
@@ -2509,6 +2579,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 			else
 				zfs_nicenum(val, propbuf, proplen);
 		}
+		zcp_check(zhp, prop, val, NULL);
 		break;
 
 	case ZFS_PROP_FILESYSTEM_LIMIT:
@@ -2533,6 +2604,8 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		} else {
 			zfs_nicenum(val, propbuf, proplen);
 		}
+
+		zcp_check(zhp, prop, val, NULL);
 		break;
 
 	case ZFS_PROP_REFRATIO:
@@ -2542,6 +2615,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		(void) snprintf(propbuf, proplen, "%llu.%02llux",
 		    (u_longlong_t)(val / 100),
 		    (u_longlong_t)(val % 100));
+		zcp_check(zhp, prop, val, NULL);
 		break;
 
 	case ZFS_PROP_TYPE:
@@ -2562,6 +2636,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 			abort();
 		}
 		(void) snprintf(propbuf, proplen, "%s", str);
+		zcp_check(zhp, prop, NULL, propbuf);
 		break;
 
 	case ZFS_PROP_MOUNTED:
@@ -2587,6 +2662,7 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		 * consumers.
 		 */
 		(void) strlcpy(propbuf, zhp->zfs_name, proplen);
+		zcp_check(zhp, prop, NULL, propbuf);
 		break;
 
 	case ZFS_PROP_MLSLABEL:
@@ -2640,26 +2716,33 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 		if (get_numeric_property(zhp, prop, src, &source, &val) != 0)
 			return (-1);
 		(void) snprintf(propbuf, proplen, "%llu", (u_longlong_t)val);
+		zcp_check(zhp, prop, val, NULL);
 		break;
 
 	default:
 		switch (zfs_prop_get_type(prop)) {
 		case PROP_TYPE_NUMBER:
 			if (get_numeric_property(zhp, prop, src,
-			    &source, &val) != 0)
+			    &source, &val) != 0) {
 				return (-1);
-			if (literal)
+			}
+
+			if (literal) {
 				(void) snprintf(propbuf, proplen, "%llu",
 				    (u_longlong_t)val);
-			else
+			} else {
 				zfs_nicenum(val, propbuf, proplen);
+			}
+			zcp_check(zhp, prop, val, NULL);
 			break;
 
 		case PROP_TYPE_STRING:
 			str = getprop_string(zhp, prop, &source);
 			if (str == NULL)
 				return (-1);
+
 			(void) strlcpy(propbuf, str, proplen);
+			zcp_check(zhp, prop, NULL, str);
 			break;
 
 		case PROP_TYPE_INDEX:
@@ -2668,7 +2751,9 @@ zfs_prop_get(zfs_handle_t *zhp, zfs_prop_t prop, char *propbuf, size_t proplen,
 				return (-1);
 			if (zfs_prop_index_to_string(prop, val, &strval) != 0)
 				return (-1);
+
 			(void) strlcpy(propbuf, strval, proplen);
+			zcp_check(zhp, prop, NULL, strval);
 			break;
 
 		default:
@@ -3316,6 +3401,7 @@ zfs_create(libzfs_handle_t *hdl, const char *path, zfs_type_t type,
 	char errbuf[1024];
 	uint64_t zoned;
 	enum lzc_dataset_type ost;
+	zpool_handle_t *zpool_handle;
 
 	(void) snprintf(errbuf, sizeof (errbuf), dgettext(TEXT_DOMAIN,
 	    "cannot create '%s'"), path);
@@ -3355,7 +3441,8 @@ zfs_create(libzfs_handle_t *hdl, const char *path, zfs_type_t type,
 	if (p != NULL)
 		*p = '\0';
 
-	zpool_handle_t *zpool_handle = zpool_open(hdl, pool_path);
+	if ((zpool_handle = zpool_open(hdl, pool_path)) == NULL)
+		return (-1);
 
 	if (props && (props = zfs_valid_proplist(hdl, type, props,
 	    zoned, NULL, zpool_handle, errbuf)) == 0) {
@@ -3673,8 +3760,7 @@ int
 zfs_promote(zfs_handle_t *zhp)
 {
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
-	zfs_cmd_t zc = { 0 };
-	char parent[MAXPATHLEN];
+	char snapname[ZFS_MAX_DATASET_NAME_LEN];
 	int ret;
 	char errbuf[1024];
 
@@ -3687,31 +3773,25 @@ zfs_promote(zfs_handle_t *zhp)
 		return (zfs_error(hdl, EZFS_BADTYPE, errbuf));
 	}
 
-	(void) strlcpy(parent, zhp->zfs_dmustats.dds_origin, sizeof (parent));
-	if (parent[0] == '\0') {
+	if (zhp->zfs_dmustats.dds_origin[0] == '\0') {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 		    "not a cloned filesystem"));
 		return (zfs_error(hdl, EZFS_BADTYPE, errbuf));
 	}
 
-	(void) strlcpy(zc.zc_value, zhp->zfs_dmustats.dds_origin,
-	    sizeof (zc.zc_value));
-	(void) strlcpy(zc.zc_name, zhp->zfs_name, sizeof (zc.zc_name));
-	ret = zfs_ioctl(hdl, ZFS_IOC_PROMOTE, &zc);
+	ret = lzc_promote(zhp->zfs_name, snapname, sizeof (snapname));
 
 	if (ret != 0) {
-		int save_errno = errno;
-
-		switch (save_errno) {
+		switch (ret) {
 		case EEXIST:
 			/* There is a conflicting snapshot name. */
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "conflicting snapshot '%s' from parent '%s'"),
-			    zc.zc_string, parent);
+			    snapname, zhp->zfs_dmustats.dds_origin);
 			return (zfs_error(hdl, EZFS_EXISTS, errbuf));
 
 		default:
-			return (zfs_standard_error(hdl, save_errno, errbuf));
+			return (zfs_standard_error(hdl, ret, errbuf));
 		}
 	}
 	return (ret);
@@ -3962,14 +4042,19 @@ zfs_rollback(zfs_handle_t *zhp, zfs_handle_t *snap, boolean_t force)
 	}
 
 	/*
-	 * We rely on zfs_iter_children() to verify that there are no
-	 * newer snapshots for the given dataset.  Therefore, we can
-	 * simply pass the name on to the ioctl() call.  There is still
-	 * an unlikely race condition where the user has taken a
-	 * snapshot since we verified that this was the most recent.
+	 * Pass both the filesystem and the wanted snapshot names,
+	 * we would get an error back if the snapshot is destroyed or
+	 * a new snapshot is created before this request is processed.
 	 */
-	err = lzc_rollback(zhp->zfs_name, NULL, 0);
-	if (err != 0) {
+	err = lzc_rollback_to(zhp->zfs_name, snap->zfs_name);
+	if (err == EXDEV) {
+		zfs_error_aux(zhp->zfs_hdl, dgettext(TEXT_DOMAIN,
+		    "'%s' is not the latest snapshot"), snap->zfs_name);
+		(void) zfs_error_fmt(zhp->zfs_hdl, EZFS_BUSY,
+		    dgettext(TEXT_DOMAIN, "cannot rollback '%s'"),
+		    zhp->zfs_name);
+		return (err);
+	} else if (err != 0) {
 		(void) zfs_standard_error_fmt(zhp->zfs_hdl, errno,
 		    dgettext(TEXT_DOMAIN, "cannot rollback '%s'"),
 		    zhp->zfs_name);

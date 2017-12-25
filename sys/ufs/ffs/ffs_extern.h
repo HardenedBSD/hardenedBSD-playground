@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1991, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -74,6 +76,8 @@ void	ffs_fragacct(struct fs *, int, int32_t [], int);
 int	ffs_freefile(struct ufsmount *, struct fs *, struct vnode *, ino_t,
 	    int, struct workhead *);
 void	ffs_fserr(struct fs *, ino_t, char *);
+int	ffs_getcg(struct fs *, struct vnode *, u_int, struct buf **,
+	    struct cg **);
 int	ffs_isblock(struct fs *, u_char *, ufs1_daddr_t);
 int	ffs_isfreeblock(struct fs *, u_char *, ufs1_daddr_t);
 void	ffs_load_inode(struct buf *, struct inode *, struct fs *, ino_t);

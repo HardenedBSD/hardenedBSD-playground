@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -112,14 +114,13 @@ struct vnode {
 
 	/*
 	 * Type specific fields, only one applies to any given vnode.
-	 * See #defines below for renaming to v_* namespace.
 	 */
 	union {
-		struct mount	*vu_mount;	/* v ptr to mountpoint (VDIR) */
-		struct socket	*vu_socket;	/* v unix domain net (VSOCK) */
-		struct cdev	*vu_cdev; 	/* v device (VCHR, VBLK) */
-		struct fifoinfo	*vu_fifoinfo;	/* v fifo (VFIFO) */
-	} v_un;
+		struct mount	*v_mountedhere;	/* v ptr to mountpoint (VDIR) */
+		struct unpcb	*v_unpcb;	/* v unix domain net (VSOCK) */
+		struct cdev	*v_rdev; 	/* v device (VCHR, VBLK) */
+		struct fifoinfo	*v_fifoinfo;	/* v fifo (VFIFO) */
+	};
 
 	/*
 	 * vfs_hash: (mount + inode) -> vnode hash.  The hash value
@@ -175,11 +176,6 @@ struct vnode {
 
 #endif /* defined(_KERNEL) || defined(_KVM_VNODE) */
 
-#define	v_mountedhere	v_un.vu_mount
-#define	v_socket	v_un.vu_socket
-#define	v_rdev		v_un.vu_cdev
-#define	v_fifoinfo	v_un.vu_fifoinfo
-
 #define	bo2vnode(bo)	__containerof((bo), struct vnode, v_bufobj)
 
 /* XXX: These are temporary to avoid a source sweep at this time */
@@ -200,7 +196,7 @@ struct xvnode {
 	long	xv_numoutput;			/* num of writes in progress */
 	enum	vtype xv_type;			/* vnode type */
 	union {
-		void	*xvu_socket;		/* socket, if VSOCK */
+		void	*xvu_socket;		/* unpcb, if VSOCK */
 		void	*xvu_fifo;		/* fifo, if VFIFO */
 		dev_t	xvu_rdev;		/* maj/min, if VBLK/VCHR */
 		struct {
@@ -256,6 +252,7 @@ struct xvnode {
 #define	VV_DELETED	0x0400	/* should be removed */
 #define	VV_MD		0x0800	/* vnode backs the md device */
 #define	VV_FORCEINSMQ	0x1000	/* force the insmntque to succeed */
+#define	VV_READLINK	0x2000	/* fdescfs linux vnode */
 
 #define	VMP_TMPMNTFREELIST	0x0001	/* Vnode is on mnt's tmp free list */
 
@@ -266,11 +263,12 @@ struct xvnode {
 struct vattr {
 	enum vtype	va_type;	/* vnode type (for create) */
 	u_short		va_mode;	/* files access mode and type */
-	short		va_nlink;	/* number of references to file */
+	u_short		va_padding0;
 	uid_t		va_uid;		/* owner user id */
 	gid_t		va_gid;		/* owner group id */
+	nlink_t		va_nlink;	/* number of references to file */
 	dev_t		va_fsid;	/* filesystem id */
-	long		va_fileid;	/* file id */
+	ino_t		va_fileid;	/* file id */
 	u_quad_t	va_size;	/* file size in bytes */
 	long		va_blocksize;	/* blocksize preferred for i/o */
 	struct timespec	va_atime;	/* time of last access */
@@ -403,6 +401,7 @@ extern int		vttoif_tab[];
 #define	V_NORMAL	0x0004	/* vinvalbuf: invalidate only regular bufs */
 #define	V_CLEANONLY	0x0008	/* vinvalbuf: invalidate only clean bufs */
 #define	V_VMIO		0x0010	/* vinvalbuf: called during pageout */
+#define	V_ALLOWCLEAN	0x0020	/* vinvalbuf: allow clean buffers after flush */
 #define	REVOKEALL	0x0001	/* vop_revoke: revoke all aliases */
 #define	V_WAIT		0x0001	/* vn_start_write: sleep for suspend */
 #define	V_NOWAIT	0x0002	/* vn_start_write: don't sleep for suspend */
@@ -585,6 +584,7 @@ struct file;
 struct mount;
 struct nameidata;
 struct ostat;
+struct freebsd11_stat;
 struct thread;
 struct proc;
 struct stat;
@@ -613,7 +613,8 @@ void	cache_purge_negative(struct vnode *vp);
 void	cache_purgevfs(struct mount *mp, bool force);
 int	change_dir(struct vnode *vp, struct thread *td);
 void	cvtstat(struct stat *st, struct ostat *ost);
-void	cvtnstat(struct stat *sb, struct nstat *nsb);
+void	freebsd11_cvtnstat(struct stat *sb, struct nstat *nsb);
+int	freebsd11_cvtstat(struct stat *st, struct freebsd11_stat *ost);
 int	getnewvnode(const char *tag, struct mount *mp, struct vop_vector *vops,
 	    struct vnode **vpp);
 void	getnewvnode_reserve(u_int count);
@@ -881,6 +882,8 @@ int vn_chmod(struct file *fp, mode_t mode, struct ucred *active_cred,
     struct thread *td);
 int vn_chown(struct file *fp, uid_t uid, gid_t gid, struct ucred *active_cred,
     struct thread *td);
+
+void vn_fsid(struct vnode *vp, struct vattr *va);
 
 #endif /* _KERNEL */
 

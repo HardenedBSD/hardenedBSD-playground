@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: (BSD-3-Clause AND MIT-CMU)
+ *
  * Copyright (c) 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -78,6 +80,7 @@ typedef u_char vm_prot_t;	/* protection codes */
 #define	VM_PROT_WRITE		((vm_prot_t) 0x02)
 #define	VM_PROT_EXECUTE		((vm_prot_t) 0x04)
 #define	VM_PROT_COPY		((vm_prot_t) 0x08)	/* copy-on-read */
+#define	VM_PROT_FAULT_LOOKUP	((vm_prot_t) 0x010)
 
 #define	VM_PROT_ALL		(VM_PROT_READ|VM_PROT_WRITE|VM_PROT_EXECUTE)
 #define VM_PROT_RW		(VM_PROT_READ|VM_PROT_WRITE)

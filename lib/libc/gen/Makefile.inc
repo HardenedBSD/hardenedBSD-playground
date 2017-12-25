@@ -148,7 +148,15 @@ SRCS+=	__getosreldate.c \
 	waitid.c \
 	wordexp.c
 .if ${MK_SYMVER} == yes
-SRCS+=	fts-compat.c \
+SRCS+=	devname-compat11.c \
+	fts-compat.c \
+	fts-compat11.c \
+	ftw-compat11.c \
+	getmntinfo-compat11.c \
+	glob-compat11.c \
+	nftw-compat11.c \
+	readdir-compat11.c \
+	scandir-compat11.c \
 	unvis-compat.c
 .endif
 
@@ -304,7 +312,6 @@ MLINKS+=arc4random.3 arc4random_addrandom.3 \
 	arc4random.3 arc4random_stir.3 \
 	arc4random.3 arc4random_buf.3 \
 	arc4random.3 arc4random_uniform.3
-MLINKS+=basename.3 basename_r.3
 MLINKS+=ctermid.3 ctermid_r.3
 MLINKS+=devname.3 devname_r.3
 MLINKS+=devname.3 fdevname.3

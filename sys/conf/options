@@ -45,7 +45,6 @@ AHD_REG_PRETTY_PRINT	opt_aic79xx.h
 ADW_ALLOW_MEMIO		opt_adw.h
 
 TWA_DEBUG		opt_twa.h
-TWA_FLASH_FIRMWARE	opt_twa.h
 
 # Debugging options.
 ALT_BREAK_TO_DEBUGGER	opt_kdb.h
@@ -70,7 +69,6 @@ TEXTDUMP_VERBOSE	opt_ddb.h
 NUM_CORE_FILES	opt_global.h
 
 # Miscellaneous options.
-ADAPTIVE_LOCKMGRS
 ALQ
 ALTERA_SDCARD_FAST_SIM	opt_altera_sdcard.h
 ATSE_CFI_HACK	opt_cfi.h
@@ -167,6 +165,7 @@ MAC_STUB	opt_dontuse.h
 MAC_TEST	opt_dontuse.h
 MD_ROOT		opt_md.h
 MD_ROOT_FSTYPE	opt_md.h
+MD_ROOT_READONLY	opt_md.h
 MD_ROOT_SIZE	opt_md.h
 MFI_DEBUG	opt_mfi.h
 MFI_DECODE_LOG	opt_mfi.h
@@ -432,7 +431,6 @@ IPSEC_SUPPORT		opt_ipsec.h
 IPSTEALTH
 KRPC
 LIBALIAS
-LIBMBPOOL
 LIBMCHAIN
 MBUF_PROFILING
 MBUF_STRESS_TEST
@@ -454,15 +452,12 @@ TCP_RFC7413_MAX_KEYS	opt_inet.h
 TCP_SIGNATURE		opt_ipsec.h
 VLAN_ARRAY		opt_vlan.h
 XBONEHACK
-FLOWTABLE		opt_route.h
-FLOWTABLE_HASH_ALL	opt_route.h
 
 #
 # SCTP
 #
 SCTP			opt_sctp.h
 SCTP_DEBUG		opt_sctp.h # Enable debug printfs
-SCTP_WITH_NO_CSUM	opt_sctp.h # Use this at your peril
 SCTP_LOCK_LOGGING	opt_sctp.h # Log to KTR lock activity
 SCTP_MBUF_LOGGING	opt_sctp.h # Log to KTR general mbuf aloc/free
 SCTP_MBCNT_LOGGING	opt_sctp.h # Log to KTR mbcnt activity
@@ -855,6 +850,7 @@ BWI_DEBUG_VERBOSE	opt_bwi.h
 # options for the Brodacom BCM43xx driver (bwn)
 BWN_DEBUG		opt_bwn.h
 BWN_GPL_PHY		opt_bwn.h
+BWN_USE_SIBA		opt_bwn.h
 
 # Options for the SIBA driver
 SIBA_DEBUG		opt_siba.h
@@ -871,6 +867,10 @@ MWL_RXBUF		opt_mwl.h
 MWL_DIAGAPI		opt_mwl.h
 MWL_AGGR_SIZE		opt_mwl.h
 MWL_TX_NODROP		opt_mwl.h
+
+# Options for the Marvell NETA driver
+MVNETA_MULTIQUEUE	opt_mvneta.h
+MVNETA_KTR		opt_mvneta.h
 
 # Options for the Intel 802.11ac wireless driver
 IWM_DEBUG		opt_iwm.h
@@ -891,9 +891,6 @@ DCONS_FORCE_GDB		opt_dcons.h
 HWPMC_DEBUG		opt_global.h
 HWPMC_HOOKS
 HWPMC_MIPS_BACKTRACE 	opt_hwpmc_hooks.h
-
-# XBOX options for FreeBSD/i386, but some files are MI
-XBOX			opt_xbox.h
 
 # Interrupt filtering
 INTR_FILTER
@@ -972,7 +969,11 @@ PAX_SEGVGUARD	opt_pax.h
 PAX_HARDENING	opt_pax.h
 PAX_NOEXEC	opt_pax.h
 PAX_INSECURE_MODE	opt_pax.h
+PAX_CONTROL_ACL		opt_pax.h
+PAX_CONTROL_ACL_OVERRIDE_SUPPORT	opt_pax.h
+PAX_CONTROL_EXTATTR	opt_pax.h
 HBSD_DEBUG	opt_pax.h
+HBSD_RANDOM_HIGH_ENTROPY	opt_pax.h
 
 # ASLR overwritable defaults
 PAX_ASLR_DELTA_MMAP_DEF_LEN		opt_pax.h
@@ -983,6 +984,11 @@ PAX_ASLR_COMPAT_DELTA_MMAP_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_STACK_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_EXEC_DEF_LEN	opt_pax.h
 PAX_ASLR_COMPAT_DELTA_VDSO_DEF_LEN	opt_pax.h
+PAX_ASLR_DELTA_MMAP_LSB			opt_pax.h
+PAX_ASLR_DELTA_STACK_LSB		opt_pax.h
+PAX_ASLR_DELTA_STACK_WITH_GAP_LSB	opt_pax.h
+PAX_ASLR_DELTA_EXEC_LSB			opt_pax.h
+PAX_ASLR_DELTA_VDSO_LSB			opt_pax.h
 
 # Random number generator(s)
 # Which CSPRNG hash we get.
@@ -1013,5 +1019,10 @@ UINPUT_DEBUG	opt_evdev.h
 # Hyper-V network driver
 HN_DEBUG	opt_hn.h
 
+# CAM-based MMC stack
+MMCCAM
 # Encrypted kernel crash dumps
 EKCD		opt_ekcd.h
+
+# NVME options
+NVME_USE_NVD	opt_nvme.h

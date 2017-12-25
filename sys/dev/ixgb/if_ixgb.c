@@ -1,4 +1,5 @@
 /*******************************************************************************
+SPDX-License-Identifier: BSD-3-Clause
 
 Copyright (c) 2001-2004, Intel Corporation
 All rights reserved.
@@ -1777,7 +1778,7 @@ static int
 ixgb_get_buf(int i, struct adapter * adapter,
 	     struct mbuf * nmp)
 {
-	struct mbuf *mp = nmp;
+	struct mbuf    *mp = nmp;
 	struct ixgb_buffer *rx_buffer;
 	struct ifnet   *ifp;
 	bus_addr_t      paddr;

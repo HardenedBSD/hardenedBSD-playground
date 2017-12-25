@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2016, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2016-2017, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -87,8 +87,10 @@ pax_SKEL_sysinit(void)
 		    " (hardening.SKEL.status = %d)\n", pax_SKEL_status);
 		pax_SKEL_status = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[HBSD SKEL] skel status: %s\n",
-	    pax_status_simple_str[pax_SKEL_status]);
+	if (bootverbose) {
+		printf("[HBSD SKEL] skel status: %s\n",
+		    pax_status_simple_str[pax_SKEL_status]);
+	}
 }
 SYSINIT(pax_SKEL, SI_SUB_PAX, SI_ORDER_SECOND, pax_SKEL_sysinit, NULL);
 

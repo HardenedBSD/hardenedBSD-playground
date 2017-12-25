@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2008,  Jeffrey Roberson <jeff@freebsd.org>
  * All rights reserved.
  * 
@@ -47,6 +49,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sched.h>
 #include <sys/smp.h>
 #include <sys/syscallsubr.h>
+#include <sys/capsicum.h>
 #include <sys/cpuset.h>
 #include <sys/sx.h>
 #include <sys/queue.h>
@@ -522,6 +525,7 @@ cpuset_setproc(pid_t pid, struct cpuset *set, cpuset_t *mask)
 	int threads;
 	int nfree;
 	int error;
+
 	/*
 	 * The algorithm requires two passes due to locking considerations.
 	 * 
@@ -1060,7 +1064,7 @@ kern_cpuset_getid(struct thread *td, cpulevel_t level, cpuwhich_t which,
 	tmpid = set->cs_id;
 	cpuset_rel(set);
 	if (error == 0)
-		error = copyout(&tmpid, setid, sizeof(id));
+		error = copyout(&tmpid, setid, sizeof(tmpid));
 
 	return (error);
 }
@@ -1096,6 +1100,15 @@ kern_cpuset_getaffinity(struct thread *td, cpulevel_t level, cpuwhich_t which,
 
 	if (cpusetsize < sizeof(cpuset_t) || cpusetsize > CPU_MAXSIZE / NBBY)
 		return (ERANGE);
+	/* In Capability mode, you can only get your own CPU set. */
+	if (IN_CAPABILITY_MODE(td)) {
+	    if (level != CPU_LEVEL_WHICH)
+		return (ECAPMODE);
+	    if (which != CPU_WHICH_TID && which != CPU_WHICH_PID)
+		return (ECAPMODE);
+	    if (id != -1)
+		return (ECAPMODE);
+	}
 	size = cpusetsize;
 	mask = malloc(size, M_TEMP, M_WAITOK | M_ZERO);
 	error = cpuset_which(which, id, &p, &ttd, &set);
@@ -1204,6 +1217,15 @@ kern_cpuset_setaffinity(struct thread *td, cpulevel_t level, cpuwhich_t which,
 
 	if (cpusetsize < sizeof(cpuset_t) || cpusetsize > CPU_MAXSIZE / NBBY)
 		return (ERANGE);
+	/* In Capability mode, you can only set your own CPU set. */
+	if (IN_CAPABILITY_MODE(td)) {
+	    if (level != CPU_LEVEL_WHICH)
+		return (ECAPMODE);
+	    if (which != CPU_WHICH_TID && which != CPU_WHICH_PID)
+		return (ECAPMODE);
+	    if (id != -1)
+		return (ECAPMODE);
+	}
 	mask = malloc(cpusetsize, M_TEMP, M_WAITOK | M_ZERO);
 	error = copyin(maskp, mask, cpusetsize);
 	if (error)

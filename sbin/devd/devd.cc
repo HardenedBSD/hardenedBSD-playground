@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause AND BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2002-2010 M. Warner Losh.
  * All rights reserved.
  *
@@ -1108,6 +1110,7 @@ event_loop(void)
 		if (FD_ISSET(seqpacket_fd, &fds))
 			new_client(seqpacket_fd, SOCK_SEQPACKET);
 	}
+	cfg.remove_pidfile();
 	close(seqpacket_fd);
 	close(stream_fd);
 	close(fd);

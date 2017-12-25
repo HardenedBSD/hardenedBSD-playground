@@ -1,6 +1,8 @@
 /*	$OpenBSD: trap.c,v 1.19 1998/09/30 12:40:41 pefo Exp $	*/
 /* tracked to 1.23 */
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1988 University of Utah.
  * Copyright (c) 1992, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -75,6 +77,7 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/trap.h>
 #include <machine/cpu.h>
+#include <machine/cpuinfo.h>
 #include <machine/pte.h>
 #include <machine/pmap.h>
 #include <machine/md_var.h>
@@ -334,12 +337,16 @@ static int emulate_unaligned_access(struct trapframe *frame, int mode);
 extern void fswintrberr(void); /* XXX */
 
 int
-cpu_fetch_syscall_args(struct thread *td, struct syscall_args *sa)
+cpu_fetch_syscall_args(struct thread *td)
 {
-	struct trapframe *locr0 = td->td_frame;
+	struct trapframe *locr0;
 	struct sysentvec *se;
+	struct syscall_args *sa;
 	int error, nsaved;
 
+	locr0 = td->td_frame;
+	sa = &td->td_sa;
+	
 	bzero(sa->args, sizeof(sa->args));
 
 	/* compute next PC after syscall instruction */
@@ -785,19 +792,18 @@ dofault:
 
 	case T_SYSCALL + T_USER:
 		{
-			struct syscall_args sa;
 			int error;
 
-			sa.trapframe = trapframe;
-			error = syscallenter(td, &sa);
+			td->td_sa.trapframe = trapframe;
+			error = syscallenter(td);
 
 #if !defined(SMP) && (defined(DDB) || defined(DEBUG))
 			if (trp == trapdebug)
-				trapdebug[TRAPSIZE - 1].code = sa.code;
+				trapdebug[TRAPSIZE - 1].code = td->td_sa.code;
 			else
-				trp[-1].code = sa.code;
+				trp[-1].code = td->td_sa.code;
 #endif
-			trapdebug_enter(td->td_frame, -sa.code);
+			trapdebug_enter(td->td_frame, -td->td_sa.code);
 
 			/*
 			 * The sync'ing of I & D caches for SYS_ptrace() is
@@ -805,7 +811,7 @@ dofault:
 			 * instead of being done here under a special check
 			 * for SYS_ptrace().
 			 */
-			syscallret(td, error, &sa);
+			syscallret(td, error);
 			return (trapframe->pc);
 		}
 
@@ -967,12 +973,13 @@ dofault:
 	case T_COP_UNUSABLE + T_USER:
 		cop = (trapframe->cause & MIPS_CR_COP_ERR) >> MIPS_CR_COP_ERR_SHIFT;
 		if (cop == 1) {
-#if !defined(CPU_HAVEFPU)
-		/* FP (COP1) instruction */
-			log_illegal_instruction("COP1_UNUSABLE", trapframe);
-			i = SIGILL;
-			break;
-#else
+			/* FP (COP1) instruction */
+			if (cpuinfo.fpu_id == 0) {
+				log_illegal_instruction("COP1_UNUSABLE",
+				    trapframe);
+				i = SIGILL;
+				break;
+			}
 			addr = trapframe->pc;
 			MipsSwitchFPState(PCPU_GET(fpcurthread), td->td_frame);
 			PCPU_SET(fpcurthread, td);
@@ -983,7 +990,6 @@ dofault:
 #endif
 			td->td_md.md_flags |= MDTD_FPUSED;
 			goto out;
-#endif
 		}
 #ifdef	CPU_CNMIPS
 		else  if (cop == 2) {

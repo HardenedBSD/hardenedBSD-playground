@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (C) 2013-2014 Vincenzo Maffione
  * All rights reserved.
  *
@@ -29,8 +31,8 @@
  */
 
 
-#ifndef __NETMAP_MBQ_H__
-#define __NETMAP_MBQ_H__
+#ifndef _NET_NETMAP_MBQ_H__
+#define _NET_NETMAP_MBQ_H__
 
 /*
  * These function implement an mbuf tailq with an optional lock.
@@ -67,7 +69,7 @@ void mbq_purge(struct mbq *q);
 static inline struct mbuf *
 mbq_peek(struct mbq *q)
 {
-	return q->head ? q->head : NULL;
+	return q->head;
 }
 
 static inline void
@@ -94,4 +96,4 @@ static inline unsigned int mbq_len(struct mbq *q)
     return q->count;
 }
 
-#endif /* __NETMAP_MBQ_H_ */
+#endif /* _NET_NETMAP_MBQ_H_ */

@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2013 Ian Lepore <ian@freebsd.org>
  * All rights reserved.
  *
@@ -99,4 +101,4 @@ static platform_method_t imx51_methods[] = {
 	PLATFORMMETHOD_END,
 };
 
-FDT_PLATFORM_DEF(imx51, "i.MX51", 0, "fsl,imx51", 0);
+FDT_PLATFORM_DEF(imx51, "i.MX51", 0, "fsl,imx51", 100);

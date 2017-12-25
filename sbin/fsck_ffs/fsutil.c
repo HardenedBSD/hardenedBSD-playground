@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1980, 1986, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -58,6 +60,7 @@ __FBSDID("$FreeBSD$");
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <libufs.h>
 
 #include "fsck.h"
 
@@ -349,6 +352,20 @@ flush(int fd, struct bufarea *bp)
 
 	if (!bp->b_dirty)
 		return;
+	/*
+	 * Calculate any needed check hashes.
+	 */
+	switch (bp->b_type) {
+	case BT_CYLGRP:
+		if ((sblock.fs_metackhash & CK_CYLGRP) == 0)
+			break;
+		bp->b_un.b_cg->cg_ckhash = 0;
+		bp->b_un.b_cg->cg_ckhash =
+		    calculate_crc32c(~0L, bp->b_un.b_buf, bp->b_size);
+		break;
+	default:
+		break;
+	}
 	bp->b_dirty = 0;
 	if (fswritefd < 0) {
 		pfatal("WRITING IN READ_ONLY MODE.\n");

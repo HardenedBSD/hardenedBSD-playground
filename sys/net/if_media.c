@@ -2,6 +2,8 @@
 /* $FreeBSD$ */
 
 /*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
  * Copyright (c) 1997
  *	Jonathan Stone and Jason R. Thorpe.  All rights reserved.
  *
@@ -121,7 +123,7 @@ ifmedia_add(ifm, mword, data, aux)
 	int data;
 	void *aux;
 {
-	register struct ifmedia_entry *entry;
+	struct ifmedia_entry *entry;
 
 #ifdef IFMEDIA_DEBUG
 	if (ifmedia_debug) {

@@ -3,6 +3,8 @@
  * Generic defines for LSI '909 FC  adapters.
  * FreeBSD Version.
  *
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD AND BSD-3-Clause
+ *
  * Copyright (c)  2000, 2001 by Greg Ansley
  *
  * Redistribution and use in source and binary forms, with or without
@@ -932,14 +934,14 @@ enum {
 
 #define mpt_lprt(mpt, level, ...)		\
 do {						\
-	if (level <= (mpt)->verbose)		\
+	if ((level) <= (mpt)->verbose)		\
 		mpt_prt(mpt, __VA_ARGS__);	\
 } while (0)
 
 #if 0
 #define mpt_lprtc(mpt, level, ...)		\
 do {						\
-	if (level <= (mpt)->verbose)		\
+	if ((level) <= (mpt)->verbose)		\
 		mpt_prtc(mpt, __VA_ARGS__);	\
 } while (0)
 #endif

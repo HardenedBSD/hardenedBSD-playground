@@ -2349,7 +2349,7 @@
 #define OBJ_delta_crl		OBJ_id_ce,27L
 
 #define SN_issuing_distribution_point		"issuingDistributionPoint"
-#define LN_issuing_distribution_point		"X509v3 Issuing Distrubution Point"
+#define LN_issuing_distribution_point		"X509v3 Issuing Distribution Point"
 #define NID_issuing_distribution_point		770
 #define OBJ_issuing_distribution_point		OBJ_id_ce,28L
 
@@ -2548,6 +2548,20 @@
 #define LN_dcObject		"dcObject"
 #define NID_dcObject		390
 #define OBJ_dcObject		OBJ_Enterprises,1466L,344L
+
+#define OBJ_extendedValidation		OBJ_Enterprises,311L,60L
+
+#define LN_jurisdictionLocalityName		"jurisdictionLocalityName"
+#define NID_jurisdictionLocalityName		956
+#define OBJ_jurisdictionLocalityName		OBJ_extendedValidation,2L,1L,1L
+
+#define LN_jurisdictionStateOrProvinceName		"jurisdictionStateOrProvinceName"
+#define NID_jurisdictionStateOrProvinceName		957
+#define OBJ_jurisdictionStateOrProvinceName		OBJ_extendedValidation,2L,1L,2L
+
+#define LN_jurisdictionCountryName		"jurisdictionCountryName"
+#define NID_jurisdictionCountryName		958
+#define OBJ_jurisdictionCountryName		OBJ_extendedValidation,2L,1L,3L
 
 #define SN_mime_mhs		"mime-mhs"
 #define LN_mime_mhs		"MIME MHS"
@@ -4153,4 +4167,28 @@
 #define LN_id_tc26_signwithdigest_gost3410_2012_512		"GOST R 34.11-2012 with GOST R 34.10-2012 (512 bit)"
 #define NID_id_tc26_signwithdigest_gost3410_2012_512		949
 #define OBJ_id_tc26_signwithdigest_gost3410_2012_512		OBJ_tc26,1L,3L,3L
+
+#define SN_X25519		"X25519"
+#define NID_X25519		950
+#define OBJ_X25519		1L,3L,101L,110L
+
+#define SN_X448		"X448"
+#define NID_X448		951
+#define OBJ_X448		1L,3L,101L,111L
+
+#define SN_Ed25519		"Ed25519"
+#define NID_Ed25519		952
+#define OBJ_Ed25519		1L,3L,101L,112L
+
+#define SN_Ed448		"Ed448"
+#define NID_Ed448		953
+#define OBJ_Ed448		1L,3L,101L,113L
+
+#define SN_Ed25519ph		"Ed25519ph"
+#define NID_Ed25519ph		954
+#define OBJ_Ed25519ph		1L,3L,101L,114L
+
+#define SN_Ed448ph		"Ed448ph"
+#define NID_Ed448ph		955
+#define OBJ_Ed448ph		1L,3L,101L,115L
 

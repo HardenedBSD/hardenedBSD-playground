@@ -8,13 +8,23 @@
     bin
         cat
         ..
+        chflags
+        ..
+        chmod
+        ..
         date
         ..
         dd
         ..
+        echo
+        ..
         expr
         ..
+        ln
+        ..
         ls
+        ..
+        mkdir
         ..
         mv
         ..
@@ -24,6 +34,8 @@
         ..
         pwait
         ..
+        rmdir
+        ..
         sh
             builtins
             ..
@@ -32,6 +44,8 @@
             execution
             ..
             expansion
+            ..
+            invocation
             ..
             parameters
             ..
@@ -51,6 +65,8 @@
         sbin
         ..
         usr.bin
+            ctfconvert
+            ..
         ..
         usr.sbin
             dtrace
@@ -84,6 +100,8 @@
                     dtraceUtil
                     ..
                     end
+                    ..
+                    env
                     ..
                     enum
                     ..
@@ -372,6 +390,10 @@
         ..
         mdconfig
         ..
+        pfctl
+            files
+            ..
+        ..
     ..
     secure
         lib
@@ -390,7 +412,11 @@
                 ..
                 plain
                 ..
+                tap
+                ..
             ..
+        ..
+        zoneinfo
         ..
     ..
     sys
@@ -454,6 +480,14 @@
         ..
         netinet
         ..
+        netipsec
+            tunnel
+            ..
+        ..
+        netpfil
+            pf
+            ..
+        ..
         opencrypto
         ..
         pjdfstest
@@ -486,6 +520,8 @@
             truncate
             ..
             unlink
+            ..
+            utimensat
             ..
         ..
         posixshm
@@ -606,6 +642,8 @@
         ..
         cmp
         ..
+        compress
+        ..
         cpio
         ..
         col
@@ -616,15 +654,27 @@
         ..
         cut
         ..
+        dc
+        ..
         diff
         ..
         dirname
         ..
+        du
+        ..
         file2c
+        ..
+        fold
+        ..
+        getconf
         ..
         grep
         ..
         gzip
+        ..
+        head
+        ..
+        hexdump
         ..
         ident
         ..
@@ -650,6 +700,10 @@
         ..
         printf
         ..
+        procstat
+        ..
+        rs
+        ..
         sdiff
         ..
         sed
@@ -657,6 +711,8 @@
             ..
         ..
         soelim
+        ..
+        stat
         ..
         tail
         ..

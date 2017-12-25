@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -356,14 +358,14 @@ vfwprintf_l(FILE * __restrict fp, locale_t locale,
 {
 	int ret;
 	FIX_LOCALE(locale);
-	FLOCKFILE(fp);
+	FLOCKFILE_CANCELSAFE(fp);
 	/* optimise fprintf(stderr) (and other unbuffered Unix files) */
 	if ((fp->_flags & (__SNBF|__SWR|__SRW)) == (__SNBF|__SWR) &&
 	    fp->_file >= 0)
 		ret = __sbprintf(fp, locale, fmt0, ap);
 	else
 		ret = __vfwprintf(fp, locale, fmt0, ap);
-	FUNLOCKFILE(fp);
+	FUNLOCKFILE_CANCELSAFE();
 	return (ret);
 }
 int

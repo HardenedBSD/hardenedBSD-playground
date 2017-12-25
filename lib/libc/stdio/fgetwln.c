@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2002-2004 Tim J. Robbins.
  * All rights reserved.
  *
@@ -45,13 +47,14 @@ wchar_t *fgetwln_l(FILE * __restrict, size_t *, locale_t);
 wchar_t *
 fgetwln_l(FILE * __restrict fp, size_t *lenp, locale_t locale)
 {
+	wchar_t *ret;
 	wint_t wc;
 	size_t len;
 	int savserr;
 
 	FIX_LOCALE(locale);
 
-	FLOCKFILE(fp);
+	FLOCKFILE_CANCELSAFE(fp);
 	ORIENT(fp, 1);
 
 	savserr = fp->_flags & __SERR;
@@ -77,14 +80,16 @@ fgetwln_l(FILE * __restrict fp, size_t *lenp, locale_t locale)
 	if (len == 0)
 		goto error;
 
-	FUNLOCKFILE(fp);
 	*lenp = len;
-	return ((wchar_t *)fp->_lb._base);
+	ret = (wchar_t *)fp->_lb._base;
+end:
+	FUNLOCKFILE_CANCELSAFE();
+	return (ret);
 
 error:
-	FUNLOCKFILE(fp);
 	*lenp = 0;
-	return (NULL);
+	ret = NULL;
+	goto end;
 }
 
 wchar_t *

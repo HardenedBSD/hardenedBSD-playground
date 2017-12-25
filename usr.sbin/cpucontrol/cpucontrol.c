@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2008-2011 Stanislav Sedov <stas@FreeBSD.org>.
  * All rights reserved.
  *
@@ -60,6 +62,7 @@ int	verbosity_level = 0;
 #define	FLAG_I	0x01
 #define	FLAG_M	0x02
 #define	FLAG_U	0x04
+#define	FLAG_N	0x08
 
 #define	OP_INVAL	0x00
 #define	OP_READ		0x01
@@ -427,11 +430,7 @@ main(int argc, char *argv[])
 	error = 0;
 	cmdarg = "";	/* To keep gcc3 happy. */
 
-	/*
-	 * Add all default data dirs to the list first.
-	 */
-	datadir_add(DEFAULT_DATADIR);
-	while ((c = getopt(argc, argv, "d:hi:m:uv")) != -1) {
+	while ((c = getopt(argc, argv, "d:hi:m:nuv")) != -1) {
 		switch (c) {
 		case 'd':
 			datadir_add(optarg);
@@ -443,6 +442,9 @@ main(int argc, char *argv[])
 		case 'm':
 			flags |= FLAG_M;
 			cmdarg = optarg;
+			break;
+		case 'n':
+			flags |= FLAG_N;
 			break;
 		case 'u':
 			flags |= FLAG_U;
@@ -463,6 +465,8 @@ main(int argc, char *argv[])
 		usage();
 		/* NOTREACHED */
 	}
+	if ((flags & FLAG_N) == 0)
+		datadir_add(DEFAULT_DATADIR);
 	dev = argv[0];
 	c = flags & (FLAG_I | FLAG_M | FLAG_U);
 	switch (c) {

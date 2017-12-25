@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2006 Elad Efrat <elad@NetBSD.org>
- * Copyright (c) 2013-2015, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2013-2017, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
  * Copyright (c) 2014, by Shawn Webb <lattera at gmail.com>
  * All rights reserved.
  *
@@ -110,7 +110,10 @@ pax_noexec_sysinit(void)
 		pax_pageexec_status = PAX_FEATURE_FORCE_ENABLED;
 		break;
 	}
-	printf("[HBSD PAGEEXEC] status: %s\n", pax_status_str[pax_pageexec_status]);
+	if (bootverbose) {
+		printf("[HBSD PAGEEXEC] status: %s\n",
+		    pax_status_str[pax_pageexec_status]);
+	}
 
 	switch (pax_mprotect_status) {
 	case PAX_FEATURE_DISABLED:
@@ -124,9 +127,27 @@ pax_noexec_sysinit(void)
 		pax_mprotect_status = PAX_FEATURE_FORCE_ENABLED;
 		break;
 	}
-	printf("[HBSD MPROTECT] status: %s\n", pax_status_str[pax_mprotect_status]);
+	if (bootverbose) {
+		printf("[HBSD MPROTECT] status: %s\n",
+		    pax_status_str[pax_mprotect_status]);
+	}
 }
 SYSINIT(pax_noexec, SI_SUB_PAX, SI_ORDER_SECOND, pax_noexec_sysinit, NULL);
+
+int
+pax_noexec_validate_flags(int flags)
+{
+
+	switch (flags) {
+	case PAX_FEATURE_DISABLED:
+	case PAX_FEATURE_OPTIN:
+	case PAX_FEATURE_OPTOUT:
+	case PAX_FEATURE_FORCE_ENABLED:
+		return (flags);
+	default:
+		return (PAX_FEATURE_FORCE_ENABLED);
+	}
+}
 
 void
 pax_noexec_init_prison(struct prison *pr)
@@ -347,7 +368,8 @@ pax_mprotect(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot)
 	CTR3(KTR_PAX, "%s: pid = %d maxprot = %x",
 	    __func__, p->p_pid, *maxprot);
 
-	if ((*maxprot & (VM_PROT_WRITE|VM_PROT_EXECUTE)) != VM_PROT_EXECUTE)
+	if ((*maxprot & (VM_PROT_WRITE|VM_PROT_EXECUTE)) != VM_PROT_EXECUTE &&
+	    (*prot & VM_PROT_EXECUTE) != VM_PROT_EXECUTE)
 		*maxprot &= ~VM_PROT_EXECUTE;
 	else
 		*maxprot &= ~VM_PROT_WRITE;

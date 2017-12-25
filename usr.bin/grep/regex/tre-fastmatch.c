@@ -1,6 +1,8 @@
 /* $FreeBSD$ */
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
  * Copyright (C) 2008-2011 Gabor Kovesdan <gabor@FreeBSD.org>
  * All rights reserved.
@@ -351,7 +353,7 @@ static int	fastcmp(const fastmatch_t *fg, const void *data,
 #define FILL_BMGS							\
   if (fg->len > 0 && !fg->hasdot)					\
     {									\
-      fg->sbmGs = malloc(fg->len * sizeof(int));			\
+      fg->sbmGs = malloc(fg->len * sizeof(*fg->sbmGs));			\
       if (!fg->sbmGs)							\
 	return REG_ESPACE;						\
       if (fg->len == 1)							\
@@ -367,7 +369,7 @@ static int	fastcmp(const fastmatch_t *fg, const void *data,
 #define FILL_BMGS_WIDE							\
   if (fg->wlen > 0 && !fg->hasdot)					\
     {									\
-      fg->bmGs = malloc(fg->wlen * sizeof(int));			\
+      fg->bmGs = malloc(fg->wlen * sizeof(*fg->bmGs));			\
       if (!fg->bmGs)							\
 	return REG_ESPACE;						\
       if (fg->wlen == 1)						\

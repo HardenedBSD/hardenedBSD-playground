@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2014, by Shawn Webb <shawn.webb at hardenedbsd.org>
- * Copyright (c) 2014-2016, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2014-2017, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -90,8 +90,10 @@ pax_hardening_sysinit(void)
 		    " (hardening.procfs_harden = %d)\n", pax_procfs_harden_global);
 		pax_procfs_harden_global = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[HBSD HARDENING] procfs hardening: %s\n",
-	    pax_status_simple_str[pax_procfs_harden_global]);
+	if (bootverbose) {
+		printf("[HBSD HARDENING] procfs hardening: %s\n",
+		    pax_status_simple_str[pax_procfs_harden_global]);
+	}
 
 	switch (pax_randomize_pids_global) {
 	case PAX_FEATURE_SIMPLE_DISABLED:
@@ -102,8 +104,10 @@ pax_hardening_sysinit(void)
 		    " (hardening.randomize_pids = %d)\n", pax_randomize_pids_global);
 		pax_randomize_pids_global = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[HBSD HARDENING] randomize pids: %s\n",
-	    pax_status_simple_str[pax_randomize_pids_global]);
+	if (bootverbose) {
+		printf("[HBSD HARDENING] randomize pids: %s\n",
+		    pax_status_simple_str[pax_randomize_pids_global]);
+	}
 
 	switch (pax_init_hardening_global) {
 	case PAX_FEATURE_SIMPLE_DISABLED:
@@ -112,10 +116,25 @@ pax_hardening_sysinit(void)
 	default:
 		pax_init_hardening_global = PAX_FEATURE_SIMPLE_ENABLED;
 	}
-	printf("[HBSD HARDENING] unset insecure init variables: %s\n",
-	    pax_status_simple_str[pax_init_hardening_global]);
+	if (bootverbose) {
+		printf("[HBSD HARDENING] unset insecure init variables: %s\n",
+		    pax_status_simple_str[pax_init_hardening_global]);
+	}
 }
 SYSINIT(pax_hardening, SI_SUB_PAX, SI_ORDER_SECOND, pax_hardening_sysinit, NULL);
+
+int
+pax_procfs_harden_validate_flags(int flags)
+{
+
+	switch (flags) {
+	case PAX_FEATURE_SIMPLE_DISABLED:
+	case PAX_FEATURE_SIMPLE_ENABLED:
+		return (flags);
+	default:
+		return (PAX_FEATURE_SIMPLE_ENABLED);
+	}
+}
 
 void
 pax_hardening_init_prison(struct prison *pr)

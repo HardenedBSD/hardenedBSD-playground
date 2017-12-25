@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
  * Copyright (C) 1995, 1996 Wolfgang Solfrank.
  * Copyright (C) 1995, 1996 TooLs GmbH.
  * All rights reserved.
@@ -46,7 +48,11 @@
 #endif
 
 #ifndef	MAXDSIZ
+#ifdef __powerpc64__
+#define	MAXDSIZ		(32UL*1024*1024*1024)	/* max data size */
+#else
 #define	MAXDSIZ		(1*1024*1024*1024)	/* max data size */
+#endif
 #endif
 
 #ifndef	DFLSSIZ

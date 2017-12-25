@@ -79,6 +79,7 @@ __FBSDID("$FreeBSD$");
 #include <libgen.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -132,6 +133,8 @@ __FBSDID("$FreeBSD$");
 #define	CE_NODUMP	0x0200	/* Set 'nodump' on newly created log file. */
 #define	CE_PID2CMD	0x0400	/* Replace PID file with a shell command.*/
 
+#define	CE_RFC5424	0x0800	/* Use RFC5424 format rotation message */
+
 #define	MIN_PID         5	/* Don't touch pids lower than this */
 #define	MAX_PID		99999	/* was lower, see /usr/include/sys/proc.h */
 
@@ -148,14 +151,24 @@ struct compress_types {
 	const char *flag;	/* Flag in configuration file */
 	const char *suffix;	/* Compression suffix */
 	const char *path;	/* Path to compression program */
+	char **args;		/* Compression program arguments */
 };
 
+static char f_arg[] = "-f";
+static char q_arg[] = "-q";
+static char rm_arg[] = "--rm";
+static char *gz_args[] ={ NULL, f_arg, NULL, NULL };
+#define bzip2_args gz_args
+#define xz_args gz_args
+static char *zstd_args[] = { NULL, q_arg, rm_arg, NULL, NULL };
+
+#define ARGS_NUM 4
 static const struct compress_types compress_type[COMPRESS_TYPES] = {
-	{ "", "", "" },					/* no compression */
-	{ "Z", COMPRESS_SUFFIX_GZ, _PATH_GZIP },	/* gzip compression */
-	{ "J", COMPRESS_SUFFIX_BZ2, _PATH_BZIP2 },	/* bzip2 compression */
-	{ "X", COMPRESS_SUFFIX_XZ, _PATH_XZ },		/* xz compression */
-	{ "Y", COMPRESS_SUFFIX_ZST, _PATH_ZSTD }	/* zst compression */
+	{ "", "", "", NULL},					/* none */
+	{ "Z", COMPRESS_SUFFIX_GZ, _PATH_GZIP, gz_args},	/* gzip */
+	{ "J", COMPRESS_SUFFIX_BZ2, _PATH_BZIP2, bzip2_args},	/* bzip2 */
+	{ "X", COMPRESS_SUFFIX_XZ, _PATH_XZ, xz_args },		/* xz */
+	{ "Y", COMPRESS_SUFFIX_ZST, _PATH_ZSTD, zstd_args }	/* zst */
 };
 
 struct conf_entry {
@@ -247,6 +260,15 @@ static struct ptime_data *timenow; /* The time to use for checking at-fields */
 #define	DAYTIME_LEN	16
 static char daytime[DAYTIME_LEN];/* The current time in human readable form,
 				  * used for rotation-tracking messages. */
+
+/* Another buffer to hold the current time in RFC5424 format. Fractional
+ * seconds are allowed by the RFC, but are not included in the
+ * rotation-tracking messages written by newsyslog and so are not accounted for
+ * in the length below.
+ */
+#define	DAYTIME_RFC5424_LEN	sizeof("YYYY-MM-DDTHH:MM:SS+00:00")
+static char daytime_rfc5424[DAYTIME_RFC5424_LEN];
+
 static char hostname[MAXHOSTNAMELEN]; /* hostname */
 
 static const char *path_syslogpid = _PATH_SYSLOGPID;
@@ -630,6 +652,7 @@ parse_args(int argc, char **argv)
 	timenow = ptime_init(NULL);
 	ptimeset_time(timenow, time(NULL));
 	strlcpy(daytime, ptimeget_ctime(timenow) + 4, DAYTIME_LEN);
+	ptimeget_ctime_rfc5424(timenow, daytime_rfc5424, DAYTIME_RFC5424_LEN);
 
 	/* Let's get our hostname */
 	(void)gethostname(hostname, sizeof(hostname));
@@ -1296,11 +1319,14 @@ no_trimat:
 			case 'r':
 				working->flags |= CE_PID2CMD;
 				break;
+			case 't':
+				working->flags |= CE_RFC5424;
+				break;
 			case 'u':
 				working->flags |= CE_SIGNALGROUP;
 				break;
 			case 'w':
-				/* Depreciated flag - keep for compatibility purposes */
+				/* Deprecated flag - keep for compatibility purposes */
 				break;
 			case 'x':
 				working->compress = COMPRESS_XZ;
@@ -1985,11 +2011,16 @@ do_zipwork(struct zipwork_entry *zwork)
 	int errsav, fcount, zstatus;
 	pid_t pidzip, wpid;
 	char zresult[MAXPATHLEN];
+	char command[BUFSIZ];
+	char **args;
 	int c;
 
 	assert(zwork != NULL);
 	pgm_path = NULL;
 	strlcpy(zresult, zwork->zw_fname, sizeof(zresult));
+	args = calloc(ARGS_NUM, sizeof(*args));
+	if (args == NULL)
+		err(1, "calloc()");
 	if (zwork->zw_conf != NULL &&
 	    zwork->zw_conf->compress > COMPRESS_NONE)
 		for (c = 1; c < COMPRESS_TYPES; c++) {
@@ -1997,6 +2028,12 @@ do_zipwork(struct zipwork_entry *zwork)
 				pgm_path = compress_type[c].path;
 				(void) strlcat(zresult,
 				    compress_type[c].suffix, sizeof(zresult));
+				/* the first argument is always NULL, skip it */
+				for (c = 1; c < ARGS_NUM; c++) {
+					if (compress_type[c].args[c] == NULL)
+						break;
+					args[c] = compress_type[c].args[c];
+				}
 				break;
 			}
 		}
@@ -2010,6 +2047,13 @@ do_zipwork(struct zipwork_entry *zwork)
 	else
 		pgm_name++;
 
+	args[0] = strdup(pgm_name);
+	if (args[0] == NULL)
+		err(1, "strdup()");
+	for (c = 0; args[c] != NULL; c++)
+		;
+	args[c] = zwork->zw_fname;
+
 	if (zwork->zw_swork != NULL && zwork->zw_swork->sw_runcmd == 0 &&
 	    zwork->zw_swork->sw_pidok <= 0) {
 		warnx(
@@ -2019,12 +2063,20 @@ do_zipwork(struct zipwork_entry *zwork)
 		return;
 	}
 
+	strlcpy(command, pgm_path, sizeof(command));
+	for (c = 1; args[c] != NULL; c++) {
+		strlcat(command, " ", sizeof(command));
+		strlcat(command, args[c], sizeof(command));
+	}
 	if (noaction) {
 		printf("\t%s %s\n", pgm_name, zwork->zw_fname);
 		change_attrs(zresult, zwork->zw_conf);
 		return;
 	}
 
+	if (verbose) {
+		printf("Executing: %s\n", command);
+	}
 	fcount = 1;
 	pidzip = fork();
 	while (pidzip < 0) {
@@ -2042,8 +2094,8 @@ do_zipwork(struct zipwork_entry *zwork)
 	}
 	if (!pidzip) {
 		/* The child process executes the compression command */
-		execl(pgm_path, pgm_path, "-f", zwork->zw_fname, (char *)0);
-		err(1, "execl(`%s -f %s')", pgm_path, zwork->zw_fname);
+		execv(pgm_path, (char *const*) args);
+		err(1, "execv(`%s')", command);
 	}
 
 	wpid = waitpid(pidzip, &zstatus, 0);
@@ -2053,16 +2105,21 @@ do_zipwork(struct zipwork_entry *zwork)
 		return;
 	}
 	if (!WIFEXITED(zstatus)) {
-		warnx("`%s -f %s' did not terminate normally", pgm_name,
-		    zwork->zw_fname);
+		warnx("`%s' did not terminate normally", command);
+		free(args[0]);
+		free(args);
 		return;
 	}
 	if (WEXITSTATUS(zstatus)) {
-		warnx("`%s -f %s' terminated with a non-zero status (%d)",
-		    pgm_name, zwork->zw_fname, WEXITSTATUS(zstatus));
+		warnx("`%s' terminated with a non-zero status (%d)", command,
+		    WEXITSTATUS(zstatus));
+		free(args[0]);
+		free(args);
 		return;
 	}
 
+	free(args[0]);
+	free(args);
 	/* Compression was successful, set file attributes on the result. */
 	change_attrs(zresult, zwork->zw_conf);
 }
@@ -2101,7 +2158,7 @@ save_sigwork(const struct conf_entry *ent)
 
 	tmpsiz = sizeof(struct sigwork_entry) + strlen(ent->pid_cmd_file) + 1;
 	stmp = malloc(tmpsiz);
-	
+
 	stmp->sw_runcmd = 0;
 	/* If this is a command to run we just set the flag and run command */
 	if (ent->flags & CE_PID2CMD) {
@@ -2257,15 +2314,34 @@ log_trim(const char *logname, const struct conf_entry *log_ent)
 	xtra = "";
 	if (log_ent->def_cfg)
 		xtra = " using <default> rule";
-	if (log_ent->firstcreate)
-		fprintf(f, "%s %s newsyslog[%d]: logfile first created%s\n",
-		    daytime, hostname, (int) getpid(), xtra);
-	else if (log_ent->r_reason != NULL)
-		fprintf(f, "%s %s newsyslog[%d]: logfile turned over%s%s\n",
-		    daytime, hostname, (int) getpid(), log_ent->r_reason, xtra);
-	else
-		fprintf(f, "%s %s newsyslog[%d]: logfile turned over%s\n",
-		    daytime, hostname, (int) getpid(), xtra);
+	if (log_ent->flags & CE_RFC5424) {
+		if (log_ent->firstcreate) {
+			fprintf(f, "<%d>1 %s %s newsyslog %d - - %s%s\n",
+			    LOG_MAKEPRI(LOG_USER, LOG_INFO),
+			    daytime_rfc5424, hostname, getpid(),
+			    "logfile first created", xtra);
+		} else if (log_ent->r_reason != NULL) {
+			fprintf(f, "<%d>1 %s %s newsyslog %d - - %s%s%s\n",
+			    LOG_MAKEPRI(LOG_USER, LOG_INFO),
+			    daytime_rfc5424, hostname, getpid(),
+			    "logfile turned over", log_ent->r_reason, xtra);
+		} else {
+			fprintf(f, "<%d>1 %s %s newsyslog %d - - %s%s\n",
+			    LOG_MAKEPRI(LOG_USER, LOG_INFO),
+			    daytime_rfc5424, hostname, getpid(),
+			    "logfile turned over", xtra);
+		}
+	} else {
+		if (log_ent->firstcreate)
+			fprintf(f, "%s %s newsyslog[%d]: logfile first created%s\n",
+			    daytime, hostname, getpid(), xtra);
+		else if (log_ent->r_reason != NULL)
+			fprintf(f, "%s %s newsyslog[%d]: logfile turned over%s%s\n",
+			    daytime, hostname, getpid(), log_ent->r_reason, xtra);
+		else
+			fprintf(f, "%s %s newsyslog[%d]: logfile turned over%s\n",
+			    daytime, hostname, getpid(), xtra);
+	}
 	if (fclose(f) == EOF)
 		err(1, "log_trim: fclose");
 	return (0);

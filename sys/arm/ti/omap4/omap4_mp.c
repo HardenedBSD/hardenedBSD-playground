@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2012 Olivier Houchard.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,8 +43,8 @@ __FBSDID("$FreeBSD$");
 #include <machine/platformvar.h>
 
 #include <arm/ti/ti_smc.h>
+#include <arm/ti/omap4/omap4_machdep.h>
 #include <arm/ti/omap4/omap4_smc.h>
-#include <arm/ti/omap4/omap4_mp.h>
 
 void
 omap4_mp_setmaxid(platform_t plat)

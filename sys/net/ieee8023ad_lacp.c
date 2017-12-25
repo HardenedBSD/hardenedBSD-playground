@@ -1,6 +1,8 @@
 /*	$NetBSD: ieee8023ad_lacp.c,v 1.3 2005/12/11 12:24:54 christos Exp $	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ *
  * Copyright (c)2005 YAMAMOTO Takashi,
  * Copyright (c)2008 Andrew Thompson <thompsa@FreeBSD.org>
  * All rights reserved.
@@ -463,7 +465,11 @@ lacp_linkstate(struct lagg_port *lgp)
 	uint16_t old_key;
 
 	bzero((char *)&ifmr, sizeof(ifmr));
-	error = (*ifp->if_ioctl)(ifp, SIOCGIFMEDIA, (caddr_t)&ifmr);
+	error = (*ifp->if_ioctl)(ifp, SIOCGIFXMEDIA, (caddr_t)&ifmr);
+	if (error != 0) {
+		bzero((char *)&ifmr, sizeof(ifmr));
+		error = (*ifp->if_ioctl)(ifp, SIOCGIFMEDIA, (caddr_t)&ifmr);
+	}
 	if (error != 0)
 		return;
 

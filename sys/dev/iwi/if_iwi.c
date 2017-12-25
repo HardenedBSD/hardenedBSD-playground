@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2004, 2005
  *      Damien Bergamini <damien.bergamini@free.fr>. All rights reserved.
  * Copyright (c) 2005-2006 Sam Leffler, Errno Consulting
@@ -286,6 +288,7 @@ iwi_attach(device_t dev)
 	int i, error;
 
 	sc->sc_dev = dev;
+	sc->sc_ledevent = ticks;
 
 	IWI_LOCK_INIT(sc);
 	mbufq_init(&sc->sc_snd, ifqmaxlen);

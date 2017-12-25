@@ -50,9 +50,10 @@ struct qlnx_ivec {
 
 typedef struct qlnx_ivec qlnx_ivec_t;
 
-//#define QLNX_MAX_RSS	30
-#define QLNX_MAX_RSS	16
-#define QLNX_MAX_TC	1
+//#define QLNX_MAX_RSS		30
+#define QLNX_MAX_RSS		36
+#define QLNX_DEFAULT_RSS	16
+#define QLNX_MAX_TC		1
 
 enum QLNX_STATE {
         QLNX_STATE_CLOSED,
@@ -191,6 +192,7 @@ struct qlnx_fastpath {
 	struct mtx		tx_mtx;
 	char			tx_mtx_name[32];
 	struct buf_ring		*tx_br;
+	uint32_t		tx_ring_full;
 
 	struct task		fp_task;
 	struct taskqueue	*fp_taskqueue;
@@ -200,6 +202,17 @@ struct qlnx_fastpath {
 	uint64_t		tx_pkts_freed;
 	uint64_t		tx_pkts_transmitted;
 	uint64_t		tx_pkts_completed;
+	uint64_t		tx_tso_pkts;
+	uint64_t		tx_non_tso_pkts;
+
+#ifdef QLNX_TRACE_PERF_DATA
+	uint64_t		tx_pkts_trans_ctx;
+	uint64_t		tx_pkts_compl_ctx;
+	uint64_t		tx_pkts_trans_fp;
+	uint64_t		tx_pkts_compl_fp;
+	uint64_t		tx_pkts_compl_intr;
+#endif
+
 	uint64_t		tx_lso_wnd_min_len;
 	uint64_t		tx_defrag;
 	uint64_t		tx_nsegs_gt_elem_left;
@@ -208,6 +221,13 @@ struct qlnx_fastpath {
 	uint32_t		tx_tso_max_pkt_len;
 	uint32_t		tx_tso_min_pkt_len;
 	uint64_t		tx_pkts[QLNX_FP_MAX_SEGS];
+
+#ifdef QLNX_TRACE_PERF_DATA
+	uint64_t		tx_pkts_hist[QLNX_FP_MAX_SEGS];
+	uint64_t		tx_comInt[QLNX_FP_MAX_SEGS];
+	uint64_t		tx_pkts_q[QLNX_FP_MAX_SEGS];
+#endif
+
 	uint64_t		err_tx_nsegs_gt_elem_left;
         uint64_t                err_tx_dmamap_create;
         uint64_t                err_tx_defrag_dmamap_load;
@@ -300,7 +320,12 @@ typedef struct qlnx_link_output qlnx_link_output_t;
 #define QLNX_MFW_VERSION_LENGTH 32
 #define QLNX_STORMFW_VERSION_LENGTH 32
 
-#define QLNX_TX_ELEM_RESERVE	2
+#define QLNX_TX_ELEM_RESERVE		2
+#define QLNX_TX_ELEM_THRESH		128
+#define QLNX_TX_ELEM_MAX_THRESH		512
+#define QLNX_TX_ELEM_MIN_THRESH		32
+#define QLNX_TX_COMPL_THRESH		32
+
 
 #define QLNX_TPA_MAX_AGG_BUFFERS             (20)
 
@@ -364,6 +389,8 @@ struct qlnx_host {
 	/* debug */
 
 	uint32_t                dbg_level;
+	uint32_t                dbg_trace_lro_cnt;
+	uint32_t                dbg_trace_tso_pkt_len;
 	uint32_t                dp_level;
 	uint32_t                dp_module;
 
@@ -386,7 +413,6 @@ struct qlnx_host {
 
 	/* tx related */
 	struct callout		tx_callout;
-	struct mtx		tx_lock;
 	uint32_t		txr_idx;
 
 	/* rx related */
@@ -452,6 +478,7 @@ struct qlnx_host {
 	qlnx_storm_stats_t	storm_stats[QLNX_STORM_STATS_TOTAL];
 	uint32_t		storm_stats_index;
 	uint32_t		storm_stats_enable;
+	uint32_t		storm_stats_gather;
 
 	uint32_t		personality;
 };
@@ -459,7 +486,7 @@ struct qlnx_host {
 typedef struct qlnx_host qlnx_host_t;
 
 /* note that align has to be a power of 2 */
-#define QL_ALIGN(size, align) (size + (align - 1)) & ~(align - 1);
+#define QL_ALIGN(size, align) (((size) + ((align) - 1)) & (~((align) - 1)))
 #define QL_MIN(x, y) ((x < y) ? x : y)
 
 #define QL_RUNNING(ifp) \
@@ -468,7 +495,10 @@ typedef struct qlnx_host qlnx_host_t;
 
 #define QLNX_MAX_MTU			9000
 #define QLNX_MAX_SEGMENTS_NON_TSO	(ETH_TX_MAX_BDS_PER_NON_LSO_PACKET - 1)
-#define QLNX_MAX_TSO_FRAME_SIZE		((64 * 1024 - 1) + 22)
+//#define QLNX_MAX_TSO_FRAME_SIZE		((64 * 1024 - 1) + 22)
+#define QLNX_MAX_TSO_FRAME_SIZE		65536
+#define QLNX_MAX_TX_MBUF_SIZE		65536    /* bytes - bd_len = 16bits */
+
 
 #define QL_MAC_CMP(mac1, mac2)    \
         ((((*(uint32_t *) mac1) == (*(uint32_t *) mac2) && \
@@ -481,35 +511,141 @@ typedef struct qlnx_host qlnx_host_t;
 
 #ifdef QLNX_DEBUG
 
-#define QL_DPRINT1(ha, x)       if (ha->dbg_level & 0x0001) device_printf x
-#define QL_DPRINT2(ha, x)       if (ha->dbg_level & 0x0002) device_printf x
-#define QL_DPRINT3(ha, x)       if (ha->dbg_level & 0x0004) device_printf x
-#define QL_DPRINT4(ha, x)       if (ha->dbg_level & 0x0008) device_printf x
-#define QL_DPRINT5(ha, x)       if (ha->dbg_level & 0x0010) device_printf x
-#define QL_DPRINT6(ha, x)       if (ha->dbg_level & 0x0020) device_printf x
-#define QL_DPRINT7(ha, x)       if (ha->dbg_level & 0x0040) device_printf x
-#define QL_DPRINT8(ha, x)       if (ha->dbg_level & 0x0080) device_printf x
-#define QL_DPRINT9(ha, x)       if (ha->dbg_level & 0x0100) device_printf x
-#define QL_DPRINT11(ha, x)      if (ha->dbg_level & 0x0400) device_printf x
-#define QL_DPRINT12(ha, x)      if (ha->dbg_level & 0x0800) device_printf x
-#define QL_DPRINT13(ha, x)      if (ha->dbg_level & 0x1000) device_printf x
-#define QL_DPRINT14(ha, x)      if (ha->dbg_level & 0x2000) device_printf x
+#define QL_DPRINT1(ha, x, ...) 					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0001) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT2(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0002) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT3(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0004) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT4(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0008) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT5(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0010) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT6(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0020) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT7(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0040) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT8(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0080) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT9(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0100) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT11(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0400) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT12(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x0800) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
+#define QL_DPRINT13(ha, x, ...)					\
+	do { 							\
+		if ((ha)->dbg_level & 0x1000) {			\
+			device_printf ((ha)->pci_dev,		\
+				"[%s:%d]" x,			\
+				__func__, __LINE__,		\
+				## __VA_ARGS__);		\
+		}						\
+	} while (0)
+
 
 #else
 
-#define QL_DPRINT1(ha, x)
-#define QL_DPRINT2(ha, x)
-#define QL_DPRINT3(ha, x)
-#define QL_DPRINT4(ha, x)
-#define QL_DPRINT5(ha, x)
-#define QL_DPRINT6(ha, x)
-#define QL_DPRINT7(ha, x)
-#define QL_DPRINT8(ha, x)
-#define QL_DPRINT9(ha, x)
-#define QL_DPRINT11(ha, x)
-#define QL_DPRINT12(ha, x)
-#define QL_DPRINT13(ha, x)
-#define QL_DPRINT14(ha, x)
+#define QL_DPRINT1(ha, x, ...)
+#define QL_DPRINT2(ha, x, ...)
+#define QL_DPRINT3(ha, x, ...)
+#define QL_DPRINT4(ha, x, ...)
+#define QL_DPRINT5(ha, x, ...)
+#define QL_DPRINT6(ha, x, ...)
+#define QL_DPRINT7(ha, x, ...)
+#define QL_DPRINT8(ha, x, ...)
+#define QL_DPRINT9(ha, x, ...)
+#define QL_DPRINT11(ha, x, ...)
+#define QL_DPRINT12(ha, x, ...)
+#define QL_DPRINT13(ha, x, ...)
 
 #endif /* #ifdef QLNX_DEBUG */
 
@@ -580,8 +716,8 @@ extern void qlnx_fill_link(struct ecore_hwfn *hwfn,
 #endif /* #if __FreeBSD_version < 1100000 */
 
 #define CQE_L3_PACKET(flags)    \
-        ((((flags) & PARSING_AND_ERR_FLAGS_L3TYPE_MASK) == e_l3Type_ipv4) || \
-        (((flags) & PARSING_AND_ERR_FLAGS_L3TYPE_MASK) == e_l3Type_ipv6))
+        ((((flags) & PARSING_AND_ERR_FLAGS_L3TYPE_MASK) == e_l3_type_ipv4) || \
+        (((flags) & PARSING_AND_ERR_FLAGS_L3TYPE_MASK) == e_l3_type_ipv6))
 
 #define CQE_IP_HDR_ERR(flags) \
         ((flags) & (PARSING_AND_ERR_FLAGS_IPHDRERROR_MASK \
@@ -594,6 +730,18 @@ extern void qlnx_fill_link(struct ecore_hwfn *hwfn,
 #define CQE_HAS_VLAN(flags) \
         ((flags) & (PARSING_AND_ERR_FLAGS_TAG8021QEXIST_MASK \
                 << PARSING_AND_ERR_FLAGS_TAG8021QEXIST_SHIFT))
+
+#if defined(__i386__) || defined(__amd64__)
+
+static __inline
+void prefetch(void *x)
+{
+        __asm volatile("prefetcht0 %0" :: "m" (*(unsigned long *)x));
+}
+
+#else
+#define prefetch(x)
+#endif
 
 
 #endif /* #ifndef _QLNX_DEF_H_ */

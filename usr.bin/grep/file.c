@@ -3,6 +3,8 @@
 /*	$OpenBSD: file.c,v 1.11 2010/07/02 20:48:48 nicm Exp $	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
  * Copyright (C) 2008-2010 Gabor Kovesdan <gabor@FreeBSD.org>
  * Copyright (C) 2010 Dimitry Andric <dimitry@andric.com>
@@ -213,24 +215,24 @@ grep_fgetln(struct file *f, size_t *lenp)
 		if (grep_lnbufgrow(len + LNBUFBUMP))
 			goto error;
 		memcpy(lnbuf + off, bufpos, len - off);
+		/* With FILE_MMAP, this is EOF; there's no more to refill */
+		if (filebehave == FILE_MMAP) {
+			bufrem -= len;
+			break;
+		}
 		off = len;
+		/* Fetch more to try and find EOL/EOF */
 		if (grep_refill(f) != 0)
 			goto error;
 		if (bufrem == 0)
 			/* EOF: return partial line */
 			break;
-		if ((p = memchr(bufpos, fileeol, bufrem)) == NULL &&
-		    filebehave != FILE_MMAP)
+		if ((p = memchr(bufpos, fileeol, bufrem)) == NULL)
 			continue;
-		if (p == NULL) {
-			/* mmap EOF: return partial line, consume buffer */
-			diff = len;
-		} else {
-			/* got it: finish up the line (like code above) */
-			++p;
-			diff = p - bufpos;
-			len += diff;
-		}
+		/* got it: finish up the line (like code above) */
+		++p;
+		diff = p - bufpos;
+		len += diff;
 		if (grep_lnbufgrow(len))
 		    goto error;
 		memcpy(lnbuf + off, bufpos, diff);

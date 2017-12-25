@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2007 The DragonFly Project.  All rights reserved.
  * 
  * This code is derived from software contributed to The DragonFly Project
@@ -381,6 +383,7 @@ bwi_attach(struct bwi_softc *sc)
 	 */
 	sc->sc_fw_version = BWI_FW_VERSION3;
 	sc->sc_led_idle = (2350 * hz) / 1000;
+	sc->sc_led_ticks = ticks - sc->sc_led_idle;
 	sc->sc_led_blink = 1;
 	sc->sc_txpwr_calib = 1;
 #ifdef BWI_DEBUG

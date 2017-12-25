@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1987, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -245,11 +247,11 @@ linkit(const char *source, const char *target, int isdir)
 
 	/*
 	 * If the target is a directory (and not a symlink if hflag),
-	 * append the source's name.
+	 * append the source's name, unless Fflag is set.
 	 */
-	if (isdir ||
+	if (!Fflag && (isdir ||
 	    (lstat(target, &sb) == 0 && S_ISDIR(sb.st_mode)) ||
-	    (!hflag && stat(target, &sb) == 0 && S_ISDIR(sb.st_mode))) {
+	    (!hflag && stat(target, &sb) == 0 && S_ISDIR(sb.st_mode)))) {
 		if (strlcpy(bbuf, source, sizeof(bbuf)) >= sizeof(bbuf) ||
 		    (p = basename(bbuf)) == NULL ||
 		    snprintf(path, sizeof(path), "%s/%s", target, p) >=

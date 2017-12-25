@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1991, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -70,7 +72,7 @@ seek_offset(IO *io)
 	 *
 	 * Bail out if the calculation of a file offset would overflow.
 	 */
-	if ((io->flags & ISCHR) == 0 && n > OFF_MAX / (ssize_t)sz)
+	if ((io->flags & ISCHR) == 0 && (n < 0 || n > OFF_MAX / (ssize_t)sz))
 		errx(1, "seek offsets cannot be larger than %jd",
 		    (intmax_t)OFF_MAX);
 	else if ((io->flags & ISCHR) != 0 && (uint64_t)n > UINT64_MAX / sz)
@@ -207,7 +209,7 @@ pos_out(void)
 			n = write(out.fd, out.db, out.dbsz);
 			if (n == -1)
 				err(1, "%s", out.name);
-			if ((size_t)n != out.dbsz)
+			if (n != out.dbsz)
 				errx(1, "%s: write failure", out.name);
 		}
 		break;

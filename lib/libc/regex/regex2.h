@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1992, 1993, 1994 Henry Spencer.
  * Copyright (c) 1992, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -189,4 +191,5 @@ struct re_guts {
 
 /* misc utilities */
 #define	OUT	(CHAR_MIN - 1)	/* a non-character value */
+#define	IGN	(CHAR_MIN - 2)
 #define ISWORD(c)       (iswalnum((uch)(c)) || (c) == '_')

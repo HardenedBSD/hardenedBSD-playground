@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2007-2014 QLogic Corporation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -168,6 +170,7 @@ int bxe_ilog2(int x)
 #include "ecore_sp.h"
 
 #define BRCM_VENDORID 0x14e4
+#define	QLOGIC_VENDORID	0x1077
 #define PCI_ANY_ID    (uint16_t)(~0U)
 
 struct bxe_device_type

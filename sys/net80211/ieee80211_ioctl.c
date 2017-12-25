@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2001 Atsushi Onoe
  * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * All rights reserved.
@@ -2014,9 +2016,10 @@ setcurchan(struct ieee80211vap *vap, struct ieee80211_channel *c)
 			/* XXX need state machine for other vap's to follow */
 			ieee80211_setcurchan(ic, vap->iv_des_chan);
 			vap->iv_bss->ni_chan = ic->ic_curchan;
-		} else
+		} else {
 			ic->ic_curchan = vap->iv_des_chan;
 			ic->ic_rt = ieee80211_get_ratetable(ic->ic_curchan);
+		}
 	} else {
 		/*
 		 * Need to go through the state machine in case we

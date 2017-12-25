@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1986, 1989, 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  * (c) UNIX System Laboratories, Inc.
@@ -151,6 +153,10 @@ SYSCTL_INT(_kern_sigqueue, OID_AUTO, overflow, CTLFLAG_RD,
 static int	signal_alloc_fail = 0;
 SYSCTL_INT(_kern_sigqueue, OID_AUTO, alloc_fail, CTLFLAG_RD,
     &signal_alloc_fail, 0, "signals failed to be allocated");
+
+static int	kern_lognosys = 0;
+SYSCTL_INT(_kern, OID_AUTO, lognosys, CTLFLAG_RWTUN, &kern_lognosys, 0,
+    "Log invalid syscalls");
 
 SYSINIT(signal, SI_SUB_P1003_1B, SI_ORDER_FIRST+3, sigqueue_start, NULL);
 
@@ -931,7 +937,7 @@ osigreturn(struct thread *td, struct osigreturn_args *uap)
 void
 siginit(struct proc *p)
 {
-	register int i;
+	int i;
 	struct sigacts *ps;
 
 	PROC_LOCK(p);
@@ -1763,10 +1769,8 @@ sys_kill(struct thread *td, struct kill_args *uap)
 
 	if (uap->pid > 0) {
 		/* kill single process */
-		if ((p = pfind(uap->pid)) == NULL) {
-			if ((p = zpfind(uap->pid)) == NULL)
-				return (ESRCH);
-		}
+		if ((p = pfind_any(uap->pid)) == NULL)
+			return (ESRCH);
 		AUDIT_ARG_PROCESS(p);
 		error = p_cansignal(td, p, uap->signum);
 		if (error == 0 && uap->signum)
@@ -1870,10 +1874,8 @@ kern_sigqueue(struct thread *td, pid_t pid, int signum, union sigval *value)
 	if (pid <= 0)
 		return (EINVAL);
 
-	if ((p = pfind(pid)) == NULL) {
-		if ((p = zpfind(pid)) == NULL)
-			return (ESRCH);
-	}
+	if ((p = pfind_any(pid)) == NULL)
+		return (ESRCH);
 	error = p_cansignal(td, p, signum);
 	if (error == 0 && signum != 0) {
 		ksiginfo_init(&ksi);
@@ -2394,7 +2396,7 @@ static void
 tdsigwakeup(struct thread *td, int sig, sig_t action, int intrval)
 {
 	struct proc *p = td->td_proc;
-	register int prop;
+	int prop;
 	int wakeup_swapper;
 
 	wakeup_swapper = 0;
@@ -2784,15 +2786,15 @@ issignal(struct thread *td)
 	struct sigacts *ps;
 	struct sigqueue *queue;
 	sigset_t sigpending;
-	int sig, prop;
 	ksiginfo_t ksi;
+	int prop, sig, traced;
 
 	p = td->td_proc;
 	ps = p->p_sigacts;
 	mtx_assert(&ps->ps_mtx, MA_OWNED);
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	for (;;) {
-		int traced = (p->p_flag & P_TRACED) || (p->p_stops & S_SIG);
+		traced = (p->p_flag & P_TRACED) || (p->p_stops & S_SIG);
 
 		sigpending = td->td_sigqueue.sq_signals;
 		SIGSETOR(sigpending, p->p_sigqueue.sq_signals);
@@ -2853,15 +2855,32 @@ issignal(struct thread *td)
 			mtx_lock(&ps->ps_mtx);
 
 			/* 
-			 * Keep looking if the debugger discarded the signal
-			 * or replaced it with a masked signal.
-			 *
-			 * If the traced bit got turned off, go back up
-			 * to the top to rescan signals.  This ensures
-			 * that p_sig* and p_sigact are consistent.
+			 * Keep looking if the debugger discarded or
+			 * replaced the signal.
 			 */
-			if (sig == 0 || (p->p_flag & P_TRACED) == 0)
+			if (sig == 0)
 				continue;
+
+			/*
+			 * If the signal became masked, re-queue it.
+			 */
+			if (SIGISMEMBER(td->td_sigmask, sig)) {
+				ksi.ksi_flags |= KSI_HEAD;
+				sigqueue_add(&p->p_sigqueue, sig, &ksi);
+				continue;
+			}
+
+			/*
+			 * If the traced bit got turned off, requeue
+			 * the signal and go back up to the top to
+			 * rescan signals.  This ensures that p_sig*
+			 * and p_sigact are consistent.
+			 */
+			if ((p->p_flag & P_TRACED) == 0) {
+				ksi.ksi_flags |= KSI_HEAD;
+				sigqueue_add(queue, sig, &ksi);
+				continue;
+			}
 		}
 
 		prop = sigprop(sig);
@@ -2980,11 +2999,10 @@ thread_stopped(struct proc *p)
  * from the current set of pending signals.
  */
 int
-postsig(sig)
-	register int sig;
+postsig(int sig)
 {
-	struct thread *td = curthread;
-	struct proc *p = td->td_proc;
+	struct thread *td;
+	struct proc *p;
 	struct sigacts *ps;
 	sig_t action;
 	ksiginfo_t ksi;
@@ -2992,6 +3010,8 @@ postsig(sig)
 
 	KASSERT(sig != 0, ("postsig"));
 
+	td = curthread;
+	p = td->td_proc;
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	ps = p->p_sigacts;
 	mtx_assert(&ps->ps_mtx, MA_OWNED);
@@ -3008,7 +3028,7 @@ postsig(sig)
 		ktrpsig(sig, action, td->td_pflags & TDP_OLDMASK ?
 		    &td->td_oldsigmask : &td->td_sigmask, ksi.ksi_code);
 #endif
-	if (p->p_stops & S_SIG) {
+	if ((p->p_stops & S_SIG) != 0) {
 		mtx_unlock(&ps->ps_mtx);
 		stopevent(p, S_SIG, sig);
 		mtx_lock(&ps->ps_mtx);
@@ -3027,8 +3047,10 @@ postsig(sig)
 		/*
 		 * If we get here, the signal must be caught.
 		 */
-		KASSERT(action != SIG_IGN && !SIGISMEMBER(td->td_sigmask, sig),
-		    ("postsig action"));
+		KASSERT(action != SIG_IGN, ("postsig action %p", action));
+		KASSERT(!SIGISMEMBER(td->td_sigmask, sig),
+		    ("postsig action: blocked sig %d", sig));
+
 		/*
 		 * Set the new mask value and also defer further
 		 * occurrences of this signal.
@@ -3581,11 +3603,21 @@ struct nosys_args {
 int
 nosys(struct thread *td, struct nosys_args *args)
 {
-	struct proc *p = td->td_proc;
+	struct proc *p;
+
+	p = td->td_proc;
 
 	PROC_LOCK(p);
 	tdsignal(td, SIGSYS);
 	PROC_UNLOCK(p);
+	if (kern_lognosys == 1 || kern_lognosys == 3) {
+		uprintf("pid %d comm %s: nosys %d\n", p->p_pid, p->p_comm,
+		    td->td_sa.code);
+	}
+	if (kern_lognosys == 2 || kern_lognosys == 3) {
+		printf("pid %d comm %s: nosys %d\n", p->p_pid, p->p_comm,
+		    td->td_sa.code);
+	}
 	return (ENOSYS);
 }
 

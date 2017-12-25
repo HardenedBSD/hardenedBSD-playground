@@ -41,7 +41,13 @@ ${PACKAGE}FILESDIR=	${TESTSDIR}
 PROGS+=			h_tools
 BINDIR.h_tools=		${TESTSDIR}
 
+# NOTE: dev_t is represented by 64-bits after r321920 (it was 16-bits
+# previously).
+#
+# The old hardcoded values assume the 16-bit layout for <struct stat>.st_rdev .
 ATF_TESTS_SH_SED_mknod_test=		\
+					-e '/$${st_rdev} -eq 512/s/512/8589934592/g' \
+					-e '/$${st_rdev} -eq 514/s/514/8589934594/g' \
 					-e 's,mknod pipe p,mkfifo pipe,g' \
 					-e 's,mknod dir/pipe p,mkfifo dir/pipe,g'
 
@@ -54,6 +60,9 @@ ATF_TESTS_SH_SED_mount_test=		\
 ATF_TESTS_SH_SED_readdir_test=		-e 's,mknod fifo p,mkfifo fifo,g'
 ATF_TESTS_SH_SED_sizes_test=		-e 's,-o -s,-o size=,g'
 ATF_TESTS_SH_SED_statvfs_test=		-e 's,-o -s,-o size=,g'
+ATF_TESTS_SH_SED_vnd_test=		\
+					-e 's,vndconfig -u /dev/vnd3,mdconfig -d -u $$md_dev,g' \
+					-e 's,/dev/vnd3,/dev/$$md_dev,g'
 ATF_TESTS_SH_SED_vnode_leak_test=	-e 's,-o -s,-o size=,g'
 
 .include <netbsd-tests.test.mk>

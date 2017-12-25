@@ -59,6 +59,8 @@ __FBSDID("$FreeBSD$");
 #include <dev/mmc/host/dwmmc_reg.h>
 #include <dev/mmc/host/dwmmc_var.h>
 
+#include "opt_mmccam.h"
+
 #include "mmcbr_if.h"
 
 #define dprintf(x, arg...)
@@ -749,12 +751,10 @@ static int
 dma_prepare(struct dwmmc_softc *sc, struct mmc_command *cmd)
 {
 	struct mmc_data *data;
-	int len;
 	int err;
 	int reg;
 
 	data = cmd->data;
-	len = data->len;
 
 	reg = READ4(sc, SDMMC_INTMASK);
 	reg &= ~(SDMMC_INTMASK_TXDR | SDMMC_INTMASK_RXDR);
@@ -1181,4 +1181,6 @@ static devclass_t dwmmc_devclass;
 
 DRIVER_MODULE(dwmmc, simplebus, dwmmc_driver, dwmmc_devclass, NULL, NULL);
 DRIVER_MODULE(dwmmc, ofwbus, dwmmc_driver, dwmmc_devclass, NULL, NULL);
+#ifndef MMCCAM
 MMC_DECLARE_BRIDGE(dwmmc);
+#endif

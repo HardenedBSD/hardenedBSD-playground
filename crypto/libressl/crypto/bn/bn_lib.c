@@ -1,4 +1,4 @@
-/* $OpenBSD: bn_lib.c,v 1.35 2016/03/04 16:23:30 deraadt Exp $ */
+/* $OpenBSD: bn_lib.c,v 1.38 2017/05/02 03:59:44 deraadt Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -220,10 +220,8 @@ BN_clear_free(BIGNUM *a)
 	if (a == NULL)
 		return;
 	bn_check_top(a);
-	if (a->d != NULL && !(BN_get_flags(a, BN_FLG_STATIC_DATA))) {
-		explicit_bzero(a->d, a->dmax * sizeof(a->d[0]));
-		free(a->d);
-	}
+	if (a->d != NULL && !(BN_get_flags(a, BN_FLG_STATIC_DATA)))
+		freezero(a->d, a->dmax * sizeof(a->d[0]));
 	i = BN_get_flags(a, BN_FLG_MALLOCED);
 	explicit_bzero(a, sizeof(BIGNUM));
 	if (i)
@@ -249,7 +247,7 @@ BN_new(void)
 	BIGNUM *ret;
 
 	if ((ret = malloc(sizeof(BIGNUM))) == NULL) {
-		BNerr(BN_F_BN_NEW, ERR_R_MALLOC_FAILURE);
+		BNerror(ERR_R_MALLOC_FAILURE);
 		return (NULL);
 	}
 	ret->flags = BN_FLG_MALLOCED;
@@ -273,17 +271,16 @@ bn_expand_internal(const BIGNUM *b, int words)
 	bn_check_top(b);
 
 	if (words > (INT_MAX/(4*BN_BITS2))) {
-		BNerr(BN_F_BN_EXPAND_INTERNAL, BN_R_BIGNUM_TOO_LONG);
+		BNerror(BN_R_BIGNUM_TOO_LONG);
 		return NULL;
 	}
 	if (BN_get_flags(b, BN_FLG_STATIC_DATA)) {
-		BNerr(BN_F_BN_EXPAND_INTERNAL,
-		    BN_R_EXPAND_ON_STATIC_BIGNUM_DATA);
+		BNerror(BN_R_EXPAND_ON_STATIC_BIGNUM_DATA);
 		return (NULL);
 	}
 	a = A = reallocarray(NULL, words, sizeof(BN_ULONG));
 	if (A == NULL) {
-		BNerr(BN_F_BN_EXPAND_INTERNAL, ERR_R_MALLOC_FAILURE);
+		BNerror(ERR_R_MALLOC_FAILURE);
 		return (NULL);
 	}
 #if 1
@@ -394,10 +391,8 @@ bn_expand2(BIGNUM *b, int words)
 		BN_ULONG *a = bn_expand_internal(b, words);
 		if (!a)
 			return NULL;
-		if (b->d) {
-			explicit_bzero(b->d, b->dmax * sizeof(b->d[0]));
-			free(b->d);
-		}
+		if (b->d)
+			freezero(b->d, b->dmax * sizeof(b->d[0]));
 		b->d = a;
 		b->dmax = words;
 	}

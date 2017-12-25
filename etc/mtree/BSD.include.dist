@@ -90,6 +90,8 @@
     cam
         ata
         ..
+        mmc
+        ..
         nvme
         ..
         scsi
@@ -155,8 +157,6 @@
         speaker
         ..
         usb
-        ..
-        utopia
         ..
         vkbd
         ..
@@ -236,7 +236,7 @@
     gssapi
     ..
     infiniband
-        complib 
+        complib
         ..
         iba
         ..

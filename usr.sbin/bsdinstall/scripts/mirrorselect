@@ -67,7 +67,9 @@ DEVEL|PLAYGROUND)
 	    0 0 0 \
 		http://installer.hardenedbsd.org	"Main Site (NYI)"\
 		http://ipv6.installer.hardenedbsd.org 	"IPv6 Main Site (NYI)"\
-		http://fr-01.installer.hardenedbsd.org	"France Mirror Site"\
+		http://ca-01.installer.hardenedbsd.org	"Canada Mirror Site"\
+		http://dk-01.installer.hardenedbsd.org	"Denmark Mirror Site"\
+		http://pub.allbsd.org			"Japan Mirror Site" \
 	    2>&1 1>&3`
 	MIRROR_BUTTON=$?
 	exec 3>&-
@@ -95,7 +97,9 @@ DEVEL|PLAYGROUND)
 	    0 0 0 \
 		http://installer.hardenedbsd.org	"Main Site (NYI)"\
 		http://ipv6.installer.hardenedbsd.org 	"IPv6 Main Site (NYI)"\
-		http://fr-01.installer.hardenedbsd.org	"France Mirror Site"\
+		http://ca-01.installer.hardenedbsd.org	"Canada Mirror Site"\
+		http://dk-01.installer.hardenedbsd.org	"Denmark Mirror Site"\
+		http://pub.allbsd.org			"Japan Mirror Site" \
 	    2>&1 1>&3`
 	MIRROR_BUTTON=$?
 	exec 3>&-

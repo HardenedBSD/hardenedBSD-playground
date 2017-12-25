@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1992, 1993
  *	Regents of the University of California.  All rights reserved.
  *
@@ -140,7 +142,6 @@ void	intpr(void (*)(char *), int);
 
 void	pr_family(int);
 void	rt_stats(void);
-void	flowtable_stats(void);
 
 char	*routename(struct sockaddr *, int);
 const char *netname(struct sockaddr *, struct sockaddr *);

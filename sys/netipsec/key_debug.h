@@ -2,6 +2,8 @@
 /*	$KAME: key_debug.h,v 1.10 2001/08/05 08:37:52 itojun Exp $	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * All rights reserved.
  *
@@ -53,10 +55,14 @@
 #define KEYDEBUG_IPSEC_DATA	(KEYDEBUG_IPSEC | KEYDEBUG_DATA)
 #define KEYDEBUG_IPSEC_DUMP	(KEYDEBUG_IPSEC | KEYDEBUG_DUMP)
 
+#ifdef IPSEC_DEBUG
 #define KEYDBG(lev, arg)	\
     if ((V_key_debug_level & (KEYDEBUG_ ## lev)) == (KEYDEBUG_ ## lev)) { \
 	    arg;		\
     }
+#else
+#define	KEYDBG(lev, arg)
+#endif /* !IPSEC_DEBUG */
 
 VNET_DECLARE(uint32_t, key_debug_level);
 #define	V_key_debug_level	VNET(key_debug_level)

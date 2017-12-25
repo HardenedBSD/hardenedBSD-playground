@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -215,6 +217,7 @@ iso_mountfs(devvp, mp)
 	int iso_bsize;
 	int iso_blknum;
 	int joliet_level;
+	int isverified = 0;
 	struct iso_volume_descriptor *vdp = NULL;
 	struct iso_primary_descriptor *pri = NULL;
 	struct iso_sierra_primary_descriptor *pri_sierra = NULL;
@@ -229,6 +232,8 @@ iso_mountfs(devvp, mp)
 	dev_ref(dev);
 	g_topology_lock();
 	error = g_vfs_open(devvp, &cp, "cd9660", 0);
+	if (error == 0)
+		g_getattr("MNT::verified", cp, &isverified);
 	g_topology_unlock();
 	VOP_UNLOCK(devvp, 0);
 	if (error)
@@ -377,6 +382,8 @@ iso_mountfs(devvp, mp)
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
 	mp->mnt_maxsymlinklen = 0;
 	MNT_ILOCK(mp);
+	if (isverified)
+		mp->mnt_flag |= MNT_VERIFIED;
 	mp->mnt_flag |= MNT_LOCAL;
 	mp->mnt_kern_flag |= MNTK_LOOKUP_SHARED | MNTK_EXTENDED_SHARED;
 	MNT_IUNLOCK(mp);
@@ -673,7 +680,6 @@ cd9660_vget_internal(mp, ino, flags, vpp, relocated, isodir)
 	struct iso_node *ip;
 	struct buf *bp;
 	struct vnode *vp;
-	struct cdev *dev;
 	int error;
 	struct thread *td;
 
@@ -700,7 +706,6 @@ cd9660_vget_internal(mp, ino, flags, vpp, relocated, isodir)
 	 */
 
 	imp = VFSTOISOFS(mp);
-	dev = imp->im_dev;
 
 	/* Allocate a new vnode/iso_node. */
 	if ((error = getnewvnode("isofs", mp, &cd9660_vnodeops, &vp)) != 0) {

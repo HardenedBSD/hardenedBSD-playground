@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2009 David Schultz <das@FreeBSD.org>
  * All rights reserved.
  *
@@ -112,7 +114,7 @@ getdelim(char ** __restrict linep, size_t * __restrict linecapp, int delim,
 	u_char *endp;
 	size_t linelen;
 
-	FLOCKFILE(fp);
+	FLOCKFILE_CANCELSAFE(fp);
 	ORIENT(fp, -1);
 
 	if (linep == NULL || linecapp == NULL) {
@@ -127,9 +129,9 @@ getdelim(char ** __restrict linep, size_t * __restrict linecapp, int delim,
 		/* If fp is at EOF already, we just need space for the NUL. */
 		if (!__sfeof(fp) || expandtofit(linep, 1, linecapp))
 			goto error;
-		FUNLOCKFILE(fp);
 		(*linep)[0] = '\0';
-		return (-1);
+		linelen = -1;
+		goto end;
 	}
 
 	linelen = 0;
@@ -150,11 +152,12 @@ getdelim(char ** __restrict linep, size_t * __restrict linecapp, int delim,
 done:
 	/* Invariant: *linep has space for at least linelen+1 bytes. */
 	(*linep)[linelen] = '\0';
-	FUNLOCKFILE(fp);
+end:
+	FUNLOCKFILE_CANCELSAFE();
 	return (linelen);
 
 error:
 	fp->_flags |= __SERR;
-	FUNLOCKFILE(fp);
-	return (-1);
+	linelen = -1;
+	goto end;
 }

@@ -22,6 +22,7 @@ LDIRS=	BSD_daemon \
 	drivers \
 	etc \
 	find_interface \
+	hardenedbsd \
 	indent \
 	ipfw \
 	jails \
@@ -70,6 +71,7 @@ XFILES=	BSD_daemon/FreeBSD.pfa \
 	find_interface/Makefile \
 	find_interface/README \
 	find_interface/find_interface.c \
+	hardenedbsd/hbsdcontrol.sh \
 	indent/indent.pro \
 	ipfw/change_rules.sh \
 	jails/README \
@@ -133,7 +135,6 @@ XFILES=	BSD_daemon/FreeBSD.pfa \
 	ppp/ppp.secret.sample \
 	ppp/ppp.secret.span-isp \
 	ppp/ppp.secret.span-isp.working \
-	printing/README \
 	printing/diablo-if-net \
 	printing/hpdf \
 	printing/hpif \
@@ -237,8 +238,6 @@ copies:
 		rm -f ${DESTDIR}${BINDIR}/$i; \
 	fi
 .endfor
-	mtree -deU ${MTREE_FOLLOWS_SYMLINKS} \
-	    -f ${SRCTOP}/etc/mtree/BSD.usr.dist -p ${DESTDIR}/usr
 .for file in ${XFILES}
 	${INSTALL} -T package=${PACKAGE_${file}:Uexamples} -o ${SHAREOWN} -g ${SHAREGRP} -m ${SHAREMODE} \
 		${.CURDIR}/${file} ${DESTDIR}${BINDIR}/${file}
@@ -265,9 +264,8 @@ SUBDIR+=pf
 .endif
 .endif
 
-.if ${MK_TESTS} != "no"
-SUBDIR+=tests
-.endif
+HAS_TESTS=
+SUBDIR.${MK_TESTS}+= tests
 
 SUBDIR_PARALLEL=
 

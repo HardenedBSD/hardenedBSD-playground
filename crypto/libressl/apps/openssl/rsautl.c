@@ -1,4 +1,4 @@
-/* $OpenBSD: rsautl.c,v 1.9 2015/10/17 07:51:10 semarie Exp $ */
+/* $OpenBSD: rsautl.c,v 1.12 2017/08/28 17:50:58 jsing Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -99,7 +99,7 @@ rsautl_main(int argc, char **argv)
 	int ret = 1;
 
 	if (single_execution) {
-		if (pledge("stdio rpath wpath cpath tty", NULL) == -1) {
+		if (pledge("stdio cpath wpath rpath tty", NULL) == -1) {
 			perror("pledge");
 			exit(1);
 		}
@@ -148,8 +148,6 @@ rsautl_main(int argc, char **argv)
 			pad = RSA_NO_PADDING;
 		else if (!strcmp(*argv, "-oaep"))
 			pad = RSA_PKCS1_OAEP_PADDING;
-		else if (!strcmp(*argv, "-ssl"))
-			pad = RSA_SSLV23_PADDING;
 		else if (!strcmp(*argv, "-pkcs"))
 			pad = RSA_PKCS1_PADDING;
 		else if (!strcmp(*argv, "-x931"))

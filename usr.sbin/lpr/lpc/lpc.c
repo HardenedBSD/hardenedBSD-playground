@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -197,7 +199,7 @@ cmdscanner(void)
 		makeargv();
 		if (margc == 0)
 			continue;
-		if (el != NULL && el_parse(el, margc, margv) != -1)
+		if (el != NULL && el_parse(el, margc, (const char **)margv) != -1)
 			continue;
 
 		c = getcmd(margv[0]);

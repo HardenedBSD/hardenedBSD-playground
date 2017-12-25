@@ -68,7 +68,10 @@ __FBSDID("$FreeBSD$");
 #include <dev/usb/usbdi.h>
 #include "usbdevs.h"
 
+#include <dev/rtwn/if_rtwn_ridx.h>	/* XXX */
 #include <dev/usb/wlan/if_rsureg.h>
+
+#define RSU_RATE_IS_CCK	RTWN_RATE_IS_CCK
 
 #ifdef USB_DEBUG
 static int rsu_debug = 0;
@@ -2031,6 +2034,8 @@ rsu_hwrssi_to_rssi(struct rsu_softc *sc, int hw_rssi)
 	return (v);
 }
 
+CTASSERT(MCLBYTES > sizeof(struct ieee80211_frame));
+
 static void
 rsu_event_survey(struct rsu_softc *sc, uint8_t *buf, int len)
 {
@@ -2039,28 +2044,31 @@ rsu_event_survey(struct rsu_softc *sc, uint8_t *buf, int len)
 	struct ndis_wlan_bssid_ex *bss;
 	struct ieee80211_rx_stats rxs;
 	struct mbuf *m;
-	int pktlen;
+	uint32_t ieslen;
+	uint32_t pktlen;
 
 	if (__predict_false(len < sizeof(*bss)))
 		return;
 	bss = (struct ndis_wlan_bssid_ex *)buf;
-	if (__predict_false(len < sizeof(*bss) + le32toh(bss->ieslen)))
+	ieslen = le32toh(bss->ieslen);
+	/* range check length of information element */
+	if (__predict_false(ieslen > (uint32_t)(len - sizeof(*bss))))
 		return;
 
 	RSU_DPRINTF(sc, RSU_DEBUG_SCAN,
 	    "%s: found BSS %s: len=%d chan=%d inframode=%d "
 	    "networktype=%d privacy=%d, RSSI=%d\n",
 	    __func__,
-	    ether_sprintf(bss->macaddr), le32toh(bss->len),
+	    ether_sprintf(bss->macaddr), ieslen,
 	    le32toh(bss->config.dsconfig), le32toh(bss->inframode),
 	    le32toh(bss->networktype), le32toh(bss->privacy),
 	    le32toh(bss->rssi));
 
 	/* Build a fake beacon frame to let net80211 do all the parsing. */
 	/* XXX TODO: just call the new scan API methods! */
-	pktlen = sizeof(*wh) + le32toh(bss->ieslen);
-	if (__predict_false(pktlen > MCLBYTES))
+	if (__predict_false(ieslen > (size_t)(MCLBYTES - sizeof(*wh))))
 		return;
+	pktlen = sizeof(*wh) + ieslen;
 	m = m_get2(pktlen, M_NOWAIT, MT_DATA, M_PKTHDR);
 	if (__predict_false(m == NULL))
 		return;
@@ -2073,7 +2081,7 @@ rsu_event_survey(struct rsu_softc *sc, uint8_t *buf, int len)
 	IEEE80211_ADDR_COPY(wh->i_addr2, bss->macaddr);
 	IEEE80211_ADDR_COPY(wh->i_addr3, bss->macaddr);
 	*(uint16_t *)wh->i_seq = 0;
-	memcpy(&wh[1], (uint8_t *)&bss[1], le32toh(bss->ieslen));
+	memcpy(&wh[1], (uint8_t *)&bss[1], ieslen);
 
 	/* Finalize mbuf. */
 	m->m_pkthdr.len = m->m_len = pktlen;
@@ -2377,44 +2385,6 @@ rsu_rx_frame(struct rsu_softc *sc, struct mbuf *m)
 		rssi = rsu_hwrssi_to_rssi(sc, sc->sc_currssi);
 	}
 
-	if (ieee80211_radiotap_active(ic)) {
-		struct rsu_rx_radiotap_header *tap = &sc->sc_rxtap;
-
-		/* Map HW rate index to 802.11 rate. */
-		tap->wr_flags = 0;		/* TODO */
-		tap->wr_tsft = rsu_get_tsf_high(sc);
-		if (le32toh(stat->tsf_low) > rsu_get_tsf_low(sc))
-			tap->wr_tsft--;
-		tap->wr_tsft = (uint64_t)htole32(tap->wr_tsft) << 32;
-		tap->wr_tsft += stat->tsf_low;
-
-		if (rate < 12) {
-			switch (rate) {
-			/* CCK. */
-			case  0: tap->wr_rate =   2; break;
-			case  1: tap->wr_rate =   4; break;
-			case  2: tap->wr_rate =  11; break;
-			case  3: tap->wr_rate =  22; break;
-			/* OFDM. */
-			case  4: tap->wr_rate =  12; break;
-			case  5: tap->wr_rate =  18; break;
-			case  6: tap->wr_rate =  24; break;
-			case  7: tap->wr_rate =  36; break;
-			case  8: tap->wr_rate =  48; break;
-			case  9: tap->wr_rate =  72; break;
-			case 10: tap->wr_rate =  96; break;
-			case 11: tap->wr_rate = 108; break;
-			}
-		} else {			/* MCS0~15. */
-			/* Bit 7 set means HT MCS instead of rate. */
-			tap->wr_rate = 0x80 | (rate - 12);
-		}
-
-		tap->wr_dbm_antsignal = rssi;
-		tap->wr_chan_freq = htole16(ic->ic_curchan->ic_freq);
-		tap->wr_chan_flags = htole16(ic->ic_curchan->ic_flags);
-	};
-
 	/* Hardware does Rx TCP checksum offload. */
 	/*
 	 * This flag can be set for some other
@@ -2460,64 +2430,33 @@ rsu_rx_frame(struct rsu_softc *sc, struct mbuf *m)
 	rxs.c_nf = -96;
 
 	/* Rate */
-	if (!(rxdw3 & R92S_RXDW3_HTC)) {
-		switch (rate) {
-		/* CCK. */
-		case 0:
-			rxs.c_rate = 2;
+	if (rate < 12) {
+		rxs.c_rate = ridx2rate[rate];
+		if (RSU_RATE_IS_CCK(rate))
 			rxs.c_pktflags |= IEEE80211_RX_F_CCK;
-			break;
-		case 1:
-			rxs.c_rate = 4;
-			rxs.c_pktflags |= IEEE80211_RX_F_CCK;
-			break;
-		case 2:
-			rxs.c_rate = 11;
-			rxs.c_pktflags |= IEEE80211_RX_F_CCK;
-			break;
-		case 3:
-			rxs.c_rate = 22;
-			rxs.c_pktflags |= IEEE80211_RX_F_CCK;
-			break;
-		/* OFDM. */
-		case 4:
-			rxs.c_rate = 12;
+		else
 			rxs.c_pktflags |= IEEE80211_RX_F_OFDM;
-			break;
-		case 5:
-			rxs.c_rate = 18;
-			rxs.c_pktflags |= IEEE80211_RX_F_OFDM;
-			break;
-		case 6:
-			rxs.c_rate = 24;
-			rxs.c_pktflags |= IEEE80211_RX_F_OFDM;
-			break;
-		case 7:
-			rxs.c_rate = 36;
-			rxs.c_pktflags |= IEEE80211_RX_F_OFDM;
-			break;
-		case 8:
-			rxs.c_rate = 48;
-			rxs.c_pktflags |= IEEE80211_RX_F_OFDM;
-			break;
-		case 9:
-			rxs.c_rate = 72;
-			rxs.c_pktflags |= IEEE80211_RX_F_OFDM;
-			break;
-		case 10:
-			rxs.c_rate = 96;
-			rxs.c_pktflags |= IEEE80211_RX_F_OFDM;
-			break;
-		case 11:
-			rxs.c_rate = 108;
-			rxs.c_pktflags |= IEEE80211_RX_F_OFDM;
-			break;
-		}
-	} else if (rate >= 12) {	/* MCS0~15. */
-		/* Bit 7 set means HT MCS instead of rate. */
-		rxs.c_rate = (rate - 12);
+	} else {
+		rxs.c_rate = IEEE80211_RATE_MCS | (rate - 12);
 		rxs.c_pktflags |= IEEE80211_RX_F_HT;
 	}
+
+	if (ieee80211_radiotap_active(ic)) {
+		struct rsu_rx_radiotap_header *tap = &sc->sc_rxtap;
+
+		/* Map HW rate index to 802.11 rate. */
+		tap->wr_flags = 0;		/* TODO */
+		tap->wr_tsft = rsu_get_tsf_high(sc);
+		if (le32toh(stat->tsf_low) > rsu_get_tsf_low(sc))
+			tap->wr_tsft--;
+		tap->wr_tsft = (uint64_t)htole32(tap->wr_tsft) << 32;
+		tap->wr_tsft += stat->tsf_low;
+
+		tap->wr_rate = rxs.c_rate;
+		tap->wr_dbm_antsignal = rssi;
+		tap->wr_chan_freq = htole16(ic->ic_curchan->ic_freq);
+		tap->wr_chan_flags = htole16(ic->ic_curchan->ic_flags);
+	};
 
 	(void) ieee80211_add_rx_params(m, &rxs);
 
@@ -3373,6 +3312,8 @@ rsu_fw_loadsection(struct rsu_softc *sc, const uint8_t *buf, int len)
 	return (0);
 }
 
+CTASSERT(sizeof(size_t) >= sizeof(uint32_t));
+
 static int
 rsu_load_firmware(struct rsu_softc *sc)
 {
@@ -3380,7 +3321,7 @@ rsu_load_firmware(struct rsu_softc *sc)
 	struct r92s_fw_priv *dmem;
 	struct ieee80211com *ic = &sc->sc_ic;
 	const uint8_t *imem, *emem;
-	int imemsz, ememsz;
+	uint32_t imemsz, ememsz;
 	const struct firmware *fw;
 	size_t size;
 	uint32_t reg;
@@ -3432,7 +3373,8 @@ rsu_load_firmware(struct rsu_softc *sc)
 	imemsz = le32toh(hdr->imemsz);
 	ememsz = le32toh(hdr->sramsz);
 	/* Check that all FW sections fit in image. */
-	if (size < sizeof(*hdr) + imemsz + ememsz) {
+	if (imemsz > (size_t)(size - sizeof(*hdr)) ||
+	    ememsz > (size_t)(size - sizeof(*hdr) - imemsz)) {
 		device_printf(sc->sc_dev, "firmware too short\n");
 		error = EINVAL;
 		goto fail;

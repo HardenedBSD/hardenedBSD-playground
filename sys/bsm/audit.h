@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2005-2009 Apple Inc.
  * Copyright (c) 2016 Robert N. M. Watson
  * All rights reserved.
@@ -183,13 +185,13 @@ typedef	u_int32_t	au_class_t;
 typedef	u_int64_t	au_asflgs_t __attribute__ ((aligned (8)));
 
 struct au_tid {
-	dev_t		port;
+	u_int32_t	port;		/* XXX dev_t compatibility */
 	u_int32_t	machine;
 };
 typedef	struct au_tid	au_tid_t;
 
 struct au_tid_addr {
-	dev_t		at_port;
+	u_int32_t	at_port;	/* XXX dev_t compatibility */
 	u_int32_t	at_type;
 	u_int32_t	at_addr[4];
 };

@@ -13,6 +13,7 @@ case $host_os in
 		;;
 	*cygwin*)
 		HOST_OS=cygwin
+		CPPFLAGS="$CPPFLAGS -D_GNU_SOURCE"
 		;;
 	*darwin*)
 		HOST_OS=darwin
@@ -106,13 +107,12 @@ char buf[1]; getentropy(buf, 1);
 		CPPFLAGS="$CPPFLAGS -D_REENTRANT -D_POSIX_THREAD_SAFE_FUNCTIONS"
 		CPPFLAGS="$CPPFLAGS -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0501"
 		CPPFLAGS="$CPPFLAGS -DOPENSSL_NO_SPEED"
-		CFLAGS="$CFLAGS -static-libgcc"
-		LDFLAGS="$LDFLAGS -static-libgcc"
 		AC_SUBST([PLATFORM_LDADD], ['-lws2_32'])
 		;;
 	*solaris*)
 		HOST_OS=solaris
 		HOST_ABI=elf
+		CFLAGS="$CFLAGS -m64"
 		CPPFLAGS="$CPPFLAGS -D__EXTENSIONS__ -D_XOPEN_SOURCE=600 -DBSD_COMP"
 		AC_SUBST([PLATFORM_LDADD], ['-lnsl -lsocket'])
 		;;

@@ -184,11 +184,13 @@ bhnd_nvram_sprom_ident(struct bhnd_nvram_io *io,
 		u_char			 buf[512];
 		size_t			 nread;
 		uint16_t		 magic;
+		uint8_t			 srevcrc[2];
 		uint8_t			 srev;
 		bool			 crc_valid;
 		bool			 have_magic;
 
 		layout = &bhnd_sprom_layouts[i];
+		crc_valid = true;
 
 		have_magic = true;
 		if ((layout->flags & SPROM_LAYOUT_MAGIC_NONE))
@@ -224,11 +226,14 @@ bhnd_nvram_sprom_ident(struct bhnd_nvram_io *io,
 			nbytes += nr;
 		}
 
-		/* Read SPROM revision */
-		error = bhnd_nvram_io_read(io, layout->srev_offset, &srev,
-		    sizeof(srev));
+		/* Read 8-bit SPROM revision, maintaining 16-bit size alignment
+		 * required by some OTP/SPROM chipsets. */
+		error = bhnd_nvram_io_read(io, layout->srev_offset, &srevcrc,
+		    sizeof(srevcrc));
 		if (error)
 			return (error);
+
+		srev = srevcrc[0];
 
 		/* Early sromrev 1 devices (specifically some BCM440x enet
 		 * cards) are reported to have been incorrectly programmed
@@ -827,6 +832,7 @@ bhnd_nvram_sprom_next(struct bhnd_nvram_data *nv, void **cookiep)
 		/* Update cookiep and fetch variable definition */
 		*cookiep = entry;
 		var = SPROM_COOKIE_TO_NVRAM_VAR(*cookiep);
+		BHND_NV_ASSERT(var != NULL, ("invalid cookiep %p", cookiep));
 
 		/* We might need to parse the variable's value to determine
 		 * whether it should be treated as unset */
@@ -1435,6 +1441,7 @@ bhnd_nvram_sprom_filter_unsetvar(struct bhnd_nvram_data *nv, const char *name)
 		return (ENOENT);
 
 	var = bhnd_nvram_get_vardefn(entry->vid);
+	BHND_NV_ASSERT(var != NULL, ("missing variable definition"));
 
 	/* Variable must be capable of representing a NULL/deleted value.
 	 * 

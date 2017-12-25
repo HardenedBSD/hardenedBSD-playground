@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1994-1995 Søren Schmidt
  * All rights reserved.
  *
@@ -139,7 +141,7 @@ linux_common_open(struct thread *td, int dirfd, char *path, int l_flags, int mod
 		goto done;
 
 	/*
-	 * XXX In between kern_open() and fget(), another process
+	 * XXX In between kern_openat() and fget(), another process
 	 * having the same filedesc could use that fd without
 	 * checking below.
 	*/
@@ -307,18 +309,6 @@ struct l_dirent64 {
     roundup(offsetof(struct l_dirent64, d_name) + (namlen) + 1,		\
     sizeof(uint64_t))
 
-#define	LINUX_DIRBLKSIZ		512
-
-/*
- * Linux l_dirent is bigger than FreeBSD dirent, thus the buffer size
- * passed to kern_getdirentries() must be smaller than the one passed
- * to linux_getdents() by certain factor.
- */
-#define	LINUX_RECLEN_RATIO(X)	X * offsetof(struct dirent, d_name) /	\
-    offsetof(struct l_dirent, d_name);
-#define	LINUX_RECLEN64_RATIO(X)	X * offsetof(struct dirent, d_name) / 	\
-    offsetof(struct l_dirent64, d_name);
-
 int
 linux_getdents(struct thread *td, struct linux_getdents_args *args)
 {
@@ -328,7 +318,7 @@ linux_getdents(struct thread *td, struct linux_getdents_args *args)
 	caddr_t outp;			/* Linux-format */
 	int resid, linuxreclen;		/* Linux-format */
 	caddr_t lbuf;			/* Linux-format */
-	long base;
+	off_t base;
 	struct l_dirent *linux_dirent;
 	int buflen, error;
 	size_t retval;
@@ -337,8 +327,7 @@ linux_getdents(struct thread *td, struct linux_getdents_args *args)
 	if (ldebug(getdents))
 		printf(ARGS(getdents, "%d, *, %d"), args->fd, args->count);
 #endif
-	buflen = LINUX_RECLEN_RATIO(args->count);
-	buflen = min(buflen, MAXBSIZE);
+	buflen = min(args->count, MAXBSIZE);
 	buf = malloc(buflen, M_TEMP, M_WAITOK);
 
 	error = kern_getdirentries(td, args->fd, buf, buflen,
@@ -394,9 +383,9 @@ linux_getdents(struct thread *td, struct linux_getdents_args *args)
 	td->td_retval[0] = retval;
 
 out:
-	free(lbuf, M_LINUX);
+	free(lbuf, M_TEMP);
 out1:
-	free(buf, M_LINUX);
+	free(buf, M_TEMP);
 	return (error);
 }
 
@@ -409,7 +398,7 @@ linux_getdents64(struct thread *td, struct linux_getdents64_args *args)
 	caddr_t outp;			/* Linux-format */
 	int resid, linuxreclen;		/* Linux-format */
 	caddr_t lbuf;			/* Linux-format */
-	long base;
+	off_t base;
 	struct l_dirent64 *linux_dirent64;
 	int buflen, error;
 	size_t retval;
@@ -418,8 +407,7 @@ linux_getdents64(struct thread *td, struct linux_getdents64_args *args)
 	if (ldebug(getdents64))
 		uprintf(ARGS(getdents64, "%d, *, %d"), args->fd, args->count);
 #endif
-	buflen = LINUX_RECLEN64_RATIO(args->count);
-	buflen = min(buflen, MAXBSIZE);
+	buflen = min(args->count, MAXBSIZE);
 	buf = malloc(buflen, M_TEMP, M_WAITOK);
 
 	error = kern_getdirentries(td, args->fd, buf, buflen,
@@ -486,7 +474,7 @@ linux_readdir(struct thread *td, struct linux_readdir_args *args)
 	caddr_t buf;			/* BSD-format */
 	int linuxreclen;		/* Linux-format */
 	caddr_t lbuf;			/* Linux-format */
-	long base;
+	off_t base;
 	struct l_dirent *linux_dirent;
 	int buflen, error;
 
@@ -495,7 +483,6 @@ linux_readdir(struct thread *td, struct linux_readdir_args *args)
 		printf(ARGS(readdir, "%d, *"), args->fd);
 #endif
 	buflen = LINUX_RECLEN(LINUX_NAME_MAX);
-	buflen = LINUX_RECLEN_RATIO(buflen);
 	buf = malloc(buflen, M_TEMP, M_WAITOK);
 
 	error = kern_getdirentries(td, args->fd, buf, buflen,
@@ -522,9 +509,9 @@ linux_readdir(struct thread *td, struct linux_readdir_args *args)
 	if (error == 0)
 		td->td_retval[0] = linuxreclen;
 
-	free(lbuf, M_LINUX);
+	free(lbuf, M_TEMP);
 out:
-	free(buf, M_LINUX);
+	free(buf, M_TEMP);
 	return (error);
 }
 #endif /* __i386__ || (__amd64__ && COMPAT_LINUX32) */
@@ -1087,20 +1074,21 @@ int
 linux_mount(struct thread *td, struct linux_mount_args *args)
 {
 	char fstypename[MFSNAMELEN];
-	char mntonname[MNAMELEN], mntfromname[MNAMELEN];
-	int error;
-	int fsflags;
+	char *mntonname, *mntfromname;
+	int error, fsflags;
 
+	mntonname = malloc(MNAMELEN, M_TEMP, M_WAITOK);
+	mntfromname = malloc(MNAMELEN, M_TEMP, M_WAITOK);
 	error = copyinstr(args->filesystemtype, fstypename, MFSNAMELEN - 1,
 	    NULL);
-	if (error)
-		return (error);
+	if (error != 0)
+		goto out;
 	error = copyinstr(args->specialfile, mntfromname, MNAMELEN - 1, NULL);
-	if (error)
-		return (error);
+	if (error != 0)
+		goto out;
 	error = copyinstr(args->dir, mntonname, MNAMELEN - 1, NULL);
-	if (error)
-		return (error);
+	if (error != 0)
+		goto out;
 
 #ifdef DEBUG
 	if (ldebug(mount))
@@ -1138,6 +1126,9 @@ linux_mount(struct thread *td, struct linux_mount_args *args)
 	    "fspath", mntonname,
 	    "from", mntfromname,
 	    NULL);
+out:
+	free(mntonname, M_TEMP);
+	free(mntfromname, M_TEMP);
 	return (error);
 }
 

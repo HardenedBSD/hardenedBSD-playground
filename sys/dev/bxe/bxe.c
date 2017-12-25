@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2007-2014 QLogic Corporation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -162,6 +164,12 @@ static struct bxe_device_type bxe_devs[] = {
     },
     {
         BRCM_VENDORID,
+        CHIP_NUM_57840_4_10,
+        PCI_ANY_ID, PCI_ANY_ID,
+        "QLogic NetXtreme II BCM57840 4x10GbE"
+    },
+    {
+        QLOGIC_VENDORID,
         CHIP_NUM_57840_4_10,
         PCI_ANY_ID, PCI_ANY_ID,
         "QLogic NetXtreme II BCM57840 4x10GbE"

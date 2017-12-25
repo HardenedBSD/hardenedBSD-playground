@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1980, 1991, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -511,7 +513,7 @@ pr_header(time_t *nowp, int nusers)
 	}
 
 	/* Print number of users logged in to system */
-	xo_emit(" {:users/%d} {N:user%s}", nusers, nusers == 1 ? "" : "s");
+	xo_emit(" {:users/%d} {Np:user,users}", nusers);
 
 	/*
 	 * Print 1, 5, and 15 minute load averages.

@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1990 University of Utah.
  * Copyright (c) 1991 The Regents of the University of California.
  * All rights reserved.
@@ -73,7 +75,6 @@ struct swdevt {
 
 #ifdef _KERNEL
 
-extern int swap_pager_full;
 extern int swap_pager_avail;
 
 struct xswdev;
@@ -82,7 +83,6 @@ void swap_pager_copy(vm_object_t, vm_object_t, vm_pindex_t, int);
 vm_pindex_t swap_pager_find_least(vm_object_t object, vm_pindex_t pindex);
 void swap_pager_freespace(vm_object_t, vm_pindex_t, vm_size_t);
 void swap_pager_swap_init(void);
-int swap_pager_isswapped(vm_object_t, struct swdevt *);
 int swap_pager_nswapdev(void);
 int swap_pager_reserve(vm_object_t, vm_pindex_t, vm_size_t);
 void swap_pager_status(int *total, int *used);

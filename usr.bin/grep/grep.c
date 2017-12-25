@@ -3,6 +3,8 @@
 /*	$OpenBSD: grep.c,v 1.42 2010/07/02 22:18:03 tedu Exp $	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
  * Copyright (C) 2008-2009 Gabor Kovesdan <gabor@FreeBSD.org>
  * All rights reserved.
@@ -78,7 +80,7 @@ const char	*errstr[] = {
 };
 
 /* Flags passed to regcomp() and regexec() */
-int		 cflags = REG_NOSUB;
+int		 cflags = REG_NOSUB | REG_NEWLINE;
 int		 eflags = REG_STARTEND;
 
 /* XXX TODO: Get rid of this flag.
@@ -108,8 +110,8 @@ struct epat	*dpattern, *fpattern;
 char	 re_error[RE_ERROR_BUF + 1];
 
 /* Command-line flags */
-unsigned long long Aflag;	/* -A x: print x lines trailing each match */
-unsigned long long Bflag;	/* -B x: print x lines leading each match */
+long long Aflag;	/* -A x: print x lines trailing each match */
+long long Bflag;	/* -B x: print x lines leading each match */
 bool	 Hflag;		/* -H: always print file name */
 bool	 Lflag;		/* -L: only show names of files with no matches */
 bool	 bflag;		/* -b: show block numbers for each match */
@@ -351,7 +353,7 @@ main(int argc, char *argv[])
 	char **aargv, **eargv, *eopts;
 	char *ep;
 	const char *pn;
-	unsigned long long l;
+	long long l;
 	unsigned int aargc, eargc, i;
 	int c, lastc, needpattern, newarg, prevoptind;
 
@@ -438,10 +440,11 @@ main(int argc, char *argv[])
 		case '5': case '6': case '7': case '8': case '9':
 			if (newarg || !isdigit(lastc))
 				Aflag = 0;
-			else if (Aflag > LLONG_MAX / 10) {
+			else if (Aflag > LLONG_MAX / 10 - 1) {
 				errno = ERANGE;
 				err(2, NULL);
 			}
+
 			Aflag = Bflag = (Aflag * 10) + (c - '0');
 			break;
 		case 'C':
@@ -454,14 +457,17 @@ main(int argc, char *argv[])
 			/* FALLTHROUGH */
 		case 'B':
 			errno = 0;
-			l = strtoull(optarg, &ep, 10);
-			if (((errno == ERANGE) && (l == ULLONG_MAX)) ||
-			    ((errno == EINVAL) && (l == 0)))
+			l = strtoll(optarg, &ep, 10);
+			if (errno == ERANGE || errno == EINVAL)
 				err(2, NULL);
 			else if (ep[0] != '\0') {
 				errno = EINVAL;
 				err(2, NULL);
+			} else if (l < 0) {
+				errno = EINVAL;
+				err(2, "context argument must be non-negative");
 			}
+
 			if (c == 'A')
 				Aflag = l;
 			else if (c == 'B')
@@ -716,12 +722,19 @@ main(int argc, char *argv[])
 	case GREP_BASIC:
 		break;
 	case GREP_FIXED:
+		/*
+		 * regex(3) implementations that support fixed-string searches generally
+		 * define either REG_NOSPEC or REG_LITERAL. Set the appropriate flag
+		 * here. If neither are defined, GREP_FIXED later implies that the
+		 * internal literal matcher should be used. Other cflags that have
+		 * the same interpretation as REG_NOSPEC and REG_LITERAL should be
+		 * similarly added here, and grep.h should be amended to take this into
+		 * consideration when defining WITH_INTERNAL_NOSPEC.
+		 */
 #if defined(REG_NOSPEC)
 		cflags |= REG_NOSPEC;
 #elif defined(REG_LITERAL)
 		cflags |= REG_LITERAL;
-#else
-		errx(2, "literal expressions not supported at compile time");
 #endif
 		break;
 	case GREP_EXTENDED:
@@ -738,7 +751,11 @@ main(int argc, char *argv[])
 	r_pattern = grep_calloc(patterns, sizeof(*r_pattern));
 
 	/* Don't process any patterns if we have a blank one */
+#ifdef WITH_INTERNAL_NOSPEC
+	if (!matchall && grepbehave != GREP_FIXED) {
+#else
 	if (!matchall) {
+#endif
 		/* Check if cheating is allowed (always is for fgrep). */
 		for (i = 0; i < patterns; ++i) {
 #ifndef WITHOUT_FASTMATCH

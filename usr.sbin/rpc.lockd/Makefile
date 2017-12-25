@@ -6,16 +6,20 @@ MAN=	rpc.lockd.8
 MLINKS=	rpc.lockd.8 lockd.8
 SRCS=	kern.c nlm_prot_svc.c lockd.c lock_proc.c lockd_lock.c
 
+<<<<<<< HEAD
 NOASAN=	yes
 
 CFLAGS+= -I. -I${DESTDIR}/usr/include/rpcsvc
+=======
+CFLAGS+= -I. -I${SYSROOT:U${DESTDIR}}/usr/include/rpcsvc
+>>>>>>> upstream/hardened/current/master
 WARNS?= 3
 
 LIBADD=	rpcsvc
 
 CLEANFILES= nlm_prot_svc.c nlm_prot.h test
 
-RPCSRC= ${DESTDIR}/usr/include/rpcsvc/nlm_prot.x
+RPCSRC= ${SYSROOT:U${DESTDIR}}/usr/include/rpcsvc/nlm_prot.x
 RPCGEN= RPCGEN_CPP=${CPP:Q} rpcgen -L -C
 
 nlm_prot_svc.c: ${RPCSRC}

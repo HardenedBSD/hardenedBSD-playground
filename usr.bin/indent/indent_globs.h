@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
  * Copyright (c) 1985 Sun Microsystems, Inc.
  * Copyright (c) 1980, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -41,10 +43,6 @@
 #define sc_size 5000		/* size of save_com buffer */
 #define label_offset 2		/* number of levels a label is placed to left
 				 * of code */
-
-#define tabsize 8		/* the size of a tab */
-#define tabmask 0177770		/* mask used when figuring length of lines
-				 * with tabs */
 
 
 #define false 0
@@ -213,6 +211,7 @@ int	    use_tabs;			/* set true to use tabs for spacing,
 int	    auto_typedefs;		/* set true to recognize identifiers
 					 * ending in "_t" like typedefs */
 int	    space_after_cast;		/* "b = (int) a" vs "b = (int)a" */
+int	    tabsize;			/* the size of a tab */
 
 /* -troff font state information */
 
@@ -330,6 +329,5 @@ struct parser_state {
 }           ps;
 
 int         ifdef_level;
-int	    rparen_count;
 struct parser_state state_stack[5];
 struct parser_state match_state[5];

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cipher_list.c,v 1.2 2015/06/28 00:08:27 doug Exp $	*/
+/*	$OpenBSD: cipher_list.c,v 1.6 2017/08/28 17:32:04 jsing Exp $	*/
 /*
  * Copyright (c) 2015 Doug Hogan <doug@openbsd.org>
  * Copyright (c) 2015 Joel Sing <jsing@openbsd.org>
@@ -39,21 +39,23 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ssl_locl.h"
+
 #include "tests.h"
 
 static uint8_t cipher_bytes[] = {
-	0xcc, 0x14,	/* ECDHE-ECDSA-CHACHA20-POLY1305 */
-	0xcc, 0x13,	/* ECDHE-RSA-CHACHA20-POLY1305 */
-	0xcc, 0x15,	/* DHE-RSA-CHACHA20-POLY1305 */
+	0xcc, 0xa8,	/* ECDHE-ECDSA-CHACHA20-POLY1305 */
+	0xcc, 0xa9,	/* ECDHE-RSA-CHACHA20-POLY1305 */
+	0xcc, 0xaa,	/* DHE-RSA-CHACHA20-POLY1305 */
 	0x00, 0x9c,	/* AES128-GCM-SHA256 */
 	0x00, 0x3d,	/* AES256-SHA256 */
 	0x00, 0x09,	/* DES-CBC-SHA */
 };
 
 static uint16_t cipher_values[] = {
-	0xcc14,		/* ECDHE-ECDSA-CHACHA20-POLY1305 */
-	0xcc13,		/* ECDHE-RSA-CHACHA20-POLY1305 */
-	0xcc15,		/* DHE-RSA-CHACHA20-POLY1305 */
+	0xcca8,		/* ECDHE-ECDSA-CHACHA20-POLY1305 */
+	0xcca9,		/* ECDHE-RSA-CHACHA20-POLY1305 */
+	0xccaa,		/* DHE-RSA-CHACHA20-POLY1305 */
 	0x009c,		/* AES128-GCM-SHA256 */
 	0x003d,		/* AES256-SHA256 */
 	0x0009,		/* DES-CBC-SHA */
@@ -64,7 +66,7 @@ static uint16_t cipher_values[] = {
 extern STACK_OF(SSL_CIPHER) *ssl_bytes_to_cipher_list(SSL *s,
     const unsigned char *p, int num);
 extern int ssl_cipher_list_to_bytes(SSL *s, STACK_OF(SSL_CIPHER) *sk,
-    unsigned char *p);
+    unsigned char *p, size_t len, size_t *outlen);
 
 static int
 ssl_bytes_to_list_alloc(SSL *s, STACK_OF(SSL_CIPHER) **ciphers)
@@ -91,8 +93,7 @@ static int
 ssl_list_to_bytes_scsv(SSL *s, STACK_OF(SSL_CIPHER) **ciphers)
 {
 	unsigned char *buf = NULL;
-	size_t buflen;
-	int len;
+	size_t buflen, outlen;
 	int ret = 0;
 
 	/* Space for cipher bytes, plus reneg SCSV and two spare bytes. */
@@ -100,8 +101,9 @@ ssl_list_to_bytes_scsv(SSL *s, STACK_OF(SSL_CIPHER) **ciphers)
 	buflen = sizeof(cipher_bytes) + 2 + 2;
 	CHECK((buf = calloc(1, buflen)) != NULL);
 
-	len = ssl_cipher_list_to_bytes(s, *ciphers, buf);
-	CHECK_GOTO(len > 0 && (size_t)len == buflen - 2);
+	CHECK(ssl_cipher_list_to_bytes(s, *ciphers, buf, buflen, &outlen));
+
+	CHECK_GOTO(outlen > 0 && outlen == buflen - 2);
 	CHECK_GOTO(memcmp(buf, cipher_bytes, sizeof(cipher_bytes)) == 0);
 	CHECK_GOTO(buf[buflen - 4] == 0x00 && buf[buflen - 3] == 0xff);
 	CHECK_GOTO(buf[buflen - 2] == 0x00 && buf[buflen - 1] == 0x00);
@@ -117,8 +119,7 @@ static int
 ssl_list_to_bytes_no_scsv(SSL *s, STACK_OF(SSL_CIPHER) **ciphers)
 {
 	unsigned char *buf = NULL;
-	size_t buflen;
-	int len;
+	size_t buflen, outlen;
 	int ret = 0;
 
 	/* Space for cipher bytes and two spare bytes */
@@ -129,10 +130,11 @@ ssl_list_to_bytes_no_scsv(SSL *s, STACK_OF(SSL_CIPHER) **ciphers)
 	buf[buflen - 1] = 0xab;
 
 	/* Set renegotiate so it doesn't add SCSV */
-	s->renegotiate = 1;
+	s->internal->renegotiate = 1;
 
-	len = ssl_cipher_list_to_bytes(s, *ciphers, buf);
-	CHECK_GOTO(len > 0 && (size_t)len == buflen - 2);
+	CHECK(ssl_cipher_list_to_bytes(s, *ciphers, buf, buflen, &outlen));
+
+	CHECK_GOTO(outlen > 0 && outlen == buflen - 2);
 	CHECK_GOTO(memcmp(buf, cipher_bytes, sizeof(cipher_bytes)) == 0);
 	CHECK_GOTO(buf[buflen - 2] == 0xfe && buf[buflen - 1] == 0xab);
 
@@ -203,5 +205,6 @@ err:
 
 	if (!rv)
 		printf("PASS %s\n", __FILE__);
+	
 	return rv;
 }

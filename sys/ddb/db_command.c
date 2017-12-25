@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: MIT-CMU
+ *
  * Mach Operating System
  * Copyright (c) 1991,1990 Carnegie Mellon University
  * All Rights Reserved.
@@ -325,10 +327,25 @@ static void
 db_cmd_list(struct command_table *table)
 {
 	struct command	*cmd;
+	int have_subcommands;
 
+	have_subcommands = 0;
 	LIST_FOREACH(cmd, table, next) {
+		if (cmd->more != NULL)
+			have_subcommands++;
 		db_printf("%-16s", cmd->name);
 		db_end_line(16);
+	}
+
+	if (have_subcommands > 0) {
+		db_printf("\nThe following have subcommands; append \"help\" "
+		    "to list (e.g. \"show help\"):\n");
+		LIST_FOREACH(cmd, table, next) {
+			if (cmd->more == NULL)
+				continue;
+			db_printf("%-16s", cmd->name);
+			db_end_line(16);
+		}
 	}
 }
 
@@ -357,7 +374,8 @@ db_command(struct command **last_cmdp, struct command_table *cmd_table,
 	    return;
 	}
 	else if (t != tIDENT) {
-	    db_printf("?\n");
+	    db_printf("Unrecognized input; use \"help\" "
+	        "to list available commands\n");
 	    db_flush_lex();
 	    return;
 	}
@@ -371,7 +389,8 @@ db_command(struct command **last_cmdp, struct command_table *cmd_table,
 				       &cmd);
 		switch (result) {
 		    case CMD_NONE:
-			db_printf("No such command\n");
+			db_printf("No such command; use \"help\" "
+			    "to list available commands\n");
 			db_flush_lex();
 			return;
 		    case CMD_AMBIGUOUS:
@@ -379,6 +398,13 @@ db_command(struct command **last_cmdp, struct command_table *cmd_table,
 			db_flush_lex();
 			return;
 		    case CMD_HELP:
+			if (cmd_table == &db_cmd_table) {
+			    db_printf("This is ddb(4), the kernel debugger; "
+			        "see https://man.FreeBSD.org/ddb/4 for help.\n");
+			    db_printf("Use \"bt\" for backtrace, \"dump\" for "
+			        "kernel core dump, \"reset\" to reboot.\n");
+			    db_printf("Available commands:\n");
+			}
 			db_cmd_list(cmd_table);
 			db_flush_lex();
 			return;
@@ -388,6 +414,8 @@ db_command(struct command **last_cmdp, struct command_table *cmd_table,
 		if ((cmd_table = cmd->more) != NULL) {
 		    t = db_read_token();
 		    if (t != tIDENT) {
+			db_printf("Subcommand required; "
+			    "available subcommands:\n");
 			db_cmd_list(cmd_table);
 			db_flush_lex();
 			return;
@@ -530,7 +558,7 @@ db_error(const char *s)
 	if (s)
 	    db_printf("%s", s);
 	db_flush_lex();
-	kdb_reenter();
+	kdb_reenter_silent();
 }
 
 static void
@@ -618,7 +646,7 @@ db_fncall(db_expr_t dummy1, bool dummy2, db_expr_t dummy3, char *dummy4)
 		db_unread_token(t);
 	    }
 	    if (db_read_token() != tRPAREN) {
-		db_printf("?\n");
+	        db_printf("Mismatched parens\n");
 		db_flush_lex();
 		return;
 	    }

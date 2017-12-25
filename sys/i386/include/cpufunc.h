@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1993 The Regents of the University of California.
  * All rights reserved.
  *
@@ -60,7 +62,7 @@ breakpoint(void)
 	__asm __volatile("int $3");
 }
 
-static __inline u_int
+static __inline __pure2 u_int
 bsfl(u_int mask)
 {
 	u_int	result;
@@ -69,7 +71,7 @@ bsfl(u_int mask)
 	return (result);
 }
 
-static __inline u_int
+static __inline __pure2 u_int
 bsrl(u_int mask)
 {
 	u_int	result;
@@ -169,7 +171,7 @@ sfence(void)
 
 #define	HAVE_INLINE_FFS
 
-static __inline int
+static __inline __pure2 int
 ffs(int mask)
 {
 	/*
@@ -183,7 +185,7 @@ ffs(int mask)
 
 #define	HAVE_INLINE_FFSL
 
-static __inline int
+static __inline __pure2 int
 ffsl(long mask)
 {
 	return (ffs((int)mask));
@@ -191,7 +193,7 @@ ffsl(long mask)
 
 #define	HAVE_INLINE_FLS
 
-static __inline int
+static __inline __pure2 int
 fls(int mask)
 {
 	return (mask == 0 ? mask : (int)bsrl((u_int)mask) + 1);
@@ -199,7 +201,7 @@ fls(int mask)
 
 #define	HAVE_INLINE_FLSL
 
-static __inline int
+static __inline __pure2 int
 flsl(long mask)
 {
 	return (fls((int)mask));

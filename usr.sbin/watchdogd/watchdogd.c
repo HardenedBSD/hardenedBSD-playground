@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2003-2004  Sean M. Kelly <smkelly@FreeBSD.org>
  * Copyright (c) 2013 iXsystems.com,
  *                    author: Alfred Perlstein <alfred@freebsd.org>
@@ -110,14 +112,6 @@ static struct option longopts[] = {
 	{ "softtimeout-action", required_argument, &softtimeout_act_set, 1 },
 	{ NULL, 0, NULL, 0}
 };
-
-/*
- * Ask malloc() to map minimum-sized chunks of virtual address space at a time,
- * so that mlockall() won't needlessly wire megabytes of unused memory into the
- * process.  This must be done using the malloc_conf string so that it gets set
- * up before the first allocation, which happens before entry to main().
- */
-const char * malloc_conf = "lg_chunk:0";
 
 /*
  * Periodically pat the watchdog, preventing it from firing.

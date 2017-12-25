@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2001-2007, by Cisco Systems, Inc. All rights reserved.
  * Copyright (c) 2008-2012, by Randall Stewart. All rights reserved.
  * Copyright (c) 2008-2012, by Michael Tuexen. All rights reserved.
@@ -135,7 +137,7 @@ void
 
 uint32_t
 sctp_calculate_rto(struct sctp_tcb *, struct sctp_association *,
-    struct sctp_nets *, struct timeval *, int, int);
+    struct sctp_nets *, struct timeval *, int);
 
 uint32_t sctp_calculate_len(struct mbuf *);
 
@@ -388,10 +390,8 @@ sctp_auditing(int, struct sctp_inpcb *, struct sctp_tcb *,
 void sctp_audit_log(uint8_t, uint8_t);
 
 #endif
-#if defined(INET6) || defined(INET)
 uint32_t sctp_min_mtu(uint32_t, uint32_t, uint32_t);
 void sctp_hc_set_mtu(union sctp_sockstore *, uint16_t, uint32_t);
 uint32_t sctp_hc_get_mtu(union sctp_sockstore *, uint16_t);
-#endif
 #endif				/* _KERNEL */
 #endif

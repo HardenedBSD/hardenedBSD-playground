@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1986, 1988, 1993
  *	The Regents of the University of California.
  * All rights reserved.
@@ -210,7 +212,7 @@ rip_init(void)
 {
 
 	in_pcbinfo_init(&V_ripcbinfo, "rip", &V_ripcb, INP_PCBHASH_RAW_SIZE,
-	    1, "ripcb", rip_inpcb_init, NULL, 0, IPI_HASHFIELDS_NONE);
+	    1, "ripcb", rip_inpcb_init, IPI_HASHFIELDS_NONE);
 	EVENTHANDLER_REGISTER(maxsockets_change, rip_zone_change, NULL,
 	    EVENTHANDLER_PRI_ANY);
 }

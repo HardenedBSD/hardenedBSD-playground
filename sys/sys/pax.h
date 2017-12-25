@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2006 Elad Efrat <elad@NetBSD.org>
- * Copyright (c) 2013-2016, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2013-2017, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
  * Copyright (c) 2014-2015 by Shawn Webb <shawn.webb@hardenedbsd.org>
  * All rights reserved.
  *
@@ -32,7 +32,7 @@
 #ifndef	_SYS_PAX_H
 #define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	49UL
+#define	__HardenedBSD_version	1200055UL
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
 struct hbsd_features {
@@ -65,6 +65,14 @@ struct hbsd_features {
 
 #include <vm/vm.h>
 
+/*
+ *  These are internal macros, which are used to enforce the correct
+ *  kernel API version from external modules like secadm.
+ */
+#define	__HBSD_KPI_FREEBSD_VERSION	__CONCAT(__FBSD_KPI, __FreeBSD_version)
+#define	__HBSD_KPI_HARDENEDBSD_VERSION	__CONCAT(__HBSD_KPI, __HardenedBSD_version)
+#define	__HBSD_KPI_VERSION	__CONCAT(__HBSD_KPI_FREEBSD_VERSION, __HBSD_KPI_HARDENEDBSD_VERSION)
+
 struct image_params;
 struct prison;
 struct thread;
@@ -93,12 +101,24 @@ extern const char *pax_status_simple_str[];
  * generic pax functions
  */
 uint64_t pax_get_hardenedbsd_version(void);
-int pax_elf(struct image_params *imgp, struct thread *td, pax_flag_t mode);
+#ifndef	pax_elf
+/*
+ * This macro is used to enforce the correct KPI version.
+ */
+#define pax_elf	__CONCAT(pax_elf, __HBSD_KPI_VERSION)
+#endif
+int pax_elf(struct thread *td, struct image_params *imgp);
 void pax_get_flags(struct proc *p, pax_flag_t *flags);
 void pax_get_flags_td(struct thread *td, pax_flag_t *flags);
-struct prison *pax_get_prison(struct proc *p);
 struct prison *pax_get_prison_td(struct thread *td);
 void pax_init_prison(struct prison *pr);
+void pax_print_hbsd_context(void);
+
+/*
+ * HardenedBSD's hbsdcontol related functions
+ */
+int pax_control_acl_set_flags(struct thread *td, struct image_params *imgp, const pax_flag_t req_flags);
+int pax_control_extattr_parse_flags(struct thread *td, struct image_params *imgp);
 
 /*
  * ASLR related functions
@@ -126,6 +146,7 @@ void pax_aslr_stack_with_gap(struct proc *p, vm_offset_t *addr);
 void pax_aslr_vdso(struct proc *p, vm_offset_t *addr);
 pax_flag_t pax_disallow_map32bit_setup_flags(struct image_params *imgp, struct thread *td, pax_flag_t mode);
 bool pax_disallow_map32bit_active(struct thread *td, int mmap_flags);
+int pax_aslr_validate_flags(int flags);
 
 /*
  * Log related functions
@@ -157,6 +178,7 @@ void pax_log_mprotect(struct proc *, pax_log_settings_t flags, const char *fmt, 
 void pax_ulog_mprotect(const char *fmt, ...) __printflike(1, 2);
 void pax_log_segvguard(struct proc *, pax_log_settings_t flags, const char *fmt, ...) __printflike(3, 4);
 void pax_ulog_segvguard(const char *fmt, ...) __printflike(1, 2);
+int pax_log_validate_flags(int flags);
 
 /*
  * SegvGuard related functions
@@ -170,6 +192,7 @@ int pax_segvguard_check(struct thread *, struct vnode *, const char *);
 int pax_segvguard_segfault(struct thread *, const char *);
 void pax_segvguard_remove(struct thread *td, struct vnode *vn);
 pax_flag_t pax_segvguard_setup_flags(struct image_params *imgp, struct thread *td, pax_flag_t mode);
+int pax_segvguard_validate_flags(int flags);
 
 /*
  * PAX PAGEEXEC and MPROTECT hardening
@@ -187,6 +210,7 @@ bool pax_mprotect_active(struct proc *p);
 void pax_pageexec(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
 void pax_mprotect(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
 int pax_mprotect_enforce(struct proc *p, vm_map_t map, vm_prot_t old_prot, vm_prot_t new_prot);
+int pax_noexec_validate_flags(int flags);
 
 /*
  * Hardening related functions
@@ -197,6 +221,7 @@ void pax_hardening_init_prison(struct prison *pr);
 #define	pax_hardening_init_prison(pr)	do {} while (0)
 #endif
 int pax_procfs_harden(struct thread *td);
+int pax_procfs_harden_validate_flags(int flags);
 
 #define	PAX_NOTE_PAGEEXEC	0x00000001
 #define	PAX_NOTE_NOPAGEEXEC	0x00000002
@@ -212,7 +237,7 @@ int pax_procfs_harden(struct thread *td);
 #define	PAX_NOTE_NODISALLOWMAP32BIT	0x00000800
 
 #define	PAX_NOTE_RESERVED0	0x40000000
-#define	PAX_NOTE_FINALIZED	0x80000000
+#define	PAX_NOTE_PREFER_ACL	0x80000000
 
 #define PAX_NOTE_ALL_ENABLED	\
     (PAX_NOTE_PAGEEXEC | PAX_NOTE_MPROTECT | PAX_NOTE_SEGVGUARD | \
@@ -221,7 +246,7 @@ int pax_procfs_harden(struct thread *td);
     (PAX_NOTE_NOPAGEEXEC | PAX_NOTE_NOMPROTECT | \
     PAX_NOTE_NOSEGVGUARD | PAX_NOTE_NOASLR | PAX_NOTE_NOSHLIBRANDOM | \
     PAX_NOTE_NODISALLOWMAP32BIT)
-#define PAX_NOTE_ALL	(PAX_NOTE_ALL_ENABLED | PAX_NOTE_ALL_DISABLED | PAX_NOTE_FINALIZED)
+#define PAX_NOTE_ALL	(PAX_NOTE_ALL_ENABLED | PAX_NOTE_ALL_DISABLED | PAX_NOTE_PREFER_ACL)
 
 #endif /* _KERNEL */
 

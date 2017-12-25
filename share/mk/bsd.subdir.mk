@@ -38,12 +38,16 @@
 .if !target(__<bsd.subdir.mk>__)
 __<bsd.subdir.mk>__:
 
+.if ${MK_AUTO_OBJ} == "no"
+_obj=	obj
+.endif
+
 SUBDIR_TARGETS+= \
 		all all-man analyze buildconfig buildfiles buildincludes \
 		checkdpadd clean cleandepend cleandir cleanilinks \
 		cleanobj depend distribute files includes installconfig \
-		installfiles installincludes print-dir realinstall lint \
-		maninstall manlint obj objlink tags \
+		installfiles installincludes print-dir realinstall \
+		maninstall manlint ${_obj} objlink tags \
 
 # Described above.
 STANDALONE_SUBDIR_TARGETS+= \
@@ -53,7 +57,7 @@ STANDALONE_SUBDIR_TARGETS+= \
 		maninstall manlint obj objlink
 
 # It is safe to install in parallel when staging.
-.if defined(NO_ROOT)
+.if defined(NO_ROOT) || !empty(SYSROOT)
 STANDALONE_SUBDIR_TARGETS+= realinstall
 .endif
 
@@ -67,6 +71,10 @@ ECHODIR=	:
 print-dir:	.PHONY
 	@echo ${RELDIR}
 .endif
+.endif
+
+.if ${MK_AUTO_OBJ} == "yes" && !target(obj)
+obj: .PHONY
 .endif
 
 .if !defined(NEED_SUBDIR)

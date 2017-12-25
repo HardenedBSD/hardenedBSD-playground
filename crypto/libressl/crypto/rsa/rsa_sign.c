@@ -1,4 +1,4 @@
-/* $OpenBSD: rsa_sign.c,v 1.24 2015/07/19 18:29:31 miod Exp $ */
+/* $OpenBSD: rsa_sign.c,v 1.29 2017/05/02 03:59:45 deraadt Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -88,7 +88,7 @@ RSA_sign(int type, const unsigned char *m, unsigned int m_len,
 	/* Special case: SSL signature, just check the length */
 	if (type == NID_md5_sha1) {
 		if (m_len != SSL_SIG_LENGTH) {
-			RSAerr(RSA_F_RSA_SIGN, RSA_R_INVALID_MESSAGE_LENGTH);
+			RSAerror(RSA_R_INVALID_MESSAGE_LENGTH);
 			return 0;
 		}
 		i = SSL_SIG_LENGTH;
@@ -97,12 +97,11 @@ RSA_sign(int type, const unsigned char *m, unsigned int m_len,
 		sig.algor = &algor;
 		sig.algor->algorithm = OBJ_nid2obj(type);
 		if (sig.algor->algorithm == NULL) {
-			RSAerr(RSA_F_RSA_SIGN, RSA_R_UNKNOWN_ALGORITHM_TYPE);
+			RSAerror(RSA_R_UNKNOWN_ALGORITHM_TYPE);
 			return 0;
 		}
 		if (sig.algor->algorithm->length == 0) {
-			RSAerr(RSA_F_RSA_SIGN,
-			    RSA_R_THE_ASN1_OBJECT_IDENTIFIER_IS_NOT_KNOWN_FOR_THIS_MD);
+			RSAerror(RSA_R_THE_ASN1_OBJECT_IDENTIFIER_IS_NOT_KNOWN_FOR_THIS_MD);
 			return 0;
 		}
 		parameter.type = V_ASN1_NULL;
@@ -117,13 +116,13 @@ RSA_sign(int type, const unsigned char *m, unsigned int m_len,
 	}
 	j = RSA_size(rsa);
 	if (i > j - RSA_PKCS1_PADDING_SIZE) {
-		RSAerr(RSA_F_RSA_SIGN, RSA_R_DIGEST_TOO_BIG_FOR_RSA_KEY);
+		RSAerror(RSA_R_DIGEST_TOO_BIG_FOR_RSA_KEY);
 		return 0;
 	}
 	if (type != NID_md5_sha1) {
 		tmps = malloc(j + 1);
 		if (tmps == NULL) {
-			RSAerr(RSA_F_RSA_SIGN, ERR_R_MALLOC_FAILURE);
+			RSAerror(ERR_R_MALLOC_FAILURE);
 			return 0;
 		}
 		p = tmps;
@@ -136,10 +135,8 @@ RSA_sign(int type, const unsigned char *m, unsigned int m_len,
 	else
 		*siglen = i;
 
-	if (type != NID_md5_sha1) {
-		explicit_bzero(tmps, (unsigned int)j + 1);
-		free(tmps);
-	}
+	if (type != NID_md5_sha1)
+		freezero(tmps, (unsigned int)j + 1);
 	return (ret);
 }
 
@@ -153,7 +150,7 @@ int_rsa_verify(int dtype, const unsigned char *m, unsigned int m_len,
 	X509_SIG *sig = NULL;
 
 	if (siglen != (unsigned int)RSA_size(rsa)) {
-		RSAerr(RSA_F_INT_RSA_VERIFY, RSA_R_WRONG_SIGNATURE_LENGTH);
+		RSAerror(RSA_R_WRONG_SIGNATURE_LENGTH);
 		return 0;
 	}
 
@@ -168,11 +165,11 @@ int_rsa_verify(int dtype, const unsigned char *m, unsigned int m_len,
 
 	s = malloc(siglen);
 	if (s == NULL) {
-		RSAerr(RSA_F_INT_RSA_VERIFY, ERR_R_MALLOC_FAILURE);
+		RSAerror(ERR_R_MALLOC_FAILURE);
 		goto err;
 	}
 	if (dtype == NID_md5_sha1 && m_len != SSL_SIG_LENGTH) {
-		RSAerr(RSA_F_INT_RSA_VERIFY, RSA_R_INVALID_MESSAGE_LENGTH);
+		RSAerror(RSA_R_INVALID_MESSAGE_LENGTH);
 		goto err;
 	}
 	i = RSA_public_decrypt((int)siglen, sigbuf, s, rsa, RSA_PKCS1_PADDING);
@@ -183,7 +180,7 @@ int_rsa_verify(int dtype, const unsigned char *m, unsigned int m_len,
 	/* Special case: SSL signature */
 	if (dtype == NID_md5_sha1) {
 		if (i != SSL_SIG_LENGTH || memcmp(s, m, SSL_SIG_LENGTH))
-			RSAerr(RSA_F_INT_RSA_VERIFY, RSA_R_BAD_SIGNATURE);
+			RSAerror(RSA_R_BAD_SIGNATURE);
 		else
 			ret = 1;
 	} else {
@@ -196,7 +193,7 @@ int_rsa_verify(int dtype, const unsigned char *m, unsigned int m_len,
 
 		/* Excess data can be used to create forgeries */
 		if (p != s + i) {
-			RSAerr(RSA_F_INT_RSA_VERIFY, RSA_R_BAD_SIGNATURE);
+			RSAerror(RSA_R_BAD_SIGNATURE);
 			goto err;
 		}
 
@@ -204,14 +201,14 @@ int_rsa_verify(int dtype, const unsigned char *m, unsigned int m_len,
 		   create forgeries */
 		if (sig->algor->parameter &&
 		    ASN1_TYPE_get(sig->algor->parameter) != V_ASN1_NULL) {
-			RSAerr(RSA_F_INT_RSA_VERIFY, RSA_R_BAD_SIGNATURE);
+			RSAerror(RSA_R_BAD_SIGNATURE);
 			goto err;
 		}
 
 		sigtype = OBJ_obj2nid(sig->algor->algorithm);
 
 		if (sigtype != dtype) {
-			RSAerr(RSA_F_INT_RSA_VERIFY, RSA_R_ALGORITHM_MISMATCH);
+			RSAerror(RSA_R_ALGORITHM_MISMATCH);
 			goto err;
 		}
 		if (rm) {
@@ -219,8 +216,7 @@ int_rsa_verify(int dtype, const unsigned char *m, unsigned int m_len,
 
 			md = EVP_get_digestbynid(dtype);
 			if (md && (EVP_MD_size(md) != sig->digest->length))
-				RSAerr(RSA_F_INT_RSA_VERIFY,
-				    RSA_R_INVALID_DIGEST_LENGTH);
+				RSAerror(RSA_R_INVALID_DIGEST_LENGTH);
 			else {
 				memcpy(rm, sig->digest->data,
 				    sig->digest->length);
@@ -229,17 +225,13 @@ int_rsa_verify(int dtype, const unsigned char *m, unsigned int m_len,
 			}
 		} else if ((unsigned int)sig->digest->length != m_len ||
 		    memcmp(m, sig->digest->data, m_len) != 0) {
-			RSAerr(RSA_F_INT_RSA_VERIFY, RSA_R_BAD_SIGNATURE);
+			RSAerror(RSA_R_BAD_SIGNATURE);
 		} else
 			ret = 1;
 	}
 err:
-	if (sig != NULL)
-		X509_SIG_free(sig);
-	if (s != NULL) {
-		explicit_bzero(s, (unsigned int)siglen);
-		free(s);
-	}
+	X509_SIG_free(sig);
+	freezero(s, (unsigned int)siglen);
 	return ret;
 }
 

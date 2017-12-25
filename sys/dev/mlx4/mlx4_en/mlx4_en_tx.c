@@ -52,17 +52,6 @@
 
 #include "en.h"
 
-enum {
-	MAX_INLINE = 104, /* 128 - 16 - 4 - 4 */
-	MAX_BF = 256,
-	MIN_PKT_LEN = 17,
-};
-
-static int inline_thold __read_mostly = MAX_INLINE;
-
-module_param_named(inline_thold, inline_thold, uint, 0444);
-MODULE_PARM_DESC(inline_thold, "threshold for using inline data");
-
 int mlx4_en_create_tx_ring(struct mlx4_en_priv *priv,
 			   struct mlx4_en_tx_ring **pring, u32 size,
 			   u16 stride, int node, int queue_idx)
@@ -101,7 +90,7 @@ int mlx4_en_create_tx_ring(struct mlx4_en_priv *priv,
 	ring->size = size;
 	ring->size_mask = size - 1;
 	ring->stride = stride;
-	ring->inline_thold = MAX(MIN_PKT_LEN, MIN(inline_thold, MAX_INLINE));
+	ring->inline_thold = MAX(MIN_PKT_LEN, MIN(priv->prof->inline_thold, MAX_INLINE));
 	mtx_init(&ring->tx_lock.m, "mlx4 tx", NULL, MTX_DEF);
 	mtx_init(&ring->comp_lock.m, "mlx4 comp", NULL, MTX_DEF);
 
@@ -163,13 +152,13 @@ int mlx4_en_create_tx_ring(struct mlx4_en_priv *priv,
 	       ring->buf_size, (unsigned long long) ring->wqres.buf.direct.map);
 
 	err = mlx4_qp_reserve_range(mdev->dev, 1, 1, &ring->qpn,
-				    MLX4_RESERVE_BF_QP);
+				    MLX4_RESERVE_ETH_BF_QP);
 	if (err) {
 		en_err(priv, "failed reserving qp for TX ring\n");
 		goto err_map;
 	}
 
-	err = mlx4_qp_alloc(mdev->dev, ring->qpn, &ring->qp);
+	err = mlx4_qp_alloc(mdev->dev, ring->qpn, &ring->qp, GFP_KERNEL);
 	if (err) {
 		en_err(priv, "Failed allocating qp %d\n", ring->qpn);
 		goto err_reserve;
@@ -185,8 +174,6 @@ int mlx4_en_create_tx_ring(struct mlx4_en_priv *priv,
 	} else
 		ring->bf_enabled = true;
 	ring->queue_index = queue_idx;
-	if (queue_idx < priv->num_tx_rings_p_up )
-		CPU_SET(queue_idx, &ring->affinity_mask);
 
 	*pring = ring;
 	return 0;
@@ -447,8 +434,8 @@ static int mlx4_en_process_tx_cq(struct net_device *dev,
 		ring->blocked = 0;
 		if (atomic_fetchadd_int(&priv->blocked, -1) == 1)
 			atomic_clear_int(&dev->if_drv_flags ,IFF_DRV_OACTIVE);
-		ring->wake_queue++;
 		priv->port_stats.wake_queue++;
+		ring->wake_queue++;
 	}
 	return (0);
 }
@@ -661,18 +648,6 @@ static void mlx4_bf_copy(void __iomem *dst, volatile unsigned long *src, unsigne
 	__iowrite64_copy(dst, __DEVOLATILE(void *, src), bytecnt / 8);
 }
 
-static u64 mlx4_en_mac_to_u64(u8 *addr)
-{
-        u64 mac = 0;
-        int i;
-
-        for (i = 0; i < ETHER_ADDR_LEN; i++) {
-                mac <<= 8;
-                mac |= addr[i];
-        }
-        return mac;
-}
-
 static int mlx4_en_xmit(struct mlx4_en_priv *priv, int tx_ind, struct mbuf **mbp)
 {
 	enum {
@@ -764,14 +739,24 @@ static int mlx4_en_xmit(struct mlx4_en_priv *priv, int tx_ind, struct mbuf **mbp
 	/* check for VLAN tag */
 	if (mb->m_flags & M_VLANTAG) {
 		tx_desc->ctrl.vlan_tag = cpu_to_be16(mb->m_pkthdr.ether_vtag);
-		tx_desc->ctrl.ins_vlan = MLX4_WQE_CTRL_INS_VLAN;
+		tx_desc->ctrl.ins_vlan = MLX4_WQE_CTRL_INS_CVLAN;
 	} else {
 		tx_desc->ctrl.vlan_tag = 0;
 		tx_desc->ctrl.ins_vlan = 0;
 	}
 
-	/* clear immediate field */
-	tx_desc->ctrl.imm = 0;
+	if (unlikely(mlx4_is_mfunc(priv->mdev->dev) || priv->validate_loopback)) {
+		/*
+		 * Copy destination MAC address to WQE. This allows
+		 * loopback in eSwitch, so that VFs and PF can
+		 * communicate with each other:
+		 */
+		m_copydata(mb, 0, 2, __DEVOLATILE(void *, &tx_desc->ctrl.srcrb_flags16[0]));
+		m_copydata(mb, 2, 4, __DEVOLATILE(void *, &tx_desc->ctrl.imm));
+	} else {
+		/* clear immediate field */
+		tx_desc->ctrl.imm = 0;
+	}
 
 	/* Handle LSO (TSO) packets */
 	if (mb->m_pkthdr.csum_flags & CSUM_TSO) {
@@ -795,7 +780,7 @@ static int mlx4_en_xmit(struct mlx4_en_priv *priv, int tx_ind, struct mbuf **mbp
 			num_pkts = DIV_ROUND_UP(payload_len, mss);
 		ring->bytes += payload_len + (num_pkts * ihs);
 		ring->packets += num_pkts;
-		priv->port_stats.tso_packets++;
+		ring->tso_packets++;
 		/* store pointer to inline header */
 		dseg_inline = dseg;
 		/* copy data inline */
@@ -816,20 +801,11 @@ static int mlx4_en_xmit(struct mlx4_en_priv *priv, int tx_ind, struct mbuf **mbp
 	}
 	m_adj(mb, ihs);
 
-	/* trim off empty mbufs */
-	while (mb->m_len == 0) {
-		mb = m_free(mb);
-		/* check if all data has been inlined */
-		if (mb == NULL) {
-			nr_segs = 0;
-			goto skip_dma;
-		}
-	}
-
 	err = bus_dmamap_load_mbuf_sg(ring->dma_tag, tx_info->dma_map,
 	    mb, segs, &nr_segs, BUS_DMA_NOWAIT);
 	if (unlikely(err == EFBIG)) {
 		/* Too many mbuf fragments */
+		ring->defrag_attempts++;
 		m = m_defrag(mb, M_NOWAIT);
 		if (m == NULL) {
 			ring->oversized_packets++;
@@ -845,11 +821,18 @@ static int mlx4_en_xmit(struct mlx4_en_priv *priv, int tx_ind, struct mbuf **mbp
 		ring->oversized_packets++;
 		goto tx_drop;
 	}
-	/* make sure all mbuf data is written to RAM */
-	bus_dmamap_sync(ring->dma_tag, tx_info->dma_map,
-	    BUS_DMASYNC_PREWRITE);
+	/* If there were no errors and we didn't load anything, don't sync. */
+	if (nr_segs != 0) {
+		/* make sure all mbuf data is written to RAM */
+		bus_dmamap_sync(ring->dma_tag, tx_info->dma_map,
+		    BUS_DMASYNC_PREWRITE);
+	} else {
+		/* All data was inlined, free the mbuf. */
+		bus_dmamap_unload(ring->dma_tag, tx_info->dma_map);
+		m_freem(mb);
+		mb = NULL;
+	}
 
-skip_dma:
 	/* compute number of DS needed */
 	ds_cnt = (dseg - ((volatile struct mlx4_wqe_data_seg *)tx_desc)) + nr_segs;
 
@@ -930,27 +913,11 @@ skip_dma:
 	else
 		mlx4_en_store_inline_header(dseg_inline, ihs, owner_bit);
 
-	if (unlikely(priv->validate_loopback)) {
-		/* Copy dst mac address to wqe */
-                struct ether_header *ethh;
-                u64 mac;
-                u32 mac_l, mac_h;
-
-                ethh = mtod(mb, struct ether_header *);
-                mac = mlx4_en_mac_to_u64(ethh->ether_dhost);
-                if (mac) {
-                        mac_h = (u32) ((mac & 0xffff00000000ULL) >> 16);
-                        mac_l = (u32) (mac & 0xffffffff);
-                        tx_desc->ctrl.srcrb_flags |= cpu_to_be32(mac_h);
-                        tx_desc->ctrl.imm = cpu_to_be32(mac_l);
-                }
-	}
-
 	/* update producer counter */
 	ring->prod += tx_info->nr_txbb;
 
 	if (ring->bf_enabled && bf_size <= MAX_BF &&
-	    (tx_desc->ctrl.ins_vlan != MLX4_WQE_CTRL_INS_VLAN)) {
+	    (tx_desc->ctrl.ins_vlan != MLX4_WQE_CTRL_INS_CVLAN)) {
 
 		/* store doorbell number */
 		*(volatile __be32 *) (&tx_desc->ctrl.vlan_tag) |= cpu_to_be32(ring->doorbell_qpn);
@@ -1091,6 +1058,10 @@ mlx4_en_transmit(struct ifnet *dev, struct mbuf *m)
 		taskqueue_enqueue(cq->tq, &cq->cq_task);
 	}
 
+#if __FreeBSD_version >= 1100000
+	if (unlikely(err != 0))
+		if_inc_counter(dev, IFCOUNTER_IQDROPS, 1);
+#endif
 	return (err);
 }
 

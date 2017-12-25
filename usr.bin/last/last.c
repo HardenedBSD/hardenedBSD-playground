@@ -1,4 +1,6 @@
 /*
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1987, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -243,7 +245,7 @@ wtmp(void)
 	/* Display them in reverse order. */
 	while (amount > 0)
 		doentry(&buf[--amount]);
-
+	free(buf);
 	tm = localtime(&t);
 	(void) strftime(ct, sizeof(ct), "%+", tm);
 	printf("\n%s begins %s\n", ((file == NULL) ? "utx.log" : file), ct);

@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -357,11 +359,13 @@
 #define	NFSPROC_WRITEDS		51
 #define	NFSPROC_READDS		52
 #define	NFSPROC_COMMITDS	53
+#define	NFSPROC_OPENLAYGET	54
+#define	NFSPROC_CREATELAYGET	55
 
 /*
  * Must be defined as one higher than the last NFSv4.1 Proc# above.
  */
-#define	NFSV41_NPROCS		54
+#define	NFSV41_NPROCS		56
 
 #endif	/* NFS_V3NPROCS */
 
@@ -390,7 +394,7 @@ struct nfsstatsv1 {
 	uint64_t	readlink_bios;
 	uint64_t	biocache_readdirs;
 	uint64_t	readdir_bios;
-	uint64_t	rpccnt[NFSV41_NPROCS + 15];
+	uint64_t	rpccnt[NFSV41_NPROCS + 13];
 	uint64_t	rpcretries;
 	uint64_t	srvrpccnt[NFSV42_NOPS + NFSV4OP_FAKENOPS];
 	uint64_t	srvrpc_errs;
@@ -518,7 +522,7 @@ struct nfs_vattr {
 struct nfsvattr {
 	struct vattr	na_vattr;
 	nfsattrbit_t	na_suppattr;
-	u_int32_t	na_mntonfileno;
+	u_int64_t	na_mntonfileno;
 	u_int64_t	na_filesid[2];
 };
 
@@ -707,6 +711,25 @@ void nfsrvd_rcv(struct socket *, void *, int);
 #define	NFSSESSIONMUTEXPTR(s)	(&((s)->mtx))
 #define	NFSLOCKSESSION(s)	mtx_lock(&((s)->mtx))
 #define	NFSUNLOCKSESSION(s)	mtx_unlock(&((s)->mtx))
+#define	NFSLOCKLAYOUT(l)	mtx_lock(&((l)->mtx))
+#define	NFSUNLOCKLAYOUT(l)	mtx_unlock(&((l)->mtx))
+#define	NFSDDSLOCK()		mtx_lock(&nfsrv_dslock_mtx)
+#define	NFSDDSUNLOCK()		mtx_unlock(&nfsrv_dslock_mtx)
+#define	NFSDSCLOCKMUTEXPTR	(&nfsrv_dsclock_mtx)
+#define	NFSDSCLOCK()		mtx_lock(&nfsrv_dsclock_mtx)
+#define	NFSDSCUNLOCK()		mtx_unlock(&nfsrv_dsclock_mtx)
+#define	NFSDSRMLOCKMUTEXPTR	(&nfsrv_dsrmlock_mtx)
+#define	NFSDSRMLOCK()		mtx_lock(&nfsrv_dsrmlock_mtx)
+#define	NFSDSRMUNLOCK()		mtx_unlock(&nfsrv_dsrmlock_mtx)
+#define	NFSDWRPCLOCKMUTEXPTR	(&nfsrv_dwrpclock_mtx)
+#define	NFSDWRPCLOCK()		mtx_lock(&nfsrv_dwrpclock_mtx)
+#define	NFSDWRPCUNLOCK()	mtx_unlock(&nfsrv_dwrpclock_mtx)
+#define	NFSDSRPCLOCKMUTEXPTR	(&nfsrv_dsrpclock_mtx)
+#define	NFSDSRPCLOCK()		mtx_lock(&nfsrv_dsrpclock_mtx)
+#define	NFSDSRPCUNLOCK()	mtx_unlock(&nfsrv_dsrpclock_mtx)
+#define	NFSDARPCLOCKMUTEXPTR	(&nfsrv_darpclock_mtx)
+#define	NFSDARPCLOCK()		mtx_lock(&nfsrv_darpclock_mtx)
+#define	NFSDARPCUNLOCK()	mtx_unlock(&nfsrv_darpclock_mtx)
 
 /*
  * Use these macros to initialize/free a mutex.
@@ -728,12 +751,6 @@ int nfsmsleep(void *, void *, int, const char *, struct timespec *);
 #define	NFSMAKEDEV(m, n)	makedev((m), (n))
 #define	NFSMAJOR(d)		major(d)
 #define	NFSMINOR(d)		minor(d)
-
-/*
- * Define this to be the macro that returns the minimum size required
- * for a directory entry.
- */
-#define	DIRENT_SIZE(dp)		GENERIC_DIRSIZ(dp)
 
 /*
  * The vnode tag for nfsv4root.
@@ -900,6 +917,7 @@ int newnfs_realign(struct mbuf **, int);
 #define	NFSSTA_HASWRITEVERF	0x00040000  /* Has write verifier */
 #define	NFSSTA_GOTFSINFO	0x00100000  /* Got the fsinfo */
 #define	NFSSTA_OPENMODE		0x00200000  /* Must use correct open mode */
+#define	NFSSTA_FLEXFILE		0x00800000  /* Use Flex File Layout */
 #define	NFSSTA_NOLAYOUTCOMMIT	0x04000000  /* Don't do LayoutCommit */
 #define	NFSSTA_SESSPERSIST	0x08000000  /* Has a persistent session */
 #define	NFSSTA_TIMEO		0x10000000  /* Experiencing a timeout */
@@ -930,6 +948,7 @@ int newnfs_realign(struct mbuf **, int);
 #define	NFSHASNOLAYOUTCOMMIT(n)	((n)->nm_state & NFSSTA_NOLAYOUTCOMMIT)
 #define	NFSHASSESSPERSIST(n)	((n)->nm_state & NFSSTA_SESSPERSIST)
 #define	NFSHASPNFS(n)		((n)->nm_state & NFSSTA_PNFS)
+#define	NFSHASFLEXFILE(n)	((n)->nm_state & NFSSTA_FLEXFILE)
 #define	NFSHASOPENMODE(n)	((n)->nm_state & NFSSTA_OPENMODE)
 #define	NFSHASONEOPENOWN(n)	(((n)->nm_flag & NFSMNT_ONEOPENOWN) != 0 &&	\
 				    (n)->nm_minorvers > 0)
@@ -1022,7 +1041,7 @@ struct nfsreq {
 };
 
 #ifndef NFS_MAXBSIZE
-#define	NFS_MAXBSIZE	MAXBCACHEBUF
+#define	NFS_MAXBSIZE	(maxbcachebuf)
 #endif
 
 /*

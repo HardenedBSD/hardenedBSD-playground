@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1986, 1989, 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  * (c) UNIX System Laboratories, Inc.
@@ -99,6 +101,8 @@ struct fork_args {
 };
 #endif
 
+EVENTHANDLER_LIST_DECLARE(process_fork);
+
 /* ARGSUSED */
 int
 sys_fork(struct thread *td, struct fork_args *uap)
@@ -198,7 +202,10 @@ SYSCTL_INT(_kern, OID_AUTO, lastpid, CTLFLAG_RD, &lastpid, 0,
  */
 int randompid = 0;
 
-#ifndef PAX_HARDENING
+#ifdef PAX_HARDENING
+SYSCTL_INT(_kern, OID_AUTO, randompid, CTLFLAG_RD, &randompid, 0,
+    "Random PID modulus");
+#else
 static int
 sysctl_kern_randompid(SYSCTL_HANDLER_ARGS)
 {
@@ -211,13 +218,19 @@ sysctl_kern_randompid(SYSCTL_HANDLER_ARGS)
 	pid = randompid;
 	error = sysctl_handle_int(oidp, &pid, 0, req);
 	if (error == 0 && req->newptr != NULL) {
-		if (pid < 0 || pid > pid_max - 100)	/* out of range */
-			pid = pid_max - 100;
-		else if (pid < 2)			/* NOP */
-			pid = 0;
-		else if (pid < 100)			/* Make it reasonable */
-			pid = 100;
-		randompid = pid;
+		if (pid == 0)
+			randompid = 0;
+		else if (pid == 1)
+			/* generate a random PID modulus between 100 and 1123 */
+			randompid = 100 + arc4random() % 1024;
+		else if (pid < 0 || pid > pid_max - 100)
+			/* out of range */
+			randompid = pid_max - 100;
+		else if (pid < 100)	 
+			/* Make it reasonable */
+			randompid = 100;
+		else
+			randompid = pid;
 	}
 	sx_xunlock(&allproc_lock);
 	return (error);
@@ -225,9 +238,6 @@ sysctl_kern_randompid(SYSCTL_HANDLER_ARGS)
 
 SYSCTL_PROC(_kern, OID_AUTO, randompid, CTLTYPE_INT|CTLFLAG_RW,
     0, 0, sysctl_kern_randompid, "I", "Random PID modulus");
-#else
-SYSCTL_INT(_kern, OID_AUTO, randompid, CTLFLAG_RD, &randompid, 0,
-    "Random PID modulus");
 #endif
 
 static int
@@ -701,7 +711,7 @@ do_fork(struct thread *td, struct fork_req *fr, struct proc *p2, struct thread *
 	 * Both processes are set up, now check if any loadable modules want
 	 * to adjust anything.
 	 */
-	EVENTHANDLER_INVOKE(process_fork, p1, p2, fr->fr_flags);
+	EVENTHANDLER_DIRECT_INVOKE(process_fork, p1, p2, fr->fr_flags);
 
 	/*
 	 * Set the child start time and mark the process as being complete.
@@ -1116,7 +1126,7 @@ fork_return(struct thread *td, struct trapframe *frame)
 		 */
 		PROC_LOCK(p);
 		td->td_dbgflags |= TDB_SCX;
-		_STOPEVENT(p, S_SCX, td->td_dbg_sc_code);
+		_STOPEVENT(p, S_SCX, td->td_sa.code);
 		if ((p->p_ptevents & PTRACE_SCX) != 0 ||
 		    (td->td_dbgflags & TDB_BORN) != 0)
 			ptracestop(td, SIGTRAP, NULL);

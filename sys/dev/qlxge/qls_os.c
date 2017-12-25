@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2013-2014 Qlogic Corporation
  * All rights reserved.
  *
@@ -1396,7 +1398,7 @@ qls_alloc_rcv_bufs(qla_host_t *ha)
 int
 qls_get_mbuf(qla_host_t *ha, qla_rx_buf_t *rxb, struct mbuf *nmp)
 {
-	register struct mbuf *mp = nmp;
+	struct mbuf *mp = nmp;
 	struct ifnet   		*ifp;
 	int            		ret = 0;
 	uint32_t		offset;

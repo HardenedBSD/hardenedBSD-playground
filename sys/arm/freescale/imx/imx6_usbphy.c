@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2013 Ian Lepore <ian@freebsd.org>
  * All rights reserved.
  *
@@ -198,5 +200,11 @@ static driver_t usbphy_driver = {
 
 static devclass_t usbphy_devclass;
 
-DRIVER_MODULE(usbphy, simplebus, usbphy_driver, usbphy_devclass, 0, 0);
+/*
+ * This driver needs to start before the ehci driver, but later than the usual
+ * "special" drivers like clocks and cpu.  Ehci starts at DEFAULT so
+ * DEFAULT-1000 seems good.
+ */
+EARLY_DRIVER_MODULE(usbphy, simplebus, usbphy_driver, usbphy_devclass, 0, 0,
+    BUS_PASS_DEFAULT - 1000);
 

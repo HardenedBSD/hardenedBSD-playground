@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1980, 1986, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -35,6 +37,7 @@ static const char sccsid[] = "@(#)pass5.c	8.9 (Berkeley) 4/28/95";
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#define	IN_RTLD			/* So we pickup the P_OSREL defines */
 #include <sys/param.h>
 #include <sys/sysctl.h>
 
@@ -71,6 +74,14 @@ pass5(void)
 	inoinfo(UFS_WINO)->ino_state = USTATE;
 	memset(newcg, 0, (size_t)fs->fs_cgsize);
 	newcg->cg_niblk = fs->fs_ipg;
+	if (preen == 0 && yflag == 0 && fs->fs_magic == FS_UFS2_MAGIC &&
+	    fswritefd != -1 && (fs->fs_metackhash & CK_CYLGRP) == 0 &&
+	    getosreldate() >= P_OSREL_CK_CYLGRP &&
+	    reply("ADD CYLINDER GROUP CHECKSUM PROTECTION") != 0) {
+		fs->fs_metackhash |= CK_CYLGRP;
+		rewritecg = 1;
+		sbdirty();
+	}
 	if (cvtlevel >= 3) {
 		if (fs->fs_maxcontig < 2 && fs->fs_contigsumsize > 0) {
 			if (preen)
@@ -305,6 +316,12 @@ pass5(void)
 				sump[run]++;
 			}
 		}
+		if ((fs->fs_metackhash & CK_CYLGRP) != 0) {
+			newcg->cg_ckhash = 0;
+			newcg->cg_ckhash =
+			    calculate_crc32c(~0L, (void *)newcg, fs->fs_cgsize);
+		}
+
 		if (bkgrdflag != 0) {
 			cstotal.cs_nffree += cg->cg_cs.cs_nffree;
 			cstotal.cs_nbfree += cg->cg_cs.cs_nbfree;

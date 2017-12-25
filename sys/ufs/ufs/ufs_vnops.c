@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1986, 1989, 1993, 1995
  *	The Regents of the University of California.  All rights reserved.
  * (c) UNIX System Laboratories, Inc.
@@ -122,7 +124,6 @@ static vop_symlink_t	ufs_symlink;
 static vop_whiteout_t	ufs_whiteout;
 static vop_close_t	ufsfifo_close;
 static vop_kqfilter_t	ufsfifo_kqfilter;
-static vop_pathconf_t	ufsfifo_pathconf;
 
 SYSCTL_NODE(_vfs, OID_AUTO, ufs, CTLFLAG_RD, 0, "UFS filesystem");
 
@@ -981,7 +982,7 @@ ufs_link(ap)
 		goto out;
 	}
 	ip = VTOI(vp);
-	if ((nlink_t)ip->i_nlink >= LINK_MAX) {
+	if (ip->i_nlink >= UFS_LINK_MAX) {
 		error = EMLINK;
 		goto out;
 	}
@@ -1266,7 +1267,7 @@ relock:
 	doingdirectory = 0;
 	newparent = 0;
 	ino = fip->i_number;
-	if (fip->i_nlink >= LINK_MAX) {
+	if (fip->i_nlink >= UFS_LINK_MAX) {
 		error = EMLINK;
 		goto unlockout;
 	}
@@ -1369,7 +1370,7 @@ relock:
 			 * actual link modification is completed when
 			 * .. is rewritten below.
 			 */
-			if ((nlink_t)tdp->i_nlink >= LINK_MAX) {
+			if (tdp->i_nlink >= UFS_LINK_MAX) {
 				error = EMLINK;
 				goto bad;
 			}
@@ -1793,7 +1794,7 @@ ufs_mkdir(ap)
 		panic("ufs_mkdir: no name");
 #endif
 	dp = VTOI(dvp);
-	if ((nlink_t)dp->i_nlink >= LINK_MAX) {
+	if (dp->i_nlink >= UFS_LINK_MAX) {
 		error = EMLINK;
 		goto out;
 	}
@@ -2404,30 +2405,6 @@ ufsfifo_kqfilter(ap)
 }
 
 /*
- * Return POSIX pathconf information applicable to fifos.
- */
-static int
-ufsfifo_pathconf(ap)
-	struct vop_pathconf_args /* {
-		struct vnode *a_vp;
-		int a_name;
-		int *a_retval;
-	} */ *ap;
-{
-
-	switch (ap->a_name) {
-	case _PC_ACL_EXTENDED:
-	case _PC_ACL_NFS4:
-	case _PC_ACL_PATH_MAX:
-	case _PC_MAC_PRESENT:
-		return (ufs_pathconf(ap));
-	default:
-		return (fifo_specops.vop_pathconf(ap));
-	}
-	/* NOTREACHED */
-}
-
-/*
  * Return POSIX pathconf information applicable to ufs filesystems.
  */
 static int
@@ -2443,16 +2420,16 @@ ufs_pathconf(ap)
 	error = 0;
 	switch (ap->a_name) {
 	case _PC_LINK_MAX:
-		*ap->a_retval = LINK_MAX;
+		*ap->a_retval = UFS_LINK_MAX;
 		break;
 	case _PC_NAME_MAX:
 		*ap->a_retval = UFS_MAXNAMLEN;
 		break;
-	case _PC_PATH_MAX:
-		*ap->a_retval = PATH_MAX;
-		break;
 	case _PC_PIPE_BUF:
-		*ap->a_retval = PIPE_BUF;
+		if (ap->a_vp->v_type == VDIR || ap->a_vp->v_type == VFIFO)
+			*ap->a_retval = PIPE_BUF;
+		else
+			error = EINVAL;
 		break;
 	case _PC_CHOWN_RESTRICTED:
 		*ap->a_retval = 1;
@@ -2505,11 +2482,6 @@ ufs_pathconf(ap)
 	case _PC_MIN_HOLE_SIZE:
 		*ap->a_retval = ap->a_vp->v_mount->mnt_stat.f_iosize;
 		break;
-	case _PC_ASYNC_IO:
-		/* _PC_ASYNC_IO should have been handled by upper layers. */
-		KASSERT(0, ("_PC_ASYNC_IO should not get here"));
-		error = EINVAL;
-		break;
 	case _PC_PRIO_IO:
 		*ap->a_retval = 0;
 		break;
@@ -2539,7 +2511,7 @@ ufs_pathconf(ap)
 		break;
 
 	default:
-		error = EINVAL;
+		error = vop_stdpathconf(ap);
 		break;
 	}
 	return (error);
@@ -2812,7 +2784,7 @@ struct vop_vector ufs_fifoops = {
 	.vop_inactive =		ufs_inactive,
 	.vop_kqfilter =		ufsfifo_kqfilter,
 	.vop_markatime =	ufs_markatime,
-	.vop_pathconf = 	ufsfifo_pathconf,
+	.vop_pathconf = 	ufs_pathconf,
 	.vop_print =		ufs_print,
 	.vop_read =		VOP_PANIC,
 	.vop_reclaim =		ufs_reclaim,

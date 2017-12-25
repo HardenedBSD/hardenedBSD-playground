@@ -37,6 +37,8 @@
 #ifndef	_MACHINE_ATOMIC_H_
 #define	_MACHINE_ATOMIC_H_
 
+#include <sys/atomic_common.h>
+
 #define	fence()	__asm __volatile("fence" ::: "memory");
 #define	mb()	fence()
 #define	rmb()	fence()
@@ -511,6 +513,8 @@ atomic_store_rel_64(volatile uint64_t *p, uint64_t val)
 #define	atomic_load_acq_ptr		atomic_load_acq_64
 #define	atomic_set_acq_ptr		atomic_set_acq_64
 #define	atomic_subtract_acq_ptr		atomic_subtract_acq_64
+
+#undef ATOMIC_ACQ_REL
 
 static __inline void
 atomic_thread_fence_acq(void)

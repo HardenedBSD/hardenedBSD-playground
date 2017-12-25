@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1980, 1991, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  * Copyright (c) 2002 Networks Associates Technologies, Inc.
@@ -255,7 +257,7 @@ ttymode_kvm(void)
 		/* xt.xt_pgid = ... */
 		/* xt.xt_sid = ... */
 		xt.xt_flags = tty.t_flags;
-		xt.xt_dev = NODEV;
+		xt.xt_dev = (uint32_t)NODEV;
 		ttyprt(&xt);
 		tp = TAILQ_NEXT(&tty, t_list);
 	}

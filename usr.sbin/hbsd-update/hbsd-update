@@ -40,6 +40,7 @@ kernel=""
 # hbsd-update.conf(5).
 dnssec="yes"
 dnssec_key="/usr/share/keys/hbsd-update/trusted/dnssec.key"
+revoke_dir="/usr/share/keys/hbsd-update/revoked"
 
 ignorever=0
 unsigned=0
@@ -50,6 +51,9 @@ no_obsolete=0
 interactive=0
 install_src=0
 keeptmp=0
+local_resolver=0
+nodownload=0
+nobase=0
 
 update_hash=""
 
@@ -59,16 +63,18 @@ CHFLAGS="/bin/chflags"
 DRILL="/usr/bin/drill"
 ETCUPDATE="/usr/sbin/etcupdate"
 FETCH="/usr/bin/fetch"
+FIND="/usr/bin/find"
 GREP="/usr/bin/grep"
 JLS="/usr/sbin/jls"
 KLDXREF="/usr/sbin/kldxref"
 MKTEMP="/usr/bin/mktemp"
 OPENSSL="/usr/bin/openssl"
+PWD_MKDB="/usr/sbin/pwd_mkdb"
 SED="/usr/bin/sed"
-TAR="/usr/bin/tar"
 SHA256="/sbin/sha256"
 SHA512="/sbin/sha512"
 TAIL="/usr/bin/tail"
+TAR="/usr/bin/tar"
 UNBOUND_HOST="/usr/sbin/unbound-host"
 
 debug_print() {
@@ -87,7 +93,9 @@ usage() {
 	debug_print "\t-j jailname\tInstall updates to jail <jailname>"
 	debug_print "\t-K backupkern\tBackup the previous kernel to <backupkern>"
 	debug_print "\t-k kernel\tUse kernel <kernel>"
+	debug_print "\t-n\t\tDo not install kernel"
 	debug_print "\t-o\t\tDo not remove obsolete files/directories"
+	debug_print "\t-r path\tBootstrap root directory <path>"
 	debug_print "\t-s\t\tInstall sources (if present)"
 	debug_print "\t-t tmpdir\tTemporary directory"
 	debug_print "\t-U\t\tAllow unsigned updates"
@@ -150,11 +158,17 @@ dnssec_check() {
 	local val
 	local rec
 	local is_secure
+	local resolver_flag
+
+	if [ ${local_resolver} -gt 0 ]; then
+		resolver_flag="-r"
+	fi
 
 	case "${dnssec}" in
 		[yY]*)
 			debug_print "[*] Looking up version info with DNSSEC enabled."
 			val=$(${UNBOUND_HOST} \
+				${resolver_flag} \
 				-v \
 				-t txt \
 				-f ${mountpoint}/${dnssec_key} \
@@ -353,9 +367,23 @@ fetch_update() {
 }
 
 check_pubkey_validity() {
+	local updatehash
+	local filehash
+	local f
+
 	if [ ${verbose} -gt 0 ]; then
 		debug_print "[*] Checking validity of the public key"
 	fi
+
+	updatehash=$(${SHA256} -q ${tmpdir}/pubkey.pem)
+
+	for f in $(${FIND} ${mountpoint}/usr/share/keys/hbsd-update/revoked -type f); do
+		filehash=$(${SHA256} -q ${f})
+		if [ "${filehash}" = "${updatehash}" ]; then
+			echo "[-] This update has been signed with a revoked key." >&2
+			return 1
+		fi
+	done
 
 	caopt="-CApath"
 	if [ -f ${capath} ]; then
@@ -387,6 +415,12 @@ check_set_validity() {
 	if [ ${integriforce} -gt 0 ]; then
 		if [ -f ${tmpdir}/secadm.integriforce.rules ]; then
 			extrafiles="${extrafiles} secadm.integriforce.rules"
+		fi
+	fi
+
+	if [ ${install_src} -gt 0 ]; then
+		if [ -f ${tmpdir}/src.txz ]; then
+			extrafiles="${extrafiles} src.txz"
 		fi
 	fi
 
@@ -442,7 +476,7 @@ check_set_validity() {
 			-pubin \
 			-inkey ${tmpdir}/pubkey.rsa.pem)
 
-		computedhash=$(sha512 -q ${tmpdir}/${file})
+		computedhash=$(${SHA512} -q ${tmpdir}/${file})
 		res=${?}
 		if [ ${res} -gt 0 ]; then
 			return 1
@@ -459,24 +493,26 @@ check_set_validity() {
 
 apply_base() {
 	local needsresolve
+	local dirs
+	local dir
+	local d
+
 	needsresolve=0
+	dirs="/bin /sbin /lib /libexec /usr/bin /usr/sbin /usr/lib"
 
 	if [ ${verbose} -gt 0 ]; then
 		debug_print "[*] Applying base"
 	fi
 
-	${CHFLAGS} -R noschg \
-		${mountpoint}/bin \
-		${mountpoint}/sbin \
-		${mountpoint}/lib \
-		${mountpoint}/libexec \
-		${mountpoint}/usr/bin \
-		${mountpoint}/usr/sbin \
-		${mountpoint}/usr/lib
-	res=${?}
-	if [ ${res} -gt 0 ]; then
-		return ${res}
-	fi
+	for dir in ${dirs}; do
+		if [ -d ${mountpoint}/${dir} ]; then
+			${CHFLAGS} -R noschg ${mountpoint}/${dir}
+			res=${?}
+			if [ ${res} -gt 0 ]; then
+				return ${res}
+			fi
+		fi
+	done
 
 	${TAR} -xpf ${tmpdir}/base.txz \
 		-X ${tmpdir}/skip.txt \
@@ -488,6 +524,7 @@ apply_base() {
 	fi
 
 	boottmp=$(env TMPDIR=${tmpdir} ${MKTEMP} -d)
+	[ ! -d ${mountpoint}/boot ] && mkdir ${mountpoint}/boot
 	${TAR} -xpf ${tmpdir}/base.txz --include ./boot -C ${boottmp}
 	${TAR} -c -C ${boottmp}/boot -f - . | \
 		(cd ${mountpoint}/boot; ${TAR} -xpf -)
@@ -504,6 +541,22 @@ apply_base() {
 				debug_print "[*] Installing sources"
 			fi
 
+			${FIND} ${mountpoint}/usr/src -type f -delete
+			res=${?}
+			if [ ${res} -gt 0 ]; then
+				echo "[-] Removing source files failed." >&2
+				return 1
+			fi
+
+			for d in $(${FIND} ${mountpoint}/usr/src -type d | sed 1d); do
+				rmdir ${d}
+				res=${?}
+				if [ ${res} -gt 0 ]; then
+					echo "[-] Removing source directories failed" >&2
+					return 1
+				fi
+			done
+
 			${TAR} -xpf ${tmpdir}/src.txz \
 				-C ${mountpoint}
 		fi
@@ -515,11 +568,8 @@ apply_base() {
 
 	${ETCUPDATE} -t ${tmpdir}/etcupdate.tbz \
 	    -D ${mountpoint} \
-	    -I /etc/passwd \
-	    -I /etc/group \
-	    -I /etc/master.passwd \
 	    -I /etc/pwd.db \
-	    -I /etc/spwd.db > ${tmpdir}/etcupdate.log
+	    -I /etc/spwd.db > ${tmpdir}/etcupdate.log 2>&1
 
 	for res in $(awk '{print $1;}' ${tmpdir}/etcupdate.log); do
 		if [ "${res}" = "C" ]; then
@@ -534,6 +584,18 @@ apply_base() {
 		res=${?}
 		if [ ${res} -gt 0 ]; then
 			return 1
+		fi
+	fi
+
+	if ${GREP} -q passwd ${tmpdir}/etcupdate.log; then
+		debug_print "[*] Updating the password database"
+
+		${PWD_MKDB} -d ${mountpoint}/etc -p \
+		    ${mountpoint}/etc/master.passwd
+		res=${?}
+		if [ ${res} -gt 0 ]; then
+			echo "[-] Making the password database failed" >&2
+			return ${res}
 		fi
 	fi
 
@@ -814,6 +876,11 @@ check_sanity() {
 		debug_print "[-] ZFS BE and Jail options are mutually exclusive"
 		exit 1
 	fi
+
+	if [ ! -z "${zfsbe}" ] && [ ! -x ${BEADM} ]; then
+		debug_print "[-] Please install sysutils/beadm"
+		exit 1
+	fi
 }
 
 report_version() {
@@ -854,15 +921,13 @@ main() {
 	local_kernel=""
 	no_kernel=0
 
-	while getopts 'dhinosCITUVb:c:j:K:k:t:u:v:' opt; do
+	while getopts 'dhinosBCDITUVb:c:j:K:k:r:t:u:v:' opt; do
 		case "${opt}" in
 			b)
-				if ! which -s ${BEADM}; then
-					debug_print "[*] Please install the beadm pkg."
-					exit 1
-				fi
-
 				zfsbe="${OPTARG}"
+				;;
+			B)
+				nobase=1
 				;;
 			c)
 				configfile="${OPTARG}"
@@ -872,6 +937,9 @@ main() {
 				;;
 			d)
 				dnssec="no"
+				;;
+			D)
+				nodownload=1
 				;;
 			i)
 				ignorever=1
@@ -893,6 +961,9 @@ main() {
 				;;
 			o)
 				no_obsolete=1
+				;;
+			r)
+				mountpoint="${OPTARG}"
 				;;
 			s)
 				install_src=1
@@ -933,6 +1004,12 @@ main() {
 		kernel=${local_kernel}
 	fi
 
+	if [ ! -d ${mountpoint} ]; then
+		debug_print "[-] ${mountpoint} does not exist"
+		cleanup
+		exit 1
+	fi
+
 	trap sigint_handler INT
 
 	if [ -z "${tmpdir}" ]; then
@@ -955,11 +1032,13 @@ main() {
 		exit 0
 	fi
 
-	fetch_update
-	res=${?}
-	if [ ${res} -gt 0 ]; then
-		cleanup
-		exit 1
+	if [ ${nodownload} -eq 0 ]; then
+		fetch_update
+		res=${?}
+		if [ ${res} -gt 0 ]; then
+			cleanup
+			exit 1
+		fi
 	fi
 
 	set_kernel_config
@@ -1008,12 +1087,14 @@ main() {
 
 	trap 'sigint_handler 1' INT
 
-	apply_base
-	res=${?}
-	if [ ${res} -gt 0 ]; then
-		cleanup
-		destroy_be
-		exit 1
+	if [ ${nobase} -eq 0 ]; then
+		apply_base
+		res=${?}
+		if [ ${res} -gt 0 ]; then
+			cleanup
+			destroy_be
+			exit 1
+		fi
 	fi
 
 	if [ ${no_kernel} -eq 0 ]; then

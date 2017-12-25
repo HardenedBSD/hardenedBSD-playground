@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2010 Marcel Moolenaar
  * Copyright (c) 1999-2004 Poul-Henning Kamp
  * Copyright (c) 1999 Michael Smith
@@ -183,7 +185,8 @@ void
 root_mount_rel(struct root_hold_token *h)
 {
 
-	KASSERT(h != NULL, ("%s: NULL token", __func__));
+	if (h == NULL)
+		return;
 
 	mtx_lock(&root_holds_mtx);
 	LIST_REMOVE(h, list);

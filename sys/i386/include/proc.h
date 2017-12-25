@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1991 Regents of the University of California.
  * All rights reserved.
  *
@@ -60,6 +62,13 @@ struct mdproc {
 
 #define	KINFO_PROC_SIZE 768
 
+struct syscall_args {
+	u_int code;
+	struct sysent *callp;
+	register_t args[8];
+	int narg;
+};
+
 #ifdef	_KERNEL
 
 /* Get the current kernel thread stack usage. */
@@ -77,13 +86,6 @@ void 	user_ldt_free(struct thread *);
 void	user_ldt_deref(struct proc_ldt *pldt);
 
 extern struct mtx dt_lock;
-
-struct syscall_args {
-	u_int code;
-	struct sysent *callp;
-	register_t args[8];
-	int narg;
-};
 #endif	/* _KERNEL */
 
 #endif /* !_MACHINE_PROC_H_ */

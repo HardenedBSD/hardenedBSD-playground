@@ -46,7 +46,6 @@ FILES=	DAEMON \
 	ip6addrctl \
 	ipfilter \
 	ipfs \
-	ipfw \
 	ipmon \
 	ipnat \
 	ipsec \
@@ -100,6 +99,7 @@ FILES=	DAEMON \
 	rpcbind \
 	rtadvd \
 	rtsold \
+	rwho \
 	savecore \
 	securelevel \
 	serial \
@@ -205,6 +205,13 @@ HASTPACKAGE=	hast
 FILES+=		inetd
 .endif
 
+.if ${MK_IPFW} != "no"
+FILES+=		ipfw
+.if ${MK_NETGRAPH} != "no"
+FILES+=		ipfw_netflow
+.endif
+.endif
+
 .if ${MK_ISCSI} != "no"
 FILES+=		iscsictl
 FILES+=		iscsid
@@ -246,6 +253,10 @@ _nscd=		nscd
 FILES+=		ntpd
 .endif
 
+.if ${MK_OPENNTPD} != "no"
+FILES+=		local_openntpd
+.endif
+
 .if ${MK_OFED} != "no"
 _opensm=	opensm
 .endif
@@ -262,12 +273,6 @@ SSHPACKAGE=	ssh
 
 .if ${MK_PF} != "no"
 FILES+=		ftp-proxy
-.endif
-
-.if ${MK_RCMDS} != "no"
-FILESGROUPS+=	RCMDS
-RCMDS+=		rwho
-RCMDSPACKAGE=	rcmds
 .endif
 
 .if ${MK_ROUTED} != "no"

@@ -1,6 +1,8 @@
 /*	$NetBSD: buf.h,v 1.3 2001/11/02 03:12:49 lukem Exp $	*/
 
-/*
+/*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
  * Copyright (c) 2001 Wasabi Systems, Inc.
  * All rights reserved.
  *
@@ -43,13 +45,12 @@
 #include <sys/param.h>
 #include <sys/queue.h>
 
+struct makefs_fsinfo;
 struct ucred;
 
 struct vnode {
-	int fd;
-	void *fs;
+	struct makefs_fsinfo *fs;
 	void *v_data;
-	int offset;
 };
 
 struct buf {
@@ -58,8 +59,7 @@ struct buf {
 	long		b_bcount;
 	daddr_t		b_blkno;
 	daddr_t		b_lblkno;
-	int		b_fd;
-	void *		b_fs;
+	struct makefs_fsinfo *b_fs;
 
 	TAILQ_ENTRY(buf)	b_tailq;
 };

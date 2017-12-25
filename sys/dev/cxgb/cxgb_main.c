@@ -1,4 +1,5 @@
 /**************************************************************************
+SPDX-License-Identifier: BSD-2-Clause-FreeBSD
 
 Copyright (c) 2007-2009, Chelsio Inc.
 All rights reserved.
@@ -41,7 +42,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/conf.h>
 #include <machine/bus.h>
 #include <machine/resource.h>
-#include <sys/bus_dma.h>
 #include <sys/ktr.h>
 #include <sys/rman.h>
 #include <sys/ioccom.h>

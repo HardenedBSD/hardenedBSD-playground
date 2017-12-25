@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2000-2001 Boris Popov
  * All rights reserved.
  *
@@ -621,9 +623,11 @@ smbfs_putpages(ap)
 
 	relpbuf(bp, &smbfs_pbuf_freecnt);
 
-	if (!error)
-		vnode_pager_undirty_pages(pages, rtvals, count - uio.uio_resid);
-	return rtvals[0];
+	if (error == 0) {
+		vnode_pager_undirty_pages(pages, rtvals, count - uio.uio_resid,
+		    npages * PAGE_SIZE, npages * PAGE_SIZE);
+	}
+	return (rtvals[0]);
 #endif /* SMBFS_RWGENERIC */
 }
 

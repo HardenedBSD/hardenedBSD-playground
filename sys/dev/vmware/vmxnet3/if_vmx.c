@@ -2194,6 +2194,20 @@ vmxnet3_rxq_eof(struct vmxnet3_rxqueue *rxq)
 		} else {
 			KASSERT(rxd->btype == VMXNET3_BTYPE_BODY,
 			    ("%s: non start of frame w/o body buffer", __func__));
+
+			if (m_head == NULL && m_tail == NULL) {
+				/*
+				 * This is a continuation of a packet that we
+				 * started to drop, but could not drop entirely
+				 * because this segment was still owned by the
+				 * host.  So, drop the remainder now.
+				 */
+				vmxnet3_rxq_eof_discard(rxq, rxr, idx);
+				if (!rxcd->eop)
+					vmxnet3_rxq_discard_chain(rxq);
+				goto nextp;
+			}
+
 			KASSERT(m_head != NULL,
 			    ("%s: frame not started?", __func__));
 
@@ -3471,14 +3485,15 @@ vmxnet3_media_status(struct ifnet *ifp, struct ifmediareq *ifmr)
 
 	sc = ifp->if_softc;
 
-	ifmr->ifm_active = IFM_ETHER | IFM_AUTO;
 	ifmr->ifm_status = IFM_AVALID;
+	ifmr->ifm_active = IFM_ETHER;
 
 	VMXNET3_CORE_LOCK(sc);
-	if (vmxnet3_link_is_up(sc) != 0)
+	if (vmxnet3_link_is_up(sc) != 0) {
 		ifmr->ifm_status |= IFM_ACTIVE;
-	else
-		ifmr->ifm_status |= IFM_NONE;
+		ifmr->ifm_active |= IFM_AUTO;
+	} else
+		ifmr->ifm_active |= IFM_NONE;
 	VMXNET3_CORE_UNLOCK(sc);
 }
 

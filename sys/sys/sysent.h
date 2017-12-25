@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1988, 1991 The Regents of the University of California.
  * All rights reserved.
  *
@@ -120,8 +122,7 @@ struct sysentvec {
 	u_long		*sv_maxssiz;
 	u_int		sv_flags;
 	void		(*sv_set_syscall_retval)(struct thread *, int);
-	int		(*sv_fetch_syscall_args)(struct thread *, struct
-			    syscall_args *);
+	int		(*sv_fetch_syscall_args)(struct thread *);
 	const char	**sv_syscallnames;
 	vm_offset_t	sv_timekeep_base;
 	vm_offset_t	sv_shared_page_base;
@@ -132,6 +133,8 @@ struct sysentvec {
 	void		(*sv_thread_detach)(struct thread *);
 	int		(*sv_trap)(struct thread *);
 	void		(* const sv_pax_aslr_init)(struct proc *p);
+	u_long		*sv_hwcap;	/* Value passed in AT_HWCAP. */
+	u_long		*sv_hwcap2;	/* Value passed in AT_HWCAP2. */
 };
 
 #define	SV_ILP32	0x000100	/* 32-bit executable. */
@@ -228,24 +231,30 @@ struct syscall_helper_data {
 	int syscall_no;
 	int registered;
 };
-#define SYSCALL_INIT_HELPER(syscallname) {			\
+#define SYSCALL_INIT_HELPER_F(syscallname, flags) {		\
     .new_sysent = {						\
 	.sy_narg = (sizeof(struct syscallname ## _args )	\
 	    / sizeof(register_t)),				\
 	.sy_call = (sy_call_t *)& sys_ ## syscallname,		\
-	.sy_auevent = SYS_AUE_##syscallname			\
+	.sy_auevent = SYS_AUE_##syscallname,			\
+	.sy_flags = (flags)					\
     },								\
     .syscall_no = SYS_##syscallname				\
 }
-#define SYSCALL_INIT_HELPER_COMPAT(syscallname) {		\
+#define SYSCALL_INIT_HELPER_COMPAT_F(syscallname, flags) {	\
     .new_sysent = {						\
 	.sy_narg = (sizeof(struct syscallname ## _args )	\
 	    / sizeof(register_t)),				\
 	.sy_call = (sy_call_t *)& syscallname,			\
-	.sy_auevent = SYS_AUE_##syscallname			\
+	.sy_auevent = SYS_AUE_##syscallname,			\
+	.sy_flags = (flags)					\
     },								\
     .syscall_no = SYS_##syscallname				\
 }
+#define SYSCALL_INIT_HELPER(syscallname)			\
+    SYSCALL_INIT_HELPER_F(syscallname, 0)
+#define SYSCALL_INIT_HELPER_COMPAT(syscallname)			\
+    SYSCALL_INIT_HELPER_COMPAT_F(syscallname, 0)
 #define SYSCALL_INIT_LAST {					\
     .syscall_no = NO_SYSCALL					\
 }

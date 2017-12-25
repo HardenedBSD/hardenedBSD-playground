@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1986, 1993, 1994, 1995
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -38,7 +40,7 @@ void	 syncache_init(void);
 #ifdef VIMAGE
 void	syncache_destroy(void);
 #endif
-void	 syncache_unreach(struct in_conninfo *, struct tcphdr *);
+void	 syncache_unreach(struct in_conninfo *, tcp_seq);
 int	 syncache_expand(struct in_conninfo *, struct tcpopt *,
 	     struct tcphdr *, struct socket **, struct mbuf *);
 int	 syncache_add(struct in_conninfo *, struct tcpopt *,

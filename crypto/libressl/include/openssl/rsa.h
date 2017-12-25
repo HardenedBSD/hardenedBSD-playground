@@ -1,4 +1,4 @@
-/* $OpenBSD: rsa.h,v 1.27 2015/02/14 15:10:39 miod Exp $ */
+/* $OpenBSD: rsa.h,v 1.31 2017/08/30 16:07:35 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -293,8 +293,12 @@ const RSA_METHOD *RSA_PKCS1_SSLeay(void);
 
 const RSA_METHOD *RSA_null_method(void);
 
-DECLARE_ASN1_ENCODE_FUNCTIONS_const(RSA, RSAPublicKey)
-DECLARE_ASN1_ENCODE_FUNCTIONS_const(RSA, RSAPrivateKey)
+RSA *d2i_RSAPublicKey(RSA **a, const unsigned char **in, long len);
+int i2d_RSAPublicKey(const RSA *a, unsigned char **out);
+extern const ASN1_ITEM RSAPublicKey_it;
+RSA *d2i_RSAPrivateKey(RSA **a, const unsigned char **in, long len);
+int i2d_RSAPrivateKey(const RSA *a, unsigned char **out);
+extern const ASN1_ITEM RSAPrivateKey_it;
 
 typedef struct rsa_pss_params_st {
 	X509_ALGOR *hashAlgorithm;
@@ -303,7 +307,11 @@ typedef struct rsa_pss_params_st {
 	ASN1_INTEGER *trailerField;
 } RSA_PSS_PARAMS;
 
-DECLARE_ASN1_FUNCTIONS(RSA_PSS_PARAMS)
+RSA_PSS_PARAMS *RSA_PSS_PARAMS_new(void);
+void RSA_PSS_PARAMS_free(RSA_PSS_PARAMS *a);
+RSA_PSS_PARAMS *d2i_RSA_PSS_PARAMS(RSA_PSS_PARAMS **a, const unsigned char **in, long len);
+int i2d_RSA_PSS_PARAMS(RSA_PSS_PARAMS *a, unsigned char **out);
+extern const ASN1_ITEM RSA_PSS_PARAMS_it;
 
 int RSA_print_fp(FILE *fp, const RSA *r, int offset);
 
@@ -359,10 +367,6 @@ int RSA_padding_add_PKCS1_OAEP(unsigned char *to, int tlen,
 int RSA_padding_check_PKCS1_OAEP(unsigned char *to, int tlen,
     const unsigned char *f, int fl, int rsa_len,
     const unsigned char *p, int pl);
-int RSA_padding_add_SSLv23(unsigned char *to, int tlen,
-    const unsigned char *f, int fl);
-int RSA_padding_check_SSLv23(unsigned char *to, int tlen,
-    const unsigned char *f, int fl, int rsa_len);
 int RSA_padding_add_none(unsigned char *to, int tlen,
     const unsigned char *f, int fl);
 int RSA_padding_check_none(unsigned char *to, int tlen,
@@ -456,13 +460,11 @@ void ERR_load_RSA_strings(void);
 #define RSA_F_RSA_PADDING_ADD_PKCS1_PSS_MGF1		 148
 #define RSA_F_RSA_PADDING_ADD_PKCS1_TYPE_1		 108
 #define RSA_F_RSA_PADDING_ADD_PKCS1_TYPE_2		 109
-#define RSA_F_RSA_PADDING_ADD_SSLV23			 110
 #define RSA_F_RSA_PADDING_ADD_X931			 127
 #define RSA_F_RSA_PADDING_CHECK_NONE			 111
 #define RSA_F_RSA_PADDING_CHECK_PKCS1_OAEP		 122
 #define RSA_F_RSA_PADDING_CHECK_PKCS1_TYPE_1		 112
 #define RSA_F_RSA_PADDING_CHECK_PKCS1_TYPE_2		 113
-#define RSA_F_RSA_PADDING_CHECK_SSLV23			 114
 #define RSA_F_RSA_PADDING_CHECK_X931			 128
 #define RSA_F_RSA_PRINT					 115
 #define RSA_F_RSA_PRINT_FP				 116

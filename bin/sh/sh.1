@@ -343,7 +343,7 @@ Write each command
 variable subjected to parameter expansion and arithmetic expansion)
 to standard error before it is executed.
 Useful for debugging.
-.It nolog
+.It Li nolog
 Another do-nothing option for
 .Tn POSIX
 compliance.
@@ -1033,7 +1033,7 @@ The syntax of the
 command is:
 .Bd -unfilled -offset indent -compact
 .Ic case Ar word Ic in
-.Ar pattern Ns ) Ar list Li ;;
+.Ar pattern ) Ar list Li ;;
 .Ar ...
 .Ic esac
 .Ed
@@ -2018,6 +2018,11 @@ to return exit status 1 if the full pathname of the new directory
 cannot be determined reliably or at all.
 Normally this is not considered an error,
 although a warning is printed.
+.Pp
+If changing the directory fails, the exit status is greater than 1.
+If the directory is changed, the exit status is 0, or also 1 if
+.Fl e
+was given.
 .It Ic chdir
 A synonym for the
 .Ic cd
@@ -2734,7 +2739,7 @@ were a known job that exited with exit status 127.
 If no operands are given, wait for all jobs to complete
 and return an exit status of zero.
 .El
-.Ss Commandline Editing
+.Ss Command Line Editing
 When
 .Nm
 is being used interactively from a terminal, the current command

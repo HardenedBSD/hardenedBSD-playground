@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -53,17 +55,17 @@ char *
 fgets(char * __restrict buf, int n, FILE * __restrict fp)
 {
 	size_t len;
-	char *s;
+	char *s, *ret;
 	unsigned char *p, *t;
 
-	FLOCKFILE(fp);
+	FLOCKFILE_CANCELSAFE(fp);
 	ORIENT(fp, -1);
 
 	if (n <= 0) {		/* sanity check */
 		fp->_flags |= __SERR;
 		errno = EINVAL;
-		FUNLOCKFILE(fp);
-		return (NULL);
+		ret = NULL;
+		goto end;
 	}
 
 	s = buf;
@@ -76,8 +78,8 @@ fgets(char * __restrict buf, int n, FILE * __restrict fp)
 			if (__srefill(fp)) {
 				/* EOF/error: stop with partial or no line */
 				if (!__sfeof(fp) || s == buf) {
-					FUNLOCKFILE(fp);
-					return (NULL);
+					ret = NULL;
+					goto end;
 				}
 				break;
 			}
@@ -100,8 +102,8 @@ fgets(char * __restrict buf, int n, FILE * __restrict fp)
 			fp->_p = t;
 			(void)memcpy((void *)s, (void *)p, len);
 			s[len] = 0;
-			FUNLOCKFILE(fp);
-			return (buf);
+			ret = buf;
+			goto end;
 		}
 		fp->_r -= len;
 		fp->_p += len;
@@ -110,6 +112,8 @@ fgets(char * __restrict buf, int n, FILE * __restrict fp)
 		n -= len;
 	}
 	*s = 0;
-	FUNLOCKFILE(fp);
-	return (buf);
+	ret = buf;
+end:
+	FUNLOCKFILE_CANCELSAFE();
+	return (ret);
 }

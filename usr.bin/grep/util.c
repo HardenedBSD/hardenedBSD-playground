@@ -3,8 +3,11 @@
 /*	$OpenBSD: util.c,v 1.39 2010/07/02 22:18:03 tedu Exp $	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
  * Copyright (C) 2008-2010 Gabor Kovesdan <gabor@FreeBSD.org>
+ * Copyright (C) 2017 Kyle Evans <kevans@FreeBSD.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,13 +64,18 @@ static bool	 first_match = true;
  * other useful bits
  */
 struct parsec {
-	regmatch_t matches[MAX_LINE_MATCHES];	/* Matches made */
-	struct str ln;				/* Current line */
-	size_t matchidx;			/* Latest used match index */
-	bool binary;				/* Binary file? */
+	regmatch_t	matches[MAX_MATCHES];		/* Matches made */
+	struct str	ln;				/* Current line */
+	size_t		lnstart;			/* Position in line */
+	size_t		matchidx;			/* Latest match index */
+	int		printed;			/* Metadata printed? */
+	bool		binary;				/* Binary file? */
 };
 
-
+#ifdef WITH_INTERNAL_NOSPEC
+static int litexec(const struct pat *pat, const char *string,
+    size_t nmatch, regmatch_t pmatch[]);
+#endif
 static int procline(struct parsec *pc);
 static void printline(struct parsec *pc, int sep);
 static void printline_metadata(struct str *line, int sep);
@@ -196,11 +204,12 @@ int
 procfile(const char *fn)
 {
 	struct parsec pc;
+	long long tail;
 	struct file *f;
 	struct stat sb;
 	struct str *ln;
 	mode_t s;
-	int c, last_outed, t, tail;
+	int c, last_outed, t;
 	bool doctx, printmatch, same_file;
 
 	if (strcmp(fn, "-") == 0) {
@@ -231,8 +240,10 @@ procfile(const char *fn)
 	strcpy(pc.ln.file, fn);
 	pc.ln.line_no = 0;
 	pc.ln.len = 0;
+	pc.ln.boff = 0;
 	pc.ln.off = -1;
 	pc.binary = f->binary;
+	pc.printed = 0;
 	tail = 0;
 	last_outed = 0;
 	same_file = false;
@@ -246,20 +257,15 @@ procfile(const char *fn)
 	mcount = mlimit;
 
 	for (c = 0;  c == 0 || !(lflag || qflag); ) {
-		/* Reset match count for every line processed */
+		/* Reset per-line statistics */
+		pc.printed = 0;
 		pc.matchidx = 0;
+		pc.lnstart = 0;
+		pc.ln.boff = 0;
 		pc.ln.off += pc.ln.len + 1;
 		if ((pc.ln.dat = grep_fgetln(f, &pc.ln.len)) == NULL ||
-		    pc.ln.len == 0) {
-			if (pc.ln.line_no == 0 && matchall)
-				/*
-				 * An empty file with an empty pattern and the
-				 * -w flag does not match
-				 */
-				exit(matchall && wflag ? 1 : 0);
-			else
-				break;
-		}
+		    pc.ln.len == 0)
+			break;
 
 		if (pc.ln.len > 0 && pc.ln.dat[pc.ln.len - 1] == fileeol)
 			--pc.ln.len;
@@ -287,6 +293,14 @@ procfile(const char *fn)
 		/* Print the matching line, but only if not quiet/binary */
 		if (t == 0 && printmatch) {
 			printline(&pc, ':');
+			while (pc.matchidx >= MAX_MATCHES) {
+				/* Reset matchidx and try again */
+				pc.matchidx = 0;
+				if (procline(&pc) == 0)
+					printline(&pc, ':');
+				else
+					break;
+			}
 			first_match = false;
 			same_file = true;
 			last_outed = 0;
@@ -294,7 +308,7 @@ procfile(const char *fn)
 		if (t != 0 && doctx) {
 			/* Deal with any -A context */
 			if (tail > 0) {
-				printline(&pc, '-');
+				grep_printline(&pc.ln, '-');
 				tail--;
 				if (Bflag > 0)
 					clearqueue();
@@ -341,6 +355,67 @@ procfile(const char *fn)
 	return (c);
 }
 
+#ifdef WITH_INTERNAL_NOSPEC
+/*
+ * Internal implementation of literal string search within a string, modeled
+ * after regexec(3), for use when the regex(3) implementation doesn't offer
+ * either REG_NOSPEC or REG_LITERAL. This does not apply in the default FreeBSD
+ * config, but in other scenarios such as building against libgnuregex or on
+ * some non-FreeBSD OSes.
+ */
+static int
+litexec(const struct pat *pat, const char *string, size_t nmatch,
+    regmatch_t pmatch[])
+{
+	char *(*strstr_fn)(const char *, const char *);
+	char *sub, *subject;
+	const char *search;
+	size_t idx, n, ofs, stringlen;
+
+	if (cflags & REG_ICASE)
+		strstr_fn = strcasestr;
+	else
+		strstr_fn = strstr;
+	idx = 0;
+	ofs = pmatch[0].rm_so;
+	stringlen = pmatch[0].rm_eo;
+	if (ofs >= stringlen)
+		return (REG_NOMATCH);
+	subject = strndup(string, stringlen);
+	if (subject == NULL)
+		return (REG_ESPACE);
+	for (n = 0; ofs < stringlen;) {
+		search = (subject + ofs);
+		if ((unsigned long)pat->len > strlen(search))
+			break;
+		sub = strstr_fn(search, pat->pat);
+		/*
+		 * Ignoring the empty string possibility due to context: grep optimizes
+		 * for empty patterns and will never reach this point.
+		 */
+		if (sub == NULL)
+			break;
+		++n;
+		/* Fill in pmatch if necessary */
+		if (nmatch > 0) {
+			pmatch[idx].rm_so = ofs + (sub - search);
+			pmatch[idx].rm_eo = pmatch[idx].rm_so + pat->len;
+			if (++idx == nmatch)
+				break;
+			ofs = pmatch[idx].rm_so + 1;
+		} else
+			/* We only needed to know if we match or not */
+			break;
+	}
+	free(subject);
+	if (n > 0 && nmatch > 0)
+		for (n = idx; n < nmatch; ++n)
+			pmatch[n].rm_so = pmatch[n].rm_eo = -1;
+
+	return (n > 0 ? 0 : REG_NOMATCH);
+}
+#endif /* WITH_INTERNAL_NOSPEC */
+
 #define iswword(x)	(iswalnum((x)) || (x) == L'_')
 
 /*
@@ -355,11 +430,11 @@ procline(struct parsec *pc)
 {
 	regmatch_t pmatch, lastmatch, chkmatch;
 	wchar_t wbegin, wend;
-	size_t st = 0, nst = 0;
+	size_t st, nst;
 	unsigned int i;
 	int c = 0, r = 0, lastmatches = 0, leflags = eflags;
 	size_t startm = 0, matchidx;
-	int retry;
+	unsigned int retry;
 
 	matchidx = pc->matchidx;
 
@@ -375,6 +450,8 @@ procline(struct parsec *pc)
 	} else if (matchall)
 		return (0);
 
+	st = pc->lnstart;
+	nst = 0;
 	/* Initialize to avoid a false positive warning from GCC. */
 	lastmatch.rm_so = lastmatch.rm_eo = 0;
 
@@ -383,12 +460,17 @@ procline(struct parsec *pc)
 		lastmatches = 0;
 		startm = matchidx;
 		retry = 0;
-		if (st > 0)
+		if (st > 0 && pc->ln.dat[st - 1] != fileeol)
 			leflags |= REG_NOTBOL;
 		/* Loop to compare with all the patterns */
 		for (i = 0; i < patterns; i++) {
 			pmatch.rm_so = st;
 			pmatch.rm_eo = pc->ln.len;
+#ifdef WITH_INTERNAL_NOSPEC
+			if (grepbehave == GREP_FIXED)
+				r = litexec(&pattern[i], pc->ln.dat, 1, &pmatch);
+			else
+#endif
 #ifndef WITHOUT_FASTMATCH
 			if (fg_pattern[i].pattern)
 				r = fastexec(&fg_pattern[i],
@@ -431,12 +513,12 @@ procline(struct parsec *pc)
 				 * still match a whole word.
 				 */
 				if (r == REG_NOMATCH &&
-				    (retry == 0 || pmatch.rm_so + 1 < retry))
+				    (retry == pc->lnstart ||
+				    (unsigned int)pmatch.rm_so + 1 < retry))
 					retry = pmatch.rm_so + 1;
 				if (r == REG_NOMATCH)
 					continue;
 			}
-
 			lastmatches++;
 			lastmatch = pmatch;
 
@@ -465,8 +547,11 @@ procline(struct parsec *pc)
 			}
 			/* avoid excessive matching - skip further patterns */
 			if ((color == NULL && !oflag) || qflag || lflag ||
-			    matchidx >= MAX_LINE_MATCHES)
+			    matchidx >= MAX_MATCHES) {
+				pc->lnstart = nst;
+				lastmatches = 0;
 				break;
+			}
 		}
 
 		/*
@@ -474,7 +559,7 @@ procline(struct parsec *pc)
 		 * again just in case we still have a chance to match later in
 		 * the string.
 		 */
-		if (lastmatches == 0 && retry > 0) {
+		if (lastmatches == 0 && retry > pc->lnstart) {
 			st = retry;
 			continue;
 		}
@@ -496,6 +581,7 @@ procline(struct parsec *pc)
 
 		/* Advance st based on previous matches */
 		st = nst;
+		pc->lnstart = st;
 	}
 
 	/* Reflect the new matchidx in the context */
@@ -590,7 +676,7 @@ printline_metadata(struct str *line, int sep)
 	if (bflag) {
 		if (printsep)
 			putchar(sep);
-		printf("%lld", (long long)line->off);
+		printf("%lld", (long long)(line->off + line->boff));
 		printsep = true;
 	}
 	if (printsep)
@@ -615,13 +701,22 @@ printline(struct parsec *pc, int sep)
 
 	/* --color and -o */
 	if ((oflag || color) && matchidx > 0) {
-		printline_metadata(&pc->ln, sep);
+		/* Only print metadata once per line if --color */
+		if (!oflag && pc->printed == 0)
+			printline_metadata(&pc->ln, sep);
 		for (i = 0; i < matchidx; i++) {
 			match = pc->matches[i];
 			/* Don't output zero length matches */
 			if (match.rm_so == match.rm_eo)
 				continue;
-			if (!oflag)
+			/*
+			 * Metadata is printed on a per-line basis, so every
+			 * match gets file metadata with the -o flag.
+			 */
+			if (oflag) {
+				pc->ln.boff = match.rm_so;
+				printline_metadata(&pc->ln, sep);
+			} else
 				fwrite(pc->ln.dat + a, match.rm_so - a, 1,
 				    stdout);
 			if (color)
@@ -642,4 +737,5 @@ printline(struct parsec *pc, int sep)
 		}
 	} else
 		grep_printline(&pc->ln, sep);
+	pc->printed++;
 }

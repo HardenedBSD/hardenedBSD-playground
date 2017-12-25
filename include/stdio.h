@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -464,7 +466,10 @@ static __inline int __sputc(int _c, FILE *_p) {
 		(*(p)->_p = (c), (int)*(p)->_p++))
 #endif
 
+#ifndef __LIBC_ISTHREADED_DECLARED
+#define __LIBC_ISTHREADED_DECLARED
 extern int __isthreaded;
+#endif
 
 #ifndef __cplusplus
 

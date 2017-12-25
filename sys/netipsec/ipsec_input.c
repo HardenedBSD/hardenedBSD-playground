@@ -117,7 +117,7 @@ __FBSDID("$FreeBSD$");
 static int
 ipsec_common_input(struct mbuf *m, int skip, int protoff, int af, int sproto)
 {
-	char buf[IPSEC_ADDRSTRLEN];
+	IPSEC_DEBUG_DECLARE(char buf[IPSEC_ADDRSTRLEN]);
 	union sockaddr_union dst_address;
 	struct secasvar *sav;
 	uint32_t spi;
@@ -223,8 +223,6 @@ ipsec_common_input(struct mbuf *m, int skip, int protoff, int af, int sproto)
 	 * everything else.
 	 */
 	error = (*sav->tdb_xform->xf_input)(m, sav, skip, protoff);
-	if (error != 0)
-		key_freesav(&sav);
 	return (error);
 }
 
@@ -279,7 +277,7 @@ int
 ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
     int protoff)
 {
-	char buf[IPSEC_ADDRSTRLEN];
+	IPSEC_DEBUG_DECLARE(char buf[IPSEC_ADDRSTRLEN]);
 	struct ipsec_ctx_data ctx;
 	struct xform_history *xh;
 	struct secasindex *saidx;
@@ -327,7 +325,7 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
 	    (prot == IPPROTO_UDP || prot == IPPROTO_TCP))
 		udp_ipsec_adjust_cksum(m, sav, prot, skip);
 
-	IPSEC_INIT_CTX(&ctx, &m, sav, AF_INET, IPSEC_ENC_BEFORE);
+	IPSEC_INIT_CTX(&ctx, &m, NULL, sav, AF_INET, IPSEC_ENC_BEFORE);
 	if ((error = ipsec_run_hhooks(&ctx, HHOOK_TYPE_IPSEC_IN)) != 0)
 		goto bad;
 	ip = mtod(m, struct ip *);	/* update pointer */
@@ -418,7 +416,7 @@ ipsec4_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
 		goto bad;
 	}
 
-	IPSEC_INIT_CTX(&ctx, &m, sav, af, IPSEC_ENC_AFTER);
+	IPSEC_INIT_CTX(&ctx, &m, NULL, sav, af, IPSEC_ENC_AFTER);
 	if ((error = ipsec_run_hhooks(&ctx, HHOOK_TYPE_IPSEC_IN)) != 0)
 		goto bad;
 
@@ -490,7 +488,7 @@ int
 ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
     int protoff)
 {
-	char buf[IPSEC_ADDRSTRLEN];
+	IPSEC_DEBUG_DECLARE(char buf[IPSEC_ADDRSTRLEN]);
 	struct ipsec_ctx_data ctx;
 	struct xform_history *xh;
 	struct secasindex *saidx;
@@ -524,7 +522,7 @@ ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
 		goto bad;
 	}
 
-	IPSEC_INIT_CTX(&ctx, &m, sav, af, IPSEC_ENC_BEFORE);
+	IPSEC_INIT_CTX(&ctx, &m, NULL, sav, af, IPSEC_ENC_BEFORE);
 	if ((error = ipsec_run_hhooks(&ctx, HHOOK_TYPE_IPSEC_IN)) != 0)
 		goto bad;
 
@@ -595,7 +593,7 @@ ipsec6_common_input_cb(struct mbuf *m, struct secasvar *sav, int skip,
 	else
 #endif
 		af = AF_INET6;
-	IPSEC_INIT_CTX(&ctx, &m, sav, af, IPSEC_ENC_AFTER);
+	IPSEC_INIT_CTX(&ctx, &m, NULL, sav, af, IPSEC_ENC_AFTER);
 	if ((error = ipsec_run_hhooks(&ctx, HHOOK_TYPE_IPSEC_IN)) != 0)
 		goto bad;
 	if (skip == 0) {

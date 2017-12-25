@@ -1,4 +1,4 @@
-/* $OpenBSD: ecs_lib.c,v 1.9 2015/02/08 13:35:07 jsing Exp $ */
+/* $OpenBSD: ecs_lib.c,v 1.12 2017/05/02 03:59:44 deraadt Exp $ */
 /* ====================================================================
  * Copyright (c) 1998-2005 The OpenSSL Project.  All rights reserved.
  *
@@ -113,7 +113,7 @@ ECDSA_DATA_new_method(ENGINE *engine)
 
 	ret = malloc(sizeof(ECDSA_DATA));
 	if (ret == NULL) {
-		ECDSAerr(ECDSA_F_ECDSA_DATA_NEW_METHOD, ERR_R_MALLOC_FAILURE);
+		ECDSAerror(ERR_R_MALLOC_FAILURE);
 		return (NULL);
 	}
 
@@ -127,8 +127,7 @@ ECDSA_DATA_new_method(ENGINE *engine)
 	if (ret->engine) {
 		ret->meth = ENGINE_get_ECDSA(ret->engine);
 		if (!ret->meth) {
-			ECDSAerr(ECDSA_F_ECDSA_DATA_NEW_METHOD,
-			    ERR_R_ENGINE_LIB);
+			ECDSAerror(ERR_R_ENGINE_LIB);
 			ENGINE_finish(ret->engine);
 			free(ret);
 			return NULL;
@@ -170,9 +169,7 @@ ecdsa_data_free(void *data)
 #endif
 	CRYPTO_free_ex_data(CRYPTO_EX_INDEX_ECDSA, r, &r->ex_data);
 
-	explicit_bzero((void *)r, sizeof(ECDSA_DATA));
-
-	free(r);
+	freezero(r, sizeof(ECDSA_DATA));
 }
 
 ECDSA_DATA *

@@ -333,6 +333,15 @@ acpi_Startup(void)
     started = 1;
 
     /*
+     * Initialize the ACPICA subsystem.
+     */
+    if (ACPI_FAILURE(status = AcpiInitializeSubsystem())) {
+	printf("ACPI: Could not initialize Subsystem: %s\n",
+	    AcpiFormatException(status));
+	return_VALUE (status);
+    }
+
+    /*
      * Pre-allocate space for RSDT/XSDT and DSDT tables and allow resizing
      * if more tables exist.
      */
@@ -478,14 +487,6 @@ acpi_attach(device_t dev)
     AcpiDbgLayer = 0;
     AcpiDbgLevel = 0;
 #endif
-
-    /* Start up the ACPI CA subsystem. */
-    status = AcpiInitializeSubsystem();
-    if (ACPI_FAILURE(status)) {
-	device_printf(dev, "Could not initialize Subsystem: %s\n",
-		      AcpiFormatException(status));
-	goto out;
-    }
 
     /* Override OS interfaces if the user requested. */
     acpi_reset_interfaces(dev);
@@ -1013,10 +1014,7 @@ acpi_hint_device_unit(device_t acdev, device_t child, const char *name,
      * name to see if one's resources are a subset of this device.
      */
     line = 0;
-    for (;;) {
-	if (resource_find_dev(&line, name, &unit, "at", NULL) != 0)
-	    break;
-
+    while (resource_find_dev(&line, name, &unit, "at", NULL) == 0) {
 	/* Must have an "at" for acpi or isa. */
 	resource_string_value(name, unit, "at", &s);
 	if (!(strcmp(s, "acpi0") == 0 || strcmp(s, "acpi") == 0 ||

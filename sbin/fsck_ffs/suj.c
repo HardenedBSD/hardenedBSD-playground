@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright 2009, 2010 Jeffrey W. Roberson <jeff@FreeBSD.org>
  * All rights reserved.
  *
@@ -1347,8 +1349,8 @@ ino_adjust(struct suj_ino *sino)
 	struct suj_ino *stmp;
 	union dinode *ip;
 	nlink_t nlink;
+	nlink_t reqlink;
 	int recmode;
-	int reqlink;
 	int isdot;
 	int mode;
 	ino_t ino;
@@ -1395,7 +1397,7 @@ ino_adjust(struct suj_ino *sino)
 	}
 	ip = ino_read(ino);
 	mode = DIP(ip, di_mode) & IFMT;
-	if (nlink > LINK_MAX)
+	if (nlink > UFS_LINK_MAX)
 		err_suj("ino %ju nlink manipulation error, new %ju, old %d\n",
 		    (uintmax_t)ino, (uintmax_t)nlink, DIP(ip, di_nlink));
 	if (debug)
@@ -1635,9 +1637,9 @@ ino_check(struct suj_ino *sino)
 	struct suj_rec *srec;
 	struct jrefrec *rrec;
 	nlink_t dotlinks;
-	int newlinks;
-	int removes;
-	int nlink;
+	nlink_t newlinks;
+	nlink_t removes;
+	nlink_t nlink;
 	ino_t ino;
 	int isdot;
 	int isat;

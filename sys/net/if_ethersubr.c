@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -38,6 +40,8 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/bus.h>
+#include <sys/eventhandler.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
@@ -286,7 +290,6 @@ ether_output(struct ifnet *ifp, struct mbuf *m,
 	int hlen;	/* link layer header length */
 	uint32_t pflags;
 	struct llentry *lle = NULL;
-	struct rtentry *rt0 = NULL;
 	int addref = 0;
 
 	phdr = NULL;
@@ -316,7 +319,6 @@ ether_output(struct ifnet *ifp, struct mbuf *m,
 				pflags = lle->r_flags;
 			}
 		}
-		rt0 = ro->ro_rt;
 	}
 
 #ifdef MAC
@@ -931,6 +933,11 @@ ether_ifattach(struct ifnet *ifp, const u_int8_t *lla)
 		if_printf(ifp, "Ethernet address: %6D\n", lla, ":");
 
 	uuid_ether_add(LLADDR(sdl));
+
+	/* Add necessary bits are setup; announce it now. */
+	EVENTHANDLER_INVOKE(ether_ifattach_event, ifp);
+	if (IS_DEFAULT_VNET(curvnet))
+		devctl_notify("ETHERNET", ifp->if_xname, "IFATTACH", NULL);
 }
 
 /*

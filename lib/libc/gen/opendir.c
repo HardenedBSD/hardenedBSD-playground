@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -296,6 +298,7 @@ __opendir_common(int fd, int flags, bool use_current_pos)
 	dirp->dd_td = (struct _telldir *)((char *)dirp + sizeof(DIR));
 	LIST_INIT(&dirp->dd_td->td_locq);
 	dirp->dd_td->td_loccnt = 0;
+	dirp->dd_compat_de = NULL;
 
 	/*
 	 * Use the system page size if that is a multiple of DIRBLKSIZ.

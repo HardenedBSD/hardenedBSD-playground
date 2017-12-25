@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1990, 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -74,7 +76,7 @@ __FBSDID("$FreeBSD$");
 #ifdef _KERNEL
 #define MINDEX(m, k) \
 { \
-	register int len = m->m_len; \
+	int len = m->m_len; \
  \
 	while (k >= len) { \
 		k -= len; \
@@ -341,7 +343,7 @@ bpf_filter(const struct bpf_insn *pc, u_char *p, u_int wirelen, u_int buflen)
 			k = pc->k;
 			if (k >= buflen) {
 #ifdef _KERNEL
-				register struct mbuf *m;
+				struct mbuf *m;
 
 				if (buflen != 0)
 					return (0);
@@ -549,8 +551,8 @@ static const u_short	bpf_code_map[] = {
 int
 bpf_validate(const struct bpf_insn *f, int len)
 {
-	register int i;
-	register const struct bpf_insn *p;
+	int i;
+	const struct bpf_insn *p;
 
 	/* Do not accept negative length filter. */
 	if (len < 0)
@@ -572,7 +574,7 @@ bpf_validate(const struct bpf_insn *f, int len)
 		 * the code block.
 		 */
 		if (BPF_CLASS(p->code) == BPF_JMP) {
-			register u_int offset;
+			u_int offset;
 
 			if (p->code == (BPF_JMP|BPF_JA))
 				offset = p->k;

@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2014 Juergen Weiss <weiss@uni-mainz.de>
  * Copyright (c) 2014 Ian Lepore <ian@freebsd.org>
  * All rights reserved.
@@ -44,7 +46,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/platform.h>
 #include <machine/platformvar.h>
 
-#include <arm/freescale/imx/imx6_mp.h>
+#include <arm/freescale/imx/imx6_machdep.h>
 
 #define	SCU_PHYSBASE			0x00a00000
 #define	SCU_SIZE			0x00001000

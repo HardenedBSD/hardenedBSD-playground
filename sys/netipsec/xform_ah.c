@@ -193,9 +193,9 @@ ah_init0(struct secasvar *sav, struct xformsw *xsp, struct cryptoini *cria)
 		return EINVAL;
 	}
 	keylen = _KEYLEN(sav->key_auth);
-	if (keylen != thash->keysize && thash->keysize != 0) {
+	if (keylen > thash->keysize && thash->keysize != 0) {
 		DPRINTF(("%s: invalid keylength %d, algorithm %s requires "
-			"keysize %d\n", __func__,
+			"keysize less than %d\n", __func__,
 			 keylen, thash->name, thash->keysize));
 		return EINVAL;
 	}
@@ -544,7 +544,7 @@ ah_massage_headers(struct mbuf **m0, int proto, int skip, int alg, int out)
 static int
 ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 {
-	char buf[128];
+	IPSEC_DEBUG_DECLARE(char buf[128]);
 	const struct auth_hash *ahx;
 	struct cryptodesc *crda;
 	struct cryptop *crp;
@@ -566,8 +566,8 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 	if (ah == NULL) {
 		DPRINTF(("ah_input: cannot pullup header\n"));
 		AHSTAT_INC(ahs_hdrops);		/*XXX*/
-		m_freem(m);
-		return ENOBUFS;
+		error = ENOBUFS;
+		goto bad;
 	}
 
 	/* Check replay window, if applicable. */
@@ -578,8 +578,8 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 		AHSTAT_INC(ahs_replay);
 		DPRINTF(("%s: packet replay failure: %s\n", __func__,
 		    ipsec_sa2str(sav, buf, sizeof(buf))));
-		m_freem(m);
-		return (EACCES);
+		error = EACCES;
+		goto bad;
 	}
 	cryptoid = sav->tdb_cryptoid;
 	SECASVAR_UNLOCK(sav);
@@ -595,8 +595,8 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 		    ipsec_address(&sav->sah->saidx.dst, buf, sizeof(buf)),
 		    (u_long) ntohl(sav->spi)));
 		AHSTAT_INC(ahs_badauthl);
-		m_freem(m);
-		return EACCES;
+		error = EACCES;
+		goto bad;
 	}
 	AHSTAT_ADD(ahs_ibytes, m->m_pkthdr.len - skip - hl);
 
@@ -606,8 +606,8 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 		DPRINTF(("%s: failed to acquire crypto descriptor\n",
 		    __func__));
 		AHSTAT_INC(ahs_crypto);
-		m_freem(m);
-		return ENOBUFS;
+		error = ENOBUFS;
+		goto bad;
 	}
 
 	crda = crp->crp_desc;
@@ -629,8 +629,8 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 		DPRINTF(("%s: failed to allocate xform_data\n", __func__));
 		AHSTAT_INC(ahs_crypto);
 		crypto_freereq(crp);
-		m_freem(m);
-		return ENOBUFS;
+		error = ENOBUFS;
+		goto bad;
 	}
 
 	/*
@@ -650,12 +650,15 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 		AHSTAT_INC(ahs_hdrops);
 		free(xd, M_XDATA);
 		crypto_freereq(crp);
+		key_freesav(&sav);
 		return (error);
 	}
 
 	/* Crypto operation descriptor. */
 	crp->crp_ilen = m->m_pkthdr.len; /* Total input length. */
 	crp->crp_flags = CRYPTO_F_IMBUF | CRYPTO_F_CBIFSYNC;
+	if (V_async_crypto)
+		crp->crp_flags |= CRYPTO_F_ASYNC | CRYPTO_F_ASYNC_KEEPORDER;
 	crp->crp_buf = (caddr_t) m;
 	crp->crp_callback = ah_input_cb;
 	crp->crp_sid = cryptoid;
@@ -668,6 +671,10 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 	xd->skip = skip;
 	xd->cryptoid = cryptoid;
 	return (crypto_dispatch(crp));
+bad:
+	m_freem(m);
+	key_freesav(&sav);
+	return (error);
 }
 
 /*
@@ -676,11 +683,9 @@ ah_input(struct mbuf *m, struct secasvar *sav, int skip, int protoff)
 static int
 ah_input_cb(struct cryptop *crp)
 {
-	char buf[IPSEC_ADDRSTRLEN];
+	IPSEC_DEBUG_DECLARE(char buf[IPSEC_ADDRSTRLEN]);
 	unsigned char calc[AH_ALEN_MAX];
-	const struct auth_hash *ahx;
 	struct mbuf *m;
-	struct cryptodesc *crd;
 	struct xform_data *xd;
 	struct secasvar *sav;
 	struct secasindex *saidx;
@@ -689,7 +694,6 @@ ah_input_cb(struct cryptop *crp)
 	int authsize, rplen, error, skip, protoff;
 	uint8_t nxt;
 
-	crd = crp->crp_desc;
 	m = (struct mbuf *) crp->crp_buf;
 	xd = (struct xform_data *) crp->crp_opaque;
 	sav = xd->sav;
@@ -701,8 +705,6 @@ ah_input_cb(struct cryptop *crp)
 	IPSEC_ASSERT(saidx->dst.sa.sa_family == AF_INET ||
 		saidx->dst.sa.sa_family == AF_INET6,
 		("unexpected protocol family %u", saidx->dst.sa.sa_family));
-
-	ahx = sav->tdb_authalgxform;
 
 	/* Check for crypto errors. */
 	if (crp->crp_etype) {
@@ -826,7 +828,7 @@ static int
 ah_output(struct mbuf *m, struct secpolicy *sp, struct secasvar *sav,
     u_int idx, int skip, int protoff)
 {
-	char buf[IPSEC_ADDRSTRLEN];
+	IPSEC_DEBUG_DECLARE(char buf[IPSEC_ADDRSTRLEN]);
 	const struct auth_hash *ahx;
 	struct cryptodesc *crda;
 	struct xform_data *xd;
@@ -1028,6 +1030,8 @@ ah_output(struct mbuf *m, struct secpolicy *sp, struct secasvar *sav,
 	/* Crypto operation descriptor. */
 	crp->crp_ilen = m->m_pkthdr.len; /* Total input length. */
 	crp->crp_flags = CRYPTO_F_IMBUF | CRYPTO_F_CBIFSYNC;
+	if (V_async_crypto)
+		crp->crp_flags |= CRYPTO_F_ASYNC | CRYPTO_F_ASYNC_KEEPORDER;
 	crp->crp_buf = (caddr_t) m;
 	crp->crp_callback = ah_output_cb;
 	crp->crp_sid = cryptoid;
@@ -1044,6 +1048,8 @@ ah_output(struct mbuf *m, struct secpolicy *sp, struct secasvar *sav,
 bad:
 	if (m)
 		m_freem(m);
+	key_freesav(&sav);
+	key_freesp(&sp);
 	return (error);
 }
 

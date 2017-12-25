@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
  * Copyright (c) 1985 Sun Microsystems, Inc.
  * Copyright (c) 1980, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -166,6 +168,7 @@ struct pro {
     {"sob", PRO_BOOL, false, ON, &swallow_optional_blanklines},
     {"st", PRO_SPECIAL, 0, STDIN, 0},
     {"ta", PRO_BOOL, false, ON, &auto_typedefs},
+    {"ts", PRO_INT, 8, 0, &tabsize},
     {"troff", PRO_BOOL, false, ON, &troff},
     {"ut", PRO_BOOL, true, ON, &use_tabs},
     {"v", PRO_BOOL, false, ON, &verbose},

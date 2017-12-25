@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2012-2015 Ian Lepore
  * Copyright (c) 2010 Mark Tinguely
  * Copyright (c) 2004 Olivier Houchard
@@ -57,7 +59,7 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/atomic.h>
 #include <machine/bus.h>
-#include <machine/cpu-v6.h>
+#include <machine/cpu.h>
 #include <machine/md_var.h>
 
 #define	BUSDMA_DCACHE_ALIGN	cpuinfo.dcache_line_size
@@ -491,6 +493,7 @@ bus_dma_tag_create(bus_dma_tag_t parent, bus_size_t alignment,
 		newtag->highaddr = MAX(parent->highaddr, newtag->highaddr);
 		newtag->alignment = MAX(parent->alignment, newtag->alignment);
 		newtag->flags |= parent->flags & BUS_DMA_COULD_BOUNCE;
+		newtag->flags |= parent->flags & BUS_DMA_COHERENT;
 		if (newtag->boundary == 0)
 			newtag->boundary = parent->boundary;
 		else if (parent->boundary != 0)
@@ -755,11 +758,19 @@ bus_dmamem_alloc(bus_dma_tag_t dmat, void **vaddr, int flags,
 	}
 	map->flags = DMAMAP_DMAMEM_ALLOC;
 
-	/* Choose a busdma buffer allocator based on memory type flags. */
-	if (flags & BUS_DMA_COHERENT) {
+	/* For coherent memory, set the map flag that disables sync ops. */
+	if (flags & BUS_DMA_COHERENT)
+		map->flags |= DMAMAP_COHERENT;
+
+	/*
+	 * Choose a busdma buffer allocator based on memory type flags.
+	 * If the tag's COHERENT flag is set, that means normal memory
+	 * is already coherent, use the normal allocator.
+	 */
+	if ((flags & BUS_DMA_COHERENT) &&
+	    ((dmat->flags & BUS_DMA_COHERENT) == 0)) {
 		memattr = VM_MEMATTR_UNCACHEABLE;
 		ba = coherent_allocator;
-		map->flags |= DMAMAP_COHERENT;
 	} else {
 		memattr = VM_MEMATTR_DEFAULT;
 		ba = standard_allocator;
@@ -779,7 +790,9 @@ bus_dmamem_alloc(bus_dma_tag_t dmat, void **vaddr, int flags,
 	 *    (the allocator aligns buffers to their size boundaries).
 	 *  - There's no need to handle lowaddr/highaddr exclusion zones.
 	 * else allocate non-contiguous pages if...
-	 *  - The page count that could get allocated doesn't exceed nsegments.
+	 *  - The page count that could get allocated doesn't exceed
+	 *    nsegments also when the maximum segment size is less
+	 *    than PAGE_SIZE.
 	 *  - The alignment constraint isn't larger than a page boundary.
 	 *  - There are no boundary-crossing constraints.
 	 * else allocate a block of contiguous pages because one or more of the
@@ -788,8 +801,10 @@ bus_dmamem_alloc(bus_dma_tag_t dmat, void **vaddr, int flags,
 	if (bufzone != NULL && dmat->alignment <= bufzone->size &&
 	    !exclusion_bounce(dmat)) {
 		*vaddr = uma_zalloc(bufzone->umazone, mflags);
-	} else if (dmat->nsegments >= btoc(dmat->maxsize) &&
-	    dmat->alignment <= PAGE_SIZE && dmat->boundary == 0) {
+	} else if (dmat->nsegments >=
+	    howmany(dmat->maxsize, MIN(dmat->maxsegsz, PAGE_SIZE)) &&
+	    dmat->alignment <= PAGE_SIZE &&
+	    (dmat->boundary % PAGE_SIZE) == 0) {
 		*vaddr = (void *)kmem_alloc_attr(kernel_arena, dmat->maxsize,
 		    mflags, 0, dmat->lowaddr, memattr);
 	} else {
@@ -825,7 +840,8 @@ bus_dmamem_free(bus_dma_tag_t dmat, void *vaddr, bus_dmamap_t map)
 	struct busdma_bufzone *bufzone;
 	busdma_bufalloc_t ba;
 
-	if (map->flags & DMAMAP_COHERENT)
+	if ((map->flags & DMAMAP_COHERENT) &&
+	    ((dmat->flags & BUS_DMA_COHERENT) == 0))
 		ba = coherent_allocator;
 	else
 		ba = standard_allocator;
@@ -1026,7 +1042,7 @@ _bus_dmamap_load_phys(bus_dma_tag_t dmat, bus_dmamap_t map, vm_paddr_t buf,
 			sgsize = MIN(sgsize, PAGE_SIZE - (curaddr & PAGE_MASK));
 			curaddr = add_bounce_page(dmat, map, 0, curaddr,
 			    sgsize);
-		} else {
+		} else if ((dmat->flags & BUS_DMA_COHERENT) == 0) {
 			if (map->sync_count > 0)
 				sl_end = sl->paddr + sl->datacount;
 
@@ -1056,7 +1072,7 @@ _bus_dmamap_load_phys(bus_dma_tag_t dmat, bus_dmamap_t map, vm_paddr_t buf,
 	 * Did we fit?
 	 */
 	if (buflen != 0) {
-		_bus_dmamap_unload(dmat, map);
+		bus_dmamap_unload(dmat, map);
 		return (EFBIG); /* XXX better return value here? */
 	}
 	return (0);
@@ -1140,7 +1156,7 @@ _bus_dmamap_load_buffer(bus_dma_tag_t dmat, bus_dmamap_t map, void *buf,
 		    sgsize)) {
 			curaddr = add_bounce_page(dmat, map, kvaddr, curaddr,
 			    sgsize);
-		} else {
+		} else if ((dmat->flags & BUS_DMA_COHERENT) == 0) {
 			if (map->sync_count > 0) {
 				sl_pend = sl->paddr + sl->datacount;
 				sl_vend = sl->vaddr + sl->datacount;
@@ -1181,14 +1197,14 @@ cleanup:
 	 * Did we fit?
 	 */
 	if (buflen != 0) {
-		_bus_dmamap_unload(dmat, map);
+		bus_dmamap_unload(dmat, map);
 		return (EFBIG); /* XXX better return value here? */
 	}
 	return (0);
 }
 
 void
-__bus_dmamap_waitok(bus_dma_tag_t dmat, bus_dmamap_t map, struct memdesc *mem,
+_bus_dmamap_waitok(bus_dma_tag_t dmat, bus_dmamap_t map, struct memdesc *mem,
     bus_dmamap_callback_t *callback, void *callback_arg)
 {
 
@@ -1212,7 +1228,7 @@ _bus_dmamap_complete(bus_dma_tag_t dmat, bus_dmamap_t map,
  * Release the mapping held by map.
  */
 void
-_bus_dmamap_unload(bus_dma_tag_t dmat, bus_dmamap_t map)
+bus_dmamap_unload(bus_dma_tag_t dmat, bus_dmamap_t map)
 {
 	struct bounce_page *bpage;
 	struct bounce_zone *bz;
@@ -1312,7 +1328,7 @@ dma_dcache_sync(struct sync_list *sl, bus_dmasync_op_t op)
 }
 
 void
-_bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
+bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
 {
 	struct bounce_page *bpage;
 	struct sync_list *sl, *end;
@@ -1349,8 +1365,9 @@ _bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
 				    bpage->datacount);
 				if (tempvaddr != 0)
 					pmap_quick_remove_page(tempvaddr);
-				dcache_wb_poc(bpage->vaddr, bpage->busaddr,
-				    bpage->datacount);
+				if ((dmat->flags & BUS_DMA_COHERENT) == 0)
+					dcache_wb_poc(bpage->vaddr,
+					    bpage->busaddr, bpage->datacount);
 				bpage = STAILQ_NEXT(bpage, links);
 			}
 			dmat->bounce_zone->total_bounced++;
@@ -1370,8 +1387,9 @@ _bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
 		if ((op & BUS_DMASYNC_PREREAD) && !(op & BUS_DMASYNC_PREWRITE)) {
 			bpage = STAILQ_FIRST(&map->bpages);
 			while (bpage != NULL) {
-				dcache_inv_poc_dma(bpage->vaddr, bpage->busaddr,
-				    bpage->datacount);
+				if ((dmat->flags & BUS_DMA_COHERENT) == 0)
+					dcache_inv_poc_dma(bpage->vaddr,
+					    bpage->busaddr, bpage->datacount);
 				bpage = STAILQ_NEXT(bpage, links);
 			}
 		}
@@ -1387,8 +1405,9 @@ _bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
 		 */
 		if (op & BUS_DMASYNC_POSTREAD) {
 			while (bpage != NULL) {
-				dcache_inv_poc(bpage->vaddr, bpage->busaddr,
-				    bpage->datacount);
+				if ((dmat->flags & BUS_DMA_COHERENT) == 0)
+					dcache_inv_poc(bpage->vaddr,
+					    bpage->busaddr, bpage->datacount);
 				tempvaddr = 0;
 				datavaddr = bpage->datavaddr;
 				if (datavaddr == 0) {
@@ -1417,7 +1436,8 @@ _bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
 	if (map->flags & DMAMAP_COHERENT) {
 		if (op & BUS_DMASYNC_PREWRITE) {
 			dsb();
-			cpu_l2cache_drain_writebuf();
+			if ((dmat->flags & BUS_DMA_COHERENT) == 0)
+				cpu_l2cache_drain_writebuf();
 		}
 		return;
 	}

@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2002-2009 Sam Leffler, Errno Consulting
  * All rights reserved.
  *
@@ -4049,9 +4051,13 @@ ath_txq_update(struct ath_softc *sc, int ac)
 #define	ATH_EXPONENT_TO_VALUE(v)	((1<<v)-1)
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ath_txq *txq = sc->sc_ac2q[ac];
-	struct wmeParams *wmep = &ic->ic_wme.wme_chanParams.cap_wmeParams[ac];
+	struct chanAccParams chp;
+	struct wmeParams *wmep;
 	struct ath_hal *ah = sc->sc_ah;
 	HAL_TXQ_INFO qi;
+
+	ieee80211_wme_ic_getparams(ic, &chp);
+	wmep = &chp.cap_wmeParams[ac];
 
 	ath_hal_gettxqueueprops(ah, txq->axq_qnum, &qi);
 #ifdef IEEE80211_SUPPORT_TDMA
@@ -6989,8 +6995,11 @@ ath_node_recv_pspoll(struct ieee80211_node *ni, struct mbuf *m)
 #endif	/* ATH_SW_PSQ */
 }
 
-MODULE_VERSION(if_ath, 1);
-MODULE_DEPEND(if_ath, wlan, 1, 1, 1);          /* 802.11 media layer */
+MODULE_VERSION(ath_main, 1);
+MODULE_DEPEND(ath_main, wlan, 1, 1, 1);          /* 802.11 media layer */
+MODULE_DEPEND(ath_main, ath_rate, 1, 1, 1);
+MODULE_DEPEND(ath_main, ath_dfs, 1, 1, 1);
+MODULE_DEPEND(ath_main, ath_hal, 1, 1, 1);
 #if	defined(IEEE80211_ALQ) || defined(AH_DEBUG_ALQ) || defined(ATH_DEBUG_ALQ)
-MODULE_DEPEND(if_ath, alq, 1, 1, 1);
+MODULE_DEPEND(ath_main, alq, 1, 1, 1);
 #endif

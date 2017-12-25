@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -68,9 +70,14 @@ gid_t nfsrv_defaultgid = GID_NOGROUP;
 int nfsrv_lease = NFSRV_LEASE;
 int ncl_mbuf_mlen = MLEN;
 int nfsd_enable_stringtouid = 0;
+static int nfs_enable_uidtostring = 0;
 NFSNAMEIDMUTEX;
 NFSSOCKMUTEX;
 extern int nfsrv_lughashsize;
+
+SYSCTL_DECL(_vfs_nfs);
+SYSCTL_INT(_vfs_nfs, OID_AUTO, enable_uidtostring, CTLFLAG_RW,
+    &nfs_enable_uidtostring, 0, "Make nfs always send numeric owner_names");
 
 /*
  * This array of structures indicates, for V4:
@@ -175,7 +182,7 @@ static struct nfsrv_lughash	*nfsgroupnamehash;
  */
 int nfs_bigreply[NFSV41_NPROCS] = { 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0 };
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0 };
 
 /* local functions */
 static int nfsrv_skipace(struct nfsrv_descript *nd, int *acesizep);
@@ -480,7 +487,7 @@ nfsm_fhtom(struct nfsrv_descript *nd, u_int8_t *fhp, int size, int set_true)
 {
 	u_int32_t *tl;
 	u_int8_t *cp;
-	int fullsiz, rem, bytesize = 0;
+	int fullsiz, bytesize = 0;
 
 	if (size == 0)
 		size = NFSX_MYFH;
@@ -497,7 +504,6 @@ nfsm_fhtom(struct nfsrv_descript *nd, u_int8_t *fhp, int size, int set_true)
 	case ND_NFSV3:
 	case ND_NFSV4:
 		fullsiz = NFSM_RNDUP(size);
-		rem = fullsiz - size;
 		if (set_true) {
 		    bytesize = 2 * NFSX_UNSIGNED + fullsiz;
 		    NFSM_BUILD(tl, u_int32_t *, NFSX_UNSIGNED);
@@ -820,19 +826,14 @@ nfsv4_loadattr(struct nfsrv_descript *nd, vnode_t vp,
 	struct timespec temptime;
 	uid_t uid;
 	gid_t gid;
-	long fid;
 	u_int32_t freenum = 0, tuint;
 	u_int64_t uquad = 0, thyp, thyp2;
 #ifdef QUOTA
 	struct dqblk dqb;
 	uid_t savuid;
 #endif
-	static struct timeval last64fileid;
-	static size_t count64fileid;
-	static struct timeval last64mountfileid;
-	static size_t count64mountfileid;
-	static struct timeval warninterval = { 60, 0 };
 
+	CTASSERT(sizeof(ino_t) == sizeof(uint64_t));
 	if (compare) {
 		retnotsup = 0;
 		error = nfsrv_getattrbits(nd, &attrbits, NULL, &retnotsup);
@@ -881,7 +882,7 @@ nfsv4_loadattr(struct nfsrv_descript *nd, vnode_t vp,
 				NFSV3_FSFHOMOGENEOUS | NFSV3_FSFCANSETTIME);
 		}
 		if (pc != NULL) {
-			pc->pc_linkmax = LINK_MAX;
+			pc->pc_linkmax = NFS_LINK_MAX;
 			pc->pc_namemax = NAME_MAX;
 			pc->pc_notrunc = 0;
 			pc->pc_chownrestricted = 0;
@@ -1212,20 +1213,11 @@ nfsv4_loadattr(struct nfsrv_descript *nd, vnode_t vp,
 			thyp = fxdr_hyper(tl);
 			if (compare) {
 				if (!(*retcmpp)) {
-				    if ((u_int64_t)nap->na_fileid != thyp)
-					*retcmpp = NFSERR_NOTSAME;
+					if (nap->na_fileid != thyp)
+						*retcmpp = NFSERR_NOTSAME;
 				}
-			} else if (nap != NULL) {
-				if (*tl++) {
-					count64fileid++;
-					if (ratecheck(&last64fileid, &warninterval)) {
-						printf("NFSv4 fileid > 32bits (%zu occurrences)\n",
-						    count64fileid);
-						count64fileid = 0;
-					}
-				}
+			} else if (nap != NULL)
 				nap->na_fileid = thyp;
-			}
 			attrsum += NFSX_HYPER;
 			break;
 		case NFSATTRBIT_FILESAVAIL:
@@ -1327,7 +1319,7 @@ nfsv4_loadattr(struct nfsrv_descript *nd, vnode_t vp,
 			NFSM_DISSECT(tl, u_int32_t *, NFSX_UNSIGNED);
 			if (compare) {
 				if (!(*retcmpp)) {
-				    if (fxdr_unsigned(int, *tl) != LINK_MAX)
+				    if (fxdr_unsigned(int, *tl) != NFS_LINK_MAX)
 					*retcmpp = NFSERR_NOTSAME;
 				}
 			} else if (pc != NULL) {
@@ -1749,27 +1741,14 @@ nfsv4_loadattr(struct nfsrv_descript *nd, vnode_t vp,
 			NFSM_DISSECT(tl, u_int32_t *, NFSX_HYPER);
 			thyp = fxdr_hyper(tl);
 			if (compare) {
-			    if (!(*retcmpp)) {
-				if (*tl++) {
-					*retcmpp = NFSERR_NOTSAME;
-				} else {
-					if (!vp || !nfsrv_atroot(vp, &fid))
-						fid = nap->na_fileid;
-					if ((u_int64_t)fid != thyp)
+				if (!(*retcmpp)) {
+					if (!vp || !nfsrv_atroot(vp, &thyp2))
+						thyp2 = nap->na_fileid;
+					if (thyp2 != thyp)
 						*retcmpp = NFSERR_NOTSAME;
 				}
-			    }
-			} else if (nap != NULL) {
-			    if (*tl++) {
-				count64mountfileid++;
-				if (ratecheck(&last64mountfileid, &warninterval)) {
-					printf("NFSv4 mounted on fileid > 32bits (%zu occurrences)\n",
-					    count64mountfileid);
-					count64mountfileid = 0;
-				}
-			    }
-			    nap->na_mntonfileno = thyp;
-			}
+			} else if (nap != NULL)
+				nap->na_mntonfileno = thyp;
 			attrsum += NFSX_HYPER;
 			break;
 		case NFSATTRBIT_SUPPATTREXCLCREAT:
@@ -1861,7 +1840,7 @@ nfsv4_lock(struct nfsv4lock *lp, int iwantlock, int *isleptp,
 	    lp->nfslock_lock |= NFSV4LOCK_LOCKWANTED;
 	}
 	while (lp->nfslock_lock & (NFSV4LOCK_LOCK | NFSV4LOCK_LOCKWANTED)) {
-		if (mp != NULL && (mp->mnt_kern_flag & MNTK_UNMOUNTF) != 0) {
+		if (mp != NULL && NFSCL_FORCEDISM(mp)) {
 			lp->nfslock_lock &= ~NFSV4LOCK_LOCKWANTED;
 			return (0);
 		}
@@ -1915,7 +1894,7 @@ nfsv4_relref(struct nfsv4lock *lp)
  * not wait for threads that want the exclusive lock. If priority needs
  * to be given to threads that need the exclusive lock, a call to nfsv4_lock()
  * with the 2nd argument == 0 should be done before calling nfsv4_getref().
- * If the mp argument is not NULL, check for MNTK_UNMOUNTF being set and
+ * If the mp argument is not NULL, check for NFSCL_FORCEDISM() being set and
  * return without getting a refcnt for that case.
  */
 APPLESTATIC void
@@ -1930,7 +1909,7 @@ nfsv4_getref(struct nfsv4lock *lp, int *isleptp, void *mutex,
 	 * Wait for a lock held.
 	 */
 	while (lp->nfslock_lock & NFSV4LOCK_LOCK) {
-		if (mp != NULL && (mp->mnt_kern_flag & MNTK_UNMOUNTF) != 0)
+		if (mp != NULL && NFSCL_FORCEDISM(mp))
 			return;
 		lp->nfslock_lock |= NFSV4LOCK_WANTED;
 		if (isleptp)
@@ -1938,7 +1917,7 @@ nfsv4_getref(struct nfsv4lock *lp, int *isleptp, void *mutex,
 		(void) nfsmsleep(&lp->nfslock_lock, mutex,
 		    PZERO - 1, "nfsv4gr", NULL);
 	}
-	if (mp != NULL && (mp->mnt_kern_flag & MNTK_UNMOUNTF) != 0)
+	if (mp != NULL && NFSCL_FORCEDISM(mp))
 		return;
 
 	lp->nfslock_usecnt++;
@@ -2259,8 +2238,8 @@ nfsv4_fillattr(struct nfsrv_descript *nd, struct mount *mp, vnode_t vp,
 			break;
 		case NFSATTRBIT_FILEID:
 			NFSM_BUILD(tl, u_int32_t *, NFSX_HYPER);
-			*tl++ = 0;
-			*tl = txdr_unsigned(vap->va_fileid);
+			uquad = vap->va_fileid;
+			txdr_hyper(uquad, tl);
 			retnum += NFSX_HYPER;
 			break;
 		case NFSATTRBIT_FILESAVAIL:
@@ -2321,7 +2300,7 @@ nfsv4_fillattr(struct nfsrv_descript *nd, struct mount *mp, vnode_t vp,
 			break;
 		case NFSATTRBIT_MAXLINK:
 			NFSM_BUILD(tl, u_int32_t *, NFSX_UNSIGNED);
-			*tl = txdr_unsigned(LINK_MAX);
+			*tl = txdr_unsigned(NFS_LINK_MAX);
 			retnum += NFSX_UNSIGNED;
 			break;
 		case NFSATTRBIT_MAXNAME:
@@ -2525,7 +2504,7 @@ nfsv4_fillattr(struct nfsrv_descript *nd, struct mount *mp, vnode_t vp,
 			if (at_root != 0)
 				uquad = mounted_on_fileno;
 			else
-				uquad = (u_int64_t)vap->va_fileid;
+				uquad = vap->va_fileid;
 			txdr_hyper(uquad, tl);
 			retnum += NFSX_HYPER;
 			break;
@@ -2588,7 +2567,7 @@ nfsv4_uidtostr(uid_t uid, u_char **cpp, int *retlenp, NFSPROC_T *p)
 
 	cnt = 0;
 tryagain:
-	if (nfsrv_dnsnamelen > 0) {
+	if (nfsrv_dnsnamelen > 0 && !nfs_enable_uidtostring) {
 		/*
 		 * Always map nfsrv_defaultuid to "nobody".
 		 */
@@ -2850,7 +2829,7 @@ nfsv4_gidtostr(gid_t gid, u_char **cpp, int *retlenp, NFSPROC_T *p)
 
 	cnt = 0;
 tryagain:
-	if (nfsrv_dnsnamelen > 0) {
+	if (nfsrv_dnsnamelen > 0 && !nfs_enable_uidtostring) {
 		/*
 		 * Always map nfsrv_defaultgid to "nogroup".
 		 */
@@ -3078,7 +3057,7 @@ nfsrv_cmpmixedcase(u_char *cp, u_char *cp2, int len)
  * Set the port for the nfsuserd.
  */
 APPLESTATIC int
-nfsrv_nfsuserdport(u_short port, NFSPROC_T *p)
+nfsrv_nfsuserdport(struct sockaddr *sad, u_short port, NFSPROC_T *p)
 {
 	struct nfssockreq *rp;
 	struct sockaddr_in *ad;
@@ -3088,6 +3067,7 @@ nfsrv_nfsuserdport(u_short port, NFSPROC_T *p)
 	if (nfsrv_nfsuserd) {
 		NFSUNLOCKNAMEID();
 		error = EPERM;
+		NFSSOCKADDRFREE(sad);
 		goto out;
 	}
 	nfsrv_nfsuserd = 1;
@@ -3097,16 +3077,24 @@ nfsrv_nfsuserdport(u_short port, NFSPROC_T *p)
 	 */
 	rp = &nfsrv_nfsuserdsock;
 	rp->nr_client = NULL;
-	rp->nr_sotype = SOCK_DGRAM;
-	rp->nr_soproto = IPPROTO_UDP;
-	rp->nr_lock = (NFSR_RESERVEDPORT | NFSR_LOCALHOST);
 	rp->nr_cred = NULL;
-	NFSSOCKADDRALLOC(rp->nr_nam);
-	NFSSOCKADDRSIZE(rp->nr_nam, sizeof (struct sockaddr_in));
-	ad = NFSSOCKADDR(rp->nr_nam, struct sockaddr_in *);
-	ad->sin_family = AF_INET;
-	ad->sin_addr.s_addr = htonl((u_int32_t)0x7f000001);	/* 127.0.0.1 */
-	ad->sin_port = port;
+	rp->nr_lock = (NFSR_RESERVEDPORT | NFSR_LOCALHOST);
+	if (sad != NULL) {
+		/* Use the AF_LOCAL socket address passed in. */
+		rp->nr_sotype = SOCK_STREAM;
+		rp->nr_soproto = 0;
+		rp->nr_nam = sad;
+	} else {
+		/* Use the port# for a UDP socket (old nfsuserd). */
+		rp->nr_sotype = SOCK_DGRAM;
+		rp->nr_soproto = IPPROTO_UDP;
+		NFSSOCKADDRALLOC(rp->nr_nam);
+		NFSSOCKADDRSIZE(rp->nr_nam, sizeof (struct sockaddr_in));
+		ad = NFSSOCKADDR(rp->nr_nam, struct sockaddr_in *);
+		ad->sin_family = AF_INET;
+		ad->sin_addr.s_addr = htonl((u_int32_t)0x7f000001);
+		ad->sin_port = port;
+	}
 	rp->nr_prog = RPCPROG_NFSUSERD;
 	rp->nr_vers = RPCNFSUSERD_VERS;
 	error = newnfs_connect(NULL, rp, NFSPROCCRED(p), p, 0);
@@ -3951,14 +3939,13 @@ newnfs_sndunlock(int *flagp)
 }
 
 APPLESTATIC int
-nfsv4_getipaddr(struct nfsrv_descript *nd, struct sockaddr_storage *sa,
-    int *isudp)
+nfsv4_getipaddr(struct nfsrv_descript *nd, struct sockaddr_in *sin,
+    struct sockaddr_in6 *sin6, sa_family_t *saf, int *isudp)
 {
-	struct sockaddr_in *sad;
-	struct sockaddr_in6 *sad6;
 	struct in_addr saddr;
 	uint32_t portnum, *tl;
-	int af = 0, i, j, k;
+	int i, j, k;
+	sa_family_t af = AF_UNSPEC;
 	char addr[64], protocol[5], *cp;
 	int cantparse = 0, error = 0;
 	uint16_t portv;
@@ -4036,20 +4023,20 @@ nfsv4_getipaddr(struct nfsrv_descript *nd, struct sockaddr_storage *sa,
 			cantparse = 1;
 		if (cantparse == 0) {
 			if (af == AF_INET) {
-				sad = (struct sockaddr_in *)sa;
-				if (inet_pton(af, addr, &sad->sin_addr) == 1) {
-					sad->sin_len = sizeof(*sad);
-					sad->sin_family = AF_INET;
-					sad->sin_port = htons(portv);
+				if (inet_pton(af, addr, &sin->sin_addr) == 1) {
+					sin->sin_len = sizeof(*sin);
+					sin->sin_family = AF_INET;
+					sin->sin_port = htons(portv);
+					*saf = af;
 					return (0);
 				}
 			} else {
-				sad6 = (struct sockaddr_in6 *)sa;
-				if (inet_pton(af, addr, &sad6->sin6_addr)
+				if (inet_pton(af, addr, &sin6->sin6_addr)
 				    == 1) {
-					sad6->sin6_len = sizeof(*sad6);
-					sad6->sin6_family = AF_INET6;
-					sad6->sin6_port = htons(portv);
+					sin6->sin6_len = sizeof(*sin6);
+					sin6->sin6_family = AF_INET6;
+					sin6->sin6_port = htons(portv);
+					*saf = af;
 					return (0);
 				}
 			}
@@ -4210,9 +4197,7 @@ nfsv4_sequencelookup(struct nfsmount *nmp, struct nfsclsession *sep,
 			 * This RPC attempt will fail when it calls
 			 * newnfs_request().
 			 */
-			if (nmp != NULL &&
-			    (nmp->nm_mountp->mnt_kern_flag & MNTK_UNMOUNTF)
-			    != 0) {
+			if (nmp != NULL && NFSCL_FORCEDISM(nmp->nm_mountp)) {
 				mtx_unlock(&sep->nfsess_mtx);
 				return (ESTALE);
 			}

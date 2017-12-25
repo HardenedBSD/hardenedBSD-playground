@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright 1996-1998 John D. Polstra.
  * All rights reserved.
  *
@@ -87,6 +89,25 @@ struct sysentvec elf64_freebsd_sysvec = {
 	.sv_pax_aslr_init = pax_aslr_init_vmspace,
 };
 INIT_SYSENTVEC(elf64_sysvec, &elf64_freebsd_sysvec);
+
+void
+amd64_lower_shared_page(struct sysentvec *sv)
+{
+	if (hw_lower_amd64_sharedpage != 0) {
+		sv->sv_maxuser -= PAGE_SIZE;
+		sv->sv_shared_page_base -= PAGE_SIZE;
+		sv->sv_usrstack -= PAGE_SIZE;
+		sv->sv_psstrings -= PAGE_SIZE;
+	}
+}
+
+/*
+ * Do this fixup before INIT_SYSENTVEC (SI_ORDER_ANY) because the latter
+ * uses the value of sv_shared_page_base.
+ */
+SYSINIT(elf64_sysvec_fixup, SI_SUB_EXEC, SI_ORDER_FIRST,
+	(sysinit_cfunc_t) amd64_lower_shared_page,
+	&elf64_freebsd_sysvec);
 
 static Elf64_Brandinfo freebsd_brand_info = {
 	.brand		= ELFOSABI_FREEBSD,

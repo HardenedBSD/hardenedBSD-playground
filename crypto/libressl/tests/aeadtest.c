@@ -75,6 +75,12 @@
 
 #define BUF_MAX 1024
 
+#ifdef _MSC_VER
+#ifdef IN
+#undef IN
+#endif
+#endif
+
 /* These are the different types of line that are found in the input file. */
 enum {
 	AEAD = 0,	/* name of the AEAD algorithm. */
@@ -133,12 +139,6 @@ aead_from_name(const EVP_AEAD **aead, const char *name)
 		*aead = EVP_aead_chacha20_poly1305();
 #else
 		fprintf(stderr, "No chacha20-poly1305 support.\n");
-#endif
-	} else if (strcmp(name, "chacha20-poly1305-old") == 0) {
-#if !defined(OPENSSL_NO_CHACHA) && !defined(OPENSSL_NO_POLY1305)
-		*aead = EVP_aead_chacha20_poly1305_old();
-#else
-		fprintf(stderr, "No chacha20-poly1305-old support.\n");
 #endif
 	} else {
 		fprintf(stderr, "Unknown AEAD: %s\n", name);

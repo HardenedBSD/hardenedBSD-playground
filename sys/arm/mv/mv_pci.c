@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2008 MARVELL INTERNATIONAL LTD.
  * Copyright (c) 2010 The FreeBSD Foundation
  * Copyright (c) 2010-2015 Semihalf
@@ -394,6 +396,7 @@ static driver_t mv_pcib_driver = {
 devclass_t pcib_devclass;
 
 DRIVER_MODULE(pcib, ofwbus, mv_pcib_driver, pcib_devclass, 0, 0);
+DRIVER_MODULE(pcib, pcib_ctrl, mv_pcib_driver, pcib_devclass, 0, 0);
 
 static struct mtx pcicfg_mtx;
 
@@ -419,21 +422,29 @@ mv_pcib_attach(device_t self)
 {
 	struct mv_pcib_softc *sc;
 	phandle_t node, parnode;
-	uint32_t val, unit;
-	int err;
+	uint32_t val, reg0;
+	int err, bus, devfn, port_id;
 
 	sc = device_get_softc(self);
 	sc->sc_dev = self;
-	unit = fdt_get_unit(self);
-
 
 	node = ofw_bus_get_node(self);
 	parnode = OF_parent(node);
+
+	if (OF_getencprop(node, "marvell,pcie-port", &(port_id),
+	    sizeof(port_id)) <= 0) {
+		/* If port ID does not exist in the FDT set value to 0 */
+		if (!OF_hasprop(node, "marvell,pcie-port"))
+			port_id = 0;
+		else
+			return(ENXIO);
+	}
+
 	if (ofw_bus_node_is_compatible(node, "mrvl,pcie")) {
 		sc->sc_type = MV_TYPE_PCIE;
-		sc->sc_win_target = MV_WIN_PCIE_TARGET(unit);
-		sc->sc_mem_win_attr = MV_WIN_PCIE_MEM_ATTR(unit);
-		sc->sc_io_win_attr = MV_WIN_PCIE_IO_ATTR(unit);
+		sc->sc_win_target = MV_WIN_PCIE_TARGET(port_id);
+		sc->sc_mem_win_attr = MV_WIN_PCIE_MEM_ATTR(port_id);
+		sc->sc_io_win_attr = MV_WIN_PCIE_IO_ATTR(port_id);
 	} else if (ofw_bus_node_is_compatible(node, "mrvl,pci")) {
 		sc->sc_type = MV_TYPE_PCI;
 		sc->sc_win_target = MV_WIN_PCI_TARGET;
@@ -476,7 +487,7 @@ mv_pcib_attach(device_t self)
 	/*
 	 * Enable PCIE device.
 	 */
-	mv_pcib_enable(sc, unit);
+	mv_pcib_enable(sc, port_id);
 
 	/*
 	 * Memory management.
@@ -484,6 +495,22 @@ mv_pcib_attach(device_t self)
 	err = mv_pcib_mem_init(sc);
 	if (err)
 		return (err);
+
+	/*
+	 * Preliminary bus enumeration to find first linked devices and set
+	 * appropriate bus number from which should start the actual enumeration
+	 */
+	for (bus = 0; bus < PCI_BUSMAX; bus++) {
+		for (devfn = 0; devfn < mv_pcib_maxslots(self); devfn++) {
+			reg0 = mv_pcib_read_config(self, bus, devfn, devfn & 0x7, 0x0, 4);
+			if (reg0 == (~0U))
+				continue; /* no device */
+			else {
+				sc->sc_busnr = bus; /* update bus number */
+				break;
+			}
+		}
+	}
 
 	if (sc->sc_mode == MV_MODE_ROOT) {
 		err = mv_pcib_init(sc, sc->sc_busnr,
@@ -918,7 +945,7 @@ static inline void
 pcib_write_irq_mask(struct mv_pcib_softc *sc, uint32_t mask)
 {
 
-	if (sc->sc_type != MV_TYPE_PCI)
+	if (sc->sc_type != MV_TYPE_PCIE)
 		return;
 
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, PCIE_REG_IRQ_MASK, mask);

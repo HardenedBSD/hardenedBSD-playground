@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999, 2000 John D. Polstra.
  * All rights reserved.
  *
@@ -52,11 +54,6 @@ Elf_Addr reloc_jmpslot(Elf_Addr *where, Elf_Addr target,
 
 #define	call_ifunc_resolver(ptr) \
 	(((Elf_Addr (*)(void))ptr)())
-
-/*
- * Lazy binding entry point, called via PLT.
- */
-void _rtld_bind_start(void);
 
 /*
  * TLS

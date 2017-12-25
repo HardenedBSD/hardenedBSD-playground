@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1989, 1992, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -452,6 +454,7 @@ nopgrp:
 		} else {
 			kp->ki_stat = SZOMB;
 		}
+		kp->ki_tdev_freebsd11 = kp->ki_tdev; /* truncate */
 		bcopy(&kinfo_proc, bp, sizeof(kinfo_proc));
 		++bp;
 		++cnt;

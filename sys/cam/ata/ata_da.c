@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2009 Alexander Motin <mav@FreeBSD.org>
  * All rights reserved.
  *
@@ -637,6 +639,14 @@ static struct ada_quirk_entry ada_quirk_table[] =
 	},
 	{
 		/*
+		 * Samsung 750 SSDs
+		 * 4k optimised, NCQ TRIM seems to work
+		 */
+		{ T_DIRECT, SIP_MEDIA_FIXED, "*", "Samsung SSD 750*", "*" },
+		/*quirks*/ADA_Q_4K
+	},
+	{
+		/*
 		 * Samsung 830 Series SSDs
 		 * 4k optimised, NCQ TRIM Broken (normal TRIM is fine)
 		 */
@@ -649,6 +659,14 @@ static struct ada_quirk_entry ada_quirk_table[] =
 		 * 4k optimised, NCQ TRIM Broken (normal TRIM is fine)
 		 */
 		{ T_DIRECT, SIP_MEDIA_FIXED, "*", "Samsung SSD 840*", "*" },
+		/*quirks*/ADA_Q_4K | ADA_Q_NCQ_TRIM_BROKEN
+	},
+	{
+		/*
+		 * Samsung 845 SSDs
+		 * 4k optimised, NCQ TRIM Broken (normal TRIM is fine)
+		 */
+		{ T_DIRECT, SIP_MEDIA_FIXED, "*", "Samsung SSD 845*", "*" },
 		/*quirks*/ADA_Q_4K | ADA_Q_NCQ_TRIM_BROKEN
 	},
 	{
@@ -676,6 +694,14 @@ static struct ada_quirk_entry ada_quirk_table[] =
 		 * appear to be built with the same controllers as the 840/850.
 		 */
 		{ T_DIRECT, SIP_MEDIA_FIXED, "*", "SAMSUNG MZ7*", "*" },
+		/*quirks*/ADA_Q_4K | ADA_Q_NCQ_TRIM_BROKEN
+	},
+	{
+		/*
+		 * Same as for SAMSUNG MZ7* but enable the quirks for SSD
+		 * starting with MZ7* too
+		 */
+		{ T_DIRECT, SIP_MEDIA_FIXED, "*", "MZ7*", "*" },
 		/*quirks*/ADA_Q_4K | ADA_Q_NCQ_TRIM_BROKEN
 	},
 	{
@@ -729,7 +755,7 @@ static struct ada_quirk_entry ada_quirk_table[] =
 		 * Drive Managed SATA hard drive.  This drive doesn't report
 		 * in firmware that it is a drive managed SMR drive.
 		 */
-		{ T_DIRECT, SIP_MEDIA_FIXED, "*", "ST8000AS0002*", "*" },
+		{ T_DIRECT, SIP_MEDIA_FIXED, "*", "ST8000AS000[23]*", "*" },
 		/*quirks*/ADA_Q_SMR_DM
 	},
 	{
@@ -1022,7 +1048,7 @@ adadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t len
 	struct	    cam_periph *periph;
 	struct	    ada_softc *softc;
 	u_int	    secsize;
-	union	    ccb ccb;
+	struct	    ccb_ataio ataio;
 	struct	    disk *dp;
 	uint64_t    lba;
 	uint16_t    count;
@@ -1041,10 +1067,11 @@ adadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t len
 		return (ENXIO);
 	}
 
+	memset(&ataio, 0, sizeof(ataio));
 	if (length > 0) {
-		xpt_setup_ccb(&ccb.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
-		ccb.ccb_h.ccb_state = ADA_CCB_DUMP;
-		cam_fill_ataio(&ccb.ataio,
+		xpt_setup_ccb(&ataio.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
+		ataio.ccb_h.ccb_state = ADA_CCB_DUMP;
+		cam_fill_ataio(&ataio,
 		    0,
 		    adadone,
 		    CAM_DIR_OUT,
@@ -1055,19 +1082,14 @@ adadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t len
 		if ((softc->flags & ADA_FLAG_CAN_48BIT) &&
 		    (lba + count >= ATA_MAX_28BIT_LBA ||
 		    count >= 256)) {
-			ata_48bit_cmd(&ccb.ataio, ATA_WRITE_DMA48,
+			ata_48bit_cmd(&ataio, ATA_WRITE_DMA48,
 			    0, lba, count);
 		} else {
-			ata_28bit_cmd(&ccb.ataio, ATA_WRITE_DMA,
+			ata_28bit_cmd(&ataio, ATA_WRITE_DMA,
 			    0, lba, count);
 		}
-		xpt_polled_action(&ccb);
-
-		error = cam_periph_error(&ccb,
+		error = cam_periph_runccb((union ccb *)&ataio, adaerror,
 		    0, SF_NO_RECOVERY | SF_NO_RETRY, NULL);
-		if ((ccb.ccb_h.status & CAM_DEV_QFRZN) != 0)
-			cam_release_devq(ccb.ccb_h.path, /*relsim_flags*/0,
-			    /*reduction*/0, /*timeout*/0, /*getcount_only*/0);
 		if (error != 0)
 			printf("Aborting dump due to I/O error.\n");
 
@@ -1076,15 +1098,15 @@ adadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t len
 	}
 
 	if (softc->flags & ADA_FLAG_CAN_FLUSHCACHE) {
-		xpt_setup_ccb(&ccb.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
+		xpt_setup_ccb(&ataio.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
 
 		/*
 		 * Tell the drive to flush its internal cache. if we
 		 * can't flush in 5s we have big problems. No need to
 		 * wait the default 60s to detect problems.
 		 */
-		ccb.ccb_h.ccb_state = ADA_CCB_DUMP;
-		cam_fill_ataio(&ccb.ataio,
+		ataio.ccb_h.ccb_state = ADA_CCB_DUMP;
+		cam_fill_ataio(&ataio,
 				    0,
 				    adadone,
 				    CAM_DIR_NONE,
@@ -1094,16 +1116,11 @@ adadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t len
 				    5*1000);
 
 		if (softc->flags & ADA_FLAG_CAN_48BIT)
-			ata_48bit_cmd(&ccb.ataio, ATA_FLUSHCACHE48, 0, 0, 0);
+			ata_48bit_cmd(&ataio, ATA_FLUSHCACHE48, 0, 0, 0);
 		else
-			ata_28bit_cmd(&ccb.ataio, ATA_FLUSHCACHE, 0, 0, 0);
-		xpt_polled_action(&ccb);
-
-		error = cam_periph_error(&ccb,
+			ata_28bit_cmd(&ataio, ATA_FLUSHCACHE, 0, 0, 0);
+		error = cam_periph_runccb((union ccb *)&ataio, adaerror,
 		    0, SF_NO_RECOVERY | SF_NO_RETRY, NULL);
-		if ((ccb.ccb_h.status & CAM_DEV_QFRZN) != 0)
-			cam_release_devq(ccb.ccb_h.path, /*relsim_flags*/0,
-			    /*reduction*/0, /*timeout*/0, /*getcount_only*/0);
 		if (error != 0)
 			xpt_print(periph->path, "Synchronize cache failed\n");
 	}
@@ -1304,7 +1321,7 @@ adaasync(void *callback_arg, u_int32_t code,
 		xpt_action((union ccb *)&cgd);
 		if (ADA_RA >= 0 && softc->flags & ADA_FLAG_CAN_RAHEAD)
 			softc->state = ADA_STATE_RAHEAD;
-		else if (ADA_WC >= 0 && softc->flags & ADA_FLAG_CAN_RAHEAD)
+		else if (ADA_WC >= 0 && softc->flags & ADA_FLAG_CAN_WCACHE)
 			softc->state = ADA_STATE_WCACHE;
 		else if ((softc->flags & ADA_FLAG_CAN_LOG)
 		      && (softc->zone_mode != ADA_ZONE_NONE))
@@ -1394,7 +1411,7 @@ adasysctlinit(void *context, int pending)
 {
 	struct cam_periph *periph;
 	struct ada_softc *softc;
-	char tmpstr[80], tmpstr2[80];
+	char tmpstr[32], tmpstr2[16];
 
 	periph = (struct cam_periph *)context;
 
@@ -1709,10 +1726,7 @@ adaregister(struct cam_periph *periph, void *arg)
 	else
 		softc->quirks = ADA_Q_NONE;
 
-	bzero(&cpi, sizeof(cpi));
-	xpt_setup_ccb(&cpi.ccb_h, periph->path, CAM_PRIORITY_NONE);
-	cpi.ccb_h.func_code = XPT_PATH_INQ;
-	xpt_action((union ccb *)&cpi);
+	xpt_path_inq(&cpi, periph->path);
 
 	TASK_INIT(&softc->sysctl_task, 0, adasysctlinit, periph);
 
@@ -2617,10 +2631,8 @@ adaprobedone(struct cam_periph *periph, union ccb *ccb)
 static void
 adazonedone(struct cam_periph *periph, union ccb *ccb)
 {
-	struct ada_softc *softc;
 	struct bio *bp;
 
-	softc = periph->softc;
 	bp = (struct bio *)ccb->ccb_h.ccb_bp;
 
 	switch (bp->bio_zone.zone_cmd) {
@@ -2635,7 +2647,7 @@ adazonedone(struct cam_periph *periph, union ccb *ccb)
 		struct scsi_report_zones_hdr *hdr;
 		struct scsi_report_zones_desc *desc;
 		struct disk_zone_rep_entry *entry;
-		uint32_t num_alloced, hdr_len, num_avail;
+		uint32_t hdr_len, num_avail;
 		uint32_t num_to_fill, i;
 
 		rep = &bp->bio_zone.zone_params.report;
@@ -2650,7 +2662,6 @@ adazonedone(struct cam_periph *periph, union ccb *ccb)
 		 * be different than the amount of data transferred to
 		 * the user.
 		 */
-		num_alloced = rep->entries_allocated;
 		hdr = (struct scsi_report_zones_hdr *)ccb->ataio.data_ptr;
 		if (avail_len < sizeof(*hdr)) {
 			/*
@@ -2837,6 +2848,12 @@ adadone(struct cam_periph *periph, union ccb *done_ccb)
 		if (softc->outstanding_cmds == 0)
 			softc->flags |= ADA_FLAG_WAS_OTAG;
 
+		/*
+		 * We need to call cam_iosched before we call biodone so that we
+		 * don't measure any activity that happens in the completion
+		 * routine, which in the case of sendfile can be quite
+		 * extensive.
+		 */
 		cam_iosched_bio_complete(softc->cam_iosched, bp, done_ccb);
 		xpt_release_ccb(done_ccb);
 		if (state == ADA_CCB_TRIM) {
@@ -3321,7 +3338,7 @@ adaerror(union ccb *ccb, u_int32_t cam_flags, u_int32_t sense_flags)
 	}
 #endif
 
-	return(cam_periph_error(ccb, cam_flags, sense_flags, NULL));
+	return(cam_periph_error(ccb, cam_flags, sense_flags));
 }
 
 static void
@@ -3344,7 +3361,8 @@ adagetparams(struct cam_periph *periph, struct ccb_getdev *cgd)
 		dp->heads = cgd->ident_data.heads;
 		dp->secs_per_track = cgd->ident_data.sectors;
 		dp->cylinders = cgd->ident_data.cylinders;
-		dp->sectors = cgd->ident_data.cylinders * dp->heads * dp->secs_per_track;  
+		dp->sectors = cgd->ident_data.cylinders *
+			      (u_int32_t)(dp->heads * dp->secs_per_track);  
 	}
 	lbasize = (u_int32_t)cgd->ident_data.lba_size_1 |
 		  ((u_int32_t)cgd->ident_data.lba_size_2 << 16);
@@ -3443,7 +3461,7 @@ adaspindown(uint8_t cmd, int flags)
 {
 	struct cam_periph *periph;
 	struct ada_softc *softc;
-	union ccb *ccb;
+	struct ccb_ataio local_ccb;
 	int error;
 
 	CAM_PERIPH_FOREACH(periph, &adadriver) {
@@ -3463,8 +3481,11 @@ adaspindown(uint8_t cmd, int flags)
 		if (bootverbose)
 			xpt_print(periph->path, "spin-down\n");
 
-		ccb = cam_periph_getccb(periph, CAM_PRIORITY_NORMAL);
-		cam_fill_ataio(&ccb->ataio,
+		memset(&local_ccb, 0, sizeof(local_ccb));
+		xpt_setup_ccb(&local_ccb.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
+		local_ccb.ccb_h.ccb_state = ADA_CCB_DUMP;
+
+		cam_fill_ataio(&local_ccb,
 				    0,
 				    adadone,
 				    CAM_DIR_NONE | flags,
@@ -3472,14 +3493,12 @@ adaspindown(uint8_t cmd, int flags)
 				    NULL,
 				    0,
 				    ada_default_timeout*1000);
-		ata_28bit_cmd(&ccb->ataio, cmd, 0, 0, 0);
-
-		error = cam_periph_runccb(ccb, adaerror, /*cam_flags*/0,
-		    /*sense_flags*/ SF_NO_RECOVERY | SF_NO_RETRY,
+		ata_28bit_cmd(&local_ccb, cmd, 0, 0, 0);
+		error = cam_periph_runccb((union ccb *)&local_ccb, adaerror,
+		    /*cam_flags*/0, /*sense_flags*/ SF_NO_RECOVERY | SF_NO_RETRY,
 		    softc->disk->d_devstat);
 		if (error != 0)
 			xpt_print(periph->path, "Spin-down disk failed\n");
-		xpt_release_ccb(ccb);
 		cam_periph_unlock(periph);
 	}
 }
@@ -3487,11 +3506,29 @@ adaspindown(uint8_t cmd, int flags)
 static void
 adashutdown(void *arg, int howto)
 {
+	int how;
 
 	adaflush();
-	if (ada_spindown_shutdown != 0 &&
-	    (howto & (RB_HALT | RB_POWEROFF)) != 0)
-		adaspindown(ATA_STANDBY_IMMEDIATE, 0);
+
+	/*
+	 * STANDBY IMMEDIATE saves any volatile data to the drive. It also spins
+	 * down hard drives. IDLE IMMEDIATE also saves the volatile data without
+	 * a spindown. We send the former when we expect to lose power soon. For
+	 * a warm boot, we send the latter to avoid a thundering herd of spinups
+	 * just after the kernel loads while probing. We have to do something to
+	 * flush the data because the BIOS in many systems resets the HBA
+	 * causing a COMINIT/COMRESET negotiation, which some drives interpret
+	 * as license to toss the volatile data, and others count as unclean
+	 * shutdown when in the Active PM state in SMART attributes.
+	 *
+	 * adaspindown will ensure that we don't send this to a drive that
+	 * doesn't support it.
+	 */
+	if (ada_spindown_shutdown != 0) {
+		how = (howto & (RB_HALT | RB_POWEROFF | RB_POWERCYCLE)) ?
+		    ATA_STANDBY_IMMEDIATE : ATA_IDLE_IMMEDIATE;
+		adaspindown(how, 0);
+	}
 }
 
 static void
@@ -3499,6 +3536,10 @@ adasuspend(void *arg)
 {
 
 	adaflush();
+	/*
+	 * SLEEP also fushes any volatile data, like STANDBY IMEDIATE,
+	 * so we don't need to send it as well.
+	 */
 	if (ada_spindown_suspend != 0)
 		adaspindown(ATA_SLEEP, CAM_DEV_QFREEZE);
 }

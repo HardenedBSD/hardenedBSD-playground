@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2006 Oleksandr Tymoshenko
  * All rights reserved.
  *
@@ -690,7 +692,9 @@ bus_dmamem_alloc(bus_dma_tag_t dmat, void** vaddrp, int flags,
 	 *    (the allocator aligns buffers to their size boundaries).
 	 *  - There's no need to handle lowaddr/highaddr exclusion zones.
 	 * else allocate non-contiguous pages if...
-	 *  - The page count that could get allocated doesn't exceed nsegments.
+	 *  - The page count that could get allocated doesn't exceed
+	 *    nsegments also when the maximum segment size is less
+	 *    than PAGE_SIZE.
 	 *  - The alignment constraint isn't larger than a page boundary.
 	 *  - There are no boundary-crossing constraints.
 	 * else allocate a block of contiguous pages because one or more of the
@@ -699,8 +703,10 @@ bus_dmamem_alloc(bus_dma_tag_t dmat, void** vaddrp, int flags,
 	if (bufzone != NULL && dmat->alignment <= bufzone->size &&
 	    !_bus_dma_can_bounce(dmat->lowaddr, dmat->highaddr)) {
 		vaddr = uma_zalloc(bufzone->umazone, mflags);
-	} else if (dmat->nsegments >= btoc(dmat->maxsize) &&
-	    dmat->alignment <= PAGE_SIZE && dmat->boundary == 0) {
+	} else if (dmat->nsegments >=
+	    howmany(dmat->maxsize, MIN(dmat->maxsegsz, PAGE_SIZE)) &&
+	    dmat->alignment <= PAGE_SIZE &&
+	    (dmat->boundary % PAGE_SIZE) == 0) {
 		vaddr = (void *)kmem_alloc_attr(kernel_arena, dmat->maxsize,
 		    mflags, 0, dmat->lowaddr, memattr);
 	} else {
@@ -755,7 +761,7 @@ _bus_dmamap_count_phys(bus_dma_tag_t dmat, bus_dmamap_t map, vm_paddr_t buf,
 	bus_addr_t curaddr;
 	bus_size_t sgsize;
 
-	if ((map->pagesneeded == 0)) {
+	if (map->pagesneeded == 0) {
 		CTR3(KTR_BUSDMA, "lowaddr= %d, boundary= %d, alignment= %d",
 		    dmat->lowaddr, dmat->boundary, dmat->alignment);
 		CTR2(KTR_BUSDMA, "map= %p, pagesneeded= %d",
@@ -786,7 +792,7 @@ _bus_dmamap_count_pages(bus_dma_tag_t dmat, bus_dmamap_t map, pmap_t pmap,
 	vm_offset_t vendaddr;
 	bus_addr_t paddr;
 
-	if ((map->pagesneeded == 0)) {
+	if (map->pagesneeded == 0) {
 		CTR3(KTR_BUSDMA, "lowaddr= %d, boundary= %d, alignment= %d",
 		    dmat->lowaddr, dmat->boundary, dmat->alignment);
 		CTR2(KTR_BUSDMA, "map= %p, pagesneeded= %d",
@@ -926,7 +932,7 @@ _bus_dmamap_load_phys(bus_dma_tag_t dmat, bus_dmamap_t map,
 	 * Did we fit?
 	 */
 	if (buflen != 0) {
-		_bus_dmamap_unload(dmat, map);
+		bus_dmamap_unload(dmat, map);
 		return (EFBIG); /* XXX better return value here? */
 	}
 	return (0);
@@ -1024,14 +1030,14 @@ cleanup:
 	 * Did we fit?
 	 */
 	if (buflen != 0) {
-		_bus_dmamap_unload(dmat, map);
+		bus_dmamap_unload(dmat, map);
 		error = EFBIG; /* XXX better return value here? */
 	}
 	return (error);
 }
 
 void
-__bus_dmamap_waitok(bus_dma_tag_t dmat, bus_dmamap_t map,
+_bus_dmamap_waitok(bus_dma_tag_t dmat, bus_dmamap_t map,
     struct memdesc *mem, bus_dmamap_callback_t *callback, void *callback_arg)
 {
 
@@ -1056,7 +1062,7 @@ _bus_dmamap_complete(bus_dma_tag_t dmat, bus_dmamap_t map,
  * Release the mapping held by map.
  */
 void
-_bus_dmamap_unload(bus_dma_tag_t dmat, bus_dmamap_t map)
+bus_dmamap_unload(bus_dma_tag_t dmat, bus_dmamap_t map)
 {
 	struct bounce_page *bpage;
 
@@ -1229,7 +1235,7 @@ _bus_dmamap_sync_bp(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
 }
 
 void
-_bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
+bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map, bus_dmasync_op_t op)
 {
 	struct sync_list *sl, *end;
 	int aligned;

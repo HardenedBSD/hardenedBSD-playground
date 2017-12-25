@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2010-2012, by Michael Tuexen. All rights reserved.
  * Copyright (c) 2010-2012, by Randall Stewart. All rights reserved.
  * Copyright (c) 2010-2012, by Robin Seggelmann. All rights reserved.
@@ -268,9 +270,23 @@ sctp_ss_default_set_value(struct sctp_tcb *stcb SCTP_UNUSED, struct sctp_associa
 }
 
 static int
-sctp_ss_default_is_user_msgs_incomplete(struct sctp_tcb *stcb SCTP_UNUSED, struct sctp_association *asoc SCTP_UNUSED)
+sctp_ss_default_is_user_msgs_incomplete(struct sctp_tcb *stcb SCTP_UNUSED, struct sctp_association *asoc)
 {
-	return (0);
+	struct sctp_stream_out *strq;
+	struct sctp_stream_queue_pending *sp;
+
+	if (asoc->stream_queue_cnt != 1) {
+		return (0);
+	}
+	strq = asoc->ss_data.locked_on_sending;
+	if (strq == NULL) {
+		return (0);
+	}
+	sp = TAILQ_FIRST(&strq->outqueue);
+	if (sp == NULL) {
+		return (0);
+	}
+	return (!sp->msg_is_complete);
 }
 
 /*

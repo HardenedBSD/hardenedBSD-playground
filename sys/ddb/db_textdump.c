@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2007 Robert N. M. Watson
  * All rights reserved.
  *
@@ -463,8 +465,7 @@ textdump_dumpsys(struct dumperinfo *di)
 	 */
 	textdump_offset = di->mediasize - sizeof(kdh);
 	textdump_saveoff(&trailer_offset);
-	mkdumpheader(&kdh, TEXTDUMPMAGIC, KERNELDUMP_TEXT_VERSION, 0, 0,
-	    TEXTDUMP_BLOCKSIZE);
+	dump_init_header(di, &kdh, TEXTDUMPMAGIC, KERNELDUMP_TEXT_VERSION, 0);
 	(void)textdump_writenextblock(di, (char *)&kdh);
 
 	/*
@@ -489,8 +490,8 @@ textdump_dumpsys(struct dumperinfo *di)
 	 * size.
 	 */
 	dumplen = trailer_offset - (textdump_offset + TEXTDUMP_BLOCKSIZE);
-	mkdumpheader(&kdh, TEXTDUMPMAGIC, KERNELDUMP_TEXT_VERSION, dumplen, 0,
-	    TEXTDUMP_BLOCKSIZE);
+	dump_init_header(di, &kdh, TEXTDUMPMAGIC, KERNELDUMP_TEXT_VERSION,
+	    dumplen);
 	(void)textdump_writenextblock(di, (char *)&kdh);
 	textdump_restoreoff(trailer_offset);
 	(void)textdump_writenextblock(di, (char *)&kdh);

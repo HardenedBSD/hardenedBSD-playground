@@ -8,14 +8,23 @@ unix		?=	We run FreeBSD, not UNIX.
 #
 # MACHINE_CPUARCH defines a collection of MACHINE_ARCH.  Machines with
 # the same MACHINE_ARCH can run each other's binaries, so it necessarily
-# has word size and endian swizzled in.  However, support files for
+# has word size and endian swizzled in.  However, the source files for
 # these machines often are shared amongst all combinations of size
 # and/or endian.  This is called MACHINE_CPU in NetBSD, but that's used
 # for something different in FreeBSD.
 #
-MACHINE_CPUARCH=${MACHINE_ARCH:C/mips(n32|64)?(el)?(hf)?/mips/:C/arm(v6)?(eb|hf)?/arm/:C/powerpc(64|spe)/powerpc/:C/riscv64(sf)?/riscv/}
+__TO_CPUARCH=C/mips(n32|64)?(el)?(hf)?/mips/:C/arm(v[67])?(eb)?/arm/:C/powerpc(64|spe)/powerpc/:C/riscv64(sf)?/riscv/
+MACHINE_CPUARCH=${MACHINE_ARCH:${__TO_CPUARCH}}
 .endif
 
+__DEFAULT_YES_OPTIONS+= \
+	UNIFIED_OBJDIR
+
+# src.sys.obj.mk enables AUTO_OBJ by default if possible but it is otherwise
+# disabled.  Ensure src.conf.5 shows it as default on.
+.if make(showconfig)
+__DEFAULT_YES_OPTIONS+= AUTO_OBJ
+.endif
 
 # Some options we need now
 __DEFAULT_NO_OPTIONS= \
@@ -50,8 +59,11 @@ MK_META_MODE=	no
 .if ${MK_DIRDEPS_BUILD} == "yes"
 .sinclude <meta.sys.mk>
 .elif ${MK_META_MODE} == "yes"
+META_MODE+=	meta
+.if empty(.MAKEFLAGS:M-s)
 # verbose will show .MAKE.META.PREFIX for each target.
-META_MODE+=	meta verbose
+META_MODE+=	verbose
+.endif
 .if !defined(NO_META_MISSING)
 META_MODE+=	missing-meta=yes
 .endif
@@ -59,7 +71,7 @@ META_MODE+=	missing-meta=yes
 .if !defined(NO_SILENT)
 META_MODE+=	silent=yes
 .endif
-.if !exists(/dev/filemon)
+.if !exists(/dev/filemon) || defined(NO_FILEMON)
 META_MODE+= nofilemon
 .endif
 # Require filemon data with bmake
@@ -70,13 +82,15 @@ META_MODE+= missing-filemon=yes
 META_MODE?= normal
 .export META_MODE
 .MAKE.MODE?= ${META_MODE}
-.if !empty(.MAKE.MODE:Mmeta) && !defined(NO_META_IGNORE_HOST)
+.if !empty(.MAKE.MODE:Mmeta)
+.if !defined(NO_META_IGNORE_HOST)
 # Ignore host file changes that will otherwise cause
 # buildworld -> installworld -> buildworld to rebuild everything.
 # Since the build is self-reliant and bootstraps everything it needs,
 # this should not be a real problem for incremental builds.
 # XXX: This relies on the existing host tools retaining ABI compatibility
 # through upgrades since they won't be rebuilt on header/library changes.
+# This is mitigated by Makefile.inc1 for known-ABI-breaking revisions.
 # Note that these are prefix matching, so /lib matches /libexec.
 .MAKE.META.IGNORE_PATHS+= \
 	${__MAKE_SHELL} \
@@ -85,22 +99,29 @@ META_MODE?= normal
 	/rescue \
 	/sbin \
 	/usr/bin \
-	/usr/include \
 	/usr/lib \
 	/usr/sbin \
 	/usr/share \
 
+.else
+NO_META_IGNORE_HOST_HEADERS=	1
 .endif
-
+.if !defined(NO_META_IGNORE_HOST_HEADERS)
+.MAKE.META.IGNORE_PATHS+= /usr/include
+.endif
+# We do not want everything out-of-date just because
+# some unrelated shared lib updated this.
+.MAKE.META.IGNORE_PATHS+= /usr/local/etc/libmap.d
+.endif	# !empty(.MAKE.MODE:Mmeta)
 
 .if ${MK_AUTO_OBJ} == "yes"
 # This needs to be done early - before .PATH is computed
 # Don't do this for 'make showconfig' as it enables all options where meta mode
 # is not expected.
-.if !make(showconfig) && !make(print-dir)
+.if !make(showconfig) && !make(print-dir) && empty(.MAKEFLAGS:M-[nN])
 .sinclude <auto.obj.mk>
 .endif
-.endif
+.endif	# ${MK_AUTO_OBJ} == "yes"
 .else # bmake
 .include <bsd.mkopt.mk>
 .endif
@@ -121,17 +142,28 @@ META_MODE?= normal
 .if defined(%POSIX)
 .SUFFIXES:	.o .c .y .l .a .sh .f
 .else
-.SUFFIXES:	.out .a .ln .o .bco .llo .c .cc .cpp .cxx .C .m .F .f .e .r .y .l .S .asm .s .cl .p .h .sh
+.SUFFIXES:	.out .a .o .bco .llo .c .cc .cpp .cxx .C .m .F .f .e .r .y .l .S .asm .s .cl .p .h .sh
 .endif
 
+_TEST_AR=	/usr/bin/ar
 AR		?=	ar
+.if ${_TEST_AR:tA} == "/usr/bin/llvm-ar"
+.if defined(%POSIX)
+ARFLAGS		?=	rv
+.else
+ARFLAGS		?=	rcv
+.endif
+.else
 .if defined(%POSIX)
 ARFLAGS		?=	-rv
 .else
 ARFLAGS		?=	-crD
 .endif
+.endif
+
+_TEST_RANLIB=	/usr/bin/ranlib
 RANLIB		?=	ranlib
-.if !defined(%POSIX)
+.if !defined(%POSIX) && ${_TEST_RANLIB:tA} != "/usr/bin/llvm-ar"
 RANLIBFLAGS	?=	-D
 .endif
 
@@ -222,14 +254,7 @@ LFLAGS		?=
 # compiler driver flags (e.g. -mabi=*) that conflict with flags to LD.
 LD		?=	ld
 LDFLAGS		?=
-_LDFLAGS	=	${LDFLAGS:S/-Wl,//g:N-mabi=*}
-
-LINT		?=	lint
-LINTFLAGS	?=	-cghapbx
-LINTKERNFLAGS	?=	${LINTFLAGS}
-LINTOBJFLAGS	?=	-cghapbxu -i
-LINTOBJKERNFLAGS?=	${LINTOBJFLAGS}
-LINTLIBFLAGS	?=	-cghapbxu -C ${LIB}
+_LDFLAGS	=	${LDFLAGS:S/-Wl,//g:N-mabi=*:N-fuse-ld=*}
 
 MAKE		?=	make
 

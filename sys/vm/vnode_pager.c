@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
  * Copyright (c) 1990 University of Utah.
  * Copyright (c) 1991 The Regents of the University of California.
  * All rights reserved.
@@ -1179,6 +1181,23 @@ vnode_pager_putpages(vm_object_t object, vm_page_t *m, int count,
 	VM_OBJECT_WLOCK(object);
 }
 
+static int
+vn_off2bidx(vm_ooffset_t offset)
+{
+
+	return ((offset & PAGE_MASK) / DEV_BSIZE);
+}
+
+static bool
+vn_dirty_blk(vm_page_t m, vm_ooffset_t offset)
+{
+
+	KASSERT(IDX_TO_OFF(m->pindex) <= offset &&
+	    offset < IDX_TO_OFF(m->pindex + 1),
+	    ("page %p pidx %ju offset %ju", m, (uintmax_t)m->pindex,
+	    (uintmax_t)offset));
+	return ((m->dirty & ((vm_page_bits_t)1 << vn_off2bidx(offset))) != 0);
+}
 
 /*
  * This is now called from local media FS's to operate against their
@@ -1195,10 +1214,12 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 {
 	vm_object_t object;
 	vm_page_t m;
-	vm_ooffset_t poffset;
+	vm_ooffset_t maxblksz, next_offset, poffset, prev_offset;
 	struct uio auio;
 	struct iovec aiov;
-	int count, error, i, maxsize, ncount, ppscheck;
+	off_t prev_resid, wrsz;
+	int count, error, i, maxsize, ncount, pgoff, ppscheck;
+	bool in_hole;
 	static struct timeval lastfail;
 	static int curfail;
 
@@ -1209,10 +1230,11 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 		rtvals[i] = VM_PAGER_ERROR;
 
 	if ((int64_t)ma[0]->pindex < 0) {
-		printf("vnode_pager_putpages: attempt to write meta-data!!! -- 0x%lx(%lx)\n",
-		    (long)ma[0]->pindex, (u_long)ma[0]->dirty);
+		printf("vnode_pager_generic_putpages: "
+		    "attempt to write meta-data 0x%jx(%lx)\n",
+		    (uintmax_t)ma[0]->pindex, (u_long)ma[0]->dirty);
 		rtvals[0] = VM_PAGER_BAD;
-		return VM_PAGER_BAD;
+		return (VM_PAGER_BAD);
 	}
 
 	maxsize = count * PAGE_SIZE;
@@ -1232,11 +1254,15 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 	 * We do not under any circumstances truncate the valid bits, as
 	 * this will screw up bogus page replacement.
 	 */
-	VM_OBJECT_WLOCK(object);
+	VM_OBJECT_RLOCK(object);
 	if (maxsize + poffset > object->un_pager.vnp.vnp_size) {
+		if (!VM_OBJECT_TRYUPGRADE(object)) {
+			VM_OBJECT_RUNLOCK(object);
+			VM_OBJECT_WLOCK(object);
+			if (maxsize + poffset <= object->un_pager.vnp.vnp_size)
+				goto downgrade;
+		}
 		if (object->un_pager.vnp.vnp_size > poffset) {
-			int pgoff;
-
 			maxsize = object->un_pager.vnp.vnp_size - poffset;
 			ncount = btoc(maxsize);
 			if ((pgoff = (int)maxsize & PAGE_MASK) != 0) {
@@ -1250,6 +1276,7 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 				vm_page_assert_sbusied(m);
 				KASSERT(!pmap_page_is_write_mapped(m),
 		("vnode_pager_generic_putpages: page %p is not read-only", m));
+				MPASS(m->dirty != 0);
 				vm_page_clear_dirty(m, pgoff, PAGE_SIZE -
 				    pgoff);
 			}
@@ -1257,42 +1284,108 @@ vnode_pager_generic_putpages(struct vnode *vp, vm_page_t *ma, int bytecount,
 			maxsize = 0;
 			ncount = 0;
 		}
-		if (ncount < count) {
-			for (i = ncount; i < count; i++) {
-				rtvals[i] = VM_PAGER_BAD;
-			}
-		}
+		for (i = ncount; i < count; i++)
+			rtvals[i] = VM_PAGER_BAD;
+downgrade:
+		VM_OBJECT_LOCK_DOWNGRADE(object);
 	}
-	VM_OBJECT_WUNLOCK(object);
 
-	aiov.iov_base = (caddr_t) 0;
-	aiov.iov_len = maxsize;
 	auio.uio_iov = &aiov;
-	auio.uio_iovcnt = 1;
-	auio.uio_offset = poffset;
 	auio.uio_segflg = UIO_NOCOPY;
 	auio.uio_rw = UIO_WRITE;
-	auio.uio_resid = maxsize;
-	auio.uio_td = (struct thread *) 0;
-	error = VOP_WRITE(vp, &auio, vnode_pager_putpages_ioflags(flags),
-	    curthread->td_ucred);
-	VM_CNT_INC(v_vnodeout);
-	VM_CNT_ADD(v_vnodepgsout, ncount);
+	auio.uio_td = NULL;
+	maxblksz = roundup2(poffset + maxsize, DEV_BSIZE);
 
-	ppscheck = 0;
-	if (error) {
-		if ((ppscheck = ppsratecheck(&lastfail, &curfail, 1)))
-			printf("vnode_pager_putpages: I/O error %d\n", error);
+	for (prev_offset = poffset; prev_offset < maxblksz;) {
+		/* Skip clean blocks. */
+		for (in_hole = true; in_hole && prev_offset < maxblksz;) {
+			m = ma[OFF_TO_IDX(prev_offset - poffset)];
+			for (i = vn_off2bidx(prev_offset);
+			    i < sizeof(vm_page_bits_t) * NBBY &&
+			    prev_offset < maxblksz; i++) {
+				if (vn_dirty_blk(m, prev_offset)) {
+					in_hole = false;
+					break;
+				}
+				prev_offset += DEV_BSIZE;
+			}
+		}
+		if (in_hole)
+			goto write_done;
+
+		/* Find longest run of dirty blocks. */
+		for (next_offset = prev_offset; next_offset < maxblksz;) {
+			m = ma[OFF_TO_IDX(next_offset - poffset)];
+			for (i = vn_off2bidx(next_offset);
+			    i < sizeof(vm_page_bits_t) * NBBY &&
+			    next_offset < maxblksz; i++) {
+				if (!vn_dirty_blk(m, next_offset))
+					goto start_write;
+				next_offset += DEV_BSIZE;
+			}
+		}
+start_write:
+		if (next_offset > poffset + maxsize)
+			next_offset = poffset + maxsize;
+
+		/*
+		 * Getting here requires finding a dirty block in the
+		 * 'skip clean blocks' loop.
+		 */
+		MPASS(prev_offset < next_offset);
+
+		VM_OBJECT_RUNLOCK(object);
+		aiov.iov_base = NULL;
+		auio.uio_iovcnt = 1;
+		auio.uio_offset = prev_offset;
+		prev_resid = auio.uio_resid = aiov.iov_len = next_offset -
+		    prev_offset;
+		error = VOP_WRITE(vp, &auio,
+		    vnode_pager_putpages_ioflags(flags), curthread->td_ucred);
+
+		wrsz = prev_resid - auio.uio_resid;
+		if (wrsz == 0) {
+			if (ppsratecheck(&lastfail, &curfail, 1) != 0) {
+				vn_printf(vp, "vnode_pager_putpages: "
+				    "zero-length write at %ju resid %zd\n",
+				    auio.uio_offset, auio.uio_resid);
+			}
+			VM_OBJECT_RLOCK(object);
+			break;
+		}
+
+		/* Adjust the starting offset for next iteration. */
+		prev_offset += wrsz;
+		MPASS(auio.uio_offset == prev_offset);
+
+		ppscheck = 0;
+		if (error != 0 && (ppscheck = ppsratecheck(&lastfail,
+		    &curfail, 1)) != 0)
+			vn_printf(vp, "vnode_pager_putpages: I/O error %d\n",
+			    error);
+		if (auio.uio_resid != 0 && (ppscheck != 0 ||
+		    ppsratecheck(&lastfail, &curfail, 1) != 0))
+			vn_printf(vp, "vnode_pager_putpages: residual I/O %zd "
+			    "at %ju\n", auio.uio_resid,
+			    (uintmax_t)ma[0]->pindex);
+		VM_OBJECT_RLOCK(object);
+		if (error != 0 || auio.uio_resid != 0)
+			break;
 	}
-	if (auio.uio_resid) {
-		if (ppscheck || ppsratecheck(&lastfail, &curfail, 1))
-			printf("vnode_pager_putpages: residual I/O %zd at %lu\n",
-			    auio.uio_resid, (u_long)ma[0]->pindex);
-	}
-	for (i = 0; i < ncount; i++) {
+write_done:
+	/* Mark completely processed pages. */
+	for (i = 0; i < OFF_TO_IDX(prev_offset - poffset); i++)
 		rtvals[i] = VM_PAGER_OK;
-	}
-	return rtvals[0];
+	/* Mark partial EOF page. */
+	if (prev_offset == poffset + maxsize && (prev_offset & PAGE_MASK) != 0)
+		rtvals[i++] = VM_PAGER_OK;
+	/* Unwritten pages in range, free bonus if the page is clean. */
+	for (; i < ncount; i++)
+		rtvals[i] = ma[i]->dirty == 0 ? VM_PAGER_OK : VM_PAGER_ERROR;
+	VM_OBJECT_RUNLOCK(object);
+	VM_CNT_ADD(v_vnodepgsout, i);
+	VM_CNT_INC(v_vnodeout);
+	return (rtvals[0]);
 }
 
 int
@@ -1319,13 +1412,24 @@ vnode_pager_putpages_ioflags(int pager_flags)
 	return (ioflags);
 }
 
+/*
+ * vnode_pager_undirty_pages().
+ *
+ * A helper to mark pages as clean after pageout that was possibly
+ * done with a short write.  The lpos argument specifies the page run
+ * length in bytes, and the written argument specifies how many bytes
+ * were actually written.  eof is the offset past the last valid byte
+ * in the vnode using the absolute file position of the first byte in
+ * the run as the base from which it is computed.
+ */
 void
-vnode_pager_undirty_pages(vm_page_t *ma, int *rtvals, int written)
+vnode_pager_undirty_pages(vm_page_t *ma, int *rtvals, int written, off_t eof,
+    int lpos)
 {
 	vm_object_t obj;
-	int i, pos;
+	int i, pos, pos_devb;
 
-	if (written == 0)
+	if (written == 0 && eof >= lpos)
 		return;
 	obj = ma[0]->object;
 	VM_OBJECT_WLOCK(obj);
@@ -1339,6 +1443,37 @@ vnode_pager_undirty_pages(vm_page_t *ma, int *rtvals, int written)
 			vm_page_clear_dirty(ma[i], 0, written & PAGE_MASK);
 		}
 	}
+	if (eof >= lpos) /* avoid truncation */
+		goto done;
+	for (pos = eof, i = OFF_TO_IDX(trunc_page(pos)); pos < lpos; i++) {
+		if (pos != trunc_page(pos)) {
+			/*
+			 * The page contains the last valid byte in
+			 * the vnode, mark the rest of the page as
+			 * clean, potentially making the whole page
+			 * clean.
+			 */
+			pos_devb = roundup2(pos & PAGE_MASK, DEV_BSIZE);
+			vm_page_clear_dirty(ma[i], pos_devb, PAGE_SIZE -
+			    pos_devb);
+
+			/*
+			 * If the page was cleaned, report the pageout
+			 * on it as successful.  msync() no longer
+			 * needs to write out the page, endlessly
+			 * creating write requests and dirty buffers.
+			 */
+			if (ma[i]->dirty == 0)
+				rtvals[i] = VM_PAGER_OK;
+
+			pos = round_page(pos);
+		} else {
+			/* vm_pageout_flush() clears dirty */
+			rtvals[i] = VM_PAGER_BAD;
+			pos += PAGE_SIZE;
+		}
+	}
+done:
 	VM_OBJECT_WUNLOCK(obj);
 }
 

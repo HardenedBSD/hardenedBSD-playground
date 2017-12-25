@@ -1,6 +1,8 @@
 /*-
  * Data structures and definitions for the CAM system.
  *
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1997 Justin T. Gibbs.
  * All rights reserved.
  *
@@ -32,7 +34,7 @@
 #define _CAM_CAM_H 1
 
 #ifdef _KERNEL
-#include <opt_cam.h>
+#include "opt_cam.h"
 #endif
 
 #include <sys/cdefs.h>

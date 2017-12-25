@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2016 Matt Macy (mmacy@nextbsd.org)
+ * Copyright (c) 2016 Matthew Macy (mmacy@mattmacy.io)
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -236,7 +236,6 @@ linux_synchronize_rcu_cb(ck_epoch_t *epoch __unused, ck_epoch_record_t *epoch_re
 	if (record->cpuid == PCPU_GET(cpuid)) {
 		bool is_sleeping = 0;
 		u_char prio = 0;
-		u_char old_prio;
 
 		/*
 		 * Find the lowest priority or sleeping thread which
@@ -255,13 +254,19 @@ linux_synchronize_rcu_cb(ck_epoch_t *epoch __unused, ck_epoch_record_t *epoch_re
 			pause("W", 1);
 			thread_lock(td);
 		} else {
-			old_prio = td->td_priority;
 			/* set new thread priority */
 			sched_prio(td, prio);
 			/* task switch */
 			mi_switch(SW_VOL | SWT_RELINQUISH, NULL);
-			/* restore thread priority */
-			sched_prio(td, old_prio);
+
+			/*
+			 * Release the thread lock while yielding to
+			 * allow other threads to acquire the lock
+			 * pointed to by TDQ_LOCKPTR(td). Else a
+			 * deadlock like situation might happen.
+			 */
+			thread_unlock(td);
+			thread_lock(td);
 		}
 	} else {
 		/*
@@ -282,6 +287,7 @@ linux_synchronize_rcu(void)
 	int was_bound;
 	int old_cpu;
 	int old_pinned;
+	u_char old_prio;
 
 	if (RCU_SKIP())
 		return;
@@ -301,8 +307,10 @@ linux_synchronize_rcu(void)
 
 	old_cpu = PCPU_GET(cpuid);
 	old_pinned = td->td_pinned;
-	td->td_pinned = 0;
+	old_prio = td->td_priority;
 	was_bound = sched_is_bound(td);
+	sched_unbind(td);
+	td->td_pinned = 0;
 	sched_bind(td, old_cpu);
 
 	ck_epoch_synchronize_wait(&linux_epoch,
@@ -319,6 +327,9 @@ linux_synchronize_rcu(void)
 	}
 	/* restore pinned after bind */
 	td->td_pinned = old_pinned;
+
+	/* restore thread priority */
+	sched_prio(td, old_prio);
 	thread_unlock(td);
 
 	PICKUP_GIANT();

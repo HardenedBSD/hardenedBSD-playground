@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2012 Oleksandr Tymoshenko <gonzo@freebsd.org>
  * All rights reserved.
  *
@@ -51,6 +53,8 @@ __FBSDID("$FreeBSD$");
 
 #include "mmcbr_if.h"
 #include "sdhci_if.h"
+
+#include "opt_mmccam.h"
 
 #include "bcm2835_dma.h"
 #include <arm/broadcom/bcm2835/bcm2835_mbox_prop.h>
@@ -679,4 +683,6 @@ static driver_t bcm_sdhci_driver = {
 DRIVER_MODULE(sdhci_bcm, simplebus, bcm_sdhci_driver, bcm_sdhci_devclass,
     NULL, NULL);
 MODULE_DEPEND(sdhci_bcm, sdhci, 1, 1, 1);
+#ifndef MMCCAM
 MMC_DECLARE_BRIDGE(sdhci_bcm);
+#endif

@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -361,12 +363,12 @@ next(char **argv)
 
 		if (caph_limit_stream(fileno(stdin), CAPH_READ) < 0)
 			err(1, "unable to restrict %s",
-			    statok ? _argv[-1] : "stdin");
+			    statok ? *_argv : "stdin");
 
 		/*
 		 * We've opened our last input file; enter capsicum sandbox.
 		 */
-		if (*_argv == NULL) {
+		if (statok == 0 || *(_argv + 1) == NULL) {
 			if (cap_enter() < 0 && errno != ENOSYS)
 				err(1, "unable to enter capability mode");
 		}

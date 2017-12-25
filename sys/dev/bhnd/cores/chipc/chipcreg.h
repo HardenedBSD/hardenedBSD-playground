@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: ISC
+ *
  * Copyright (c) 2015-2016 Landon Fuller <landon@landonf.org>
  * Copyright (c) 2010-2015 Broadcom Corporation
  * All rights reserved.
@@ -280,7 +282,7 @@ enum {
 #define	CHIPC_PLL_TYPE1		0x2	/* 48MHz base, 3 dividers */
 #define	CHIPC_PLL_TYPE2		0x4	/* 48MHz, 4 dividers */
 #define	CHIPC_PLL_TYPE3		0x6	/* 25MHz, 2 dividers */
-#define	CHIPC_PLL_TYPE4		0x8	/* 48MHz, 4 dividers */
+#define	CHIPC_PLL_TYPE4		0x1	/* 48MHz, 4 dividers */
 #define	CHIPC_PLL_TYPE5		0x3	/* 25MHz, 4 dividers */
 #define	CHIPC_PLL_TYPE6		0x5	/* 100/200 or 120/240 only */
 #define	CHIPC_PLL_TYPE7		0x7	/* 25MHz, 4 dividers */
@@ -557,7 +559,12 @@ enum {
 #define	CHIPC_SRC_PRESENT		0x00000001
 
 /* gpiotimerval */
-#define	CHIPC_GPIO_ONTIME_SHIFT	16
+#define	CHIPC_GPIO_ONTIME_SHIFT		16
+#define	CHIPC_GPIOTIMERVAL_DEFAULT_ON	10	/**< default 10% on duty cycle */
+#define	CHIPC_GPIOTIMERVAL_DEFAULT_OFF	90	/**< default 90% off duty cycle */
+#define	CHIPC_GPIOTIMERVAL_DEFAULT					\
+    ((CHIPC_GPIOTIMERVAL_DEFAULT_ON << CHIPC_GPIO_ONTIME_SHIFT) |	\
+     (CHIPC_GPIOTIMERVAL_DEFAULT_OFF))
 
 /* clockcontrol_n */
 #define	CHIPC_CN_N1_MASK		0x3f	/* n1 control */

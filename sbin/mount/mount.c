@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1980, 1989, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -115,6 +117,7 @@ static struct opt {
 	{ MNT_NFS4ACLS,		"nfsv4acls" },
 	{ MNT_GJOURNAL,		"gjournal" },
 	{ MNT_AUTOMOUNTED,	"automounted" },
+	{ MNT_VERIFIED,		"verified" },
 	{ 0, NULL }
 };
 
@@ -397,7 +400,9 @@ main(int argc, char *argv[])
 					have_fstab = 1;
 					mntfromname = mntbuf->f_mntfromname;
 				} else if (argv[0][0] == '/' &&
-				    argv[0][1] == '\0') {
+				    argv[0][1] == '\0' &&
+				    strcmp(fs->fs_vfstype,
+				    mntbuf->f_fstypename) == 0) {
 					fs = getfsfile("/");
 					have_fstab = 1;
 					mntfromname = fs->fs_spec;

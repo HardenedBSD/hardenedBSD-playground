@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999 Poul-Henning Kamp.
  * Copyright (c) 2008 Bjoern A. Zeeb.
  * Copyright (c) 2009 James Gritton.
@@ -201,6 +203,7 @@ static char *pr_allow_names[] = {
 	"allow.mount.fdescfs",
 	"allow.mount.linprocfs",
 	"allow.mount.linsysfs",
+	"allow.reserved_ports",
 };
 const size_t pr_allow_names_size = sizeof(pr_allow_names);
 
@@ -220,10 +223,11 @@ static char *pr_allow_nonames[] = {
 	"allow.mount.nofdescfs",
 	"allow.mount.nolinprocfs",
 	"allow.mount.nolinsysfs",
+	"allow.noreserved_ports",
 };
 const size_t pr_allow_nonames_size = sizeof(pr_allow_nonames);
 
-#define	JAIL_DEFAULT_ALLOW		PR_ALLOW_SET_HOSTNAME
+#define	JAIL_DEFAULT_ALLOW		(PR_ALLOW_SET_HOSTNAME | PR_ALLOW_RESERVED_PORTS)
 #define	JAIL_DEFAULT_ENFORCE_STATFS	2
 #define	JAIL_DEFAULT_DEVFS_RSNUM	0
 static unsigned jail_default_allow = JAIL_DEFAULT_ALLOW;
@@ -524,6 +528,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	uint64_t pr_allow, ch_allow, pr_flags, ch_flags;
 	unsigned tallow;
 	char numbuf[12];
+	int pax_flag;
 
 	error = priv_check(td, PRIV_JAIL_SET);
 	if (!error && (flags & JAIL_ATTACH))
@@ -1299,7 +1304,64 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		}
 
 #ifdef PAX
+		/*
+		 * Initialize HardenedBSD settings. Allow for explicit
+		 * overriding after initialization.
+		 */
 		pax_init_prison(pr);
+#ifdef PAX_ASLR
+		error = vfs_copyopt(opts, "aslr", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.aslr.status =
+			    pax_aslr_validate_flags(pax_flag);
+		error = vfs_copyopt(opts, "aslrcompat", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.aslr.compat_status = 
+			    pax_aslr_validate_flags(pax_flag);
+		error = vfs_copyopt(opts, "disallowmap32bit", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.aslr.disallow_map32bit_status =
+			    pax_aslr_validate_flags(pax_flag);
+#endif
+#ifdef PAX_NOEXEC
+		error = vfs_copyopt(opts, "pageexec", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.noexec.pageexec_status =
+			    pax_noexec_validate_flags(pax_flag);
+		error = vfs_copyopt(opts, "mprotect", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.noexec.mprotect_status =
+			    pax_noexec_validate_flags(pax_flag);
+#endif
+#ifdef PAX_SEGVGUARD
+		error = vfs_copyopt(opts, "segvguard", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.segvguard.status =
+			    pax_segvguard_validate_flags(pax_flag);
+#endif
+#ifdef PAX_HARDENING
+		error = vfs_copyopt(opts, "procfsharden", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.hardening.procfs_harden =
+			    pax_procfs_harden_validate_flags(pax_flag);
+#endif
+		error = vfs_copyopt(opts, "hbsdlog", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.log.log =
+			    pax_log_validate_flags(pax_flag);
+		error = vfs_copyopt(opts, "hbsdulog", &pax_flag,
+		    sizeof(pax_flag));
+		if (error != ENOENT)
+			pr->pr_hbsd.log.ulog =
+			    pax_log_validate_flags(pax_flag);
 #endif
 
 		mtx_lock(&pr->pr_mtx);
@@ -2287,7 +2349,9 @@ prison_remove_one(struct prison *pr)
 	int deuref;
 
 #ifdef MAC
+#ifdef PAX_CONTROL_ACL
 	mac_prison_destroy(pr);
+#endif
 #endif
 
 	/* If the prison was persistent, it is not anymore. */
@@ -3318,10 +3382,17 @@ prison_priv_check(struct ucred *cred, int priv)
 			return (EPERM);
 
 		/*
-		 * Allow jailed root to bind reserved ports and reuse in-use
-		 * ports.
+		 * Conditionally allow jailed root to bind reserved ports.
 		 */
 	case PRIV_NETINET_RESERVEDPORT:
+		if (cred->cr_prison->pr_allow & PR_ALLOW_RESERVED_PORTS)
+			return (0);
+		else
+			return (EPERM);
+
+		/*
+		 * Allow jailed root to reuse in-use ports.
+		 */
 	case PRIV_NETINET_REUSEPORT:
 		return (0);
 
@@ -3751,6 +3822,30 @@ SYSCTL_JAIL_PARAM(, vnet, CTLTYPE_INT | CTLFLAG_RDTUN,
 SYSCTL_JAIL_PARAM(, dying, CTLTYPE_INT | CTLFLAG_RD,
     "B", "Jail is in the process of shutting down");
 
+/*
+ * We set CTLFLAG_SKIP on the hardening/PaX flags here because jail
+ * parameters default to 0. Having hardening.pax.aslr.status=2 and
+ * security.jail.param.aslr=0 would confuse users.
+ */
+SYSCTL_JAIL_PARAM(, aslr, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "PaX ASLR at jail bootup");
+SYSCTL_JAIL_PARAM(, aslrcompat, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "PaX ASLR 32-bit compat at jail bootup");
+SYSCTL_JAIL_PARAM(, disallowmap32bit, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "Disallow mmap(map32bit) at jail bootup");
+SYSCTL_JAIL_PARAM(, pageexec, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "PaX PAGEEXEC at jail bootup");
+SYSCTL_JAIL_PARAM(, mprotect, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "PaX MPROTECT at jail bootup");
+SYSCTL_JAIL_PARAM(, segvguard, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "PaX SEGVGUARD at jail bootup");
+SYSCTL_JAIL_PARAM(, procfsharden, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "Harden procfs at jail bootup");
+SYSCTL_JAIL_PARAM(, hbsdlog, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "PaX log at jail bootup");
+SYSCTL_JAIL_PARAM(, hbsdulog, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_SKIP,
+    "I", "PaX ulog at jail bootup");
+
 SYSCTL_JAIL_PARAM_NODE(children, "Number of child jails");
 SYSCTL_JAIL_PARAM(_children, cur, CTLTYPE_INT | CTLFLAG_RD,
     "I", "Current number of child jails");
@@ -3802,6 +3897,8 @@ SYSCTL_JAIL_PARAM(_allow, quotas, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may set file quotas");
 SYSCTL_JAIL_PARAM(_allow, socket_af, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may create sockets other than just UNIX/IPv4/IPv6/route");
+SYSCTL_JAIL_PARAM(_allow, reserved_ports, CTLTYPE_INT | CTLFLAG_RW,
+    "B", "Jail may bind sockets to reserved ports");
 
 SYSCTL_JAIL_PARAM_SUBNODE(allow, mount, "Jail mount/unmount permission flags");
 SYSCTL_JAIL_PARAM(_allow_mount, , CTLTYPE_INT | CTLFLAG_RW,

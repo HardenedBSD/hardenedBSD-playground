@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (C) 2008 Semihalf, Rafal Jaworowski
  * All rights reserved.
  *
@@ -96,6 +98,10 @@ law_getmax(void)
 		break;
 	case SVR_P5020:
 	case SVR_P5020E:
+	case SVR_P5021:
+	case SVR_P5021E:
+	case SVR_P5040:
+	case SVR_P5040E:
 		law_max = 32;
 		break;
 	default:
@@ -438,16 +444,28 @@ err:
 }
 
 uint32_t
-mpc85xx_get_system_clock(void)
+mpc85xx_get_platform_clock(void)
 {
 	phandle_t soc;
-	uint32_t freq;
+	static uint32_t freq;
+
+	if (freq != 0)
+		return (freq);
 
 	soc = OF_finddevice("/soc");
-	freq = 0;
 
 	/* freq isn't modified on error. */
 	OF_getencprop(soc, "bus-frequency", (void *)&freq, sizeof(freq));
+
+	return (freq);
+}
+
+uint32_t
+mpc85xx_get_system_clock(void)
+{
+	uint32_t freq;
+
+	freq = mpc85xx_get_platform_clock();
 
 	return (freq / 2);
 }

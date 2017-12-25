@@ -1,6 +1,8 @@
 /*-
  * Implementation of SCSI Sequential Access Peripheral driver for CAM.
  *
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999, 2000 Matthew Jacob
  * Copyright (c) 2013, 2014, 2015 Spectra Logic Corporation
  * All rights reserved.
@@ -68,7 +70,7 @@ __FBSDID("$FreeBSD$");
 
 #ifdef _KERNEL
 
-#include <opt_sa.h>
+#include "opt_sa.h"
 
 #ifndef SA_IO_TIMEOUT
 #define SA_IO_TIMEOUT		32
@@ -2294,7 +2296,7 @@ sasysctlinit(void *context, int pending)
 {
 	struct cam_periph *periph;
 	struct sa_softc *softc;
-	char tmpstr[80], tmpstr2[80];
+	char tmpstr[32], tmpstr2[16];
 
 	periph = (struct cam_periph *)context;
 	/*
@@ -2425,10 +2427,7 @@ saregister(struct cam_periph *periph, void *arg)
 			softc->flags |= SA_FLAG_PROTECT_SUPP;
 	}
 
-	bzero(&cpi, sizeof(cpi));
-	xpt_setup_ccb(&cpi.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
-	cpi.ccb_h.func_code = XPT_PATH_INQ;
-	xpt_action((union ccb *)&cpi);
+	xpt_path_inq(&cpi, periph->path);
 
 	/*
 	 * The SA driver supports a blocksize, but we don't know the
@@ -3467,7 +3466,7 @@ saerror(union ccb *ccb, u_int32_t cflgs, u_int32_t sflgs)
 		/*
 		 * Otherwise, we let the common code handle this.
 		 */
-		return (cam_periph_error(ccb, cflgs, sflgs, &softc->saved_ccb));
+		return (cam_periph_error(ccb, cflgs, sflgs));
 
 	/*
 	 * XXX: To Be Fixed
@@ -3480,7 +3479,7 @@ saerror(union ccb *ccb, u_int32_t cflgs, u_int32_t sflgs)
 		}
 		/* FALLTHROUGH */
 	default:
-		return (cam_periph_error(ccb, cflgs, sflgs, &softc->saved_ccb));
+		return (cam_periph_error(ccb, cflgs, sflgs));
 	}
 
 	/*
@@ -4465,7 +4464,18 @@ saextget(struct cdev *dev, struct cam_periph *periph, struct sbuf *sb,
 		if (cgd.serial_num_len > sizeof(tmpstr)) {
 			ts2_len = cgd.serial_num_len + 1;
 			ts2_malloc = 1;
-			tmpstr2 = malloc(ts2_len, M_SCSISA, M_WAITOK | M_ZERO);
+			tmpstr2 = malloc(ts2_len, M_SCSISA, M_NOWAIT | M_ZERO);
+			/*
+			 * The 80 characters allocated on the stack above
+			 * will handle the vast majority of serial numbers.
+			 * If we run into one that is larger than that, and
+			 * we can't malloc the length without blocking,
+			 * bail out with an out of memory error.
+			 */
+			if (tmpstr2 == NULL) {
+				error = ENOMEM;
+				goto extget_bailout;
+			}
 		} else {
 			ts2_len = sizeof(tmpstr);
 			ts2_malloc = 0;

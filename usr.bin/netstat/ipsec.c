@@ -1,6 +1,8 @@
 /*	$KAME: ipsec.c,v 1.33 2003/07/25 09:54:32 itojun Exp $	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2005 NTT Multimedia Communications Laboratories, Inc.
  * All rights reserved.
  *
@@ -140,6 +142,15 @@ static struct val2str ipsec_ahnames[] = {
 #endif
 #ifdef SADB_X_AALG_AES_XCBC_MAC
 	{ SADB_X_AALG_AES_XCBC_MAC, "aes-xcbc-mac", },
+#endif
+#ifdef SADB_X_AALG_AES128GMAC
+	{ SADB_X_AALG_AES128GMAC, "aes-gmac-128", },
+#endif
+#ifdef SADB_X_AALG_AES192GMAC
+	{ SADB_X_AALG_AES192GMAC, "aes-gmac-192", },
+#endif
+#ifdef SADB_X_AALG_AES256GMAC
+	{ SADB_X_AALG_AES256GMAC, "aes-gmac-256", },
 #endif
 	{ -1, NULL },
 };

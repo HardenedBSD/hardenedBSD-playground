@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -526,11 +528,13 @@ exitshell_savedstatus(void)
 			 */
 			evalskip = 0;
 			trap[0] = NULL;
+			FORCEINTON;
 			evalstring(p, 0);
 		}
 	}
 	if (!setjmp(loc2.loc)) {
 		handler = &loc2;		/* probably unnecessary */
+		FORCEINTON;
 		flushall();
 #if JOBS
 		setjobctl(0);

@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2003 Juli Mallett.  All rights reserved.
  *
  * This software was written by Juli Mallett <jmallett@FreeBSD.org> for the
@@ -214,6 +216,11 @@ cgwrite1(struct uufsd *disk, int c)
 	struct fs *fs;
 
 	fs = &disk->d_fs;
+	if ((fs->fs_metackhash & CK_CYLGRP) != 0) {
+		disk->d_cg.cg_ckhash = 0;
+		disk->d_cg.cg_ckhash =
+		    calculate_crc32c(~0L, (void *)&disk->d_cg, fs->fs_cgsize);
+	}
 	if (bwrite(disk, fsbtodb(fs, cgtod(fs, c)),
 	    disk->d_cgunion.d_buf, fs->fs_bsize) == -1) {
 		ERROR(disk, "unable to write cylinder group");

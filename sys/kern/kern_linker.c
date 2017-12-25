@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1997-2000 Doug Rabson
  * All rights reserved.
  *
@@ -289,7 +291,7 @@ linker_file_sysuninit(linker_file_t lf)
 }
 
 static void
-linker_file_register_sysctls(linker_file_t lf)
+linker_file_register_sysctls(linker_file_t lf, bool enable)
 {
 	struct sysctl_oid **start, **stop, **oidp;
 
@@ -304,8 +306,34 @@ linker_file_register_sysctls(linker_file_t lf)
 
 	sx_xunlock(&kld_sx);
 	sysctl_wlock();
+	for (oidp = start; oidp < stop; oidp++) {
+		if (enable)
+			sysctl_register_oid(*oidp);
+		else
+			sysctl_register_disabled_oid(*oidp);
+	}
+	sysctl_wunlock();
+	sx_xlock(&kld_sx);
+}
+
+static void
+linker_file_enable_sysctls(linker_file_t lf)
+{
+	struct sysctl_oid **start, **stop, **oidp;
+
+	KLD_DPF(FILE,
+	    ("linker_file_enable_sysctls: enable SYSCTLs for %s\n",
+	    lf->filename));
+
+	sx_assert(&kld_sx, SA_XLOCKED);
+
+	if (linker_file_lookup_set(lf, "sysctl_set", &start, &stop, NULL) != 0)
+		return;
+
+	sx_xunlock(&kld_sx);
+	sysctl_wlock();
 	for (oidp = start; oidp < stop; oidp++)
-		sysctl_register_oid(*oidp);
+		sysctl_enable_oid(*oidp);
 	sysctl_wunlock();
 	sx_xlock(&kld_sx);
 }
@@ -431,7 +459,7 @@ linker_load_file(const char *filename, linker_file_t *result)
 				return (error);
 			}
 			modules = !TAILQ_EMPTY(&lf->modules);
-			linker_file_register_sysctls(lf);
+			linker_file_register_sysctls(lf, false);
 			linker_file_sysinit(lf);
 			lf->flags |= LINKER_FILE_LINKED;
 
@@ -444,6 +472,7 @@ linker_load_file(const char *filename, linker_file_t *result)
 				linker_file_unload(lf, LINKER_UNLOAD_FORCE);
 				return (ENOEXEC);
 			}
+			linker_file_enable_sysctls(lf);
 			EVENTHANDLER_INVOKE(kld_load, lf);
 			*result = lf;
 			return (0);
@@ -693,8 +722,8 @@ linker_file_unload(linker_file_t file, int flags)
 	 */
 	if (file->flags & LINKER_FILE_LINKED) {
 		file->flags &= ~LINKER_FILE_LINKED;
-		linker_file_sysuninit(file);
 		linker_file_unregister_sysctls(file);
+		linker_file_sysuninit(file);
 	}
 	TAILQ_REMOVE(&linker_files, file, link);
 
@@ -1211,7 +1240,7 @@ out:
 int
 sys_kldstat(struct thread *td, struct kldstat_args *uap)
 {
-	struct kld_file_stat stat;
+	struct kld_file_stat *stat;
 	int error, version;
 
 	/*
@@ -1224,10 +1253,12 @@ sys_kldstat(struct thread *td, struct kldstat_args *uap)
 	    version != sizeof(struct kld_file_stat))
 		return (EINVAL);
 
-	error = kern_kldstat(td, uap->fileid, &stat);
-	if (error != 0)
-		return (error);
-	return (copyout(&stat, uap->stat, version));
+	stat = malloc(sizeof(*stat), M_TEMP, M_WAITOK | M_ZERO);
+	error = kern_kldstat(td, uap->fileid, stat);
+	if (error == 0)
+		error = copyout(stat, uap->stat, version);
+	free(stat, M_TEMP);
+	return (error);
 }
 
 int
@@ -1255,8 +1286,8 @@ kern_kldstat(struct thread *td, int fileid, struct kld_file_stat *stat)
 
 	/* Version 1 fields: */
 	namelen = strlen(lf->filename) + 1;
-	if (namelen > MAXPATHLEN)
-		namelen = MAXPATHLEN;
+	if (namelen > sizeof(stat->name))
+		namelen = sizeof(stat->name);
 	bcopy(lf->filename, &stat->name[0], namelen);
 	stat->refs = lf->refs;
 	stat->id = lf->id;
@@ -1268,8 +1299,8 @@ kern_kldstat(struct thread *td, int fileid, struct kld_file_stat *stat)
 	stat->size = lf->size;
 	/* Version 2 fields: */
 	namelen = strlen(lf->pathname) + 1;
-	if (namelen > MAXPATHLEN)
-		namelen = MAXPATHLEN;
+	if (namelen > sizeof(stat->pathname))
+		namelen = sizeof(stat->pathname);
 	bcopy(lf->pathname, &stat->pathname[0], namelen);
 	sx_xunlock(&kld_sx);
 
@@ -1674,7 +1705,7 @@ restart:
 		if (linker_file_lookup_set(lf, "sysinit_set", &si_start,
 		    &si_stop, NULL) == 0)
 			sysinit_add(si_start, si_stop);
-		linker_file_register_sysctls(lf);
+		linker_file_register_sysctls(lf, true);
 		lf->flags |= LINKER_FILE_LINKED;
 		continue;
 fail:

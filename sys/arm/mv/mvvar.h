@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2002, 2003 Wasabi Systems, Inc.
  * All rights reserved.
  *
@@ -104,6 +106,7 @@ uint32_t ddr_target(int i);
 
 uint32_t cpu_extra_feat(void);
 uint32_t get_tclk(void);
+uint32_t get_cpu_freq(void);
 uint32_t get_l2clk(void);
 uint32_t read_cpu_ctrl(uint32_t);
 void write_cpu_ctrl(uint32_t, uint32_t);

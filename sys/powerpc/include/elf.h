@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2001 David E. O'Brien
  * Copyright (c) 1996-1997 John D. Polstra.
  * All rights reserved.
@@ -107,9 +109,12 @@ __ElfType(Auxinfo);
 #define	AT_PAGESIZESLEN	19	/* Number of pagesizes. */
 #define	AT_STACKPROT	21	/* Initial stack protection. */
 #define	AT_TIMEKEEP	22	/* Pointer to timehands. */
-#define	AT_PAXFLAGS	23      /* PaX / HardenedBSD flags */
+#define	AT_EHDRFLAGS	24	/* e_flags field from elf hdr */
+#define	AT_HWCAP	25	/* CPU feature flags. */
+#define	AT_HWCAP2	26	/* CPU feature flags 2. */
+#define	AT_PAXFLAGS	27      /* PaX / HardenedBSD flags */
 
-#define	AT_COUNT	24	/* Count of defined aux entry types. */
+#define	AT_COUNT	28	/* Count of defined aux entry types. */
 
 /*
  * Relocation types.

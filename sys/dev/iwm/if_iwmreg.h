@@ -439,23 +439,11 @@ enum iwm_secure_boot_status_reg {
 };
 
 #define IWM_FH_UCODE_LOAD_STATUS	0x1af0
-#define IWM_CSR_UCODE_LOAD_STATUS_ADDR	0x1e70
-enum iwm_secure_load_status_reg {
-	IWM_LMPM_CPU_UCODE_LOADING_STARTED		= 0x00000001,
-	IWM_LMPM_CPU_HDRS_LOADING_COMPLETED		= 0x00000003,
-	IWM_LMPM_CPU_UCODE_LOADING_COMPLETED		= 0x00000007,
-	IWM_LMPM_CPU_STATUS_NUM_OF_LAST_COMPLETED	= 0x000000F8,
-	IWM_LMPM_CPU_STATUS_NUM_OF_LAST_LOADED_BLOCK	= 0x0000FF00,
-};
 #define IWM_FH_MEM_TB_MAX_LENGTH	0x20000
 
-#define IWM_LMPM_SECURE_INSPECTOR_CODE_ADDR		0x1e38
-#define IWM_LMPM_SECURE_INSPECTOR_DATA_ADDR		0x1e3c
 #define IWM_LMPM_SECURE_UCODE_LOAD_CPU1_HDR_ADDR	0x1e78
 #define IWM_LMPM_SECURE_UCODE_LOAD_CPU2_HDR_ADDR	0x1e7c
 
-#define IWM_LMPM_SECURE_INSPECTOR_CODE_MEM_SPACE	0x400000
-#define IWM_LMPM_SECURE_INSPECTOR_DATA_MEM_SPACE	0x402000
 #define IWM_LMPM_SECURE_CPU1_HDR_MEM_SPACE		0x420000
 #define IWM_LMPM_SECURE_CPU2_HDR_MEM_SPACE		0x420400
 
@@ -606,8 +594,6 @@ enum iwm_dtd_diode_reg {
  * @IWM_UCODE_TLV_FLAGS_NEWSCAN: new uCode scan behaviour on hidden SSID,
  *	treats good CRC threshold as a boolean
  * @IWM_UCODE_TLV_FLAGS_MFP: This uCode image supports MFP (802.11w).
- * @IWM_UCODE_TLV_FLAGS_P2P: This uCode image supports P2P.
- * @IWM_UCODE_TLV_FLAGS_DW_BC_TABLE: The SCD byte count table is in DWORDS
  * @IWM_UCODE_TLV_FLAGS_UAPSD: This uCode image supports uAPSD
  * @IWM_UCODE_TLV_FLAGS_SHORT_BL: 16 entries of black list instead of 64 in scan
  *	offload profile config command.
@@ -617,35 +603,24 @@ enum iwm_dtd_diode_reg {
  *	from the probe request template.
  * @IWM_UCODE_TLV_FLAGS_NEW_NSOFFL_SMALL: new NS offload (small version)
  * @IWM_UCODE_TLV_FLAGS_NEW_NSOFFL_LARGE: new NS offload (large version)
- * @IWM_UCODE_TLV_FLAGS_P2P_PS: P2P client power save is supported (only on a
- *	single bound interface).
  * @IWM_UCODE_TLV_FLAGS_UAPSD_SUPPORT: General support for uAPSD
  * @IWM_UCODE_TLV_FLAGS_EBS_SUPPORT: this uCode image supports EBS.
  * @IWM_UCODE_TLV_FLAGS_P2P_PS_UAPSD: P2P client supports uAPSD power save
  * @IWM_UCODE_TLV_FLAGS_BCAST_FILTERING: uCode supports broadcast filtering.
- * @IWM_UCODE_TLV_FLAGS_GO_UAPSD: AP/GO interfaces support uAPSD clients
- *
  */
 enum iwm_ucode_tlv_flag {
 	IWM_UCODE_TLV_FLAGS_PAN			= (1 << 0),
 	IWM_UCODE_TLV_FLAGS_NEWSCAN		= (1 << 1),
 	IWM_UCODE_TLV_FLAGS_MFP			= (1 << 2),
-	IWM_UCODE_TLV_FLAGS_P2P			= (1 << 3),
-	IWM_UCODE_TLV_FLAGS_DW_BC_TABLE		= (1 << 4),
 	IWM_UCODE_TLV_FLAGS_SHORT_BL		= (1 << 7),
 	IWM_UCODE_TLV_FLAGS_D3_6_IPV6_ADDRS	= (1 << 10),
 	IWM_UCODE_TLV_FLAGS_NO_BASIC_SSID	= (1 << 12),
 	IWM_UCODE_TLV_FLAGS_NEW_NSOFFL_SMALL	= (1 << 15),
 	IWM_UCODE_TLV_FLAGS_NEW_NSOFFL_LARGE	= (1 << 16),
-	IWM_UCODE_TLV_FLAGS_P2P_PS		= (1 << 21),
-	IWM_UCODE_TLV_FLAGS_BSS_P2P_PS_DCM	= (1 << 22),
-	IWM_UCODE_TLV_FLAGS_BSS_P2P_PS_SCM	= (1 << 23),
 	IWM_UCODE_TLV_FLAGS_UAPSD_SUPPORT	= (1 << 24),
 	IWM_UCODE_TLV_FLAGS_EBS_SUPPORT		= (1 << 25),
 	IWM_UCODE_TLV_FLAGS_P2P_PS_UAPSD	= (1 << 26),
 	IWM_UCODE_TLV_FLAGS_BCAST_FILTERING	= (1 << 29),
-	IWM_UCODE_TLV_FLAGS_GO_UAPSD		= (1 << 30),
-	IWM_UCODE_TLV_FLAGS_LTE_COEX		= (1 << 31),
 };
 
 #define IWM_UCODE_TLV_FLAG_BITS \
@@ -659,22 +634,14 @@ P2P_PS_SCM\31UAPSD_SUPPORT\32EBS\33P2P_PS_UAPSD\36BCAST_FILTERING\37GO_UAPSD\40L
  * @IWM_UCODE_TLV_API_FRAGMENTED_SCAN: This ucode supports active dwell time
  *	longer than the passive one, which is essential for fragmented scan.
  * @IWM_UCODE_TLV_API_WIFI_MCC_UPDATE: ucode supports MCC updates with source.
- * @IWM_UCODE_TLV_API_WIDE_CMD_HDR: ucode supports wide command header
  * @IWM_UCODE_TLV_API_LQ_SS_PARAMS: Configure STBC/BFER via LQ CMD ss_params
- * @IWM_UCODE_TLV_API_EXT_SCAN_PRIORITY: scan APIs use 8-level priority
- *	instead of 3.
- * @IWM_UCODE_TLV_API_TX_POWER_CHAIN: TX power API has larger command size
- *	(command version 3) that supports per-chain limits
  *
  * @IWM_NUM_UCODE_TLV_API: number of bits used
  */
 enum iwm_ucode_tlv_api {
 	IWM_UCODE_TLV_API_FRAGMENTED_SCAN	= 8,
 	IWM_UCODE_TLV_API_WIFI_MCC_UPDATE	= 9,
-	IWM_UCODE_TLV_API_WIDE_CMD_HDR		= 14,
 	IWM_UCODE_TLV_API_LQ_SS_PARAMS		= 18,
-	IWM_UCODE_TLV_API_EXT_SCAN_PRIORITY	= 24,
-	IWM_UCODE_TLV_API_TX_POWER_CHAIN	= 27,
 
 	IWM_NUM_UCODE_TLV_API = 32
 };
@@ -1818,7 +1785,7 @@ enum {
 	/* Phy */
 	IWM_PHY_CONFIGURATION_CMD = 0x6a,
 	IWM_CALIB_RES_NOTIF_PHY_DB = 0x6b,
-	/* IWM_PHY_DB_CMD = 0x6c, */
+	IWM_PHY_DB_CMD = 0x6c,
 
 	/* Power - legacy power table command */
 	IWM_POWER_TABLE_CMD = 0x77,
@@ -2931,6 +2898,18 @@ struct iwm_mcast_filter_cmd {
 	uint8_t addr_list[0];
 } __packed; /* IWM_MCAST_FILTERING_CMD_API_S_VER_1 */
 
+/*
+ * The first MAC indices (starting from 0)
+ * are available to the driver, AUX follows
+ */
+#define IWM_MAC_INDEX_AUX		4
+#define IWM_MAC_INDEX_MIN_DRIVER	0
+#define IWM_NUM_MAC_INDEX_DRIVER	IWM_MAC_INDEX_AUX
+#define IWM_NUM_MAC_INDEX		(IWM_MAC_INDEX_AUX + 1)
+
+/***********************************
+ * Statistics API
+ ***********************************/
 struct iwm_mvm_statistics_dbg {
 	uint32_t burst_check;
 	uint32_t burst_count;
@@ -2946,24 +2925,6 @@ struct iwm_mvm_statistics_div {
 	uint32_t rssi_ant;
 	uint32_t reserved2;
 } __packed; /* IWM_STATISTICS_SLOW_DIV_API_S_VER_2 */
-
-struct iwm_mvm_statistics_general_common {
-	uint32_t temperature;   /* radio temperature */
-	uint32_t temperature_m; /* radio voltage */
-	struct iwm_mvm_statistics_dbg dbg;
-	uint32_t sleep_time;
-	uint32_t slots_out;
-	uint32_t slots_idle;
-	uint32_t ttl_timestamp;
-	struct iwm_mvm_statistics_div div;
-	uint32_t rx_enable_counter;
-	/*
-	 * num_of_sos_states:
-	 *  count the number of times we have to re-tune
-	 *  in order to get out of bad PHY status
-	 */
-	uint32_t num_of_sos_states;
-} __packed; /* IWM_STATISTICS_GENERAL_API_S_VER_5 */
 
 struct iwm_mvm_statistics_rx_non_phy {
 	uint32_t bogus_cts;	/* CTS received when not expecting CTS */
@@ -3035,6 +2996,23 @@ struct iwm_mvm_statistics_rx_ht_phy {
 	uint32_t unsupport_mcs;
 } __packed;  /* IWM_STATISTICS_HT_RX_PHY_API_S_VER_1 */
 
+struct iwm_mvm_statistics_tx_non_phy {
+	uint32_t preamble_cnt;
+	uint32_t rx_detected_cnt;
+	uint32_t bt_prio_defer_cnt;
+	uint32_t bt_prio_kill_cnt;
+	uint32_t few_bytes_cnt;
+	uint32_t cts_timeout;
+	uint32_t ack_timeout;
+	uint32_t expected_ack_cnt;
+	uint32_t actual_ack_cnt;
+	uint32_t dump_msdu_cnt;
+	uint32_t burst_abort_next_frame_mismatch_cnt;
+	uint32_t burst_abort_missing_next_frame_cnt;
+	uint32_t cts_timeout_collision;
+	uint32_t ack_or_ba_timeout_collision;
+} __packed; /* IWM_STATISTICS_TX_NON_PHY_API_S_VER_3 */
+
 #define IWM_MAX_CHAINS 3
 
 struct iwm_mvm_statistics_tx_non_phy_agg {
@@ -3065,20 +3043,7 @@ struct iwm_mvm_statistics_tx_channel_width {
 }; /* IWM_STATISTICS_TX_CHANNEL_WIDTH_API_S_VER_1 */
 
 struct iwm_mvm_statistics_tx {
-	uint32_t preamble_cnt;
-	uint32_t rx_detected_cnt;
-	uint32_t bt_prio_defer_cnt;
-	uint32_t bt_prio_kill_cnt;
-	uint32_t few_bytes_cnt;
-	uint32_t cts_timeout;
-	uint32_t ack_timeout;
-	uint32_t expected_ack_cnt;
-	uint32_t actual_ack_cnt;
-	uint32_t dump_msdu_cnt;
-	uint32_t burst_abort_next_frame_mismatch_cnt;
-	uint32_t burst_abort_missing_next_frame_cnt;
-	uint32_t cts_timeout_collision;
-	uint32_t ack_or_ba_timeout_collision;
+	struct iwm_mvm_statistics_tx_non_phy general;
 	struct iwm_mvm_statistics_tx_non_phy_agg agg;
 	struct iwm_mvm_statistics_tx_channel_width channel_width;
 } __packed; /* IWM_STATISTICS_TX_API_S_VER_4 */
@@ -3095,17 +3060,38 @@ struct iwm_mvm_statistics_bt_activity {
 	uint32_t lo_priority_rx_denied_cnt;
 } __packed;  /* IWM_STATISTICS_BT_ACTIVITY_API_S_VER_1 */
 
-struct iwm_mvm_statistics_general {
-	struct iwm_mvm_statistics_general_common common;
+struct iwm_mvm_statistics_general_v8 {
+	uint32_t radio_temperature;
+	uint32_t radio_voltage;
+	struct iwm_mvm_statistics_dbg dbg;
+	uint32_t sleep_time;
+	uint32_t slots_out;
+	uint32_t slots_idle;
+	uint32_t ttl_timestamp;
+	struct iwm_mvm_statistics_div slow_div;
+	uint32_t rx_enable_counter;
+	/*
+	 * num_of_sos_states:
+	 *  count the number of times we have to re-tune
+	 *  in order to get out of bad PHY status
+	 */
+	uint32_t num_of_sos_states;
 	uint32_t beacon_filtered;
 	uint32_t missed_beacons;
-	int8_t beacon_filter_average_energy;
-	int8_t beacon_filter_reason;
-	int8_t beacon_filter_current_energy;
-	int8_t beacon_filter_reserved;
+	uint8_t beacon_filter_average_energy;
+	uint8_t beacon_filter_reason;
+	uint8_t beacon_filter_current_energy;
+	uint8_t beacon_filter_reserved;
 	uint32_t beacon_filter_delta_time;
 	struct iwm_mvm_statistics_bt_activity bt_activity;
-} __packed; /* IWM_STATISTICS_GENERAL_API_S_VER_5 */
+	uint64_t rx_time;
+	uint64_t on_time_rf;
+	uint64_t on_time_scan;
+	uint64_t tx_time;
+	uint32_t beacon_counter[IWM_NUM_MAC_INDEX];
+	uint8_t beacon_average_energy[IWM_NUM_MAC_INDEX];
+	uint8_t reserved[4 - (IWM_NUM_MAC_INDEX % 4)];
+} __packed; /* IWM_STATISTICS_GENERAL_API_S_VER_8 */
 
 struct iwm_mvm_statistics_rx {
 	struct iwm_mvm_statistics_rx_phy ofdm;
@@ -3119,23 +3105,22 @@ struct iwm_mvm_statistics_rx {
  *
  * By default, uCode issues this notification after receiving a beacon
  * while associated.  To disable this behavior, set DISABLE_NOTIF flag in the
- * IWM_REPLY_STATISTICS_CMD 0x9c, above.
- *
- * Statistics counters continue to increment beacon after beacon, but are
- * cleared when changing channels or when driver issues IWM_REPLY_STATISTICS_CMD
- * 0x9c with CLEAR_STATS bit set (see above).
- *
- * uCode also issues this notification during scans.  uCode clears statistics
- * appropriately so that each notification contains statistics for only the
- * one channel that has just been scanned.
+ * IWM_STATISTICS_CMD (0x9c), below.
  */
 
-struct iwm_notif_statistics { /* IWM_STATISTICS_NTFY_API_S_VER_8 */
+struct iwm_notif_statistics_v10 {
 	uint32_t flag;
 	struct iwm_mvm_statistics_rx rx;
 	struct iwm_mvm_statistics_tx tx;
-	struct iwm_mvm_statistics_general general;
-} __packed;
+	struct iwm_mvm_statistics_general_v8 general;
+} __packed; /* IWM_STATISTICS_NTFY_API_S_VER_10 */
+
+#define IWM_STATISTICS_FLG_CLEAR		0x1
+#define IWM_STATISTICS_FLG_DISABLE_NOTIF	0x2
+
+struct iwm_statistics_cmd {
+	uint32_t flags;
+} __packed; /* IWM_STATISTICS_CMD_API_S_VER_1 */
 
 /***********************************
  * Smart Fifo API
@@ -3219,14 +3204,6 @@ struct iwm_sf_cfg_cmd {
 /*
  * BEGIN mvm/fw-api-mac.h
  */
-
-/*
- * The first MAC indices (starting from 0)
- * are available to the driver, AUX follows
- */
-#define IWM_MAC_INDEX_AUX		4
-#define IWM_MAC_INDEX_MIN_DRIVER	0
-#define IWM_NUM_MAC_INDEX_DRIVER	IWM_MAC_INDEX_AUX
 
 enum iwm_ac {
 	IWM_AC_BK,
@@ -4004,12 +3981,12 @@ enum {
  * Bit 11-12: (0) 20MHz, (1) 40MHz, (2) 80MHz, (3) 160MHz
  * 0 and 1 are valid for HT and VHT, 2 and 3 only for VHT
  */
-#define IWM_RATE_MCS_CHAN_WIDTH_POS		11
-#define IWM_RATE_MCS_CHAN_WIDTH_MSK		(3 << IWM_RATE_MCS_CHAN_WIDTH_POS)
-#define IWM_RATE_MCS_CHAN_WIDTH_20		(0 << IWM_RATE_MCS_CHAN_WIDTH_POS)
-#define IWM_RATE_MCS_CHAN_WIDTH_40		(1 << IWM_RATE_MCS_CHAN_WIDTH_POS)
-#define IWM_RATE_MCS_CHAN_WIDTH_80		(2 << IWM_RATE_MCS_CHAN_WIDTH_POS)
-#define IWM_RATE_MCS_CHAN_WIDTH_160		(3 << IWM_RATE_MCS_CHAN_WIDTH_POS)
+#define IWM_RATE_MCS_CHAN_WIDTH_POS	11
+#define IWM_RATE_MCS_CHAN_WIDTH_MSK	(3 << IWM_RATE_MCS_CHAN_WIDTH_POS)
+#define IWM_RATE_MCS_CHAN_WIDTH_20	(0 << IWM_RATE_MCS_CHAN_WIDTH_POS)
+#define IWM_RATE_MCS_CHAN_WIDTH_40	(1 << IWM_RATE_MCS_CHAN_WIDTH_POS)
+#define IWM_RATE_MCS_CHAN_WIDTH_80	(2 << IWM_RATE_MCS_CHAN_WIDTH_POS)
+#define IWM_RATE_MCS_CHAN_WIDTH_160	(3 << IWM_RATE_MCS_CHAN_WIDTH_POS)
 
 /* Bit 13: (1) Short guard interval (0.4 usec), (0) normal GI (0.8 usec) */
 #define IWM_RATE_MCS_SGI_POS		13
@@ -4022,7 +3999,7 @@ enum {
 #define IWM_RATE_MCS_ANT_C_MSK		(4 << IWM_RATE_MCS_ANT_POS)
 #define IWM_RATE_MCS_ANT_AB_MSK		(IWM_RATE_MCS_ANT_A_MSK | \
 					 IWM_RATE_MCS_ANT_B_MSK)
-#define IWM_RATE_MCS_ANT_ABC_MSK		(IWM_RATE_MCS_ANT_AB_MSK | \
+#define IWM_RATE_MCS_ANT_ABC_MSK	(IWM_RATE_MCS_ANT_AB_MSK | \
 					 IWM_RATE_MCS_ANT_C_MSK)
 #define IWM_RATE_MCS_ANT_MSK		IWM_RATE_MCS_ANT_ABC_MSK
 #define IWM_RATE_MCS_ANT_NUM 3
@@ -4032,8 +4009,8 @@ enum {
 #define IWM_RATE_MCS_STBC_MSK		(1 << IWM_RATE_MCS_STBC_POS)
 
 /* Bit 19: (0) Beamforming is off, (1) Beamforming is on */
-#define IWM_RATE_MCS_BF_POS			19
-#define IWM_RATE_MCS_BF_MSK			(1 << IWM_RATE_MCS_BF_POS)
+#define IWM_RATE_MCS_BF_POS		19
+#define IWM_RATE_MCS_BF_MSK		(1 << IWM_RATE_MCS_BF_POS)
 
 /* Bit 20: (0) ZLF is off, (1) ZLF is on */
 #define IWM_RATE_MCS_ZLF_POS		20
@@ -4056,28 +4033,64 @@ enum {
 /* Link quality command flags bit fields */
 
 /* Bit 0: (0) Don't use RTS (1) Use RTS */
-#define IWM_LQ_FLAG_USE_RTS_POS             0
-#define IWM_LQ_FLAG_USE_RTS_MSK	        (1 << IWM_LQ_FLAG_USE_RTS_POS)
+#define IWM_LQ_FLAG_USE_RTS_POS         0
+#define IWM_LQ_FLAG_USE_RTS_MSK         (1 << IWM_LQ_FLAG_USE_RTS_POS)
 
 /* Bit 1-3: LQ command color. Used to match responses to LQ commands */
-#define IWM_LQ_FLAG_COLOR_POS               1
-#define IWM_LQ_FLAG_COLOR_MSK               (7 << IWM_LQ_FLAG_COLOR_POS)
+#define IWM_LQ_FLAG_COLOR_POS           1
+#define IWM_LQ_FLAG_COLOR_MSK           (7 << IWM_LQ_FLAG_COLOR_POS)
 
 /* Bit 4-5: Tx RTS BW Signalling
  * (0) No RTS BW signalling
  * (1) Static BW signalling
  * (2) Dynamic BW signalling
  */
-#define IWM_LQ_FLAG_RTS_BW_SIG_POS          4
-#define IWM_LQ_FLAG_RTS_BW_SIG_NONE         (0 << IWM_LQ_FLAG_RTS_BW_SIG_POS)
-#define IWM_LQ_FLAG_RTS_BW_SIG_STATIC       (1 << IWM_LQ_FLAG_RTS_BW_SIG_POS)
-#define IWM_LQ_FLAG_RTS_BW_SIG_DYNAMIC      (2 << IWM_LQ_FLAG_RTS_BW_SIG_POS)
+#define IWM_LQ_FLAG_RTS_BW_SIG_POS      4
+#define IWM_LQ_FLAG_RTS_BW_SIG_NONE     (0 << IWM_LQ_FLAG_RTS_BW_SIG_POS)
+#define IWM_LQ_FLAG_RTS_BW_SIG_STATIC   (1 << IWM_LQ_FLAG_RTS_BW_SIG_POS)
+#define IWM_LQ_FLAG_RTS_BW_SIG_DYNAMIC  (2 << IWM_LQ_FLAG_RTS_BW_SIG_POS)
 
 /* Bit 6: (0) No dynamic BW selection (1) Allow dynamic BW selection
  * Dyanmic BW selection allows Tx with narrower BW then requested in rates
  */
-#define IWM_LQ_FLAG_DYNAMIC_BW_POS          6
-#define IWM_LQ_FLAG_DYNAMIC_BW_MSK          (1 << IWM_LQ_FLAG_DYNAMIC_BW_POS)
+#define IWM_LQ_FLAG_DYNAMIC_BW_POS      6
+#define IWM_LQ_FLAG_DYNAMIC_BW_MSK      (1 << IWM_LQ_FLAG_DYNAMIC_BW_POS)
+
+/* Single Stream Tx Parameters (lq_cmd->ss_params)
+ * Flags to control a smart FW decision about whether BFER/STBC/SISO will be
+ * used for single stream Tx.
+ */
+
+/* Bit 0-1: Max STBC streams allowed. Can be 0-3.
+ * (0) - No STBC allowed
+ * (1) - 2x1 STBC allowed (HT/VHT)
+ * (2) - 4x2 STBC allowed (HT/VHT)
+ * (3) - 3x2 STBC allowed (HT only)
+ * All our chips are at most 2 antennas so only (1) is valid for now.
+ */
+#define IWM_LQ_SS_STBC_ALLOWED_POS	0
+#define IWM_LQ_SS_STBC_ALLOWED_MSK	(3 << IWM_LQ_SS_STBC_ALLOWED_MSK)
+
+/* 2x1 STBC is allowed */
+#define IWM_LQ_SS_STBC_1SS_ALLOWED	(1 << IWM_LQ_SS_STBC_ALLOWED_POS)
+
+/* Bit 2: Beamformer (VHT only) is allowed */
+#define IWM_LQ_SS_BFER_ALLOWED_POS	2
+#define IWM_LQ_SS_BFER_ALLOWED		(1 << IWM_LQ_SS_BFER_ALLOWED_POS)
+
+/* Bit 3: Force BFER or STBC for testing
+ * If this is set:
+ * If BFER is allowed then force the ucode to choose BFER else
+ * If STBC is allowed then force the ucode to choose STBC over SISO
+ */
+#define IWM_LQ_SS_FORCE_POS		3
+#define IWM_LQ_SS_FORCE			(1 << IWM_LQ_SS_FORCE_POS)
+
+/* Bit 31: ss_params field is valid. Used for FW backward compatibility
+ * with other drivers which don't support the ss_params API yet
+ */
+#define IWM_LQ_SS_PARAMS_VALID_POS	31
+#define IWM_LQ_SS_PARAMS_VALID		(1 << IWM_LQ_SS_PARAMS_VALID_POS)
 
 /**
  * struct iwm_lq_cmd - link quality command
@@ -4101,11 +4114,11 @@ enum {
  *	2 - 0x3f: maximal number of frames (up to 3f == 63)
  * @rs_table: array of rates for each TX try, each is rate_n_flags,
  *	meaning it is a combination of IWM_RATE_MCS_* and IWM_RATE_*_PLCP
- * @bf_params: beam forming params, currently not used
+ * @ss_params: single stream features. declare whether STBC or BFER are allowed.
  */
 struct iwm_lq_cmd {
 	uint8_t sta_id;
-	uint8_t reserved1;
+	uint8_t reduced_tpc;
 	uint16_t control;
 	/* LINK_QUAL_GENERAL_PARAMS_API_S_VER_1 */
 	uint8_t flags;
@@ -4119,7 +4132,7 @@ struct iwm_lq_cmd {
 	uint8_t agg_frame_cnt_limit;
 	uint32_t reserved2;
 	uint32_t rs_table[IWM_LQ_MAX_RETRY_NUM];
-	uint32_t bf_params;
+	uint32_t ss_params;
 }; /* LINK_QUALITY_CMD_API_S_VER_1 */
 
 /*
@@ -4156,7 +4169,6 @@ struct iwm_lq_cmd {
  * @IWM_TX_CMD_FLG_MH_PAD: driver inserted 2 byte padding after MAC header.
  *	Should be set for 26/30 length MAC headers
  * @IWM_TX_CMD_FLG_RESP_TO_DRV: zero this if the response should go only to FW
- * @IWM_TX_CMD_FLG_CCMP_AGG: this frame uses CCMP for aggregation acceleration
  * @IWM_TX_CMD_FLG_TKIP_MIC_DONE: FW already performed TKIP MIC calculation
  * @IWM_TX_CMD_FLG_DUR: disable duration overwriting used in PS-Poll Assoc-id
  * @IWM_TX_CMD_FLG_FW_DROP: FW should mark frame to be dropped
@@ -4184,7 +4196,6 @@ enum iwm_tx_flags {
 	IWM_TX_CMD_FLG_AGG_START	= (1 << 19),
 	IWM_TX_CMD_FLG_MH_PAD		= (1 << 20),
 	IWM_TX_CMD_FLG_RESP_TO_DRV	= (1 << 21),
-	IWM_TX_CMD_FLG_CCMP_AGG		= (1 << 22),
 	IWM_TX_CMD_FLG_TKIP_MIC_DONE	= (1 << 23),
 	IWM_TX_CMD_FLG_DUR		= (1 << 25),
 	IWM_TX_CMD_FLG_FW_DROP		= (1 << 26),
@@ -4558,7 +4569,8 @@ struct iwm_mvm_tx_resp {
 	uint8_t pa_integ_res_b[3];
 	uint8_t pa_integ_res_c[3];
 	uint16_t measurement_req_id;
-	uint16_t reserved;
+	uint8_t reduced_tpc;
+	uint8_t reserved;
 
 	uint32_t tfd_info;
 	uint16_t seq_ctl;

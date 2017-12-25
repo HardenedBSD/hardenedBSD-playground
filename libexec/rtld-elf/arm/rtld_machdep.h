@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999, 2000 John D. Polstra.
  * All rights reserved.
  *
@@ -31,6 +33,7 @@
 
 #include <sys/types.h>
 #include <machine/atomic.h>
+#include <machine/acle-compat.h>
 
 struct Struct_Obj_Entry;
 
@@ -67,11 +70,6 @@ typedef struct {
     round(prev_offset + prev_size, align)
 #define calculate_tls_end(off, size)    ((off) + (size))
 	
-/*
- * Lazy binding entry point, called via PLT.
- */
-void _rtld_bind_start(void);
-
 extern void *__tls_get_addr(tls_index *ti);
 
 #define	RTLD_DEFAULT_STACK_PF_EXEC	PF_X
@@ -79,7 +77,11 @@ extern void *__tls_get_addr(tls_index *ti);
 
 extern void arm_abi_variant_hook(Elf_Auxinfo **);
 
+#ifdef __ARM_FP
 #define md_abi_variant_hook(x)		arm_abi_variant_hook(x)
 #define RTLD_VARIANT_ENV_NAMES
+#else
+#define md_abi_variant_hook(x)
+#endif
 
 #endif

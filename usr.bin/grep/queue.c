@@ -2,6 +2,8 @@
 /*	$FreeBSD$	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
  * All rights reserved.
  *
@@ -49,7 +51,7 @@ struct qentry {
 };
 
 static STAILQ_HEAD(, qentry)	queue = STAILQ_HEAD_INITIALIZER(queue);
-static unsigned long long	count;
+static long long		count;
 
 static struct qentry	*dequeue(void);
 
@@ -65,6 +67,7 @@ enqueue(struct str *x)
 	item->data.dat = grep_malloc(sizeof(char) * x->len);
 	item->data.len = x->len;
 	item->data.line_no = x->line_no;
+	item->data.boff = x->boff;
 	item->data.off = x->off;
 	memcpy(item->data.dat, x->dat, x->len);
 	item->data.file = x->file;

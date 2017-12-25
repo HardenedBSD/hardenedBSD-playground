@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2009 Stanislav Sedov <stas@FreeBSD.org>
  * Copyright (c) 1988, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -67,7 +69,7 @@ static int	vflg;	/* be verbose */
 
 typedef struct devs {
 	struct devs	*next;
-	uint32_t	fsid;
+	uint64_t	fsid;
 	uint64_t	ino;
 	const char	*name;
 } DEVS;

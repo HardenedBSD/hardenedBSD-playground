@@ -78,19 +78,15 @@ AC_TRY_COMPILE([#include "$srcdir/crypto/modes/modes_lcl.h"],
 	       BSWAP4=no)
 CFLAGS="$old_cflags"
 
-case $host_cpu in
-	*sparc*)
-		CPPFLAGS="$CPPFLAGS -D__STRICT_ALIGNMENT"
-		;;
-	*arm*)
-		AS_IF([test "x$BSWAP4" = "xyes"],,
-		    CPPFLAGS="$CPPFLAGS -D__STRICT_ALIGNMENT")
-		;;
-	*amd64*)
-		host_cpu=x86_64
-		;;
-
-esac
+AS_CASE([$host_cpu],
+	[*sparc*], [CPPFLAGS="$CPPFLAGS -D__STRICT_ALIGNMENT"],
+	[*arm*], AS_IF([test "x$BSWAP4" = "xyes"],,
+		    CPPFLAGS="$CPPFLAGS -D__STRICT_ALIGNMENT"),
+	[*amd64*], [host_cpu=x86_64, HOSTARCH=intel],
+	[i?86], [HOSTARCH=intel],
+	[x86_64], [HOSTARCH=intel]
+)
+AM_CONDITIONAL([HOST_CPU_IS_INTEL], [test "x$HOSTARCH" = "xintel"])
 
 AC_MSG_CHECKING([if .gnu.warning accepts long strings])
 AC_LINK_IFELSE([AC_LANG_SOURCE([[
@@ -126,6 +122,7 @@ AC_CONFIG_FILES([
 	tls/Makefile
 	tests/Makefile
 	apps/Makefile
+	apps/ocspcheck/Makefile
 	apps/openssl/Makefile
 	apps/nc/Makefile
 	man/Makefile
@@ -137,8 +134,15 @@ AC_CONFIG_FILES([
 
 AM_CONDITIONAL([SMALL_TIME_T], [test "$ac_cv_sizeof_time_t" = "4"])
 if test "$ac_cv_sizeof_time_t" = "4"; then
+    AC_DEFINE([SMALL_TIME_T])
     echo " ** Warning, this system is unable to represent times past 2038"
     echo " ** It will behave incorrectly when handling valid RFC5280 dates"
+
+    if test "$host_os" = "mingw32" ; then
+        echo " **"
+        echo " ** You can solve this by adjusting the build flags in your"
+        echo " ** mingw-w64 toolchain. Refer to README.windows for details."
+    fi
 fi
 
 AC_REQUIRE_AUX_FILE([tap-driver.sh])

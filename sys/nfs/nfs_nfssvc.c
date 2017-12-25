@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -92,7 +94,7 @@ sys_nfssvc(struct thread *td, struct nfssvc_args *uap)
 	    nfsd_call_nfsserver != NULL)
 		error = (*nfsd_call_nfsserver)(td, uap);
 	else if ((uap->flag & (NFSSVC_CBADDSOCK | NFSSVC_NFSCBD |
-	    NFSSVC_DUMPMNTOPTS)) && nfsd_call_nfscl != NULL)
+	    NFSSVC_DUMPMNTOPTS | NFSSVC_FORCEDISM)) && nfsd_call_nfscl != NULL)
 		error = (*nfsd_call_nfscl)(td, uap);
 	else if ((uap->flag & (NFSSVC_IDNAME | NFSSVC_GETSTATS |
 	    NFSSVC_GSSDADDPORT | NFSSVC_GSSDADDFIRST | NFSSVC_GSSDDELETEALL |

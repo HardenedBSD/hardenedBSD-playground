@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2017 Dell EMC
  * Copyright (c) 2000 David O'Brien
  * Copyright (c) 1995-1996 Søren Schmidt
@@ -568,7 +570,7 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
 				      map_addr,		/* virtual start */
 				      map_addr + map_len,/* virtual end */
 				      prot,
-				      VM_PROT_ALL,
+				      prot,
 				      cow);
 		if (rv != KERN_SUCCESS)
 			return (EINVAL);
@@ -618,9 +620,15 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
 	 * Remove write access to the page if it was only granted by map_insert
 	 * to allow copyout.
 	 */
+#ifdef PAX_NOEXEC
+	if ((prot & VM_PROT_WRITE) == 0)
+		vm_map_protect(map, trunc_page(map_addr), round_page(map_addr +
+		    map_len), prot, TRUE);
+#else
 	if ((prot & VM_PROT_WRITE) == 0)
 		vm_map_protect(map, trunc_page(map_addr), round_page(map_addr +
 		    map_len), prot, FALSE);
+#endif
 
 	return (0);
 }
@@ -1116,9 +1124,7 @@ __elfN(freebsd_fixup)(register_t **stack_base, struct image_params *imgp)
 	AUXARGS_ENTRY(pos, AT_ENTRY, args->entry);
 	AUXARGS_ENTRY(pos, AT_BASE, args->base);
 	AUXARGS_ENTRY(pos, AT_PAXFLAGS, args->pax_flags);
-#ifdef AT_EHDRFLAGS
 	AUXARGS_ENTRY(pos, AT_EHDRFLAGS, args->hdr_eflags);
-#endif
 	if (imgp->execpathp != 0)
 		AUXARGS_ENTRY(pos, AT_EXECPATH, imgp->execpathp);
 	AUXARGS_ENTRY(pos, AT_OSRELDATE,
@@ -1139,6 +1145,10 @@ __elfN(freebsd_fixup)(register_t **stack_base, struct image_params *imgp)
 	AUXARGS_ENTRY(pos, AT_STACKPROT, imgp->sysent->sv_shared_page_obj
 	    != NULL && imgp->stack_prot != 0 ? imgp->stack_prot :
 	    imgp->sysent->sv_stackprot);
+	if (imgp->sysent->sv_hwcap != NULL)
+		AUXARGS_ENTRY(pos, AT_HWCAP, *imgp->sysent->sv_hwcap);
+	if (imgp->sysent->sv_hwcap2 != NULL)
+		AUXARGS_ENTRY(pos, AT_HWCAP2, *imgp->sysent->sv_hwcap2);
 	AUXARGS_ENTRY(pos, AT_NULL, 0);
 
 	free(imgp->auxargs, M_TEMP);
@@ -1881,6 +1891,7 @@ __elfN(putnote)(struct note_info *ninfo, struct sbuf *sb)
 
 #if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
 #include <compat/freebsd32/freebsd32.h>
+#include <compat/freebsd32/freebsd32_signal.h>
 
 typedef struct prstatus32 elf_prstatus_t;
 typedef struct prpsinfo32 elf_prpsinfo_t;
@@ -2035,13 +2046,17 @@ __elfN(note_ptlwpinfo)(void *arg, struct sbuf *sb, size_t *sizep)
 	struct thread *td;
 	size_t size;
 	int structsize;
+#if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
+	struct ptrace_lwpinfo32 pl;
+#else
 	struct ptrace_lwpinfo pl;
+#endif
 
 	td = (struct thread *)arg;
-	size = sizeof(structsize) + sizeof(struct ptrace_lwpinfo);
+	size = sizeof(structsize) + sizeof(pl);
 	if (sb != NULL) {
 		KASSERT(*sizep == size, ("invalid size"));
-		structsize = sizeof(struct ptrace_lwpinfo);
+		structsize = sizeof(pl);
 		sbuf_bcat(sb, &structsize, sizeof(structsize));
 		bzero(&pl, sizeof(pl));
 		pl.pl_lwpid = td->td_tid;
@@ -2051,11 +2066,15 @@ __elfN(note_ptlwpinfo)(void *arg, struct sbuf *sb, size_t *sizep)
 		if (td->td_si.si_signo != 0) {
 			pl.pl_event = PL_EVENT_SIGNAL;
 			pl.pl_flags |= PL_FLAG_SI;
+#if defined(COMPAT_FREEBSD32) && __ELF_WORD_SIZE == 32
+			siginfo_to_siginfo32(&td->td_si, &pl.pl_siginfo);
+#else
 			pl.pl_siginfo = td->td_si;
+#endif
 		}
 		strcpy(pl.pl_tdname, td->td_name);
 		/* XXX TODO: supply more information in struct ptrace_lwpinfo*/
-		sbuf_bcat(sb, &pl, sizeof(struct ptrace_lwpinfo));
+		sbuf_bcat(sb, &pl, sizeof(pl));
 	}
 	*sizep = size;
 }

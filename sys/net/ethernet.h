@@ -92,7 +92,7 @@ struct ether_vlan_header {
 #define	EVL_PRIOFTAG(tag)	(((tag) >> 13) & 7)
 #define	EVL_CFIOFTAG(tag)	(((tag) >> 12) & 1)
 #define	EVL_MAKETAG(vlid, pri, cfi)					\
-	((((((pri) & 7) << 13) | ((cfi) & 1)) << 12) | ((vlid) & EVL_VLID_MASK))
+	((((((pri) & 7) << 1) | ((cfi) & 1)) << 12) | ((vlid) & EVL_VLID_MASK))
 
 /*
  *  NOTE: 0x0000-0x05DC (0..1500) are generally IEEE 802.3 length fields.
@@ -405,6 +405,12 @@ extern	char *ether_sprintf(const u_int8_t *);
 void	ether_vlan_mtap(struct bpf_if *, struct mbuf *,
 	    void *, u_int);
 struct mbuf  *ether_vlanencap(struct mbuf *, uint16_t);
+
+#ifdef _SYS_EVENTHANDLER_H_
+/* new ethernet interface attached event */
+typedef void (*ether_ifattach_event_handler_t)(void *, struct ifnet *);
+EVENTHANDLER_DECLARE(ether_ifattach_event, ether_ifattach_event_handler_t);
+#endif
 
 #else /* _KERNEL */
 

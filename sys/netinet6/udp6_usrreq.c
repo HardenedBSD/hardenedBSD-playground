@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * Copyright (c) 2010-2011 Juniper Networks, Inc.
  * Copyright (c) 2014 Kevin Lo
@@ -104,9 +106,7 @@ __FBSDID("$FreeBSD$");
 #include <netinet/in_systm.h>
 #include <netinet/in_var.h>
 #include <netinet/ip.h>
-#include <netinet/ip_icmp.h>
 #include <netinet/ip6.h>
-#include <netinet/icmp_var.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_var.h>
 #include <netinet/udp.h>
@@ -480,8 +480,6 @@ udp6_input(struct mbuf **mp, int *offp, int proto)
 			goto badunlocked;
 		}
 		if (V_udp_blackhole)
-			goto badunlocked;
-		if (badport_bandlim(BANDLIM_ICMP6_UNREACH) < 0)
 			goto badunlocked;
 		icmp6_error(m, ICMP6_DST_UNREACH, ICMP6_DST_UNREACH_NOPORT, 0);
 		return (IPPROTO_DONE);
@@ -1119,6 +1117,10 @@ udp6_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 			error = EINVAL;
 			goto out;
 		}
+		if ((inp->inp_vflag & INP_IPV4) == 0) {
+			error = EAFNOSUPPORT;
+			goto out;
+		}
 		if (inp->inp_faddr.s_addr != INADDR_ANY) {
 			error = EISCONN;
 			goto out;
@@ -1136,6 +1138,11 @@ udp6_connect(struct socket *so, struct sockaddr *nam, struct thread *td)
 		if (error == 0)
 			soisconnected(so);
 		goto out;
+	} else {
+		if ((inp->inp_vflag & INP_IPV6) == 0) {
+			error = EAFNOSUPPORT;
+			goto out;
+		}
 	}
 #endif
 	if (!IN6_IS_ADDR_UNSPECIFIED(&inp->in6p_faddr)) {
@@ -1183,7 +1190,6 @@ udp6_disconnect(struct socket *so)
 {
 	struct inpcb *inp;
 	struct inpcbinfo *pcbinfo;
-	int error;
 
 	pcbinfo = udp_get_inpcbinfo(so->so_proto->pr_protocol);
 	inp = sotoinpcb(so);
@@ -1205,8 +1211,8 @@ udp6_disconnect(struct socket *so)
 #endif
 
 	if (IN6_IS_ADDR_UNSPECIFIED(&inp->in6p_faddr)) {
-		error = ENOTCONN;
-		goto out;
+		INP_WUNLOCK(inp);
+		return (ENOTCONN);
 	}
 
 	INP_HASH_WLOCK(pcbinfo);
@@ -1216,7 +1222,6 @@ udp6_disconnect(struct socket *so)
 	SOCK_LOCK(so);
 	so->so_state &= ~SS_ISCONNECTED;		/* XXX */
 	SOCK_UNLOCK(so);
-out:
 	INP_WUNLOCK(inp);
 	return (0);
 }

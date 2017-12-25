@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2004-2006 Kip Macy
  * Copyright (c) 2015 Wei Liu <wei.liu2@citrix.com>
  * All rights reserved.
@@ -74,8 +76,8 @@ __FBSDID("$FreeBSD$");
 /* Features supported by all backends.  TSO and LRO can be negotiated */
 #define XN_CSUM_FEATURES	(CSUM_TCP | CSUM_UDP)
 
-#define NET_TX_RING_SIZE __RING_SIZE((netif_tx_sring_t *)0, PAGE_SIZE)
-#define NET_RX_RING_SIZE __RING_SIZE((netif_rx_sring_t *)0, PAGE_SIZE)
+#define NET_TX_RING_SIZE __CONST_RING_SIZE(netif_tx, PAGE_SIZE)
+#define NET_RX_RING_SIZE __CONST_RING_SIZE(netif_rx, PAGE_SIZE)
 
 #define NET_RX_SLOTS_MIN (XEN_NETIF_NR_SLOTS_MIN + 1)
 
@@ -1161,17 +1163,18 @@ xn_rxeof(struct netfront_rxq *rxq)
 	struct mbufq mbufq_rxq, mbufq_errq;
 	int err, work_to_do;
 
+	XN_RX_LOCK_ASSERT(rxq);
+
+	if (!netfront_carrier_ok(np))
+		return;
+
+	/* XXX: there should be some sane limit. */
+	mbufq_init(&mbufq_errq, INT_MAX);
+	mbufq_init(&mbufq_rxq, INT_MAX);
+
+	ifp = np->xn_ifp;
+
 	do {
-		XN_RX_LOCK_ASSERT(rxq);
-		if (!netfront_carrier_ok(np))
-			return;
-
-		/* XXX: there should be some sane limit. */
-		mbufq_init(&mbufq_errq, INT_MAX);
-		mbufq_init(&mbufq_rxq, INT_MAX);
-
-		ifp = np->xn_ifp;
-
 		rp = rxq->ring.sring->rsp_prod;
 		rmb();	/* Ensure we see queued responses up to 'rp'. */
 
@@ -1191,7 +1194,7 @@ xn_rxeof(struct netfront_rxq *rxq)
 			}
 
 			m->m_pkthdr.rcvif = ifp;
-			if ( rx->flags & NETRXF_data_validated ) {
+			if (rx->flags & NETRXF_data_validated) {
 				/*
 				 * According to mbuf(9) the correct way to tell
 				 * the stack that the checksum of an inbound
@@ -1214,50 +1217,43 @@ xn_rxeof(struct netfront_rxq *rxq)
 			}
 
 			(void )mbufq_enqueue(&mbufq_rxq, m);
-			rxq->ring.rsp_cons = i;
-		}
-
-		mbufq_drain(&mbufq_errq);
-
-		/*
-		 * Process all the mbufs after the remapping is complete.
-		 * Break the mbuf chain first though.
-		 */
-		while ((m = mbufq_dequeue(&mbufq_rxq)) != NULL) {
-			if_inc_counter(ifp, IFCOUNTER_IPACKETS, 1);
-
-			/* XXX: Do we really need to drop the rx lock? */
-			XN_RX_UNLOCK(rxq);
-#if (defined(INET) || defined(INET6))
-			/* Use LRO if possible */
-			if ((ifp->if_capenable & IFCAP_LRO) == 0 ||
-			    lro->lro_cnt == 0 || tcp_lro_rx(lro, m, 0)) {
-				/*
-				 * If LRO fails, pass up to the stack
-				 * directly.
-				 */
-				(*ifp->if_input)(ifp, m);
-			}
-#else
-			(*ifp->if_input)(ifp, m);
-#endif
-
-			XN_RX_LOCK(rxq);
 		}
 
 		rxq->ring.rsp_cons = i;
-
-#if (defined(INET) || defined(INET6))
-		/*
-		 * Flush any outstanding LRO work
-		 */
-		tcp_lro_flush_all(lro);
-#endif
 
 		xn_alloc_rx_buffers(rxq);
 
 		RING_FINAL_CHECK_FOR_RESPONSES(&rxq->ring, work_to_do);
 	} while (work_to_do);
+
+	mbufq_drain(&mbufq_errq);
+	/*
+	 * Process all the mbufs after the remapping is complete.
+	 * Break the mbuf chain first though.
+	 */
+	while ((m = mbufq_dequeue(&mbufq_rxq)) != NULL) {
+		if_inc_counter(ifp, IFCOUNTER_IPACKETS, 1);
+#if (defined(INET) || defined(INET6))
+		/* Use LRO if possible */
+		if ((ifp->if_capenable & IFCAP_LRO) == 0 ||
+		    lro->lro_cnt == 0 || tcp_lro_rx(lro, m, 0)) {
+			/*
+			 * If LRO fails, pass up to the stack
+			 * directly.
+			 */
+			(*ifp->if_input)(ifp, m);
+		}
+#else
+		(*ifp->if_input)(ifp, m);
+#endif
+	}
+
+#if (defined(INET) || defined(INET6))
+	/*
+	 * Flush any outstanding LRO work
+	 */
+	tcp_lro_flush_all(lro);
+#endif
 }
 
 static void
@@ -1773,6 +1769,9 @@ xn_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 #endif
 		break;
 	case SIOCSIFMTU:
+		if (ifp->if_mtu == ifr->ifr_mtu)
+			break;
+
 		ifp->if_mtu = ifr->ifr_mtu;
 		ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
 		xn_ifinit(sc);

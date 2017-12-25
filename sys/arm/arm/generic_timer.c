@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2011 The FreeBSD Foundation
  * Copyright (c) 2013 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
@@ -57,7 +59,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/intr.h>
 #include <machine/md_var.h>
 
-#ifdef MULTIDELAY
+#if defined(__arm__)
 #include <machine/machdep.h> /* For arm_set_delay */
 #endif
 
@@ -138,7 +140,7 @@ get_freq(void)
 	return (get_el0(cntfrq));
 }
 
-static long
+static uint64_t
 get_cntxct(bool physical)
 {
 	uint64_t val;
@@ -249,17 +251,23 @@ arm_tmr_start(struct eventtimer *et, sbintime_t first,
 
 }
 
+static void
+arm_tmr_disable(bool physical)
+{
+	int ctrl;
+
+	ctrl = get_ctrl(physical);
+	ctrl &= ~GT_CTRL_ENABLE;
+	set_ctrl(ctrl, physical);
+}
+
 static int
 arm_tmr_stop(struct eventtimer *et)
 {
 	struct arm_tmr_softc *sc;
-	int ctrl;
 
 	sc = (struct arm_tmr_softc *)et->et_priv;
-
-	ctrl = get_ctrl(sc->physical);
-	ctrl &= ~GT_CTRL_ENABLE;
-	set_ctrl(ctrl, sc->physical);
+	arm_tmr_disable(sc->physical);
 
 	return (0);
 }
@@ -412,6 +420,13 @@ arm_tmr_attach(device_t dev)
 		}
 	}
 
+	/* Disable the virtual timer until we are ready */
+	if (sc->res[2] != NULL)
+		arm_tmr_disable(false);
+	/* And the physical */
+	if (sc->physical)
+		arm_tmr_disable(true);
+
 	arm_tmr_timecount.tc_frequency = sc->clkfreq;
 	tc_init(&arm_tmr_timecount);
 
@@ -427,7 +442,7 @@ arm_tmr_attach(device_t dev)
 	sc->et.et_priv = sc;
 	et_register(&sc->et);
 
-#ifdef MULTIDELAY
+#if defined(__arm__)
 	arm_set_delay(arm_tmr_do_delay, sc);
 #endif
 
@@ -505,7 +520,7 @@ arm_tmr_do_delay(int usec, void *arg)
 	}
 }
 
-#ifndef MULTIDELAY
+#if defined(__aarch64__)
 void
 DELAY(int usec)
 {

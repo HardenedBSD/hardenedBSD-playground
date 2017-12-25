@@ -232,6 +232,7 @@ struct iwm_nvm_data {
 	uint16_t nvm_version;
 	uint8_t max_tx_pwr_half_dbm;
 
+	boolean_t lar_enabled;
 	uint16_t nvm_ch_flags[];
 };
 
@@ -528,7 +529,7 @@ struct iwm_softc {
 	/* phy contexts.  we only use the first one */
 	struct iwm_mvm_phy_ctxt	sc_phyctxt[IWM_NUM_PHY_CTX];
 
-	struct iwm_notif_statistics sc_stats;
+	struct iwm_notif_statistics_v10 sc_stats;
 	int			sc_noise;
 
 	caddr_t			sc_drvbpf;
@@ -557,6 +558,9 @@ struct iwm_softc {
 	uint16_t		num_of_pages_in_last_blk;
 
 	boolean_t		last_ebs_successful;
+
+	/* last smart fifo state that was successfully sent to firmware */
+	enum iwm_sf_state	sf_state;
 
 	/* Indicate if device power save is allowed */
 	boolean_t		sc_ps_disabled;

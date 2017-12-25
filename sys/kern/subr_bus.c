@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1997,1998,2003 Doug Rabson
  * All rights reserved.
  *
@@ -2936,6 +2938,7 @@ device_attach(device_t dev)
 	else
 		dev->state = DS_ATTACHED;
 	dev->flags &= ~DF_DONENOMATCH;
+	EVENTHANDLER_INVOKE(device_attach, dev);
 	devadded(dev);
 	return (0);
 }
@@ -2969,8 +2972,13 @@ device_detach(device_t dev)
 	if (dev->state != DS_ATTACHED)
 		return (0);
 
-	if ((error = DEVICE_DETACH(dev)) != 0)
+	EVENTHANDLER_INVOKE(device_detach, dev, EVHDEV_DETACH_BEGIN);
+	if ((error = DEVICE_DETACH(dev)) != 0) {
+		EVENTHANDLER_INVOKE(device_detach, dev, EVHDEV_DETACH_FAILED);
 		return (error);
+	} else {
+		EVENTHANDLER_INVOKE(device_detach, dev, EVHDEV_DETACH_COMPLETE);
+	}
 	devremoved(dev);
 	if (!device_is_quiet(dev))
 		device_printf(dev, "detached\n");

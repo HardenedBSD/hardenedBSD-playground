@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2011 The FreeBSD Foundation
  * All rights reserved.
  *
@@ -144,6 +146,14 @@ static struct resource_spec arm_gic_spec[] = {
 #endif
 	{ -1, 0 }
 };
+
+
+#if defined(__arm__) && defined(INVARIANTS)
+static int gic_debug_spurious = 1;
+#else
+static int gic_debug_spurious = 0;
+#endif
+TUNABLE_INT("hw.gic.debug_spurious", &gic_debug_spurious);
 
 static u_int arm_gic_map[MAXCPU];
 
@@ -671,11 +681,10 @@ arm_gic_intr(void *arg)
 	 */
 
 	if (irq >= sc->nirqs) {
-#ifdef GIC_DEBUG_SPURIOUS
-		device_printf(sc->gic_dev,
-		    "Spurious interrupt detected: last irq: %d on CPU%d\n",
-		    sc->last_irq[PCPU_GET(cpuid)], PCPU_GET(cpuid));
-#endif
+		if (gic_debug_spurious)
+			device_printf(sc->gic_dev,
+			    "Spurious interrupt detected: last irq: %d on CPU%d\n",
+			    sc->last_irq[PCPU_GET(cpuid)], PCPU_GET(cpuid));
 		return (FILTER_HANDLED);
 	}
 
@@ -700,9 +709,8 @@ dispatch_irq:
 #endif
 	}
 
-#ifdef GIC_DEBUG_SPURIOUS
-	sc->last_irq[PCPU_GET(cpuid)] = irq;
-#endif
+	if (gic_debug_spurious)
+		sc->last_irq[PCPU_GET(cpuid)] = irq;
 	if ((gi->gi_flags & GI_FLAG_EARLY_EOI) == GI_FLAG_EARLY_EOI)
 		gic_c_write_4(sc, GICC_EOIR, irq_active_reg);
 
@@ -1376,11 +1384,9 @@ int
 arm_gicv2m_attach(device_t dev)
 {
 	struct arm_gicv2m_softc *sc;
-	struct arm_gic_softc *psc;
 	uint32_t typer;
 	int rid;
 
-	psc = device_get_softc(device_get_parent(dev));
 	sc = device_get_softc(dev);
 
 	rid = 0;
@@ -1445,11 +1451,11 @@ arm_gicv2m_alloc_msi(device_t dev, device_t child, int count, int maxcount,
 				break;
 			}
 
-			KASSERT((psc->gic_irqs[irq].gi_flags & GI_FLAG_MSI)!= 0,
+			KASSERT((psc->gic_irqs[end_irq].gi_flags & GI_FLAG_MSI)!= 0,
 			    ("%s: Non-MSI interrupt found", __func__));
 
 			/* This is already used */
-			if ((psc->gic_irqs[irq].gi_flags & GI_FLAG_MSI_USED) ==
+			if ((psc->gic_irqs[end_irq].gi_flags & GI_FLAG_MSI_USED) ==
 			    GI_FLAG_MSI_USED) {
 				found = false;
 				break;

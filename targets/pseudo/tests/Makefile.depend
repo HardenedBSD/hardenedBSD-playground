@@ -7,19 +7,26 @@
 # find . -name Makefile -exec grep -l '^\.include.*\.test.mk' {} + | grep -v '^\./contrib' | sed -e 's,/Makefile,,' -e 's,^\./,,' -e 's,^,	,' -e 's,$, \\,' | sort
 DIRDEPS= \
       bin/cat/tests \
+      bin/chflags/tests \
+      bin/chmod/tests \
       bin/date/tests \
       bin/dd/tests \
+      bin/echo/tests \
       bin/expr/tests \
+      bin/ln/tests \
       bin/ls/tests \
+      bin/mkdir/tests \
       bin/mv/tests \
       bin/pax/tests \
       bin/pkill/tests \
       bin/pwait/tests \
+      bin/rmdir/tests \
       bin/sh/tests \
       bin/sh/tests/builtins \
       bin/sh/tests/errors \
       bin/sh/tests/execution \
       bin/sh/tests/expansion \
+      bin/sh/tests/invocation \
       bin/sh/tests/parameters \
       bin/sh/tests/parser \
       bin/sh/tests/set-e \
@@ -118,7 +125,6 @@ DIRDEPS= \
       cddl/usr.sbin/zfsd/tests \
       gnu/lib/tests \
       gnu/tests \
-      gnu/usr.bin/diff/tests \
       gnu/usr.bin/tests \
       lib/atf/libatf-c++/tests \
       lib/atf/libatf-c++/tests/detail \
@@ -150,20 +156,20 @@ DIRDEPS= \
       lib/libc/tests/string \
       lib/libc/tests/sys \
       lib/libc/tests/termios \
-      lib/libc/tests/time \
       lib/libc/tests/tls \
+      lib/libc/tests/tls/dso \
+      lib/libc/tests/tls_dso \
       lib/libc/tests/ttyio \
       lib/libcam/tests \
       lib/libcasper/services/cap_dns/tests \
       lib/libcasper/services/cap_grp/tests \
       lib/libcasper/services/cap_pwd/tests \
       lib/libcasper/services/cap_sysctl/tests \
+      lib/libcasper/services/tests \
       lib/libcrypt/tests \
-      lib/libdevdctl/tests \
       lib/libkvm/tests \
       lib/libmp/tests \
       lib/libnv/tests \
-      lib/libpathconv/tests \
       lib/libproc/tests \
       lib/librt/tests \
       lib/libsbuf/tests \
@@ -173,6 +179,7 @@ DIRDEPS= \
       lib/libthread_db/tests \
       lib/libutil/tests \
       lib/libxo/tests \
+      lib/libxo/tests/encoder \
       lib/msun/tests \
       lib/tests \
       libexec/atf/atf-check/tests \
@@ -185,6 +192,9 @@ DIRDEPS= \
       sbin/growfs/tests \
       sbin/ifconfig/tests \
       sbin/mdconfig/tests \
+      sbin/pfctl/tests \
+      sbin/pfctl/tests/files \
+      sbin/savecore/tests \
       sbin/tests \
       secure/lib/tests \
       secure/libexec/tests \
@@ -195,7 +205,9 @@ DIRDEPS= \
       share/examples/tests/tests \
       share/examples/tests/tests/atf \
       share/examples/tests/tests/plain \
+      share/examples/tests/tests/tap \
       share/tests \
+      share/zoneinfo/tests \
       tests \
       tests/etc \
       tests/etc/rc.d \
@@ -228,6 +240,8 @@ DIRDEPS= \
       tests/sys/mac/portacl \
       tests/sys/mqueue \
       tests/sys/netinet \
+      tests/sys/netpfil \
+      tests/sys/netpfil/pf \
       tests/sys/opencrypto \
       tests/sys/pjdfstest/tests \
       tests/sys/pjdfstest/tests/chflags \
@@ -245,6 +259,7 @@ DIRDEPS= \
       tests/sys/pjdfstest/tests/symlink \
       tests/sys/pjdfstest/tests/truncate \
       tests/sys/pjdfstest/tests/unlink \
+      tests/sys/pjdfstest/tests/utimensat \
       tests/sys/posixshm \
       tests/sys/sys \
       tests/sys/vfs \
@@ -305,13 +320,19 @@ DIRDEPS= \
       usr.bin/cmp/tests \
       usr.bin/col/tests \
       usr.bin/comm/tests \
+      usr.bin/compress/tests \
       usr.bin/cpio/tests \
+      usr.bin/csplit/tests \
       usr.bin/cut/tests \
       usr.bin/diff/tests \
+      usr.bin/diff3/tests \
       usr.bin/dirname/tests \
+      usr.bin/du/tests \
       usr.bin/file2c/tests \
+      usr.bin/getconf/tests \
       usr.bin/grep/tests \
       usr.bin/gzip/tests \
+      usr.bin/hexdump/tests \
       usr.bin/ident/tests \
       usr.bin/indent/tests \
       usr.bin/join/tests \
@@ -323,10 +344,12 @@ DIRDEPS= \
       usr.bin/ncal/tests \
       usr.bin/pr/tests \
       usr.bin/printf/tests \
+      usr.bin/procstat/tests \
       usr.bin/sdiff/tests \
       usr.bin/sed/tests \
       usr.bin/sed/tests/regress.multitest.out \
       usr.bin/soelim/tests \
+      usr.bin/stat/tests \
       usr.bin/tail/tests \
       usr.bin/tar/tests \
       usr.bin/tests \

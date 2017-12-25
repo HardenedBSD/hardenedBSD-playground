@@ -86,14 +86,15 @@ ENTRY(cpu_throw)
 	 */
 
 	/* Switch to the new pmap */
-	ldr	x5, [x4, #PCB_L0ADDR]
+	ldr	x28, [x1, #TD_PROC]
+	ldr	x5, [x28, #(P_MD + MD_L0ADDR)]
 	msr	ttbr0_el1, x5
 	isb
 
 	/* Invalidate the TLB */
-	dsb	sy
-	tlbi	vmalle1is
-	dsb	sy
+	dsb	ishst
+	tlbi	vmalle1
+	dsb	ish
 	isb
 
 	/* If we are single stepping, enable it */
@@ -104,6 +105,8 @@ ENTRY(cpu_throw)
 	ldp	x5, x6, [x4, #PCB_SP]
 	mov	sp, x5
 	msr	tpidr_el0, x6
+	ldr	x6, [x4, #PCB_TPIDRRO]
+	msr	tpidrro_el0, x6
 	ldp	x8, x9, [x4, #PCB_REGS + 8 * 8]
 	ldp	x10, x11, [x4, #PCB_REGS + 10 * 8]
 	ldp	x12, x13, [x4, #PCB_REGS + 12 * 8]
@@ -149,6 +152,8 @@ ENTRY(cpu_switch)
 	str	x30, [x4, #PCB_REGS + 30 * 8]
 	/* And the old stack pointer */
 	mov	x5, sp
+	mrs	x6, tpidrro_el0
+	str	x6, [x4, #PCB_TPIDRRO]
 	mrs	x6, tpidr_el0
 	stp	x5, x6, [x4, #PCB_SP]
 
@@ -182,15 +187,18 @@ ENTRY(cpu_switch)
 	 * to a user process.
 	 */
 
+	/* Load the new proc address */
+	ldr	x28, [x1, #TD_PROC]
+
 	/* Switch to the new pmap */
-	ldr	x5, [x4, #PCB_L0ADDR]
+	ldr	x5, [x28, #(P_MD + MD_L0ADDR)]
 	msr	ttbr0_el1, x5
 	isb
 
 	/* Invalidate the TLB */
-	dsb	sy
-	tlbi	vmalle1is
-	dsb	sy
+	dsb	ishst
+	tlbi	vmalle1
+	dsb	ish
 	isb
 
 	/*
@@ -215,6 +223,8 @@ ENTRY(cpu_switch)
 	ldp	x5, x6, [x4, #PCB_SP]
 	mov	sp, x5
 	msr	tpidr_el0, x6
+	ldr	x6, [x4, #PCB_TPIDRRO]
+	msr	tpidrro_el0, x6
 	ldp	x8, x9, [x4, #PCB_REGS + 8 * 8]
 	ldp	x10, x11, [x4, #PCB_REGS + 10 * 8]
 	ldp	x12, x13, [x4, #PCB_REGS + 12 * 8]
@@ -301,6 +311,8 @@ ENTRY(savectx)
 	str	x30, [x0, #PCB_REGS + 30 * 8]
 	/* And the old stack pointer */
 	mov	x5, sp
+	mrs	x6, tpidrro_el0
+	str	x6, [x0, #PCB_TPIDRRO]
 	mrs	x6, tpidr_el0
 	stp	x5, x6, [x0, #PCB_SP]
 

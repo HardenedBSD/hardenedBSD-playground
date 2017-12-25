@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2000 Doug Rabson
  * All rights reserved.
  *
@@ -79,6 +81,9 @@ int	taskqueue_start_threads_cpuset(struct taskqueue **tqp, int count,
 int	taskqueue_enqueue(struct taskqueue *queue, struct task *task);
 int	taskqueue_enqueue_timeout(struct taskqueue *queue,
 	    struct timeout_task *timeout_task, int ticks);
+int	taskqueue_enqueue_timeout_sbt(struct taskqueue *queue,
+	    struct timeout_task *timeout_task, sbintime_t sbt, sbintime_t pr,
+	    int flags);
 int	taskqueue_poll_is_busy(struct taskqueue *queue, struct task *task);
 int	taskqueue_cancel(struct taskqueue *queue, struct task *task,
 	    u_int *pendp);
@@ -146,7 +151,7 @@ taskqueue_define_##name(void *arg)					\
 	init;								\
 }									\
 									\
-SYSINIT(taskqueue_##name, SI_SUB_INIT_IF, SI_ORDER_SECOND,		\
+SYSINIT(taskqueue_##name, SI_SUB_TASKQ, SI_ORDER_SECOND,		\
 	taskqueue_define_##name, NULL);					\
 									\
 struct __hack
@@ -171,7 +176,7 @@ taskqueue_define_##name(void *arg)					\
 	init;								\
 }									\
 									\
-SYSINIT(taskqueue_##name, SI_SUB_INIT_IF, SI_ORDER_SECOND,		\
+SYSINIT(taskqueue_##name, SI_SUB_TASKQ, SI_ORDER_SECOND,		\
 	taskqueue_define_##name, NULL);					\
 									\
 struct __hack

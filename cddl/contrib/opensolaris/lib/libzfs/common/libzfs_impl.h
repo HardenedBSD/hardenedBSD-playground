@@ -79,6 +79,7 @@ struct libzfs_handle {
 	libzfs_fru_t **libzfs_fru_hash;
 	libzfs_fru_t *libzfs_fru_list;
 	char libzfs_chassis_id[256];
+	boolean_t libzfs_prop_debug;
 };
 
 #define	ZFSSHARE_MISS	0x01	/* Didn't find entry in cache */
@@ -131,6 +132,8 @@ typedef enum {
 	SHARED_NFS = 0x2,
 	SHARED_SMB = 0x4
 } zfs_share_type_t;
+
+#define	CONFIG_BUF_MINSIZE	65536
 
 int zfs_error(libzfs_handle_t *, int, const char *);
 int zfs_error_fmt(libzfs_handle_t *, int, const char *, ...);

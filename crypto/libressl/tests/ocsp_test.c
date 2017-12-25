@@ -8,13 +8,20 @@
 #include <openssl/ssl.h>
 #include <openssl/ocsp.h>
 
-static int tcp_connect(char *host, char *port) {
+static int
+tcp_connect(char *host, char *port)
+{
 	int error, sd = -1;
 	struct addrinfo hints, *res, *r;
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
+
+#ifdef _MSC_VER
+	if (BIO_sock_init() != 1)
+		exit(-1);
+#endif
 
 	error = getaddrinfo(host, port, &hints, &res);
 	if (error != 0) {
@@ -38,7 +45,9 @@ static int tcp_connect(char *host, char *port) {
 	return sd;
 }
 
-int main(int argc, char *argv[]) {
+int
+main(int argc, char *argv[])
+{
 	int sd, ocsp_status;
 	const unsigned char *p;
 	long len;
@@ -131,4 +140,3 @@ int main(int argc, char *argv[]) {
 
 	return 0;
 }
-

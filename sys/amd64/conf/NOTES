@@ -316,7 +316,6 @@ options 	DRM_DEBUG	# Include debug printfs (slow)
 # ixlv:	Intel XL710 40Gbe VF PCIE Ethernet
 # mlx4ib: Mellanox ConnectX HCA InfiniBand
 # mlx4en: Mellanox ConnectX HCA Ethernet
-# mthca: Mellanox HCA InfiniBand
 # nfe:	nVidia nForce MCP on-board Ethernet Networking (BSD open source)
 # sfxge: Solarflare SFC9000 family 10Gb Ethernet adapters
 # vmx:	VMware VMXNET3 Ethernet (BSD open source)
@@ -337,7 +336,6 @@ device		ixlv		# Intel XL710 40Gbe VF PCIE Ethernet
 device  	mlx4		# Shared code module between IB and Ethernet
 device  	mlx4ib		# Mellanox ConnectX HCA InfiniBand
 device  	mlx4en		# Mellanox ConnectX HCA Ethernet
-device  	mthca		# Mellanox HCA InfiniBand
 device		nfe		# nVidia nForce MCP on-board Ethernet
 device		sfxge		# Solarflare SFC9000 10Gb Ethernet
 device		vmx		# VMware VMXNET3 Ethernet
@@ -394,9 +392,14 @@ device		iwn6000g2bfw
 device		iwn6050fw
 device		wpifw
 
-# Intel Non-Transparent Bridge (NTB) hardware
-device		ntb_hw	# Hardware Abstraction Layer for the NTB
-device		if_ntb	# Simulated ethernet device using the NTB
+#
+# Non-Transparent Bridge (NTB) drivers
+#
+device		if_ntb		# Virtual NTB network interface
+device		ntb_transport	# NTB packet transport driver
+device		ntb		# NTB hardware interface
+device		ntb_hw_intel	# Intel NTB hardware driver
+device		ntb_hw_plx	# PLX NTB hardware driver
 
 #
 #XXX this stores pointers in a 32bit field that is defined by the hardware
@@ -413,7 +416,6 @@ device		arcmsr		# Areca SATA II RAID
 # The driver is implemented as a SIM, and so, needs the CAM infrastructure.
 #
 options 	TWA_DEBUG		# 0-10; 10 prints the most messages.
-options 	TWA_FLASH_FIRMWARE	# firmware image bundled when defined.
 device		twa			# 3ware 9000 series PATA/SATA RAID
 
 #
@@ -582,6 +584,11 @@ device		cpuctl
 # System Management Bus (SMB)
 #
 options 	ENABLE_ALART		# Control alarm on Intel intpm driver
+
+#
+# AMD System Management Network (SMN)
+#
+device		amdsmn
 
 #
 # Number of initial kernel page table pages used for early bootstrap.

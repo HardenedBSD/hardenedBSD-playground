@@ -6,7 +6,6 @@
 # XXX MISSING:		icheck ncheck
 
 SUBDIR=adjkerntz \
-	badsect \
 	camcontrol \
 	clri \
 	comcontrol \
@@ -92,8 +91,6 @@ SUBDIR.${MK_ZFS}+=	zfsbootcfg
 SUBDIR.${MK_TESTS}+=	tests
 
 .include <bsd.arch.inc.mk>
-
-SUBDIR:=	${SUBDIR:O}
 
 SUBDIR_PARALLEL=
 

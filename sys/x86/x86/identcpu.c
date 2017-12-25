@@ -91,7 +91,9 @@ u_int	cpu_feature;		/* Feature flags */
 u_int	cpu_feature2;		/* Feature flags */
 u_int	amd_feature;		/* AMD feature flags */
 u_int	amd_feature2;		/* AMD feature flags */
+u_int	amd_rascap;		/* AMD RAS capabilities */
 u_int	amd_pminfo;		/* AMD advanced power management info */
+u_int	amd_extended_feature_extensions;
 u_int	via_feature_rng;	/* VIA RNG features */
 u_int	via_feature_xcrypt;	/* VIA ACE features */
 u_int	cpu_high;		/* Highest arg to CPUID */
@@ -906,7 +908,7 @@ printcpuinfo(void)
 				"\033DBE"	/* Data Breakpoint extension */
 				"\034PTSC"	/* Performance TSC */
 				"\035PL2I"	/* L2I perf count */
-		       	        "\036MWAITX"	/* MONITORX/MWAITX instructions */
+				"\036MWAITX"	/* MONITORX/MWAITX instructions */
 				"\037<b30>"
 				"\040<b31>"
 				);
@@ -961,6 +963,7 @@ printcpuinfo(void)
 				       "\035AVX512CD"
 				       "\036SHA"
 				       "\037AVX512BW"
+				       "\040AVX512VL"
 				       );
 			}
 
@@ -989,6 +992,16 @@ printcpuinfo(void)
 					    "\003XINUSE"
 					    "\004XSAVES");
 				}
+			}
+
+			if (amd_extended_feature_extensions != 0) {
+				printf("\n  "
+				    "AMD Extended Feature Extensions ID EBX="
+				    "0x%b", amd_extended_feature_extensions,
+				    "\020"
+				    "\001CLZERO"
+				    "\002IRPerf"
+				    "\003XSaveErPtr");
 			}
 
 			if (via_feature_rng != 0 || via_feature_xcrypt != 0)
@@ -1252,7 +1265,7 @@ static const char *const vm_pnames[] = {
 	NULL
 };
 
-static void
+void
 identify_hypervisor(void)
 {
 	u_int regs[4];
@@ -1282,6 +1295,8 @@ identify_hypervisor(void)
 				vm_guest = VM_GUEST_HV;
 			else if (strcmp(hv_vendor, "KVMKVMKVM") == 0)
 				vm_guest = VM_GUEST_KVM;
+			else if (strcmp(hv_vendor, "bhyve bhyve") == 0)
+				vm_guest = VM_GUEST_BHYVE;
 		}
 		return;
 	}
@@ -1370,23 +1385,12 @@ fix_cpuid(void)
 	return (false);
 }
 
-/*
- * Final stage of CPU identification.
- */
-#ifdef __i386__
-void
-finishidentcpu(void)
-#else
+#ifdef __amd64__
 void
 identify_cpu(void)
-#endif
 {
-	u_int regs[4], cpu_stdext_disable;
-#ifdef __i386__
-	u_char ccr3;
-#endif
+	u_int regs[4];
 
-#ifdef __amd64__
 	do_cpuid(0, regs);
 	cpu_high = regs[0];
 	((u_int *)&cpu_vendor)[0] = regs[1];
@@ -1399,9 +1403,20 @@ identify_cpu(void)
 	cpu_procinfo = regs[1];
 	cpu_feature = regs[3];
 	cpu_feature2 = regs[2];
+}
 #endif
 
-	identify_hypervisor();
+/*
+ * Final stage of CPU identification.
+ */
+void
+finishidentcpu(void)
+{
+	u_int regs[4], cpu_stdext_disable;
+#ifdef __i386__
+	u_char ccr3;
+#endif
+
 	cpu_vendor_id = find_cpu_vendor_id();
 
 	if (fix_cpuid()) {
@@ -1421,18 +1436,15 @@ identify_cpu(void)
 		cpu_stdext_feature = regs[1];
 
 		/*
-		 * Some hypervisors fail to filter out unsupported
-		 * extended features.  For now, disable the
+		 * Some hypervisors failed to filter out unsupported
+		 * extended features.  Allow to disable the
 		 * extensions, activation of which requires setting a
 		 * bit in CR4, and which VM monitors do not support.
 		 */
-		if (cpu_feature2 & CPUID2_HV) {
-			cpu_stdext_disable = CPUID_STDEXT_FSGSBASE |
-			    CPUID_STDEXT_SMEP;
-		} else
-			cpu_stdext_disable = 0;
+		cpu_stdext_disable = 0;
 		TUNABLE_INT_FETCH("hw.cpu_stdext_disable", &cpu_stdext_disable);
 		cpu_stdext_feature &= ~cpu_stdext_disable;
+
 		cpu_stdext_feature2 = regs[2];
 	}
 
@@ -1462,11 +1474,13 @@ identify_cpu(void)
 	}
 	if (cpu_exthigh >= 0x80000007) {
 		do_cpuid(0x80000007, regs);
+		amd_rascap = regs[1];
 		amd_pminfo = regs[3];
 	}
 	if (cpu_exthigh >= 0x80000008) {
 		do_cpuid(0x80000008, regs);
 		cpu_maxphyaddr = regs[0] & 0xff;
+		amd_extended_feature_extensions = regs[1];
 		cpu_procinfo2 = regs[2];
 	} else {
 		cpu_maxphyaddr = (cpu_feature & CPUID_PAE) != 0 ? 36 : 32;
@@ -2151,9 +2165,27 @@ print_svm_info(void)
 	       "\011<b8>"
 	       "\012<b9>"
 	       "\013PauseFilter"	/* PAUSE intercept filter */    
-	       "\014<b11>"
+	       "\014EncryptedMcodePatch"
 	       "\015PauseFilterThreshold" /* PAUSE filter threshold */
 	       "\016AVIC"		/* virtual interrupt controller */
+	       "\017<b14>"
+	       "\020V_VMSAVE_VMLOAD"
+	       "\021vGIF"
+	       "\022<b17>"
+	       "\023<b18>"
+	       "\024<b19>"
+	       "\025<b20>"
+	       "\026<b21>"
+	       "\027<b22>"
+	       "\030<b23>"
+	       "\031<b24>"
+	       "\032<b25>"
+	       "\033<b26>"
+	       "\034<b27>"
+	       "\035<b28>"
+	       "\036<b29>"
+	       "\037<b30>"
+	       "\040<b31>"
                 );
 	printf("\nRevision=%d, ASIDs=%d", regs[0] & 0xff, regs[1]);
 }

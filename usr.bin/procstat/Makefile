@@ -1,5 +1,7 @@
 # $FreeBSD$
 
+.include <src.opts.mk>
+
 PROG=	procstat
 MAN=	procstat.1
 SRCS=	procstat.c		\
@@ -19,5 +21,8 @@ SRCS=	procstat.c		\
 	procstat_vm.c
 
 LIBADD+=	procstat xo util sbuf
+
+HAS_TESTS=
+SUBDIR.${MK_TESTS}+= tests
 
 .include <bsd.prog.mk>

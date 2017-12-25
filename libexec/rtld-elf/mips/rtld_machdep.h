@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 1999, 2000 John D. Polstra.
  * All rights reserved.
  *
@@ -66,11 +68,6 @@ typedef struct {
 #define calculate_tls_offset(prev_offset, prev_size, size, align) \
     round(prev_offset + prev_size, align)
 #define calculate_tls_end(off, size)    ((off) + (size))
-
-/*
- * Lazy binding entry point, called via PLT.
- */
-void _rtld_bind_start(void);
 
 extern void *__tls_get_addr(tls_index *ti);
 

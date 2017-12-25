@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1982, 1986, 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  * (c) UNIX System Laboratories, Inc.
@@ -390,10 +392,9 @@ static int devpoll_run = 0;
  */
 /* ARGSUSED*/
 static void
-initclocks(dummy)
-	void *dummy;
+initclocks(void *dummy)
 {
-	register int i;
+	int i;
 
 	/*
 	 * Set divisors to 1 (normal case) and let the machine-specific
@@ -572,7 +573,9 @@ hardclock_cnt(int cnt, int usermode)
 void
 hardclock_sync(int cpu)
 {
-	int	*t = DPCPU_ID_PTR(cpu, pcputicks);
+	int *t;
+	KASSERT(!CPU_ABSENT(cpu), ("Absent CPU %d", cpu));
+	t = DPCPU_ID_PTR(cpu, pcputicks);
 
 	*t = ticks;
 }
@@ -581,11 +584,10 @@ hardclock_sync(int cpu)
  * Compute number of ticks in the specified amount of time.
  */
 int
-tvtohz(tv)
-	struct timeval *tv;
+tvtohz(struct timeval *tv)
 {
-	register unsigned long ticks;
-	register long sec, usec;
+	unsigned long ticks;
+	long sec, usec;
 
 	/*
 	 * If the number of usecs in the whole seconds part of the time
@@ -642,8 +644,7 @@ tvtohz(tv)
  * keeps the profile clock running constantly.
  */
 void
-startprofclock(p)
-	register struct proc *p;
+startprofclock(struct proc *p)
 {
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
@@ -662,8 +663,7 @@ startprofclock(p)
  * Stop profiling on a process.
  */
 void
-stopprofclock(p)
-	register struct proc *p;
+stopprofclock(struct proc *p)
 {
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);

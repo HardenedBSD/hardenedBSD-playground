@@ -84,7 +84,7 @@ CFLAGS+= -DWITHOUT_BZIP2
 .endif
 
 .if ${MK_GNU_GREP_COMPAT} != "no"
-CFLAGS+= -I${DESTDIR}/usr/include/gnu -DWITH_GNU
+CFLAGS+= -I${SYSROOT:U${DESTDIR}}/usr/include/gnu -DWITH_GNU
 LIBADD+=	gnuregex
 .endif
 
@@ -94,8 +94,7 @@ LIBADD+=	gnuregex
 CFLAGS+= -DWITHOUT_NLS
 .endif
 
-.if ${MK_TESTS} != "no"
-SUBDIR+=	tests
-.endif
+HAS_TESTS=
+SUBDIR.${MK_TESTS}+= tests
 
 .include <bsd.prog.mk>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: bs_cbb.c,v 1.12 2015/06/18 23:25:07 doug Exp $	*/
+/*	$OpenBSD: bs_cbb.c,v 1.17 2017/08/12 02:50:05 jsing Exp $	*/
 /*
  * Copyright (c) 2014, Google Inc.
  *
@@ -21,6 +21,8 @@
 #include <openssl/opensslconf.h>
 
 #include "bytestring.h"
+
+#define CBB_INITIAL_SIZE 64
 
 static int
 cbb_init(CBB *cbb, uint8_t *buf, size_t cap)
@@ -49,10 +51,11 @@ CBB_init(CBB *cbb, size_t initial_capacity)
 
 	memset(cbb, 0, sizeof(*cbb));
 
-	if (initial_capacity > 0) {
-		if ((buf = malloc(initial_capacity)) == NULL)
-			return 0;
-	}
+	if (initial_capacity == 0)
+		initial_capacity = CBB_INITIAL_SIZE;
+
+	if ((buf = malloc(initial_capacity)) == NULL)
+		return 0;
 
 	if (!cbb_init(cbb, buf, initial_capacity)) {
 		free(buf);
@@ -80,11 +83,11 @@ CBB_cleanup(CBB *cbb)
 {
 	if (cbb->base) {
 		if (cbb->base->can_resize)
-			free(cbb->base->buf);
-
+			freezero(cbb->base->buf, cbb->base->cap);
 		free(cbb->base);
 	}
 	cbb->base = NULL;
+	cbb->child = NULL;
 }
 
 static int
@@ -110,7 +113,7 @@ cbb_buffer_add(struct cbb_buffer_st *base, uint8_t **out, size_t len)
 		if (newcap < base->cap || newcap < newlen)
 			newcap = newlen;
 
-		newbuf = realloc(base->buf, newcap);
+		newbuf = recallocarray(base->buf, base->cap, newcap, 1);
 		if (newbuf == NULL)
 			return 0;
 

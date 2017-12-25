@@ -1,6 +1,8 @@
 /*	$NetBSD: mcontext.h,v 1.4 2003/10/08 22:43:01 thorpej Exp $	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ *
  * Copyright (c) 2001, 2002 The NetBSD Foundation, Inc.
  * All rights reserved.
  *
@@ -78,7 +80,7 @@ typedef struct {
 	 * Originally, rest of this structure was named __fpu, 35 * 4 bytes
 	 * long, never accessed from kernel. 
 	 */
-	size_t		mc_vfp_size;
+	__size_t	mc_vfp_size;
 	void 		*mc_vfp_ptr;
 	unsigned int	mc_spare[33];
 } mcontext_t;

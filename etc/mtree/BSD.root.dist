@@ -30,8 +30,6 @@
         ..
         bluetooth
         ..
-        casper
-        ..
         cron.d
         ..
         defaults
@@ -96,6 +94,8 @@
     media
     ..
     mnt
+    ..
+    net
     ..
     proc            mode=0555
     ..

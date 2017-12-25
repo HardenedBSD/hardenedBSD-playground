@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1990 The Regents of the University of California.
  * All rights reserved.
  *
@@ -263,9 +265,9 @@ in_cksum_skip(m, len, skip)
 	int len;
 	int skip;
 {
-	register u_short *w;
-	register unsigned sum = 0;
-	register int mlen = 0;
+	u_short *w;
+	unsigned sum = 0;
+	int mlen = 0;
 	int byte_swapped = 0;
 	union { char	c[2]; u_short	s; } su;
 

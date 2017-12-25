@@ -147,17 +147,17 @@ options 	BOOTHOWTO=RB_MULTIPLE
 
 options 	GEOM_AES		# Don't use, use GEOM_BDE
 options 	GEOM_BDE		# Disk encryption.
-options 	GEOM_BSD		# BSD disklabels
+options 	GEOM_BSD		# BSD disklabels (obsolete, gone in 12)
 options 	GEOM_CACHE		# Disk cache.
 options 	GEOM_CONCAT		# Disk concatenation.
 options 	GEOM_ELI		# Disk encryption.
-options 	GEOM_FOX		# Redundant path mitigation
+options 	GEOM_FOX		# Redundant path mitigation (obsolete, gone in 12)
 options 	GEOM_GATE		# Userland services.
 options 	GEOM_JOURNAL		# Journaling.
 options 	GEOM_LABEL		# Providers labelization.
 options 	GEOM_LINUX_LVM		# Linux LVM2 volumes
 options 	GEOM_MAP		# Map based partitioning
-options 	GEOM_MBR		# DOS/MBR partitioning
+options 	GEOM_MBR		# DOS/MBR partitioning (obsolete, gone in 12)
 options 	GEOM_MIRROR		# Disk mirroring.
 options 	GEOM_MULTIPATH		# Disk multipath
 options 	GEOM_NOP		# Test class.
@@ -174,11 +174,11 @@ options 	GEOM_RAID		# Soft RAID functionality.
 options 	GEOM_RAID3		# RAID3 functionality.
 options 	GEOM_SHSEC		# Shared secret.
 options 	GEOM_STRIPE		# Disk striping.
-options 	GEOM_SUNLABEL		# Sun/Solaris partitioning
+options 	GEOM_SUNLABEL		# Sun/Solaris partitioning (obsolete, gone in 12)
 options 	GEOM_UZIP		# Read-only compressed disks
 options 	GEOM_VINUM		# Vinum logical volume manager
 options 	GEOM_VIRSTOR		# Virtual storage.
-options 	GEOM_VOL		# Volume names from UFS superblock
+options 	GEOM_VOL		# Volume names from UFS superblock (obsolete, gone in 12)
 options 	GEOM_ZERO		# Performance testing helper.
 
 #
@@ -302,7 +302,7 @@ options 	SX_NOINLINE
 # TURNSTILE_PROFILING enables rudimentary profiling of the hash table
 #	  used to hold active lock queues.
 # UMTX_PROFILING enables rudimentary profiling of the hash table used 
-	  to hold active lock queues.
+#	  to hold active lock queues.
 # WITNESS enables the witness code which detects deadlocks and cycles
 #         during locking operations.
 # WITNESS_KDB causes the witness code to drop into the kernel debugger if
@@ -646,9 +646,6 @@ options 	LIBMCHAIN
 # libalias library, performing NAT
 options 	LIBALIAS
 
-# flowtable cache
-options 	FLOWTABLE
-
 #
 # SCTP is a NEW transport protocol defined by
 # RFC2960 updated by RFC3309 and RFC3758.. and
@@ -677,21 +674,6 @@ options 	SCTP
 # bits and prints.. which makes the code run
 # faster.. if you are not debugging don't use.
 options 	SCTP_DEBUG
-#
-# This option turns off the CRC32c checksum. Basically,
-# you will not be able to talk to anyone else who
-# has not done this. Its more for experimentation to
-# see how much CPU the CRC32c really takes. Most new
-# cards for TCP support checksum offload.. so this 
-# option gives you a "view" into what SCTP would be
-# like with such an offload (which only exists in
-# high in iSCSI boards so far). With the new
-# splitting 8's algorithm its not as bad as it used
-# to be.. but it does speed things up try only
-# for in a captured lab environment :-)
-options 	SCTP_WITH_NO_CSUM
-#
-
 #
 # All that options after that turn on specific types of
 # logging. You can monitor CWND growth, flight size
@@ -805,8 +787,8 @@ options 	NGATM_CCATM
 device		mn	# Munich32x/Falc54 Nx64kbit/sec cards.
 
 # Network stack virtualization.
-#options	VIMAGE
-#options	VNET_DEBUG	# debug for VIMAGE
+options	VIMAGE
+options	VNET_DEBUG	# debug for VIMAGE
 
 #
 # Network interfaces:
@@ -1118,6 +1100,9 @@ options 	MD_ROOT_SIZE=10
 # Make the md device a potential root device, either with preloaded
 # images of type mfs_root or md_root.
 options 	MD_ROOT
+
+# Write-protect the md root device so that it may not be mounted writeable.
+options 	MD_ROOT_READONLY
 
 # Disk quotas are supported when this option is enabled.
 options 	QUOTA			#enable disk quotas
@@ -1987,6 +1972,7 @@ device		xmphy		# XaQti XMAC II
 # lge:	Support for PCI gigabit ethernet adapters based on the Level 1
 #	LXT1001 NetCellerator chipset. This includes the D-Link DGE-500SX,
 #	SMC TigerCard 1000 (SMC9462SX), and some Addtron cards.
+# lio:  Support for Cavium 23XX Ethernet adapters
 # malo: Marvell Libertas wireless NICs.
 # mwl:  Marvell 88W8363 802.11n wireless NICs.
 #	Requires the mwl firmware module
@@ -2211,8 +2197,6 @@ device		rtwnfw
 # detect a mismatch is ti(4).
 options 	MCLSHIFT=12	# mbuf cluster shift in bits, 12 == 4KB
 options 	MSIZE=512	# mbuf size in bytes
-
-options 	LIBMBPOOL
 
 #
 # Sound drivers
@@ -2526,15 +2510,14 @@ device		iicoc		# OpenCores I2C controller support
 
 # I2C peripheral devices
 #
-# ds133x	Dallas Semiconductor DS1337, DS1338 and DS1339 RTC
-# ds1374	Dallas Semiconductor DS1374 RTC
-# ds1672	Dallas Semiconductor DS1672 RTC
-# s35390a	Seiko Instruments S-35390A RTC
-#
-device		ds133x
-device		ds1374
-device		ds1672
-device		s35390a
+device		ds1307		# Dallas DS1307 RTC and compatible
+device		ds13rtc		# All Dallas/Maxim ds13xx chips
+device		ds1672		# Dallas DS1672 RTC
+device		ds3231		# Dallas DS3231 RTC + temperature
+device		icee		# AT24Cxxx and compatible EEPROMs
+device		lm75		# LM75 compatible temperature sensor
+device		nxprtc		# NXP RTCs: PCA/PFC212x PCA/PCF85xx
+device		s35390a		# Seiko Instruments S-35390A RTC
 
 # Parallel-Port Bus
 #
@@ -2627,8 +2610,7 @@ options 	DEADLKRES
 # it back on at run-time.
 #
 # This is sometimes usable for systems which don't have any swap space
-# (see also sysctls "vm.defer_swapspace_pageouts" and
-# "vm.disable_swapspace_pageouts")
+# (see also sysctl "vm.disable_swapspace_pageouts")
 #
 #options 	NO_SWAPPING
 
@@ -2849,6 +2831,8 @@ device		cryptodev	# /dev/crypto for access to h/w
 
 device		rndtest		# FIPS 140-2 entropy tester
 
+device		ccr		# Chelsio T6
+
 device		hifn		# Hifn 7951, 7781, etc.
 options 	HIFN_DEBUG	# enable debugging support: hw.hifn.debug
 options 	HIFN_RNDTEST	# enable rndtest support
@@ -3024,6 +3008,9 @@ options 	GZIO
 
 # PAX and HardenedBSD related knobs
 options 	PAX		# Enable the PAX framework
+options 	PAX_CONTROL_ACL	# PaX MAC framework, required for secadm
+options 	PAX_CONTROL_ACL_OVERRIDE_SUPPORT # Allow to override hbsdcontrol settings with ACLs
+options 	PAX_CONTROL_EXTATTR # extattr based control framework for hbsdcontrol
 options 	PAX_ASLR	# Address Space Layout Randomization
 options 	PAX_HARDENING	# Other hardening features
 options 	PAX_NOEXEC	# Remove WX pages from user-space and enforce W^X

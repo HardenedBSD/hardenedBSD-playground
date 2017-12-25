@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2009 Oleksandr Tymoshenko
  * All rights reserved.
  *
@@ -383,8 +385,8 @@ platform_start(__register_t a0 __unused, __register_t a1 __unused,
 	phys_avail[0] = MIPS_KSEG0_TO_PHYS(kernel_kseg0_end);
 	phys_avail[1] = ctob(realmem);
 
-	dump_avail[0] = phys_avail[0];
-	dump_avail[1] = phys_avail[1] - phys_avail[0];
+	dump_avail[0] = 0;
+	dump_avail[1] = phys_avail[1];
 
 	physmem = realmem;
 

@@ -69,6 +69,7 @@ __FBSDID("$FreeBSD$");
 #include "gic_v3_reg.h"
 #include "gic_v3_var.h"
 
+static bus_get_domain_t gic_v3_get_domain;
 static bus_read_ivar_t gic_v3_read_ivar;
 
 static pic_disable_intr_t gic_v3_disable_intr;
@@ -97,6 +98,7 @@ static device_method_t gic_v3_methods[] = {
 	DEVMETHOD(device_detach,	gic_v3_detach),
 
 	/* Bus interface */
+	DEVMETHOD(bus_get_domain,	gic_v3_get_domain),
 	DEVMETHOD(bus_read_ivar,	gic_v3_read_ivar),
 
 	/* Interrupt controller interface */
@@ -341,12 +343,25 @@ gic_v3_detach(device_t dev)
 	for (rid = 0; rid < (sc->gic_redists.nregions + 1); rid++)
 		bus_release_resource(dev, SYS_RES_MEMORY, rid, sc->gic_res[rid]);
 
-	for (i = 0; i < mp_ncpus; i++)
+	for (i = 0; i <= mp_maxid; i++)
 		free(sc->gic_redists.pcpu[i], M_GIC_V3);
 
 	free(sc->gic_res, M_GIC_V3);
 	free(sc->gic_redists.regions, M_GIC_V3);
 
+	return (0);
+}
+
+static int
+gic_v3_get_domain(device_t dev, device_t child, int *domain)
+{
+	struct gic_v3_devinfo *di;
+
+	di = device_get_ivars(child);
+	if (di->gic_domain < 0)
+		return (ENOENT);
+
+	*domain = di->gic_domain;
 	return (0);
 }
 
@@ -359,7 +374,7 @@ gic_v3_read_ivar(device_t dev, device_t child, int which, uintptr_t *result)
 
 	switch (which) {
 	case GICV3_IVAR_NIRQS:
-		*result = sc->gic_nirqs;
+		*result = (NIRQ - sc->gic_nirqs) / sc->gic_nchildren;
 		return (0);
 	case GICV3_IVAR_REDIST_VADDR:
 		*result = (uintptr_t)rman_get_virtual(
@@ -393,9 +408,7 @@ arm_gic_v3_intr(void *arg)
 	struct intr_pic *pic;
 	uint64_t active_irq;
 	struct trapframe *tf;
-	bool first;
 
-	first = true;
 	pic = sc->gic_pic;
 
 	while (1) {
@@ -880,7 +893,7 @@ gic_v3_ipi_send(device_t dev, struct intr_irqsrc *isrc, cpuset_t cpus,
 	val = 0;
 
 	/* Iterate through all CPUs in set */
-	for (i = 0; i < mp_ncpus; i++) {
+	for (i = 0; i <= mp_maxid; i++) {
 		/* Move to the next affinity group */
 		if (aff != GIC_AFFINITY(i)) {
 			/* Send the IPI */
@@ -1088,7 +1101,7 @@ gic_v3_redist_alloc(struct gic_v3_softc *sc)
 	u_int cpuid;
 
 	/* Allocate struct resource for all CPU's Re-Distributor registers */
-	for (cpuid = 0; cpuid < mp_ncpus; cpuid++)
+	for (cpuid = 0; cpuid <= mp_maxid; cpuid++)
 		if (CPU_ISSET(cpuid, &all_cpus) != 0)
 			sc->gic_redists.pcpu[cpuid] =
 				malloc(sizeof(*sc->gic_redists.pcpu[0]),

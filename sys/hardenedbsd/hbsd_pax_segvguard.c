@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2006 Elad Efrat <elad@NetBSD.org>
- * Copyright (c) 2013-2015, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
+ * Copyright (c) 2013-2017, by Oliver Pinter <oliver.pinter@hardenedbsd.org>
  * Copyright (c) 2014, by Shawn Webb <shawn.webb@hardenedbsd.org>
  * Copyright (c) 2014, by Danilo Egea Gondolfo <danilo at FreeBSD.org>
  * All rights reserved.
@@ -548,10 +548,16 @@ pax_segvguard_sysinit(void)
 		pax_segvguard_status = PAX_FEATURE_FORCE_ENABLED;
 		break;
 	}
-	printf("[HBSD SEGVGUARD] status: %s\n", pax_status_str[pax_segvguard_status]);
-	printf("[HBSD SEGVGUARD] expiry: %d sec\n", pax_segvguard_expiry);
-	printf("[HBSD SEGVGUARD] suspension: %d sec\n", pax_segvguard_suspension);
-	printf("[HBSD SEGVGUARD] maxcrashes: %d\n", pax_segvguard_maxcrashes);
+	if (bootverbose) {
+		printf("[HBSD SEGVGUARD] status: %s\n",
+		    pax_status_str[pax_segvguard_status]);
+		printf("[HBSD SEGVGUARD] expiry: %d sec\n",
+		    pax_segvguard_expiry);
+		printf("[HBSD SEGVGUARD] suspension: %d sec\n",
+		    pax_segvguard_suspension);
+		printf("[HBSD SEGVGUARD] maxcrashes: %d\n",
+		    pax_segvguard_maxcrashes);
+	}
 
 	pax_segvguard_hashtbl =
 		malloc(pax_segvguard_hashsize * sizeof(struct pax_segvguard_entryhead),
@@ -562,3 +568,18 @@ pax_segvguard_sysinit(void)
 }
 
 SYSINIT(pax_segvguard_init, SI_SUB_PAX, SI_ORDER_ANY, pax_segvguard_sysinit, NULL);
+
+int
+pax_segvguard_validate_flags(int flags)
+{
+
+	switch (flags) {
+	case PAX_FEATURE_DISABLED:
+	case PAX_FEATURE_OPTIN:
+	case PAX_FEATURE_OPTOUT:
+	case PAX_FEATURE_FORCE_ENABLED:
+		return (flags);
+	default:
+		return (PAX_FEATURE_FORCE_ENABLED);
+	}
+}

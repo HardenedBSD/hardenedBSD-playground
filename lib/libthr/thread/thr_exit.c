@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1995-1998 John Birrell <jb@cimlogic.com.au>
  * All rights reserved.
  *
@@ -46,8 +48,6 @@ __FBSDID("$FreeBSD$");
 #include "libc_private.h"
 #include "thr_private.h"
 
-void	_pthread_exit(void *status);
-
 static void	exit_thread(void) __dead2;
 
 __weak_reference(_pthread_exit, pthread_exit);
@@ -72,7 +72,7 @@ static void
 thread_uw_init(void)
 {
 	static int inited = 0;
-	Dl_info dlinfo;
+	Dl_info dli;
 	void *handle;
 	void *forcedunwind, *getcfa;
 
@@ -80,12 +80,12 @@ thread_uw_init(void)
 	    return;
 	handle = RTLD_DEFAULT;
 	if ((forcedunwind = dlsym(handle, "_Unwind_ForcedUnwind")) != NULL) {
-	    if (dladdr(forcedunwind, &dlinfo)) {
+	    if (dladdr(forcedunwind, &dli)) {
 		/*
 		 * Make sure the address is always valid by holding the library,
 		 * also assume functions are in same library.
 		 */
-		if ((handle = dlopen(dlinfo.dli_fname, RTLD_LAZY)) != NULL) {
+		if ((handle = dlopen(dli.dli_fname, RTLD_LAZY)) != NULL) {
 		    forcedunwind = dlsym(handle, "_Unwind_ForcedUnwind");
 		    getcfa = dlsym(handle, "_Unwind_GetCFA");
 		    if (forcedunwind != NULL && getcfa != NULL) {
@@ -119,7 +119,8 @@ _Unwind_GetCFA(struct _Unwind_Context *context)
 #endif /* PIC */
 
 static void
-thread_unwind_cleanup(_Unwind_Reason_Code code, struct _Unwind_Exception *e)
+thread_unwind_cleanup(_Unwind_Reason_Code code __unused,
+    struct _Unwind_Exception *e __unused)
 {
 	/*
 	 * Specification said that _Unwind_Resume should not be used here,
@@ -130,10 +131,10 @@ thread_unwind_cleanup(_Unwind_Reason_Code code, struct _Unwind_Exception *e)
 }
 
 static _Unwind_Reason_Code
-thread_unwind_stop(int version, _Unwind_Action actions,
-	int64_t exc_class,
-	struct _Unwind_Exception *exc_obj,
-	struct _Unwind_Context *context, void *stop_parameter)
+thread_unwind_stop(int version __unused, _Unwind_Action actions,
+	int64_t exc_class __unused,
+	struct _Unwind_Exception *exc_obj __unused,
+	struct _Unwind_Context *context, void *stop_parameter __unused)
 {
 	struct pthread *curthread = _get_curthread();
 	struct pthread_cleanup *cur;

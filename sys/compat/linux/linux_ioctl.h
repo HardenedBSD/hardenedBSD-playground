@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1999 Marcel Moolenaar
  * All rights reserved.
  *
@@ -198,7 +200,7 @@
 #define	LINUX_VT_SETMODE	0x5602
 #define	LINUX_VT_GETSTATE	0x5603
 #define	LINUX_VT_RELDISP	0x5605
-#define	LINUX_VT_ACTIVATE	0x5606  
+#define	LINUX_VT_ACTIVATE	0x5606
 #define	LINUX_VT_WAITACTIVE	0x5607
 
 #define	LINUX_IOCTL_CONSOLE_MIN	LINUX_KIOCSOUND

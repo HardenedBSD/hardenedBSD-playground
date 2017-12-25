@@ -44,6 +44,10 @@
 #
 # DESTDIR	The tree where the module gets installed. [not set]
 #
+# KERNBUILDDIR
+#		Set to the location of the kernel build directory where
+#		the opt_*.h files, .o's and kernel winds up.
+#
 # +++ targets +++
 #
 # 	install:
@@ -124,6 +128,10 @@ CFLAGS.gcc+= --param large-function-growth=1000
 # somewhere unexpected, allocate storage for them in the module itself.
 CFLAGS+=	-fno-common
 LDFLAGS+=	-d -warn-common
+
+.if defined(LINKER_FEATURES) && ${LINKER_FEATURES:Mbuild-id}
+LDFLAGS+=	-Wl,--build-id=sha1
+.endif
 
 CFLAGS+=	${DEBUG_FLAGS}
 .if ${MACHINE_CPUARCH} == amd64
@@ -209,18 +217,8 @@ ${PROG}.debug: ${FULLPROG}
 
 .if ${__KLD_SHARED} == yes
 ${FULLPROG}: ${KMOD}.kld
-.if ${MACHINE_CPUARCH} != "aarch64"
-	${LD} -m ${LD_EMULATION} -Bshareable ${_LDFLAGS} -o ${.TARGET} \
-	    ${KMOD}.kld
-.else
-#XXXKIB Relocatable linking in aarch64 ld from binutils 2.25.1 does
-#       not work.  The linker corrupts the references to the external
-#       symbols which are defined by other object in the linking set
-#       and should therefore loose the GOT entry.  The problem seems
-#       to be fixed in the binutils-gdb git HEAD as of 2015-10-04.  Hack
-#       below allows to get partially functioning modules for now.
-	${LD} -m ${LD_EMULATION} -Bshareable ${_LDFLAGS} -o ${.TARGET} ${OBJS}
-.endif
+	${LD} -m ${LD_EMULATION} -Bshareable -znotext ${_LDFLAGS} \
+	    -o ${.TARGET} ${KMOD}.kld
 .if !defined(DEBUG_FLAGS)
 	${OBJCOPY} --strip-debug ${.TARGET}
 .endif
@@ -252,6 +250,10 @@ ${FULLPROG}: ${OBJS}
 	${AWK} -f ${SYSDIR}/conf/kmod_syms.awk ${.TARGET} \
 	    export_syms | xargs -J% ${OBJCOPY} % ${.TARGET}
 .endif
+.endif
+.if defined(PREFIX_SYMS)
+	${AWK} -v prefix=${PREFIX_SYMS} -f ${SYSDIR}/conf/kmod_syms_prefix.awk \
+	    ${.TARGET} /dev/null | xargs -J% ${OBJCOPY} % ${.TARGET}
 .endif
 .if !defined(DEBUG_FLAGS) && ${__KLD_SHARED} == no
 	${OBJCOPY} --strip-debug ${.TARGET}
@@ -368,7 +370,7 @@ ${_src}:
 .endif
 
 # Respect configuration-specific C flags.
-CFLAGS+=	${CONF_CFLAGS}
+CFLAGS+=	${ARCH_FLAGS} ${CONF_CFLAGS}
 
 .if !empty(SRCS:Mvnode_if.c)
 CLEANFILES+=	vnode_if.c
@@ -466,9 +468,6 @@ genassym.o: ${SRCS:Mopt_*.h}
 	${CC} -c ${CFLAGS:N-flto:N-fno-common} \
 	    ${SYSDIR}/${MACHINE}/${MACHINE}/genassym.c
 .endif
-
-lint: ${SRCS}
-	${LINT} ${LINTKERNFLAGS} ${CFLAGS:M-[DILU]*} ${.ALLSRC:M*.c}
 
 .if defined(KERNBUILDDIR)
 ${OBJS}: opt_global.h

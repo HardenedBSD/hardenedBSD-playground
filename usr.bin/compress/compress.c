@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1992, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -129,7 +131,7 @@ main(int argc, char *argv[])
 		exit (eval);
 	}
 
-	if (cat == 1 && argc > 1)
+	if (cat == 1 && style == COMPRESS && argc > 1)
 		errx(1, "the -c option permits only a single file argument");
 
 	for (; *argv; ++argv)
