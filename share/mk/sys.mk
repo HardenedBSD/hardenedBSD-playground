@@ -179,7 +179,7 @@ CC		?=	cc
 .if ${MACHINE_CPUARCH} == "arm" || ${MACHINE_CPUARCH} == "mips"
 CFLAGS		?=	-O -pipe
 .else
-CFLAGS		?=	-O2 -pipe
+CFLAGS		?=	-O1 -pipe
 .endif
 .if defined(NO_STRICT_ALIASING)
 CFLAGS		+=	-fno-strict-aliasing

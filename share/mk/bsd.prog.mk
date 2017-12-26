@@ -116,8 +116,8 @@ NOASAN=	yes
 
 .if !defined(NOASAN) && defined(MK_ASAN)
 .if ${MK_ASAN} != "no"
-CFLAGS+=	-fsanitize=address -fno-omit-frame-pointer
-CXXFLAGS+=	-fsanitize=address -fno-omit-frame-pointer
+CFLAGS+=	-fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls
+CXXFLAGS+=	-fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls
 .if ${MK_ASAN_RECOVER} != "no"
 CFLAGS+=	-fsanitize-recover=address
 CXXFLAGS+=	-fsanitize-recover=address

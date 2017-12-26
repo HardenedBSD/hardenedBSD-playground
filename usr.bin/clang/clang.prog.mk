@@ -21,5 +21,6 @@ LIBADD+=	ncursesw
 LIBADD+=	pthread
 
 NOCFI=		yes
+NOASAN=		yes
 
 .include <bsd.prog.mk>
