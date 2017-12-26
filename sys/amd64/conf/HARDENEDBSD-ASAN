@@ -97,6 +97,8 @@ options 	PAX_HARDENING		# Various hardening options
 options 	PAX_SEGVGUARD		# prevent brute-force attacks
 options 	HBSD_DEBUG
 options		HBSD_ASAN
+options 	PAX_ASLR_DELTA_STACK_DEF_LEN=18
+options 	PAX_ASLR_DELTA_VDSO_DEF_LEN=10
 
 # Debugging support.  Always need this:
 options 	KDB			# Enable kernel debugger support.
