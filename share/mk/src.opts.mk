@@ -48,6 +48,8 @@ __DEFAULT_YES_OPTIONS = \
     ACPI \
     AMD \
     APM \
+    ASAN \
+    ASAN_RECOVER \
     AT \
     ATM \
     AUDIT \
@@ -177,8 +179,6 @@ __DEFAULT_YES_OPTIONS = \
     ZONEINFO
 
 __DEFAULT_NO_OPTIONS = \
-    ASAN \
-    ASAN_RECOVER \
     BSD_GREP \
     BSD_GREP_FASTMATCH \
     DEVD_PIE \
