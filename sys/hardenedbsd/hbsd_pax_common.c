@@ -45,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/ktr.h>
 #include <sys/libkern.h>
 #include <sys/mman.h>
+#include <sys/mount.h>
 #include <sys/pax.h>
 #include <sys/proc.h>
 #include <sys/stat.h>
@@ -81,6 +82,11 @@ CTASSERT(PAX_NOTE_NOSHLIBRANDOM == PAX_HARDENING_NOSHLIBRANDOM);
 
 SYSCTL_NODE(_hardening, OID_AUTO, pax, CTLFLAG_RD, 0,
     "PaX (exploit mitigation) features.");
+
+#ifdef PAX_JAIL_SUPPORT
+SYSCTL_JAIL_PARAM_NODE(hardening, "HardenedBSD features.");
+SYSCTL_JAIL_PARAM_SUBNODE(hardening, pax, "PaX (exploit mitigation) features");
+#endif
 
 #if defined(PAX_CONTROL_ACL) || defined(PAX_CONTROL_EXTATTR)
 SYSCTL_NODE(_hardening, OID_AUTO, control, CTLFLAG_RD, 0,
@@ -384,24 +390,58 @@ SYSINIT(pax, SI_SUB_PAX, SI_ORDER_FIRST, pax_sysinit, NULL);
  * The child prisons state initialized with it's parent's state.
  *
  * @param pr		Initializable prison's pointer.
+ * @param opts		Jail parameter list.
  *
- * @return		none
+ * @return		true if initialization finished.
  */
-void
-pax_init_prison(struct prison *pr)
+bool
+pax_init_prison(struct prison *pr, struct vfsoptlist *opts)
 {
+	bool ret;
 
 	CTR2(KTR_PAX, "%s: Setting prison %s PaX variables\n",
 	    __func__, pr->pr_name);
 
-	pax_aslr_init_prison(pr);
-	pax_hardening_init_prison(pr);
-	pax_noexec_init_prison(pr);
-	pax_segvguard_init_prison(pr);
+	if (pax_aslr_init_prison(pr, opts) != 0) {
+		ret = false;
+		goto out;
+	}
+
+	if (pax_hardening_init_prison(pr, opts) != 0) {
+		ret = false;
+		goto out;
+	}
+
+	if (pax_noexec_init_prison(pr, opts) != 0) {
+		ret = false;
+		goto out;
+	}
+
+	if (pax_segvguard_init_prison(pr, opts) != 0) {
+		ret = false;
+		goto out;
+	}
+
 #ifdef COMPAT_FREEBSD32
-	pax_aslr_init_prison32(pr);
+	if (pax_aslr_init_prison32(pr, opts) != 0) {
+		ret = false;
+		goto out;
+	}
 #endif
-	pax_log_init_prison(pr);
+
+	if (pax_log_init_prison(pr, opts) != 0) {
+		ret = false;
+		goto out;
+	}
+
+	/* Every initialization finished w/o error. */
+	ret = true;
+
+out:
+	KASSERT((pr == &prison0 && ret == true) || pr != &prison0,
+	    ("Unexpected error during prison0 initialization."));
+
+	return (ret);
 }
 
 /*
@@ -414,4 +454,72 @@ pax_print_hbsd_context(void)
 	printf("__HardenedBSD_version = %"PRIu64" __FreeBSD_version = %"PRIu64"\n",
 	    (uint64_t)__HardenedBSD_version, (uint64_t)__FreeBSD_version);
 	printf("version = %s", version);
+}
+
+/*
+ * Function to validate PaX feature states.
+ * Always returns a proper state in state parameter.
+ * Additionally return "true" when the validation passed,
+ * but return "false" when a the validation failed.
+ */
+bool
+pax_feature_validate_state(pax_state_t *state)
+{
+
+	switch (*state) {
+	case PAX_FEATURE_DISABLED:
+	case PAX_FEATURE_OPTIN:
+	case PAX_FEATURE_OPTOUT:
+	case PAX_FEATURE_FORCE_ENABLED:
+		return (true);
+	default:
+		*state = PAX_FEATURE_FORCE_ENABLED;
+	}
+
+	return (false);
+}
+
+/*
+ * Function to validate PaX simple feature states.
+ * Always returns a proper state in state parameter.
+ * Additionally return "true" when the validation passed,
+ * but return "false" when a the validation failed.
+ */
+bool
+pax_feature_simple_validate_state(pax_state_t *state)
+{
+
+	switch (*state) {
+	case PAX_FEATURE_SIMPLE_DISABLED:
+	case PAX_FEATURE_SIMPLE_ENABLED:
+		return (true);
+	default:
+		*state = PAX_FEATURE_SIMPLE_ENABLED;
+	}
+
+	return (false);
+}
+
+int
+pax_handle_prison_param(struct vfsoptlist *opts, const char *mib, pax_state_t *status)
+{
+#ifdef PAX_JAIL_SUPPORT
+	pax_state_t new_state;
+	int error;
+
+	error = vfs_copyopt(opts, mib, &new_state, sizeof(new_state));
+	switch (error) {
+		case ENOENT:
+			/* use system default */
+			break;
+		case 0:
+			if (pax_feature_validate_state(&new_state))
+				*status = new_state;
+			break;
+		default:
+			return (error);
+	}
+#endif /* PAX_JAIL_SUPPORT */
+
+	return (0);
 }
