@@ -1,4 +1,4 @@
-//===-- LegalizeVectorOps.cpp - Implement SelectionDAG::LegalizeVectors ---===//
+//===- LegalizeVectorOps.cpp - Implement SelectionDAG::LegalizeVectors ----===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -27,15 +27,36 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/CodeGen/ISDOpcodes.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
+#include "llvm/CodeGen/MachineValueType.h"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/Target/TargetLowering.h"
+#include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/CodeGen/TargetLowering.h"
+#include "llvm/CodeGen/ValueTypes.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
+#include <cassert>
+#include <cstdint>
+#include <iterator>
+#include <utility>
+
 using namespace llvm;
 
+#define DEBUG_TYPE "legalizevectorops"
+
 namespace {
+
 class VectorLegalizer {
   SelectionDAG& DAG;
   const TargetLowering &TLI;
-  bool Changed; // Keep track of whether anything changed
+  bool Changed = false; // Keep track of whether anything changed
 
   /// For nodes that are of legal width, and that have more than one use, this
   /// map indicates what regularized operand to use.  This allows us to avoid
@@ -128,11 +149,14 @@ class VectorLegalizer {
   SDValue PromoteFP_TO_INT(SDValue Op, bool isSigned);
 
 public:
+  VectorLegalizer(SelectionDAG& dag) :
+      DAG(dag), TLI(dag.getTargetLoweringInfo()) {}
+
   /// \brief Begin legalizer the vector operations in the DAG.
   bool Run();
-  VectorLegalizer(SelectionDAG& dag) :
-      DAG(dag), TLI(dag.getTargetLoweringInfo()), Changed(false) {}
 };
+
+} // end anonymous namespace
 
 bool VectorLegalizer::Run() {
   // Before we start legalizing vector nodes, check if there are any vectors.
@@ -204,7 +228,8 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
   if (Op.getOpcode() == ISD::LOAD) {
     LoadSDNode *LD = cast<LoadSDNode>(Op.getNode());
     ISD::LoadExtType ExtType = LD->getExtensionType();
-    if (LD->getMemoryVT().isVector() && ExtType != ISD::NON_EXTLOAD)
+    if (LD->getMemoryVT().isVector() && ExtType != ISD::NON_EXTLOAD) {
+      DEBUG(dbgs() << "\nLegalizing extending vector load: "; Node->dump(&DAG));
       switch (TLI.getLoadExtAction(LD->getExtensionType(), LD->getValueType(0),
                                    LD->getMemoryVT())) {
       default: llvm_unreachable("This action is not supported yet!");
@@ -230,11 +255,14 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
         Changed = true;
         return LegalizeOp(ExpandLoad(Op));
       }
+    }
   } else if (Op.getOpcode() == ISD::STORE) {
     StoreSDNode *ST = cast<StoreSDNode>(Op.getNode());
     EVT StVT = ST->getMemoryVT();
     MVT ValVT = ST->getValue().getSimpleValueType();
-    if (StVT.isVector() && ST->isTruncatingStore())
+    if (StVT.isVector() && ST->isTruncatingStore()) {
+      DEBUG(dbgs() << "\nLegalizing truncating vector store: ";
+            Node->dump(&DAG));
       switch (TLI.getTruncStoreAction(ValVT, StVT)) {
       default: llvm_unreachable("This action is not supported yet!");
       case TargetLowering::Legal:
@@ -248,6 +276,7 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
         Changed = true;
         return LegalizeOp(ExpandStore(Op));
       }
+    }
   } else if (Op.getOpcode() == ISD::MSCATTER || Op.getOpcode() == ISD::MSTORE)
     HasVectorValue = true;
 
@@ -354,6 +383,8 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
     break;
   }
 
+  DEBUG(dbgs() << "\nLegalizing vector op: "; Node->dump(&DAG));
+
   switch (TLI.getOperationAction(Node->getOpcode(), QueryType)) {
   default: llvm_unreachable("This action is not supported yet!");
   case TargetLowering::Promote:
@@ -361,12 +392,16 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
     Changed = true;
     break;
   case TargetLowering::Legal:
+    DEBUG(dbgs() << "Legal node: nothing to do\n");
     break;
   case TargetLowering::Custom: {
+    DEBUG(dbgs() << "Trying custom legalization\n");
     if (SDValue Tmp1 = TLI.LowerOperation(Op, DAG)) {
+      DEBUG(dbgs() << "Successfully custom legalized node\n");
       Result = Tmp1;
       break;
     }
+    DEBUG(dbgs() << "Could not custom legalize node\n");
     LLVM_FALLTHROUGH;
   }
   case TargetLowering::Expand:
@@ -475,10 +510,10 @@ SDValue VectorLegalizer::PromoteFP_TO_INT(SDValue Op, bool isSigned) {
          "Can't promote a vector with multiple results!");
   EVT VT = Op.getValueType();
 
-  EVT NewVT;
+  EVT NewVT = VT;
   unsigned NewOpc;
-  while (1) {
-    NewVT = VT.widenIntegerVectorElementType(*DAG.getContext());
+  while (true) {
+    NewVT = NewVT.widenIntegerVectorElementType(*DAG.getContext());
     assert(NewVT.isSimple() && "Promoting to a non-simple vector type!");
     if (TLI.isOperationLegalOrCustom(ISD::FP_TO_SINT, NewVT)) {
       NewOpc = ISD::FP_TO_SINT;
@@ -490,11 +525,18 @@ SDValue VectorLegalizer::PromoteFP_TO_INT(SDValue Op, bool isSigned) {
     }
   }
 
-  SDLoc loc(Op);
-  SDValue promoted  = DAG.getNode(NewOpc, SDLoc(Op), NewVT, Op.getOperand(0));
-  return DAG.getNode(ISD::TRUNCATE, SDLoc(Op), VT, promoted);
-}
+  SDLoc dl(Op);
+  SDValue Promoted  = DAG.getNode(NewOpc, dl, NewVT, Op.getOperand(0));
 
+  // Assert that the converted value fits in the original type.  If it doesn't
+  // (eg: because the value being converted is too big), then the result of the
+  // original operation was undefined anyway, so the assert is still correct.
+  Promoted = DAG.getNode(Op->getOpcode() == ISD::FP_TO_UINT ? ISD::AssertZext
+                                                            : ISD::AssertSext,
+                         dl, NewVT, Promoted,
+                         DAG.getValueType(VT.getScalarType()));
+  return DAG.getNode(ISD::TRUNCATE, dl, VT, Promoted);
+}
 
 SDValue VectorLegalizer::ExpandLoad(SDValue Op) {
   LoadSDNode *LD = cast<LoadSDNode>(Op.getNode());
@@ -502,7 +544,6 @@ SDValue VectorLegalizer::ExpandLoad(SDValue Op) {
   EVT SrcVT = LD->getMemoryVT();
   EVT SrcEltVT = SrcVT.getScalarType();
   unsigned NumElem = SrcVT.getVectorNumElements();
-
 
   SDValue NewChain;
   SDValue Value;
@@ -534,7 +575,6 @@ SDValue VectorLegalizer::ExpandLoad(SDValue Op) {
     unsigned Offset = 0;
     unsigned RemainingBytes = SrcVT.getStoreSize();
     SmallVector<SDValue, 8> LoadVals;
-
     while (RemainingBytes > 0) {
       SDValue ScalarLoad;
       unsigned LoadBytes = WideBytes;
@@ -560,9 +600,8 @@ SDValue VectorLegalizer::ExpandLoad(SDValue Op) {
 
       RemainingBytes -= LoadBytes;
       Offset += LoadBytes;
-      BasePTR = DAG.getNode(ISD::ADD, dl, BasePTR.getValueType(), BasePTR,
-                            DAG.getConstant(LoadBytes, dl,
-                                            BasePTR.getValueType()));
+
+      BasePTR = DAG.getObjectPtrOffset(dl, BasePTR, LoadBytes);
 
       LoadVals.push_back(ScalarLoad.getValue(0));
       LoadChains.push_back(ScalarLoad.getValue(1));
@@ -1115,8 +1154,6 @@ SDValue VectorLegalizer::UnrollVSETCC(SDValue Op) {
                            DAG.getConstant(0, dl, EltVT));
   }
   return DAG.getBuildVector(VT, dl, Ops);
-}
-
 }
 
 bool SelectionDAG::LegalizeVectors() {
