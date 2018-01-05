@@ -38,10 +38,8 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
-<<<<<<< HEAD
 # 20171230: Remove /etc/skel from mtree
 OLD_DIRS+=/etc/skel
-=======
 # 2017mmdd: new clang import which bumps version from 5.0.1 to 6.0.0.
 OLD_FILES+=usr/lib/clang/5.0.1/include/sanitizer/allocator_interface.h
 OLD_FILES+=usr/lib/clang/5.0.1/include/sanitizer/asan_interface.h
@@ -159,7 +157,6 @@ OLD_FILES+=usr/lib/clang/5.0.1/lib/freebsd/libclang_rt.ubsan_standalone_cxx-x86_
 OLD_DIRS+=usr/lib/clang/5.0.1/lib/freebsd
 OLD_DIRS+=usr/lib/clang/5.0.1/lib
 OLD_DIRS+=usr/lib/clang/5.0.1
->>>>>>> freebsd/projects/clang600-import
 # 20171208: Remove basename_r(3)
 OLD_FILES+=usr/share/man/man3/basename_r.3.gz
 # 20171204: Move fdformat man page from volume 1 to volume 8.
