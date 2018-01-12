@@ -84,6 +84,13 @@ CTFFLAGS+= -g
 PICFLAG=-fPIC
 .endif
 
+.if defined(MK_RETPOLINE) && ${MK_RETPOLINE} != "no"
+CFLAGS+=	-mretpoline
+.if !defined(NO_PIC)
+LDFLAGS+=	-Wl,-z,retpolineplt
+.endif
+.endif
+
 .if defined(MK_PIE)
 # Ports will not have MK_PIE defined and the following logic requires
 # it be defined.
