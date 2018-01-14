@@ -40,8 +40,13 @@
  * that it originated in supervisor mode and skip the swapgs.
  */
 	SUPERALIGN_TEXT
+IDTVEC(int0x80_syscall_pti)
+	PTI_UENTRY has_err=0
+	jmp	int0x80_syscall_common
+	SUPERALIGN_TEXT
 IDTVEC(int0x80_syscall)
 	swapgs
+int0x80_syscall_common:
 	pushq	$2			/* sizeof "int 0x80" */
 	subq	$TF_ERR,%rsp		/* skip over tf_trapno */
 	movq	%rdi,TF_RDI(%rsp)

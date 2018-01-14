@@ -38,6 +38,7 @@
 
 extern uint64_t	*vm_page_dump;
 extern int	hw_lower_amd64_sharedpage;
+extern int	pti;
 
 struct	savefpu;
 struct	sysentvec;
