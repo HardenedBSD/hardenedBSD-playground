@@ -21,7 +21,7 @@ using namespace lld;
 using namespace lld::elf;
 
 namespace {
-class X86 : public TargetInfo {
+class X86 final : public TargetInfo {
 public:
   X86();
   RelExpr getRelExpr(RelType Type, const Symbol &S,
@@ -399,144 +399,7 @@ void X86::relaxTlsLdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const {
   memcpy(Loc - 2, Inst, sizeof(Inst));
 }
 
-namespace {
-class RetpolinePic : public X86 {
-public:
-  RetpolinePic();
-  void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
-  void writePltHeader(uint8_t *Buf) const override;
-  void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
-                int32_t Index, unsigned RelOff) const override;
-};
-
-class RetpolineNoPic : public X86 {
-public:
-  RetpolineNoPic();
-  void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
-  void writePltHeader(uint8_t *Buf) const override;
-  void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
-                int32_t Index, unsigned RelOff) const override;
-};
-} // namespace
-
-RetpolinePic::RetpolinePic() {
-  PltEntrySize = 32;
-  PltHeaderSize = 32;
-}
-
-void RetpolinePic::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
-  write32le(Buf, S.getPltVA() + 16);
-}
-
-void RetpolinePic::writePltHeader(uint8_t *Buf) const {
-  const uint8_t Insn[] = {
-      0x50,                         //   pushl %eax
-      0x8b, 0x83, 0, 0, 0, 0,       //   mov GOTPLT+8(%ebx), %eax
-      0xe8, 0x04, 0x00, 0x00, 0x00, //   call next
-      0xf3, 0x90,                   // loop: pause
-      0xeb, 0xfc,                   //   jmp loop; .align 16
-      0x89, 0x0c, 0x24,             // next: mov %ecx, (%esp)
-      0x8b, 0x4c, 0x24, 0x04,       //   mov 0x4(%esp), %ecx
-      0x89, 0x44, 0x24, 0x04,       //   mov %eax ,0x4(%esp)
-      0x89, 0xc8,                   //   mov %ecx, %eax
-      0x59,                         //   pop %ecx
-      0xc3,                         //   ret
-  };
-  memcpy(Buf, Insn, sizeof(Insn));
-
-  uint32_t Ebx = InX::Got->getVA() + InX::Got->getSize();
-  uint32_t GotPlt = InX::GotPlt->getVA() - Ebx;
-  write32le(Buf + 3, GotPlt + 8);
-}
-
-void RetpolinePic::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
-                            uint64_t PltEntryAddr, int32_t Index,
-                            unsigned RelOff) const {
-  const uint8_t Insn[] = {
-      0x50,                   //   pushl %eax
-      0x8b, 0x83, 0, 0, 0, 0, //   mov foo@GOT(%ebx), %eax
-      0xe8, 0, 0, 0, 0,       //   call plt+16
-      0xf3, 0x90,             // loop: pause
-      0xeb, 0xfc,             //   jmp loop; .align 16
-      0x68, 0, 0, 0, 0,       //   pushl $reloc_offset
-      0xff, 0xb3, 0, 0, 0, 0, //   pushl GOTPLT+4(%ebx)
-      0xe9, 0, 0, 0, 0,       //   jmp plt[0]
-  };
-  memcpy(Buf, Insn, sizeof(Insn));
-
-  uint32_t Ebx = InX::Got->getVA() + InX::Got->getSize();
-  uint32_t GotPlt = InX::GotPlt->getVA() - Ebx;
-  write32le(Buf + 3, GotPltEntryAddr - Ebx);
-  write32le(Buf + 8, -Index * PltEntrySize - PltHeaderSize + 4);
-  write32le(Buf + 17, RelOff);
-  write32le(Buf + 23, GotPlt + 4);
-  write32le(Buf + 28, -Index * PltEntrySize - PltHeaderSize - 32);
-}
-
-RetpolineNoPic::RetpolineNoPic() {
-  PltEntrySize = 32;
-  PltHeaderSize = 32;
-}
-
-void RetpolineNoPic::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
-  write32le(Buf, S.getPltVA() + 16);
-}
-
-void RetpolineNoPic::writePltHeader(uint8_t *Buf) const {
-  const uint8_t PltData[] = {
-      0x50,                         //   pushl %eax
-      0xa1, 0, 0, 0, 0,             //   mov GOTPLT+8, %eax
-      0xe8, 0x05, 0x00, 0x00, 0x00, //   call next
-      0xf3, 0x90,                   // loop: pause
-      0xeb, 0xfc,                   //   jmp loop
-      0xcc,                         //   int3; .align 16
-      0x89, 0x0c, 0x24,             // next:  mov %ecx, (%esp)
-      0x8b, 0x4c, 0x24, 0x04,       //   mov 0x4(%esp), %ecx
-      0x89, 0x44, 0x24, 0x04,       //   mov %eax ,0x4(%esp)
-      0x89, 0xc8,                   //   mov %ecx, %eax
-      0x59,                         //   pop %ecx
-      0xc3,                         //   ret
-  };
-  memcpy(Buf, PltData, sizeof(PltData));
-
-  uint32_t GotPlt = InX::GotPlt->getVA();
-  write32le(Buf + 2, GotPlt + 8);
-}
-
-void RetpolineNoPic::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
-                              uint64_t PltEntryAddr, int32_t Index,
-                              unsigned RelOff) const {
-  const uint8_t Insn[] = {
-      0x50,                   //   pushl %eax
-      0xa1, 0, 0, 0, 0,       //   mov foo_in_GOT, %eax
-      0xe8, 0, 0, 0, 0,       //   call plt+16
-      0xf3, 0x90,             // loop: pause
-      0xeb, 0xfc,             //   jmp loop
-      0xcc,                   //   int3; .align 16
-      0x68, 0, 0, 0, 0,       //   pushl $reloc_offset
-      0xff, 0x35, 0, 0, 0, 0, //   pushl (GOTPLT+4)
-      0xe9, 0, 0, 0, 0,       //   jmp plt[0]
-  };
-  memcpy(Buf, Insn, sizeof(Insn));
-
-  uint32_t GotPlt = InX::GotPlt->getVA();
-  write32le(Buf + 2, GotPltEntryAddr);
-  write32le(Buf + 7, -Index * PltEntrySize - PltHeaderSize - 11 + 16);
-  write32le(Buf + 17, RelOff);
-  write32le(Buf + 23, GotPlt + 4);
-  write32le(Buf + 28, -Index * PltEntrySize - PltHeaderSize - 32);
-}
-
 TargetInfo *elf::getX86TargetInfo() {
-  if (Config->ZRetpolineplt) {
-    if (Config->Pic) {
-      static RetpolinePic T;
-      return &T;
-    }
-    static RetpolineNoPic T;
-    return &T;
-  }
-
-  static X86 T;
-  return &T;
+  static X86 Target;
+  return &Target;
 }

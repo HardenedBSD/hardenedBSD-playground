@@ -416,10 +416,6 @@ protected:
   /// immediately before machine code is emitted.
   virtual void addPreEmitPass() { }
 
-  /// This pass may be implemented by targets that want to run passes
-  /// that emit MI directly and bypass all other machine passes.
-  virtual void addEmitPass() {}
-
   /// Utilities for targets to add passes to the pass manager.
   ///
 
