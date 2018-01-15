@@ -23,7 +23,7 @@ using namespace lld;
 using namespace lld::elf;
 
 namespace {
-template <class ELFT> class X86_64 final : public TargetInfo {
+template <class ELFT> class X86_64 : public TargetInfo {
 public:
   X86_64();
   RelExpr getRelExpr(RelType Type, const Symbol &S,
@@ -460,12 +460,116 @@ void X86_64<ELFT>::relaxGot(uint8_t *Loc, uint64_t Val) const {
   write32le(Loc - 1, Val + 1);
 }
 
-TargetInfo *elf::getX32TargetInfo() {
-  static X86_64<ELF32LE> Target;
-  return &Target;
+namespace {
+template <class ELFT> class Retpoline : public X86_64<ELFT> {
+public:
+  Retpoline();
+  void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
+  void writePltHeader(uint8_t *Buf) const override;
+  void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
+                int32_t Index, unsigned RelOff) const override;
+};
+
+template <class ELFT> class RetpolineZNow : public X86_64<ELFT> {
+public:
+  void writeGotPlt(uint8_t *Buf, const Symbol &S) const override {}
+  void writePltHeader(uint8_t *Buf) const override;
+  void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
+                int32_t Index, unsigned RelOff) const override;
+};
+} // namespace
+
+template <class ELFT> Retpoline<ELFT>::Retpoline() {
+  TargetInfo::PltEntrySize = 32;
+  TargetInfo::PltHeaderSize = 32;
 }
 
-TargetInfo *elf::getX86_64TargetInfo() {
-  static X86_64<ELF64LE> Target;
-  return &Target;
+template <class ELFT>
+void Retpoline<ELFT>::writeGotPlt(uint8_t *Buf, const Symbol &S) const {
+  write32le(Buf, S.getPltVA() + 16);
 }
+
+template <class ELFT> void Retpoline<ELFT>::writePltHeader(uint8_t *Buf) const {
+  const uint8_t Insn[] = {
+      0x4c, 0x8b, 0x1d, 0,    0,    0, 0, //   mov GOTPLT+16(%rip), %r11
+      0xe8, 0x04, 0x00, 0x00, 0x00,       //   callq next
+      0xf3, 0x90,                         // loop: pause
+      0xeb, 0xfc,                         //   jmp loop; .align 16
+      0x4c, 0x89, 0x1c, 0x24,             // next: mov %r11, (%rsp)
+      0xc3,                               //   ret
+  };
+  memcpy(Buf, Insn, sizeof(Insn));
+
+  uint64_t GotPlt = InX::GotPlt->getVA();
+  uint64_t Plt = InX::Plt->getVA();
+  write32le(Buf + 3, GotPlt - Plt + 16 - 7);
+}
+
+template <class ELFT>
+void Retpoline<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
+                               uint64_t PltEntryAddr, int32_t Index,
+                               unsigned RelOff) const {
+  const uint8_t Insn[] = {
+      0x4c, 0x8b, 0x1d, 0, 0, 0, 0, //   mov foo@GOTPLT(%rip), %r11
+      0xe8, 0,    0,    0, 0,       //   callq plt+16
+      0xf3, 0x90,                   // loop: pause
+      0xeb, 0xfc,                   //   jmp loop; .align 16
+      0x68, 0,    0,    0, 0,       //   pushq <relocation index>
+      0xff, 0x35, 0,    0, 0, 0,    //   pushq GOTPLT+8(%rip)
+      0xe9, 0,    0,    0, 0,       //   jmpq plt[0]
+  };
+  memcpy(Buf, Insn, sizeof(Insn));
+
+  uint64_t GotPlt = InX::GotPlt->getVA();
+  uint64_t Plt = InX::Plt->getVA();
+  uint64_t Off = TargetInfo::PltHeaderSize + TargetInfo::PltEntrySize * Index;
+
+  write32le(Buf + 3, GotPltEntryAddr - PltEntryAddr - 7);
+  write32le(Buf + 8, -Off - 12 + 16);
+  write32le(Buf + 17, Index);
+  write32le(Buf + 23, GotPlt - Plt - Off + 8 - 27);
+  write32le(Buf + 28, -Off - 32);
+}
+
+template <class ELFT>
+void RetpolineZNow<ELFT>::writePltHeader(uint8_t *Buf) const {
+  const uint8_t Insn[] = {
+      0x4c, 0x89, 0x1c, 0x24, // mov %r11, (%rsp)
+      0xc3,                   // ret
+  };
+  memcpy(Buf, Insn, sizeof(Insn));
+}
+
+template <class ELFT>
+void RetpolineZNow<ELFT>::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
+                                   uint64_t PltEntryAddr, int32_t Index,
+                                   unsigned RelOff) const {
+  const uint8_t Insn[] = {
+      0x4c, 0x8b, 0x1d, 0, 0, 0, 0, //   mov foo@GOTPLT(%rip), %r11
+      0xe8, 0,    0,    0, 0,       //   call plt[0]
+      0xf3, 0x90,                   // loop: pause
+      0xeb, 0xfc,                   //   jmp loop
+  };
+  memcpy(Buf, Insn, sizeof(Insn));
+
+  write32le(Buf + 3, GotPltEntryAddr - PltEntryAddr - 7);
+  write32le(Buf + 8,
+            -Index * TargetInfo::PltEntrySize - TargetInfo::PltHeaderSize - 12);
+}
+
+template <class ELFT> TargetInfo *getTargetInfo() {
+  if (Config->ZRetpolineplt) {
+    if (Config->ZNow) {
+      static RetpolineZNow<ELFT> T;
+      return &T;
+    }
+    static Retpoline<ELFT> T;
+    return &T;
+  }
+
+  static X86_64<ELFT> T;
+  return &T;
+}
+
+TargetInfo *elf::getX32TargetInfo() { return getTargetInfo<ELF32LE>(); }
+TargetInfo *elf::getX86_64TargetInfo() { return getTargetInfo<ELF64LE>(); }
