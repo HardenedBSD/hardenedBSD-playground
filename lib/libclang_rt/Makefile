@@ -11,11 +11,7 @@ SUBDIR+=	include
 SUBDIR+=	asan
 SUBDIR+=	asan-preinit
 SUBDIR+=	asan_cxx
-<<<<<<< HEAD
-=======
 SUBDIR+=	asan_dynamic
-SUBDIR+=	safestack
->>>>>>> origin/hardened/current/master
 SUBDIR+=	stats
 SUBDIR+=	stats_client
 .if ${MACHINE_CPUARCH} == "amd64"
