@@ -65,9 +65,6 @@ __FBSDID("$FreeBSD$");
 
 #include <security/audit/audit.h>
 
-static void user_ldt_deref(struct proc_ldt *pldt);
-static void user_ldt_derefl(struct proc_ldt *pldt);
-
 #define	MAX_LD		8192
 
 int max_ldt_segment = 512;
@@ -85,6 +82,8 @@ max_ldt_segment_init(void *arg __unused)
 		max_ldt_segment = MAX_LD;
 }
 SYSINIT(maxldt, SI_SUB_VM_CONF, SI_ORDER_ANY, max_ldt_segment_init, NULL);
+
+static void user_ldt_derefl(struct proc_ldt *pldt);
 
 #ifndef _SYS_SYSPROTO_H_
 struct sysarch_args {
@@ -362,9 +361,7 @@ amd64_set_ioperm(td, uap)
 	pcb = td->td_pcb;
 	if (pcb->pcb_tssp == NULL) {
 		tssp = (struct amd64tss *)kmem_malloc(kernel_arena,
-		    ctob(IOPAGES + 1), M_WAITOK);
-		pmap_pti_add_kva((vm_offset_t)tssp, (vm_offset_t)tssp +
-		    ctob(IOPAGES + 1), false);
+		    ctob(IOPAGES+1), M_WAITOK);
 		iomap = (char *)&tssp[1];
 		memset(iomap, 0xff, IOPERM_BITMAP_SIZE);
 		critical_enter();
@@ -453,8 +450,6 @@ user_ldt_alloc(struct proc *p, int force)
 	struct proc_ldt *pldt, *new_ldt;
 	struct mdproc *mdp;
 	struct soft_segment_descriptor sldt;
-	vm_offset_t sva;
-	vm_size_t sz;
 
 	mtx_assert(&dt_lock, MA_OWNED);
 	mdp = &p->p_md;
@@ -462,13 +457,13 @@ user_ldt_alloc(struct proc *p, int force)
 		return (mdp->md_ldt);
 	mtx_unlock(&dt_lock);
 	new_ldt = malloc(sizeof(struct proc_ldt), M_SUBPROC, M_WAITOK);
-	sz = max_ldt_segment * sizeof(struct user_segment_descriptor);
-	sva = kmem_malloc(kernel_arena, sz, M_WAITOK | M_ZERO);
-	new_ldt->ldt_base = (caddr_t)sva;
-	pmap_pti_add_kva(sva, sva + sz, false);
+	new_ldt->ldt_base = (caddr_t)kmem_malloc(kernel_arena,
+	     max_ldt_segment * sizeof(struct user_segment_descriptor),
+	     M_WAITOK | M_ZERO);
 	new_ldt->ldt_refcnt = 1;
-	sldt.ssd_base = sva;
-	sldt.ssd_limit = sz - 1;
+	sldt.ssd_base = (uint64_t)new_ldt->ldt_base;
+	sldt.ssd_limit = max_ldt_segment *
+	    sizeof(struct user_segment_descriptor) - 1;
 	sldt.ssd_type = SDT_SYSLDT;
 	sldt.ssd_dpl = SEL_KPL;
 	sldt.ssd_p = 1;
@@ -478,8 +473,8 @@ user_ldt_alloc(struct proc *p, int force)
 	mtx_lock(&dt_lock);
 	pldt = mdp->md_ldt;
 	if (pldt != NULL && !force) {
-		pmap_pti_remove_kva(sva, sva + sz);
-		kmem_free(kernel_arena, sva, sz);
+		kmem_free(kernel_arena, (vm_offset_t)new_ldt->ldt_base,
+		    max_ldt_segment * sizeof(struct user_segment_descriptor));
 		free(new_ldt, M_SUBPROC);
 		return (pldt);
 	}
@@ -526,19 +521,15 @@ user_ldt_free(struct thread *td)
 static void
 user_ldt_derefl(struct proc_ldt *pldt)
 {
-	vm_offset_t sva;
-	vm_size_t sz;
 
 	if (--pldt->ldt_refcnt == 0) {
-		sva = (vm_offset_t)pldt->ldt_base;
-		sz = max_ldt_segment * sizeof(struct user_segment_descriptor);
-		pmap_pti_remove_kva(sva, sva + sz);
-		kmem_free(kernel_arena, sva, sz);
+		kmem_free(kernel_arena, (vm_offset_t)pldt->ldt_base,
+		    max_ldt_segment * sizeof(struct user_segment_descriptor));
 		free(pldt, M_SUBPROC);
 	}
 }
 
-static void
+void
 user_ldt_deref(struct proc_ldt *pldt)
 {
 
