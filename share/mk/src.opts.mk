@@ -121,13 +121,6 @@ __DEFAULT_YES_OPTIONS = \
     LIBPTHREAD \
     LIBRESSL \
     LIBTHR \
-<<<<<<< HEAD
-    LLVM_AR_IS_AR \
-    LLVM_NM_IS_NM \
-    LLVM_OBJDUMP_IS_OBJDUMP \
-    LOADER_GELI \
-=======
->>>>>>> upstream/hardened/current/master
     LOCALES \
     LOCATE \
     LPR \
