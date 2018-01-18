@@ -1104,7 +1104,7 @@ nicvf_init_snd_queue(struct nicvf *nic, struct snd_queue *sq, int q_len,
 	}
 
 	/* Allocate send buffers array */
-	sq->snd_buff = malloc(sizeof(*sq->snd_buff) * q_len, M_NICVF,
+	sq->snd_buff = mallocarray(q_len, sizeof(*sq->snd_buff), M_NICVF,
 	    (M_NOWAIT | M_ZERO));
 	if (sq->snd_buff == NULL) {
 		device_printf(nic->dev,
@@ -1714,13 +1714,12 @@ nicvf_sq_disable(struct nicvf *nic, int qidx)
 static void
 nicvf_sq_free_used_descs(struct nicvf *nic, struct snd_queue *sq, int qidx)
 {
-	uint64_t head, tail;
+	uint64_t head;
 	struct snd_buff *snd_buff;
 	struct sq_hdr_subdesc *hdr;
 
 	NICVF_TX_LOCK(sq);
 	head = nicvf_queue_reg_read(nic, NIC_QSET_SQ_0_7_HEAD, qidx) >> 4;
-	tail = nicvf_queue_reg_read(nic, NIC_QSET_SQ_0_7_TAIL, qidx) >> 4;
 	while (sq->head != head) {
 		hdr = (struct sq_hdr_subdesc *)GET_SQ_DESC(sq, sq->head);
 		if (hdr->subdesc_type != SQ_DESC_TYPE_HEADER) {

@@ -40,7 +40,6 @@ exclude EXFAIL common/misc/tst.include.ksh
 exclude EXFAIL common/safety/tst.copyin2.d
 exclude EXFAIL common/safety/tst.msgdsize.d
 exclude EXFAIL common/safety/tst.msgsize.d
-exclude EXFAIL common/safety/tst.zonename.d
 exclude EXFAIL common/scalars/tst.misc.d
 exclude EXFAIL common/scalars/tst.selfarray2.d
 exclude EXFAIL common/sched/tst.enqueue.d
@@ -165,6 +164,9 @@ exclude EXFAIL common/vars/tst.ucaller.ksh
 # These rely on process attributes that FreeBSD doesn't carry.
 exclude EXFAIL common/scripting/tst.projid.ksh
 exclude EXFAIL common/scripting/tst.taskid.ksh
+
+# Depends on tst.chasestrings.exe being ELF32. See r326181 and r326285.
+exclude EXFAIL common/uctf/err.user64mode.ksh
 
 # This test expects its test program to be installed without CTF data, but
 # the rest of the programs for this feature need CTF data. Not yet sure how

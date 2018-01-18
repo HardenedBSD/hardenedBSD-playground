@@ -76,6 +76,7 @@ nvme_sim_nvmeio_done(void *ccb_arg, const struct nvme_completion *cpl)
 	 * it means. Make our best guess, though for the status code.
 	 */
 	memcpy(&ccb->nvmeio.cpl, cpl, sizeof(*cpl));
+	ccb->ccb_h.status &= ~CAM_SIM_QUEUED;
 	if (nvme_completion_is_error(cpl)) {
 		ccb->ccb_h.status = CAM_REQ_CMP_ERR;
 		xpt_done(ccb);
@@ -114,6 +115,7 @@ nvme_sim_nvmeio(struct cam_sim *sim, union ccb *ccb)
 		xpt_done(ccb);
 		return;
 	}
+	ccb->ccb_h.status |= CAM_SIM_QUEUED;
 
 	memcpy(&req->cmd, &ccb->nvmeio.cmd, sizeof(ccb->nvmeio.cmd));
 
@@ -121,8 +123,6 @@ nvme_sim_nvmeio(struct cam_sim *sim, union ccb *ccb)
 		nvme_ctrlr_submit_io_request(ctrlr, req);
 	else
 		nvme_ctrlr_submit_admin_request(ctrlr, req);
-
-	ccb->ccb_h.status |= CAM_SIM_QUEUED;
 }
 
 static uint32_t
@@ -182,7 +182,8 @@ nvme_sim_action(struct cam_sim *sim, union ccb *ccb)
 		break;
 	case XPT_PATH_INQ:		/* Path routing inquiry */
 	{
-		struct ccb_pathinq *cpi = &ccb->cpi;
+		struct ccb_pathinq	*cpi = &ccb->cpi;
+		device_t		dev = ctrlr->dev;
 
 		/*
 		 * NVMe may have multiple LUNs on the same path. Current generation
@@ -210,6 +211,11 @@ nvme_sim_action(struct cam_sim *sim, union ccb *ccb)
 		cpi->protocol = PROTO_NVME;
 		cpi->protocol_version = nvme_mmio_read_4(ctrlr, vs);
 		cpi->xport_specific.nvme.nsid = ns->id;
+		cpi->xport_specific.nvme.domain = pci_get_domain(dev);
+		cpi->xport_specific.nvme.bus = pci_get_bus(dev);
+		cpi->xport_specific.nvme.slot = pci_get_slot(dev);
+		cpi->xport_specific.nvme.function = pci_get_function(dev);
+		cpi->xport_specific.nvme.extra = 0;
 		cpi->ccb_h.status = CAM_REQ_CMP;
 		break;
 	}

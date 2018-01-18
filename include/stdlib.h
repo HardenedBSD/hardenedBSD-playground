@@ -274,6 +274,7 @@ int	 cgetstr(char *, const char *, char **);
 int	 cgetustr(char *, const char *, char **);
 
 int	 daemon(int, int);
+int	 daemonfd(int, int);
 char	*devname(__dev_t, __mode_t);
 char	*devname_r(__dev_t, __mode_t, char *, int);
 char	*fdevname(int);
@@ -303,7 +304,7 @@ int	 radixsort(const unsigned char **, int, const unsigned char *,
 	    unsigned);
 void	*reallocarray(void *, size_t, size_t) __result_use_check __alloc_size(2)
 	    __alloc_size(3);
-void	*reallocf(void *, size_t) __alloc_size(2);
+void	*reallocf(void *, size_t) __result_use_check __alloc_size(2);
 int	 rpmatch(const char *);
 void	 setprogname(const char *);
 int	 sradixsort(const unsigned char **, int, const unsigned char *,

@@ -247,7 +247,7 @@ SYSCTL_NODE(_hardening_pax_aslr, OID_AUTO, compat, CTLFLAG_RD, 0,
     "Settings for COMPAT_FREEBSD32 and linuxulator.");
 SYSCTL_HBSD_4STATE(pax_aslr_compat_status, pr_hbsd.aslr.compat_status,
     _hardening_pax_aslr_compat, status,
-    CTLTYPE_INT|CTLFLAG_RWTUN|CTLFLAG_PRISON);
+    CTLTYPE_INT|CTLFLAG_RWTUN|CTLFLAG_PRISON|CTLFLAG_SECURE);
 #endif /* COMPAT_FREEBSD32 */
 
 #ifdef MAP_32BIT
@@ -260,6 +260,27 @@ SYSCTL_HBSD_4STATE(pax_disallow_map32bit_status_global, pr_hbsd.aslr.disallow_ma
 
 #endif /* PAX_SYSCTLS */
 
+#ifdef PAX_JAIL_SUPPORT
+SYSCTL_DECL(_security_jail_param_hardening_pax);
+
+SYSCTL_JAIL_PARAM_SUBNODE(hardening_pax, aslr, "ASLR");
+SYSCTL_JAIL_PARAM(_hardening_pax_aslr, status,
+    CTLTYPE_INT | CTLFLAG_RD, "I",
+    "ASLR status");
+#ifdef COMPAT_FREEBSD32
+SYSCTL_JAIL_PARAM_SUBNODE(hardening_pax_aslr, compat, "ASLR (compat)");
+SYSCTL_JAIL_PARAM(_hardening_pax_aslr_compat, status,
+    CTLTYPE_INT | CTLFLAG_RD, "I",
+    "ASLR (compat) status");
+#endif /* COMPAT_FREEBSD32 */
+#ifdef MAP_32BIT
+SYSCTL_JAIL_PARAM_SUBNODE(hardening_pax, disallow_map32bit, "MAP_32BIT");
+SYSCTL_JAIL_PARAM(_hardening_pax_disallow_map32bit, status,
+    CTLTYPE_INT | CTLFLAG_RD, "I",
+    "MAP_32BIT status");
+#endif /* MAP_32BIT */
+#endif /* PAX_JAIL_SUPPORT */
+
 
 /*
  * ASLR functions
@@ -268,18 +289,12 @@ SYSCTL_HBSD_4STATE(pax_disallow_map32bit_status_global, pr_hbsd.aslr.disallow_ma
 static void
 pax_aslr_sysinit(void)
 {
+	pax_state_t old_state;
 
-	switch (pax_aslr_status) {
-	case PAX_FEATURE_DISABLED:
-	case PAX_FEATURE_OPTIN:
-	case PAX_FEATURE_OPTOUT:
-	case PAX_FEATURE_FORCE_ENABLED:
-		break;
-	default:
+	old_state = pax_aslr_status;
+	if (!pax_feature_validate_state(&pax_aslr_status)) {
 		printf("[HBSD ASLR] WARNING, invalid PAX settings in loader.conf!"
-		    " (pax_aslr_status = %d)\n", pax_aslr_status);
-		pax_aslr_status = PAX_FEATURE_FORCE_ENABLED;
-		break;
+		    " (hardening.pax.aslr.status = %d)\n", old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD ASLR] status: %s\n", pax_status_str[pax_aslr_status]);
@@ -294,17 +309,11 @@ pax_aslr_sysinit(void)
 		    pax_aslr_map32bit_len);
 	}
 
-	switch (pax_disallow_map32bit_status_global) {
-	case PAX_FEATURE_DISABLED:
-	case PAX_FEATURE_OPTIN:
-	case PAX_FEATURE_OPTOUT:
-	case PAX_FEATURE_FORCE_ENABLED:
-		break;
-	default:
+	old_state = pax_disallow_map32bit_status_global;
+	if (!pax_feature_validate_state(&pax_disallow_map32bit_status_global)) {
 		printf("[HBSD ASLR] WARNING, invalid settings in loader.conf!"
 		    " (hardening.pax.disallow_map32bit.status = %d)\n",
-		    pax_disallow_map32bit_status_global);
-		pax_disallow_map32bit_status_global = PAX_FEATURE_FORCE_ENABLED;
+		    old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD ASLR] disallow MAP_32BIT mode mmap: %s\n",
@@ -414,18 +423,12 @@ try_again:
 static void
 pax_compat_aslr_sysinit(void)
 {
+	pax_state_t old_state;
 
-	switch (pax_aslr_compat_status) {
-	case PAX_FEATURE_DISABLED:
-	case PAX_FEATURE_OPTIN:
-	case PAX_FEATURE_OPTOUT:
-	case PAX_FEATURE_FORCE_ENABLED:
-		break;
-	default:
+	old_state = pax_aslr_compat_status;
+	if (!pax_feature_validate_state(&pax_aslr_compat_status)) {
 		printf("[HBSD ASLR (compat)] WARNING, invalid PAX settings in loader.conf! "
-		    "(pax_aslr_compat_status = %d)\n", pax_aslr_compat_status);
-		pax_aslr_compat_status = PAX_FEATURE_FORCE_ENABLED;
-		break;
+		    "(hardening.pax.aslr.compat.status = %d)\n", old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD ASLR (compat)] status: %s\n",
@@ -489,10 +492,11 @@ pax_aslr_init(struct image_params *imgp)
 		imgp->sysent->sv_pax_aslr_init(p);
 }
 
-void
-pax_aslr_init_prison(struct prison *pr)
+int
+pax_aslr_init_prison(struct prison *pr, struct vfsoptlist *opts)
 {
 	struct prison *pr_p;
+	int error;
 
 	CTR2(KTR_PAX, "%s: Setting prison %s PaX variables\n",
 	    __func__, pr->pr_name);
@@ -510,18 +514,29 @@ pax_aslr_init_prison(struct prison *pr)
 		pr_p = pr->pr_parent;
 
 		pr->pr_hbsd.aslr.status = pr_p->pr_hbsd.aslr.status;
+		error = pax_handle_prison_param(opts, "hardening.pax.aslr.status",
+		    &pr->pr_hbsd.aslr.status);
+		if (error != 0)
+			return (error);
 #ifdef MAP_32BIT
 		pr->pr_hbsd.aslr.disallow_map32bit_status =
 		    pr_p->pr_hbsd.aslr.disallow_map32bit_status;
-#endif
+		error = pax_handle_prison_param(opts, "hardening.pax.disallow_map32bit.status",
+		    &pr->pr_hbsd.aslr.disallow_map32bit_status);
+		if (error != 0)
+			return (error);
+#endif /* MAP_32BIT */
 	}
+
+	return (0);
 }
 
 #ifdef COMPAT_FREEBSD32
-void
-pax_aslr_init_prison32(struct prison *pr)
+int
+pax_aslr_init_prison32(struct prison *pr, struct vfsoptlist *opts)
 {
 	struct prison *pr_p;
+	int error;
 
 	CTR2(KTR_PAX, "%s: Setting prison %s PaX variables\n",
 	    __func__, pr->pr_name);
@@ -536,7 +551,13 @@ pax_aslr_init_prison32(struct prison *pr)
 		pr_p = pr->pr_parent;
 
 		pr->pr_hbsd.aslr.compat_status = pr_p->pr_hbsd.aslr.compat_status;
+		error = pax_handle_prison_param(opts, "hardening.pax.aslr.compat.status",
+		    &pr->pr_hbsd.aslr.compat_status);
+		if (error != 0)
+			return (error);
 	}
+
+	return (0);
 }
 #endif /* COMPAT_FREEBSD32 */
 

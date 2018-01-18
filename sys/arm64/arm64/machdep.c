@@ -172,6 +172,7 @@ cpu_startup(void *dummy)
 
 	undef_init();
 	identify_cpu();
+	install_cpu_errata();
 
 	vm_ksubmap_init(&kmi);
 	bufinit();
@@ -630,14 +631,13 @@ sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 	struct sigframe *fp, frame;
 	struct sigacts *psp;
 	struct sysentvec *sysent;
-	int code, onstack, sig;
+	int onstack, sig;
 
 	td = curthread;
 	p = td->td_proc;
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 
 	sig = ksi->ksi_signo;
-	code = ksi->ksi_code;
 	psp = p->p_sigacts;
 	mtx_assert(&psp->ps_mtx, MA_OWNED);
 

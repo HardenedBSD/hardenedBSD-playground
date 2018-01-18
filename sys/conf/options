@@ -67,6 +67,8 @@ EARLY_PRINTF	opt_global.h
 TEXTDUMP_PREFERRED	opt_ddb.h
 TEXTDUMP_VERBOSE	opt_ddb.h
 NUM_CORE_FILES	opt_global.h
+TSLOG	opt_global.h
+TSLOGSIZE	opt_global.h
 
 # Miscellaneous options.
 ALQ
@@ -93,7 +95,6 @@ COMPAT_LINUXKPI	opt_compat.h
 COMPILING_LINT	opt_global.h
 CY_PCI_FASTINTR
 DEADLKRES	opt_watchdog.h
-DEVICE_NUMA
 EXT_RESOURCES	opt_global.h
 DIRECTIO
 FILEMON		opt_dontuse.h
@@ -165,6 +166,7 @@ MAC_STUB	opt_dontuse.h
 MAC_TEST	opt_dontuse.h
 MD_ROOT		opt_md.h
 MD_ROOT_FSTYPE	opt_md.h
+MD_ROOT_READONLY	opt_md.h
 MD_ROOT_SIZE	opt_md.h
 MFI_DEBUG	opt_mfi.h
 MFI_DECODE_LOG	opt_mfi.h
@@ -601,7 +603,6 @@ VM_KMEM_SIZE		opt_vm.h
 VM_KMEM_SIZE_SCALE	opt_vm.h
 VM_KMEM_SIZE_MAX	opt_vm.h
 VM_NRESERVLEVEL		opt_vm.h
-VM_NUMA_ALLOC		opt_vm.h
 VM_LEVEL_0_ORDER	opt_vm.h
 NO_SWAPPING		opt_vm.h
 MALLOC_MAKE_FAILURES	opt_vm.h
@@ -617,6 +618,7 @@ DEBUG_REDZONE		opt_vm.h
 # Standard SMP options
 EARLY_AP_STARTUP	opt_global.h
 SMP			opt_global.h
+NUMA			opt_global.h
 
 # Size of the kernel message buffer
 MSGBUF_SIZE		opt_msgbuf.h
@@ -971,8 +973,8 @@ PAX_INSECURE_MODE	opt_pax.h
 PAX_CONTROL_ACL		opt_pax.h
 PAX_CONTROL_ACL_OVERRIDE_SUPPORT	opt_pax.h
 PAX_CONTROL_EXTATTR	opt_pax.h
+PAX_JAIL_SUPPORT	opt_pax.h
 HBSD_DEBUG	opt_pax.h
-HBSD_RANDOM_HIGH_ENTROPY	opt_pax.h
 
 # ASLR overwritable defaults
 PAX_ASLR_DELTA_MMAP_DEF_LEN		opt_pax.h

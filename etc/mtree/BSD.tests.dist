@@ -536,6 +536,8 @@
     usr.bin
         apply
         ..
+        awk
+        ..
         basename
         ..
         bmake
@@ -664,6 +666,8 @@
         ..
         file2c
         ..
+        find
+        ..
         fold
         ..
         getconf
@@ -731,6 +735,8 @@
         uuencode
         ..
         uniq
+        ..
+        vmstat
         ..
         xargs
         ..

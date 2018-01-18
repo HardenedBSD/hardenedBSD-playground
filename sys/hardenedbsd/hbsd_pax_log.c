@@ -35,12 +35,12 @@
 #include <sys/systm.h>
 #include <sys/types.h>
 #include <sys/kernel.h>
-#include <sys/ktr.h>
 #include <sys/imgact.h>
+#include <sys/jail.h>
+#include <sys/ktr.h>
 #include <sys/pax.h>
 #include <sys/proc.h>
 #include <sys/sbuf.h>
-#include <sys/jail.h>
 #include <machine/stdarg.h>
 
 #ifdef DDB
@@ -139,32 +139,38 @@ SYSCTL_HBSD_2STATE(hardening_log_ulog, pr_hbsd.log.ulog, _hardening_log, ulog,
     "log to syslog ");
 #endif
 
+#ifdef PAX_JAIL_SUPPORT
+SYSCTL_DECL(_security_jail_param_hardening);
+
+SYSCTL_JAIL_PARAM_SUBNODE(hardening, log, "Hardening related logging");
+SYSCTL_JAIL_PARAM(_hardening_log, log,
+    CTLTYPE_INT | CTLFLAG_RD, "I",
+   "log to syslog");
+SYSCTL_JAIL_PARAM(_hardening_log, ulog,
+    CTLTYPE_INT | CTLFLAG_RD, "I",
+   "log to syslog");
+#endif
+
 
 static void
 hardening_log_sysinit(void)
 {
-	switch (hardening_log_log) {
-	case PAX_FEATURE_SIMPLE_DISABLED:
-	case PAX_FEATURE_SIMPLE_ENABLED:
-		break;
-	default:
+	pax_state_t old_state;
+
+	old_state = hardening_log_log;
+	if (!pax_feature_simple_validate_state(&hardening_log_log)) {
 		printf("[HBSD LOG] WARNING, invalid settings in loader.conf!"
-		    " (hardening.log.log = %d)\n", hardening_log_log);
-		hardening_log_log = PAX_FEATURE_SIMPLE_ENABLED;
+		    " (hardening.log.log = %d)\n", old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD LOG] logging to system: %s\n",
 		    pax_status_simple_str[hardening_log_log]);
 	}
 
-	switch (hardening_log_ulog) {
-	case PAX_FEATURE_SIMPLE_DISABLED:
-	case PAX_FEATURE_SIMPLE_ENABLED:
-		break;
-	default:
+	old_state = hardening_log_ulog;
+	if (!pax_feature_simple_validate_state(&hardening_log_ulog)) {
 		printf("[HBSD LOG] WARNING, invalid settings in loader.conf!"
-		    " (hardening.log.ulog = %d)\n", hardening_log_ulog);
-		hardening_log_ulog = PAX_FEATURE_SIMPLE_ENABLED;
+		    " (hardening.log.ulog = %d)\n", old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD LOG] logging to user: %s\n",
@@ -173,10 +179,11 @@ hardening_log_sysinit(void)
 }
 SYSINIT(hardening_log, SI_SUB_PAX, SI_ORDER_SECOND, hardening_log_sysinit, NULL);
 
-void
-pax_log_init_prison(struct prison *pr)
+int
+pax_log_init_prison(struct prison *pr, struct vfsoptlist *opts)
 {
 	struct prison *pr_p;
+	int error;
 
 	CTR2(KTR_PAX, "%s: Setting prison %s PaX variables\n",
 	    __func__, pr->pr_name);
@@ -191,8 +198,19 @@ pax_log_init_prison(struct prison *pr)
 		pr_p = pr->pr_parent;
 
 		pr->pr_hbsd.log.log = pr_p->pr_hbsd.log.log;
+		error = pax_handle_prison_param(opts, "hardening.log.log",
+		    &pr->pr_hbsd.log.log);
+		if (error != 0)
+			return (error);
+
 		pr->pr_hbsd.log.ulog = pr_p->pr_hbsd.log.ulog;
+		error = pax_handle_prison_param(opts, "hardening.log.ulog",
+		    &pr->pr_hbsd.log.ulog);
+		if (error != 0)
+			return (error);
 	}
+
+	return (0);
 }
 
 static void

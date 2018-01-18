@@ -62,6 +62,8 @@
 #define	G_MIRROR_DISK_FLAG_HARDCODED		0x0000000000000010ULL
 #define	G_MIRROR_DISK_FLAG_BROKEN		0x0000000000000020ULL
 #define	G_MIRROR_DISK_FLAG_CANDELETE		0x0000000000000040ULL
+
+/* Per-disk flags which are recorded in on-disk metadata. */
 #define	G_MIRROR_DISK_FLAG_MASK		(G_MIRROR_DISK_FLAG_DIRTY |	\
 					 G_MIRROR_DISK_FLAG_SYNCHRONIZING | \
 					 G_MIRROR_DISK_FLAG_FORCE_SYNC | \
@@ -70,6 +72,8 @@
 
 #define	G_MIRROR_DEVICE_FLAG_NOAUTOSYNC	0x0000000000000001ULL
 #define	G_MIRROR_DEVICE_FLAG_NOFAILSYNC	0x0000000000000002ULL
+
+/* Mirror flags which are recorded in on-disk metadata. */
 #define	G_MIRROR_DEVICE_FLAG_MASK	(G_MIRROR_DEVICE_FLAG_NOAUTOSYNC | \
 					 G_MIRROR_DEVICE_FLAG_NOFAILSYNC)
 
@@ -193,17 +197,14 @@ struct g_mirror_softc {
 	uint32_t	sc_id;		/* Mirror unique ID. */
 
 	struct sx	 sc_lock;
-	struct bio_queue_head sc_queue;
+	struct bio_queue sc_queue;
 	struct mtx	 sc_queue_mtx;
 	struct proc	*sc_worker;
-	struct bio_queue_head sc_regular_delayed; /* Delayed I/O requests due
-						     collision with sync
-						     requests. */
-	struct bio_queue_head sc_inflight; /* In-flight regular write
-					      requests. */
-	struct bio_queue_head sc_sync_delayed; /* Delayed sync requests due
-						  collision with regular
-						  requests. */
+	struct bio_queue sc_inflight; /* In-flight regular write requests. */
+	struct bio_queue sc_regular_delayed; /* Delayed I/O requests due to
+						collision with sync requests. */
+	struct bio_queue sc_sync_delayed; /* Delayed sync requests due to
+					     collision with regular requests. */
 
 	LIST_HEAD(, g_mirror_disk) sc_disks;
 	u_int		sc_ndisks;	/* Number of disks. */

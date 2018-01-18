@@ -231,17 +231,13 @@ options		EARLY_AP_STARTUP
 # A default value should be already present, for every architecture.
 options 	MAXCPU=32
 
+# NUMA enables use of Non-Uniform Memory Access policies in various kernel
+# subsystems.
+options 	NUMA
+
 # MAXMEMDOM defines the maximum number of memory domains that can boot in the
 # system.  A default value should already be defined by every architecture.
 options 	MAXMEMDOM=2
-
-# VM_NUMA_ALLOC enables use of memory domain-aware allocation in the VM
-# system.
-options 	VM_NUMA_ALLOC
-
-# DEVICE_NUMA enables reporting of domain affinity of I/O devices via
-# bus_get_domain(), etc.
-options 	DEVICE_NUMA
 
 # ADAPTIVE_MUTEXES changes the behavior of blocking mutexes to spin
 # if the thread that currently owns the mutex is executing on another
@@ -589,6 +585,20 @@ options 	STACK
 # sysctl.
 #
 options 	NUM_CORE_FILES=5
+
+#
+# The TSLOG option enables timestamped logging of events, especially
+# function entries/exits, in order to track the time spent by the kernel.
+# In particular, this is useful when investigating the early boot process,
+# before it is possible to use more sophisticated tools like DTrace.
+# The TSLOGSIZE option controls the size of the (preallocated, fixed
+# length) buffer used for storing these events (default: 262144 records).
+#
+# For security reasons the TSLOG option should not be enabled on systems
+# used in production.
+#
+options 	TSLOG
+options 	TSLOGSIZE=262144
 
 
 #####################################################################
@@ -1100,6 +1110,9 @@ options 	MD_ROOT_SIZE=10
 # Make the md device a potential root device, either with preloaded
 # images of type mfs_root or md_root.
 options 	MD_ROOT
+
+# Write-protect the md root device so that it may not be mounted writeable.
+options 	MD_ROOT_READONLY
 
 # Disk quotas are supported when this option is enabled.
 options 	QUOTA			#enable disk quotas
@@ -2592,7 +2605,9 @@ options 	BOOTP_WIRED_TO=fxp0 # Use interface fxp0 for BOOTP
 options 	BOOTP_BLOCKSIZE=8192 # Override NFS block size
 
 #
-# Add software watchdog routines.
+# Enable software watchdog routines, even if hardware watchdog is present.
+# By default, software watchdog timer is enabled only if no hardware watchdog
+# is present.
 #
 options 	SW_WATCHDOG
 
@@ -3013,6 +3028,7 @@ options 	PAX_HARDENING	# Other hardening features
 options 	PAX_NOEXEC	# Remove WX pages from user-space and enforce W^X
 options 	PAX_SEGVGUARD	# Track and ban failing process
 options 	PAX_SYSCTLS	# Run-time settings for PAX and Hardening
+options 	PAX_JAIL_SUPPORT	# Allow to override PAX settings per jail
 options 	PAX_INSECURE_MODE	# Allow to override INVARIANTS enforcements
 options 	HBSD_DEBUG
 

@@ -32,31 +32,33 @@
 #ifndef	_SYS_PAX_H
 #define	_SYS_PAX_H
 
-#define	__HardenedBSD_version	1200055UL
+#define	__HardenedBSD_version	1200056UL
 
 #if defined(_KERNEL) || defined(_WANT_PRISON)
+typedef	uint32_t	pax_state_t;
+
 struct hbsd_features {
 	struct hbsd_aslr {
-		int	 status;	/* (p) PaX ASLR enabled */
-		int	 compat_status;	/* (p) PaX ASLR enabled (compat32) */
-		int	 disallow_map32bit_status; /* (p) MAP_32BIT protection (__LP64__ only) */
+		pax_state_t	 status;	/* (p) PaX ASLR enabled */
+		pax_state_t	 compat_status;	/* (p) PaX ASLR enabled (compat32) */
+		pax_state_t	 disallow_map32bit_status; /* (p) MAP_32BIT protection (__LP64__ only) */
 	} aslr;
 	struct hbsd_segvguard {
-		int	 status;       /* (p) PaX segvguard enabled */
-		int	 expiry;       /* (p) num of seconds to expire an entry */
-		int	 suspension;   /* (p) num of seconds to suspend an application */
-		int	 maxcrashes;   /* (p) Maximum number of crashes before suspending application */
+		pax_state_t	 status;       /* (p) PaX segvguard enabled */
+		pax_state_t	 expiry;       /* (p) num of seconds to expire an entry */
+		pax_state_t	 suspension;   /* (p) num of seconds to suspend an application */
+		pax_state_t	 maxcrashes;   /* (p) Maximum number of crashes before suspending application */
 	} segvguard;
 	struct hbsd_noexec {
-		int	 pageexec_status;	/* (p) Remove WX pages from user-space */
-		int	 mprotect_status;	/* (p) Enforce W^X mappings */
+		pax_state_t	 pageexec_status;	/* (p) Remove WX pages from user-space */
+		pax_state_t	 mprotect_status;	/* (p) Enforce W^X mappings */
 	} noexec;
 	struct hbsd_hardening {
-		int	 procfs_harden;		/* (p) Harden procfs */
+		pax_state_t	 procfs_harden;		/* (p) Harden procfs */
 	} hardening;
 	struct hbsd_log {
-		int	log;		/* (p) Per-jail logging status */
-		int	ulog;		/* (p) Per-jail user visible logging status */
+		pax_state_t	log;		/* (p) Per-jail logging status */
+		pax_state_t	ulog;		/* (p) Per-jail user visible logging status */
 	} log;
 };
 #endif
@@ -75,10 +77,11 @@ struct hbsd_features {
 
 struct image_params;
 struct prison;
-struct thread;
 struct proc;
-struct vnode;
+struct thread;
+struct vfsoptlist;
 struct vm_offset_t;
+struct vnode;
 
 typedef	uint32_t	pax_flag_t;
 
@@ -111,8 +114,11 @@ int pax_elf(struct thread *td, struct image_params *imgp);
 void pax_get_flags(struct proc *p, pax_flag_t *flags);
 void pax_get_flags_td(struct thread *td, pax_flag_t *flags);
 struct prison *pax_get_prison_td(struct thread *td);
-void pax_init_prison(struct prison *pr);
+bool pax_init_prison(struct prison *pr, struct vfsoptlist *opts);
+int pax_handle_prison_param(struct vfsoptlist *opts, const char *mib, pax_state_t *status);
 void pax_print_hbsd_context(void);
+bool pax_feature_validate_state(pax_state_t *state);
+bool pax_feature_simple_validate_state(pax_state_t *state);
 
 /*
  * HardenedBSD's hbsdcontol related functions
@@ -125,13 +131,13 @@ int pax_control_extattr_parse_flags(struct thread *td, struct image_params *imgp
  */
 bool pax_aslr_active(struct proc *p);
 #ifdef PAX_ASLR
-void pax_aslr_init_prison(struct prison *pr);
-void pax_aslr_init_prison32(struct prison *pr);
+int pax_aslr_init_prison(struct prison *pr, struct vfsoptlist *opts);
+int pax_aslr_init_prison32(struct prison *pr, struct vfsoptlist *opts);
 void pax_aslr_init_vmspace(struct proc *p);
 void pax_aslr_init_vmspace32(struct proc *p);
 #else
-#define	pax_aslr_init_prison(pr)	do {} while (0)
-#define	pax_aslr_init_prison32(pr)	do {} while (0)
+#define	pax_aslr_init_prison(pr, opts)	({ 0; })
+#define	pax_aslr_init_prison32(pr, opts)	({ 0; })
 #define	pax_aslr_init_vmspace		NULL
 #define	pax_aslr_init_vmspace32		NULL
 #endif
@@ -160,7 +166,7 @@ typedef	uint64_t	pax_log_settings_t;
 #define	PAX_LOG_NO_P_PAX	0x00000008
 #define	PAX_LOG_NO_INDENT	0x00000010
 
-void pax_log_init_prison(struct prison *pr);
+int pax_log_init_prison(struct prison *pr, struct vfsoptlist *opts);
 void pax_printf_flags(struct proc *p, pax_log_settings_t flags);
 void pax_printf_flags_td(struct thread *td, pax_log_settings_t flags);
 void pax_db_printf_flags(struct proc *p, pax_log_settings_t flags);
@@ -182,9 +188,9 @@ void pax_ulog_segvguard(const char *fmt, ...) __printflike(1, 2);
  * SegvGuard related functions
  */
 #ifdef PAX_SEGVGUARD
-void pax_segvguard_init_prison(struct prison *pr);
+int pax_segvguard_init_prison(struct prison *pr, struct vfsoptlist *opts);
 #else
-#define	pax_segvguard_init_prison(pr)	do {} while (0)
+#define	pax_segvguard_init_prison(pr, opts)	({ 0; })
 #endif
 int pax_segvguard_check(struct thread *, struct vnode *, const char *);
 int pax_segvguard_segfault(struct thread *, const char *);
@@ -195,9 +201,9 @@ pax_flag_t pax_segvguard_setup_flags(struct image_params *imgp, struct thread *t
  * PAX PAGEEXEC and MPROTECT hardening
  */
 #ifdef PAX_NOEXEC
-void pax_noexec_init_prison(struct prison *pr);
+int pax_noexec_init_prison(struct prison *pr, struct vfsoptlist *opts);
 #else
-#define	pax_noexec_init_prison(pr)	do {} while (0)
+#define	pax_noexec_init_prison(pr, opts)	({ 0; })
 #endif
 pax_flag_t pax_noexec_setup_flags(struct image_params *imgp, struct thread *td, pax_flag_t mode);
 void pax_noexec_nw(struct proc *p, vm_prot_t *prot, vm_prot_t *maxprot);
@@ -212,9 +218,9 @@ int pax_mprotect_enforce(struct proc *p, vm_map_t map, vm_prot_t old_prot, vm_pr
  * Hardening related functions
  */
 #ifdef PAX_HARDENING
-void pax_hardening_init_prison(struct prison *pr);
+int pax_hardening_init_prison(struct prison *pr, struct vfsoptlist *opts);
 #else
-#define	pax_hardening_init_prison(pr)	do {} while (0)
+#define	pax_hardening_init_prison(pr, opts)	({ 0; })
 #endif
 int pax_procfs_harden(struct thread *td);
 

@@ -626,6 +626,23 @@ contrib/ngatm/netnatm/sig/sig_unimsgcpy.c optional ngatm_uni \
 	compile-with "${NORMAL_C} -I$S/contrib/ngatm"
 contrib/ngatm/netnatm/sig/sig_verify.c optional ngatm_uni \
 	compile-with "${NORMAL_C} -I$S/contrib/ngatm"
+# Zstd
+contrib/zstd/lib/freebsd/zstd_kmalloc.c		standard compile-with ${ZSTD_C}
+contrib/zstd/lib/common/zstd_common.c		standard compile-with ${ZSTD_C}
+contrib/zstd/lib/common/fse_decompress.c	standard compile-with ${ZSTD_C}
+contrib/zstd/lib/common/entropy_common.c	standard compile-with ${ZSTD_C}
+contrib/zstd/lib/common/error_private.c		standard compile-with ${ZSTD_C}
+contrib/zstd/lib/common/xxhash.c		standard compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/zstd_compress.c	standard compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/fse_compress.c	standard compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/huf_compress.c	standard compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/zstd_double_fast.c	standard compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/zstd_fast.c		standard compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/zstd_lazy.c		standard compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/zstd_ldm.c		standard compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/zstd_opt.c		standard compile-with ${ZSTD_C}
+contrib/zstd/lib/decompress/zstd_decompress.c	standard compile-with ${ZSTD_C}
+contrib/zstd/lib/decompress/huf_decompress.c	standard compile-with ${ZSTD_C}
 crypto/blowfish/bf_ecb.c	optional ipsec | ipsec_support
 crypto/blowfish/bf_skey.c	optional crypto | ipsec | ipsec_support
 crypto/camellia/camellia.c	optional crypto | ipsec | ipsec_support
@@ -1723,6 +1740,9 @@ dev/extres/regulator/regnode_if.m	optional ext_resources regulator fdt
 dev/extres/regulator/regulator.c	optional ext_resources regulator fdt
 dev/extres/regulator/regulator_bus.c	optional ext_resources regulator fdt
 dev/extres/regulator/regulator_fixed.c	optional ext_resources regulator fdt
+dev/extres/syscon/syscon.c		optional ext_resources syscon
+dev/extres/syscon/syscon_generic.c	optional ext_resources syscon fdt
+dev/extres/syscon/syscon_if.m		optional ext_resources syscon
 dev/fb/fbd.c			optional fbd | vt
 dev/fb/fb_if.m			standard
 dev/fb/splash.c			optional sc splash
@@ -2223,11 +2243,9 @@ dev/ixgbe/if_ixv.c		optional ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe -DSMP"
 dev/ixgbe/if_bypass.c		optional ix inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
-dev/ixgbe/ixgbe_netmap.c	optional ix inet \
-	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
 dev/ixgbe/if_fdir.c		optional ix inet | ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
-dev/ixgbe/if_sriov.c		optional ix inet | ixv inet \
+dev/ixgbe/if_sriov.c		optional ix inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
 dev/ixgbe/ix_txrx.c		optional ix inet | ixv inet \
 	compile-with "${NORMAL_C} -I$S/dev/ixgbe"
@@ -3109,8 +3127,6 @@ dev/stg/tmc18c30_subr.c		optional stg
 dev/stge/if_stge.c		optional stge
 dev/sym/sym_hipd.c		optional sym				\
 	dependency	"$S/dev/sym/sym_{conf,defs}.h"
-dev/syscon/syscon.c		optional fdt syscon
-dev/syscon/syscon_if.m		optional fdt syscon
 dev/syscons/blank/blank_saver.c	optional blank_saver
 dev/syscons/daemon/daemon_saver.c optional daemon_saver
 dev/syscons/dragon/dragon_saver.c optional dragon_saver
@@ -3760,7 +3776,6 @@ kern/kern_exit.c		standard
 kern/kern_fail.c		standard
 kern/kern_ffclock.c		standard
 kern/kern_fork.c		standard
-kern/kern_gzio.c		optional gzio
 kern/kern_hhook.c		standard
 kern/kern_idle.c		standard
 kern/kern_intr.c		standard
@@ -3781,7 +3796,6 @@ kern/kern_module.c		standard
 kern/kern_mtxpool.c		standard
 kern/kern_mutex.c		standard
 kern/kern_ntptime.c		standard
-kern/kern_numa.c		standard
 kern/kern_osd.c			standard
 kern/kern_physio.c		standard
 kern/kern_pmc.c			standard
@@ -3812,6 +3826,7 @@ kern/kern_thr.c			standard
 kern/kern_thread.c		standard
 kern/kern_time.c		standard
 kern/kern_timeout.c		standard
+kern/kern_tslog.c		optional tslog
 kern/kern_umtx.c		standard
 kern/kern_uuid.c		standard
 kern/kern_xxx.c			standard
@@ -3835,6 +3850,7 @@ kern/subr_bus_dma.c		standard
 kern/subr_bufring.c		standard
 kern/subr_capability.c		standard
 kern/subr_clock.c		standard
+kern/subr_compressor.c		standard
 kern/subr_counter.c		standard
 kern/subr_devstat.c		standard
 kern/subr_disk.c		standard
@@ -4265,7 +4281,7 @@ netinet/sctp_asconf.c		optional inet sctp | inet6 sctp
 netinet/sctp_auth.c		optional inet sctp | inet6 sctp
 netinet/sctp_bsd_addr.c		optional inet sctp | inet6 sctp
 netinet/sctp_cc_functions.c	optional inet sctp | inet6 sctp
-netinet/sctp_crc32.c		optional inet sctp | inet6 sctp
+netinet/sctp_crc32.c		optional inet | inet6
 netinet/sctp_indata.c		optional inet sctp | inet6 sctp
 netinet/sctp_input.c		optional inet sctp | inet6 sctp
 netinet/sctp_output.c		optional inet sctp | inet6 sctp
@@ -4830,7 +4846,7 @@ vm/swap_pager.c			standard
 vm/uma_core.c			standard
 vm/uma_dbg.c			standard
 vm/memguard.c			optional DEBUG_MEMGUARD
-vm/vm_domain.c			standard
+vm/vm_domainset.c		standard
 vm/vm_fault.c			standard
 vm/vm_glue.c			standard
 vm/vm_init.c			standard

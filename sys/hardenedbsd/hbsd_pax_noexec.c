@@ -89,6 +89,19 @@ SYSCTL_HBSD_4STATE(pax_mprotect_status, pr_hbsd.noexec.mprotect_status,
 
 #endif /* PAX_SYSCTLS */
 
+#ifdef PAX_JAIL_SUPPORT
+SYSCTL_DECL(_security_jail_param_hardening_pax);
+
+SYSCTL_JAIL_PARAM_SUBNODE(hardening_pax, pageexec, "mprotect");
+SYSCTL_JAIL_PARAM(_hardening_pax_pageexec, status,
+    CTLTYPE_INT | CTLFLAG_RD, "I",
+    "pageexec");
+SYSCTL_JAIL_PARAM_SUBNODE(hardening_pax, mprotect, "mprotect");
+SYSCTL_JAIL_PARAM(_hardening_pax_mprotect, status,
+    CTLTYPE_INT | CTLFLAG_RD, "I",
+    "mprotect");
+#endif /* PAX_JAIL_SUPPORT */
+
 
 /*
  * PaX PAGEEXEC functions
@@ -97,35 +110,22 @@ SYSCTL_HBSD_4STATE(pax_mprotect_status, pr_hbsd.noexec.mprotect_status,
 static void
 pax_noexec_sysinit(void)
 {
+	pax_state_t old_state;
 
-	switch (pax_pageexec_status) {
-	case PAX_FEATURE_DISABLED:
-	case PAX_FEATURE_OPTIN:
-	case PAX_FEATURE_OPTOUT:
-	case PAX_FEATURE_FORCE_ENABLED:
-		break;
-	default:
+	old_state = pax_pageexec_status;
+	if (!pax_feature_validate_state(&pax_pageexec_status)) {
 		printf("[HBSD PAGEEXEC] WARNING, invalid PAX settings in loader.conf!"
-		    " (hardening.pax.pageexec.status = %d)\n", pax_pageexec_status);
-		pax_pageexec_status = PAX_FEATURE_FORCE_ENABLED;
-		break;
+		    " (hardening.pax.pageexec.status = %d)\n", old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD PAGEEXEC] status: %s\n",
 		    pax_status_str[pax_pageexec_status]);
 	}
 
-	switch (pax_mprotect_status) {
-	case PAX_FEATURE_DISABLED:
-	case PAX_FEATURE_OPTIN:
-	case PAX_FEATURE_OPTOUT:
-	case PAX_FEATURE_FORCE_ENABLED:
-		break;
-	default:
+	old_state = pax_mprotect_status;
+	if (!pax_feature_validate_state(&pax_mprotect_status)) {
 		printf("[HBSD MPROTECT] WARNING, invalid PAX settings in loader.conf!"
-		    " (hardening.pax.mprotect.status = %d)\n", pax_mprotect_status);
-		pax_mprotect_status = PAX_FEATURE_FORCE_ENABLED;
-		break;
+		    " (hardening.pax.mprotect.status = %d)\n", old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD MPROTECT] status: %s\n",
@@ -134,10 +134,11 @@ pax_noexec_sysinit(void)
 }
 SYSINIT(pax_noexec, SI_SUB_PAX, SI_ORDER_SECOND, pax_noexec_sysinit, NULL);
 
-void
-pax_noexec_init_prison(struct prison *pr)
+int
+pax_noexec_init_prison(struct prison *pr, struct vfsoptlist *opts)
 {
 	struct prison *pr_p;
+	int error;
 
 	CTR2(KTR_PAX, "%s: Setting prison %s PaX variables\n",
 	    __func__, pr->pr_name);
@@ -153,9 +154,20 @@ pax_noexec_init_prison(struct prison *pr)
 
 		pr->pr_hbsd.noexec.pageexec_status =
 		    pr_p->pr_hbsd.noexec.pageexec_status;
+		error = pax_handle_prison_param(opts, "hardening.pax.pageexec.status",
+		    &pr->pr_hbsd.noexec.pageexec_status);
+		if (error != 0)
+			return (error);
+
 		pr->pr_hbsd.noexec.mprotect_status =
 		    pr_p->pr_hbsd.noexec.mprotect_status;
+		error = pax_handle_prison_param(opts, "hardening.pax.mprotect.status",
+		    &pr->pr_hbsd.noexec.mprotect_status);
+		if (error != 0)
+			return (error);
 	}
+
+	return (0);
 }
 
 static pax_flag_t

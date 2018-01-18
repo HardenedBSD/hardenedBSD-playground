@@ -38,6 +38,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/malloc.h>
 #include <sys/kernel.h>
 #include <sys/bio.h>
+#include <sys/conf.h>
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/buf.h>
@@ -1158,9 +1159,7 @@ cam_periph_runccb(union ccb *ccb,
 	struct bintime *starttime;
 	struct bintime ltime;
 	int error;
-	bool sched_stopped;
-	struct mtx *periph_mtx;
-	struct cam_periph *periph;
+	bool must_poll;
 	uint32_t timeout = 1;
 
 	starttime = NULL;
@@ -1182,19 +1181,31 @@ cam_periph_runccb(union ccb *ccb,
 		devstat_start_transaction(ds, starttime);
 	}
 
-	sched_stopped = SCHEDULER_STOPPED();
+	/*
+	 * We must poll the I/O while we're dumping. The scheduler is normally
+	 * stopped for dumping, except when we call doadump from ddb. While the
+	 * scheduler is running in this case, we still need to poll the I/O to
+	 * avoid sleeping waiting for the ccb to complete.
+	 *
+	 * A panic triggered dump stops the scheduler, any callback from the
+	 * shutdown_post_sync event will run with the scheduler stopped, but
+	 * before we're officially dumping. To avoid hanging in adashutdown
+	 * initiated commands (or other similar situations), we have to test for
+	 * either SCHEDULER_STOPPED() here as well.
+	 *
+	 * To avoid locking problems, dumping/polling callers must call
+	 * without a periph lock held.
+	 */
+	must_poll = dumping || SCHEDULER_STOPPED();
 	ccb->ccb_h.cbfcnp = cam_periph_done;
-	periph = xpt_path_periph(ccb->ccb_h.path);
-	periph_mtx = cam_periph_mtx(periph);
 
 	/*
 	 * If we're polling, then we need to ensure that we have ample resources
-	 * in the periph. We also need to drop the periph lock while we're polling.
+	 * in the periph.  
 	 * cam_periph_error can reschedule the ccb by calling xpt_action and returning
 	 * ERESTART, so we have to effect the polling in the do loop below.
 	 */
-	if (sched_stopped) {
-		mtx_unlock(periph_mtx);
+	if (must_poll) {
 		timeout = xpt_poll_setup(ccb);
 	}
 
@@ -1204,11 +1215,11 @@ cam_periph_runccb(union ccb *ccb,
 	} else {
 		xpt_action(ccb);
 		do {
-			if (!sched_stopped)
-				cam_periph_ccbwait(ccb);
-			else {
+			if (must_poll) {
 				xpt_pollwait(ccb, timeout);
 				timeout = ccb->ccb_h.timeout * 10;
+			} else {
+				cam_periph_ccbwait(ccb);
 			}
 			if ((ccb->ccb_h.status & CAM_STATUS_MASK) == CAM_REQ_CMP)
 				error = 0;
@@ -1219,9 +1230,6 @@ cam_periph_runccb(union ccb *ccb,
 				error = 0;
 		} while (error == ERESTART);
 	}
-
-	if (sched_stopped)
-		mtx_lock(periph_mtx);
 
 	if ((ccb->ccb_h.status & CAM_DEV_QFRZN) != 0) {
 		cam_release_devq(ccb->ccb_h.path,

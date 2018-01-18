@@ -55,7 +55,7 @@ static int attach_untested = 0;
 TUNABLE_INT("hw.bwn_pci.attach_untested", &attach_untested);
 
 /* If non-zero, probe at a higher priority than the stable if_bwn driver. */
-static int prefer_new_driver = 0; 
+static int prefer_new_driver = 1;
 TUNABLE_INT("hw.bwn_pci.preferred", &prefer_new_driver);
 
 /* SIBA Devices */
@@ -98,6 +98,7 @@ static const struct bwn_pci_device bcma_devices[] = {
 	BWN_BCM_DEV(BCM4331_D11N2G,	"BCM4331 802.11n 2GHz",		0),
 	BWN_BCM_DEV(BCM4331_D11N5G,	"BCM4331 802.11n 5GHz",		0),
 	BWN_BCM_DEV(BCM43224_D11N,	"BCM43224 802.11n Dual-Band",	0),
+	BWN_BCM_DEV(BCM43224_D11N_ID_VEN1, "BCM43224 802.11n Dual-Band",0),
 	BWN_BCM_DEV(BCM43225_D11N2G,	"BCM43225 802.11n 2GHz",	0),
 
 	{ 0, 0, NULL, 0}
@@ -299,9 +300,9 @@ DRIVER_MODULE_ORDERED(bwn_pci, pci, bwn_pci_driver, bwn_pci_devclass, NULL,
     NULL, SI_ORDER_ANY);
 DRIVER_MODULE(bhndb, bwn_pci, bhndb_pci_driver, bhndb_devclass, NULL, NULL);
 
-MODULE_DEPEND(bwn_pci, bwn, 1, 1, 1);
 MODULE_DEPEND(bwn_pci, bhnd, 1, 1, 1);
 MODULE_DEPEND(bwn_pci, bhndb, 1, 1, 1);
 MODULE_DEPEND(bwn_pci, bhndb_pci, 1, 1, 1);
 MODULE_DEPEND(bwn_pci, bcma_bhndb, 1, 1, 1);
 MODULE_DEPEND(bwn_pci, siba_bhndb, 1, 1, 1);
+MODULE_VERSION(bwn_pci, 1);

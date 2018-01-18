@@ -1920,11 +1920,9 @@ sysctl_kern_proc_args(SYSCTL_HANDLER_ARGS)
 	 * is nobody to modify pargs, thus we can just read.
 	 */
 	p = curproc;
-	if (pid == p->p_pid && p->p_numthreads == 1 && req->newptr == NULL) {
-		if ((pa = p->p_args) != NULL)
-			error = SYSCTL_OUT(req, pa->ar_args, pa->ar_length);
-		return (error);
-	}
+	if (pid == p->p_pid && p->p_numthreads == 1 && req->newptr == NULL &&
+	    (pa = p->p_args) != NULL)
+		return (SYSCTL_OUT(req, pa->ar_args, pa->ar_length));
 
 	flags = PGET_CANSEE;
 	if (req->newptr != NULL)
@@ -2161,8 +2159,10 @@ sysctl_kern_proc_ovmmap(SYSCTL_HANDLER_ARGS)
 		}
 
 		for (lobj = tobj = obj; tobj; tobj = tobj->backing_object) {
-			if (tobj != obj)
+			if (tobj != obj) {
 				VM_OBJECT_RLOCK(tobj);
+				kve->kve_offset += tobj->backing_object_offset;
+			}
 			if (lobj != obj)
 				VM_OBJECT_RUNLOCK(lobj);
 			lobj = tobj;
@@ -2170,7 +2170,7 @@ sysctl_kern_proc_ovmmap(SYSCTL_HANDLER_ARGS)
 
 		kve->kve_start = (void*)entry->start;
 		kve->kve_end = (void*)entry->end;
-		kve->kve_offset = (off_t)entry->offset;
+		kve->kve_offset += (off_t)entry->offset;
 
 		if (entry->protection & VM_PROT_READ)
 			kve->kve_protection |= KVME_PROT_READ;
@@ -2280,15 +2280,20 @@ sysctl_kern_proc_ovmmap(SYSCTL_HANDLER_ARGS)
 CTASSERT(sizeof(struct kinfo_vmentry) == KINFO_VMENTRY_SIZE);
 #endif
 
-static void
+void
 kern_proc_vmmap_resident(vm_map_t map, vm_map_entry_t entry,
-    struct kinfo_vmentry *kve)
+    int *resident_count, bool *super)
 {
 	vm_object_t obj, tobj;
 	vm_page_t m, m_adv;
 	vm_offset_t addr;
 	vm_paddr_t locked_pa;
 	vm_pindex_t pi, pi_adv, pindex;
+
+	*super = false;
+	*resident_count = 0;
+	if (vmmap_skip_res_cnt)
+		return;
 
 	locked_pa = 0;
 	obj = entry->object.vm_object;
@@ -2322,7 +2327,7 @@ kern_proc_vmmap_resident(vm_map_t map, vm_map_entry_t entry,
 		    (addr & (pagesizes[1] - 1)) == 0 &&
 		    (pmap_mincore(map->pmap, addr, &locked_pa) &
 		    MINCORE_SUPER) != 0) {
-			kve->kve_flags |= KVME_FLAG_SUPER;
+			*super = true;
 			pi_adv = atop(pagesizes[1]);
 		} else {
 			/*
@@ -2334,7 +2339,7 @@ kern_proc_vmmap_resident(vm_map_t map, vm_map_entry_t entry,
 			 */
 			pi_adv = 1;
 		}
-		kve->kve_resident += pi_adv;
+		*resident_count += pi_adv;
 next:;
 	}
 	PA_UNLOCK_COND(locked_pa);
@@ -2358,6 +2363,7 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 	vm_offset_t addr;
 	unsigned int last_timestamp;
 	int error;
+	bool super;
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 
@@ -2385,13 +2391,16 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 			for (tobj = obj; tobj != NULL;
 			    tobj = tobj->backing_object) {
 				VM_OBJECT_RLOCK(tobj);
+				kve->kve_offset += tobj->backing_object_offset;
 				lobj = tobj;
 			}
 			if (obj->backing_object == NULL)
 				kve->kve_private_resident =
 				    obj->resident_page_count;
-			if (!vmmap_skip_res_cnt)
-				kern_proc_vmmap_resident(map, entry, kve);
+			kern_proc_vmmap_resident(map, entry,
+			    &kve->kve_resident, &super);
+			if (super)
+				kve->kve_flags |= KVME_FLAG_SUPER;
 			for (tobj = obj; tobj != NULL;
 			    tobj = tobj->backing_object) {
 				if (tobj != obj && tobj != lobj)
@@ -2403,7 +2412,7 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 
 		kve->kve_start = entry->start;
 		kve->kve_end = entry->end;
-		kve->kve_offset = entry->offset;
+		kve->kve_offset += entry->offset;
 
 		if (entry->protection & VM_PROT_READ)
 			kve->kve_protection |= KVME_PROT_READ;
@@ -3112,6 +3121,7 @@ resume_all_proc(void)
 
 	cp = curproc;
 	sx_xlock(&allproc_lock);
+again:
 	LIST_REMOVE(cp, p_list);
 	LIST_INSERT_HEAD(&allproc, cp, p_list);
 	for (;;) {
@@ -3131,6 +3141,12 @@ resume_all_proc(void)
 		} else {
 			PROC_UNLOCK(p);
 		}
+	}
+	/*  Did the loop above missed any stopped process ? */
+	LIST_FOREACH(p, &allproc, p_list) {
+		/* No need for proc lock. */
+		if ((p->p_flag & P_TOTAL_STOP) != 0)
+			goto again;
 	}
 	sx_xunlock(&allproc_lock);
 }

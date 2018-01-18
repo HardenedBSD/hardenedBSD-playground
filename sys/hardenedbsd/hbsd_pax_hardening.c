@@ -43,10 +43,10 @@ __FBSDID("$FreeBSD$");
 #include <sys/ktr.h>
 #include <sys/libkern.h>
 #include <sys/lock.h>
-#include <sys/sx.h>
 #include <sys/pax.h>
 #include <sys/proc.h>
 #include <sys/stat.h>
+#include <sys/sx.h>
 #include <sys/sysctl.h>
 
 #include "hbsd_pax_internal.h"
@@ -77,45 +77,40 @@ SYSCTL_HBSD_2STATE(pax_procfs_harden_global, pr_hbsd.hardening.procfs_harden,
     "Harden procfs, disabling write of /proc/pid/mem");
 #endif
 
+#if 0
+#ifdef PAX_JAIL_SUPPORT
+SYSCTL_JAIL_PARAM(hardening, procfs_harden,
+    CTLTYPE_INT | CTLFLAG_RD, "I",
+    "disabling write of /proc/pid/mem");
+#endif
+#endif
+
 static void
 pax_hardening_sysinit(void)
 {
+	pax_state_t old_state;
 
-	switch (pax_procfs_harden_global) {
-	case PAX_FEATURE_SIMPLE_DISABLED:
-	case PAX_FEATURE_SIMPLE_ENABLED:
-		break;
-	default:
+	old_state = pax_procfs_harden_global;
+	if (!pax_feature_simple_validate_state(&pax_procfs_harden_global)) {
 		printf("[HBSD HARDENING] WARNING, invalid settings in loader.conf!"
-		    " (hardening.procfs_harden = %d)\n", pax_procfs_harden_global);
-		pax_procfs_harden_global = PAX_FEATURE_SIMPLE_ENABLED;
+		    " (hardening.procfs_harden = %d)\n", old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD HARDENING] procfs hardening: %s\n",
 		    pax_status_simple_str[pax_procfs_harden_global]);
 	}
 
-	switch (pax_randomize_pids_global) {
-	case PAX_FEATURE_SIMPLE_DISABLED:
-	case PAX_FEATURE_SIMPLE_ENABLED:
-		break;
-	default:
+	old_state = pax_randomize_pids_global;
+	if (!pax_feature_simple_validate_state(&pax_randomize_pids_global)) {
 		printf("[HBSD HARDENING] WARNING, invalid settings in loader.conf!"
-		    " (hardening.randomize_pids = %d)\n", pax_randomize_pids_global);
-		pax_randomize_pids_global = PAX_FEATURE_SIMPLE_ENABLED;
+		    " (hardening.randomize_pids = %d)\n", old_state);
 	}
 	if (bootverbose) {
 		printf("[HBSD HARDENING] randomize pids: %s\n",
 		    pax_status_simple_str[pax_randomize_pids_global]);
 	}
 
-	switch (pax_init_hardening_global) {
-	case PAX_FEATURE_SIMPLE_DISABLED:
-	case PAX_FEATURE_SIMPLE_ENABLED:
-		break;
-	default:
-		pax_init_hardening_global = PAX_FEATURE_SIMPLE_ENABLED;
-	}
+	(void)pax_feature_simple_validate_state(&pax_init_hardening_global);
 	if (bootverbose) {
 		printf("[HBSD HARDENING] unset insecure init variables: %s\n",
 		    pax_status_simple_str[pax_init_hardening_global]);
@@ -123,10 +118,13 @@ pax_hardening_sysinit(void)
 }
 SYSINIT(pax_hardening, SI_SUB_PAX, SI_ORDER_SECOND, pax_hardening_sysinit, NULL);
 
-void
-pax_hardening_init_prison(struct prison *pr)
+int
+pax_hardening_init_prison(struct prison *pr, struct vfsoptlist *opts)
 {
 	struct prison *pr_p;
+#if 0
+	int error;
+#endif
 
 	CTR2(KTR_PAX, "%s: Setting prison %s PaX variables\n",
 	    __func__, pr->pr_name);
@@ -142,7 +140,15 @@ pax_hardening_init_prison(struct prison *pr)
 
 		pr->pr_hbsd.hardening.procfs_harden =
 		    pr_p->pr_hbsd.hardening.procfs_harden;
+#if 0
+		error = pax_handle_prison_param(opts, "hardening.procfs_harden",
+		    &pr->pr_hbsd.hardening.procfs_harden);
+		if (error != 0)
+			return (error);
+#endif
 	}
+
+	return (0);
 }
 
 int

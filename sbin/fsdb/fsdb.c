@@ -476,7 +476,7 @@ CMDFUNCSTART(findblk)
 	 */
 	inum = c * sblock.fs_ipg;
 	/* Read cylinder group. */
-	cgbp = cgget(c);
+	cgbp = cglookup(c);
 	cgp = cgbp->b_un.b_cg;
 	/*
 	 * Get a highest used inode number for a given cylinder group.
@@ -565,6 +565,10 @@ CMDFUNCSTART(findblk)
 end:
     curinum = ocurrent;
     curinode = ginode(curinum);
+    if (is_ufs2)
+	free(wantedblk64);
+    else
+	free(wantedblk32);
     return 0;
 }
 

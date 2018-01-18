@@ -265,12 +265,6 @@ static __inline int tolower(int c)
 extern void	setheap(void *base, void *top);
 extern char	*sbrk(int incr);
 
-/* Matt Dillon's zalloc/zmalloc */
-extern void	*malloc(size_t bytes);
-extern void	free(void *ptr);
-/*#define free(p)	{CHK("free %p", p); free(p);} */ /* use for catching guard violations */
-extern void	*calloc(size_t n1, size_t n2);
-extern void	*realloc(void *ptr, size_t size);
 extern void	*reallocf(void *ptr, size_t size);
 extern void	mallocstats(void);
 
@@ -360,6 +354,7 @@ extern char const	hex2ascii_data[];
 #define	bcd2bin(bcd)	(bcd2bin_data[bcd])
 #define	bin2bcd(bin)	(bin2bcd_data[bin])
 #define	hex2ascii(hex)	(hex2ascii_data[hex])
+#define	validbcd(bcd)	(bcd == 0 || (bcd > 0 && bcd <= 0x99 && bcd2bin_data[bcd] != 0))
 
 /* min/max (undocumented) */
 static __inline int imax(int a, int b) { return (a > b ? a : b); }
@@ -399,6 +394,7 @@ extern void		putchar(int);
 extern int		devopen(struct open_file *, const char *, const char **);
 extern int		devclose(struct open_file *f);
 extern void		panic(const char *, ...) __dead2 __printflike(1, 2);
+extern time_t		getsecs(void);
 extern struct fs_ops	*file_system[];
 extern struct fs_ops	*exclusive_file_system;
 extern struct devsw	*devsw[];
@@ -427,7 +423,7 @@ void *Calloc(size_t, size_t, const char *, int);
 void *Realloc(void *, size_t, const char *, int);
 void Free(void *, const char *, int);
 
-#if 1
+#ifdef DEBUG_MALLOC
 #define malloc(x)	Malloc(x, __FILE__, __LINE__)
 #define calloc(x, y)	Calloc(x, y, __FILE__, __LINE__)
 #define free(x)		Free(x, __FILE__, __LINE__)
