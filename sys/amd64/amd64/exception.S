@@ -141,7 +141,6 @@ X\l:
 	TRAP	ill, T_PRIVINFLT
 	TRAP	dna, T_DNA
 	TRAP	fpusegm, T_FPOPFLT
-	TRAP	mchk, T_MCHK
 	TRAP	rsvd, T_RESERVED
 	TRAP	fpu, T_ARITHTRAP
 	TRAP	xmm, T_XMMFLT
@@ -288,24 +287,42 @@ IDTVEC(dblfault)
 3:	hlt
 	jmp	3b
 
-	PTI_ENTRY	page, Xpage, has_err=1
+	ALIGN_TEXT
+IDTVEC(page_pti)
+	testb	$SEL_RPL_MASK,PTI_CS-2*8(%rsp)
+	jz	Xpage
+	swapgs
+	pushq	%rax
+	pushq	%rdx
+	movq	%cr3,%rax
+	movq	%rax,PCPU(SAVED_UCR3)
+	PTI_UUENTRY has_err=1
+	subq	$TF_ERR,%rsp
+	movq	%rdi,TF_RDI(%rsp)
+	movq	%rax,TF_RAX(%rsp)
+	movq	%rdx,TF_RDX(%rsp)
+	jmp	page_u
 IDTVEC(page)
 	subq	$TF_ERR,%rsp
-	movq	%rdi,TF_RDI(%rsp)	/* free up a GP register */
+	movq	%rdi,TF_RDI(%rsp)	/* free up GP registers */
+	movq	%rax,TF_RAX(%rsp)
+	movq	%rdx,TF_RDX(%rsp)
 	testb	$SEL_RPL_MASK,TF_CS(%rsp) /* Did we come from kernel? */
 	jz	page_cr2		/* already running with kernel GS.base */
 	swapgs
-	movq	PCPU(CURPCB),%rdi
+page_u:	movq	PCPU(CURPCB),%rdi
 	andl	$~PCB_FULL_IRET,PCB_FLAGS(%rdi)
+	movq	PCPU(SAVED_UCR3),%rax
+	movq	%rax,PCB_SAVED_UCR3(%rdi)
 page_cr2:
 	movq	%cr2,%rdi		/* preserve %cr2 before ..  */
 	movq	%rdi,TF_ADDR(%rsp)	/* enabling interrupts. */
 	SAVE_SEGS
 	movl	$T_PAGEFLT,TF_TRAPNO(%rsp)
 	testl	$PSL_I,TF_RFLAGS(%rsp)
-	jz	alltraps_pushregs_no_rdi
+	jz	alltraps_pushregs_no_rax
 	sti
-	jmp	alltraps_pushregs_no_rdi
+	jmp	alltraps_pushregs_no_rax
 
 	/*
 	 * We have to special-case this one.  If we get a trap in doreti() at
@@ -325,7 +342,7 @@ page_cr2:
 	movq	PCPU(KCR3),%rax
 	movq	%rax,%cr3
 	movq	PCPU(RSP0),%rax
-	subq	$2*PTI_SIZE-3*8,%rax
+	subq	$2*PTI_SIZE-3*8,%rax /* no err, %rax, %rdx in faulted frame */
 	MOVE_STACKS	(PTI_SIZE / 4 - 3)
 	movq	%rax,%rsp
 	popq	%rdx
@@ -571,11 +588,11 @@ nmi_fromuserspace:
 	cmpq	$~0,%rax
 	je	1f
 	movq	%rax,%cr3
-	movq	PCPU(CURPCB),%rdi
+1:	movq	PCPU(CURPCB),%rdi
 	testq	%rdi,%rdi
 	jz	3f
 	orl	$PCB_FULL_IRET,PCB_FLAGS(%rdi)
-1:	testb	$CPUID_STDEXT_FSGSBASE,cpu_stdext_feature(%rip)
+	testb	$CPUID_STDEXT_FSGSBASE,cpu_stdext_feature(%rip)
 	jz	3f
 	cmpw	$KUF32SEL,TF_FS(%rsp)
 	jne	2f
@@ -663,9 +680,8 @@ outofnmi:
 	cli
 nocallchain:
 #endif
-	testl	%ebx,%ebx
+	testl	%ebx,%ebx	/* %ebx == 0 => return to userland */
 	jnz	doreti_exit
-nmi_kernelexit:
 	/*
 	 * Put back the preserved MSR_GSBASE value.
 	 */
@@ -675,7 +691,103 @@ nmi_kernelexit:
 	shrq	$32,%rdx
 	wrmsr
 	movq	%r13,%cr3
-nmi_restoreregs:
+	RESTORE_REGS
+	addq	$TF_RIP,%rsp
+	jmp	doreti_iret
+
+/*
+ * MC# handling is similar to NMI.
+ *
+ * As with NMIs, machine check exceptions do not respect RFLAGS.IF and
+ * can occur at any time with a GS.base value that does not correspond
+ * to the privilege level in CS.
+ *
+ * Machine checks are not unblocked by iretq, but it is best to run
+ * the handler with interrupts disabled since the exception may have
+ * interrupted a critical section.
+ *
+ * The MC# handler runs on its own stack (tss_ist3).  The canonical
+ * GS.base value for the processor is stored just above the bottom of
+ * its MC# stack.  For exceptions taken from kernel mode, the current
+ * value in the processor's GS.base is saved at entry to C-preserved
+ * register %r12, the canonical value for GS.base is then loaded into
+ * the processor, and the saved value is restored at exit time.  For
+ * exceptions taken from user mode, the cheaper 'SWAPGS' instructions
+ * are used for swapping GS.base.
+ */
+
+IDTVEC(mchk)
+	subq	$TF_RIP,%rsp
+	movl	$(T_MCHK),TF_TRAPNO(%rsp)
+	movq	$0,TF_ADDR(%rsp)
+	movq	$0,TF_ERR(%rsp)
+	movq	%rdi,TF_RDI(%rsp)
+	movq	%rsi,TF_RSI(%rsp)
+	movq	%rdx,TF_RDX(%rsp)
+	movq	%rcx,TF_RCX(%rsp)
+	movq	%r8,TF_R8(%rsp)
+	movq	%r9,TF_R9(%rsp)
+	movq	%rax,TF_RAX(%rsp)
+	movq	%rbx,TF_RBX(%rsp)
+	movq	%rbp,TF_RBP(%rsp)
+	movq	%r10,TF_R10(%rsp)
+	movq	%r11,TF_R11(%rsp)
+	movq	%r12,TF_R12(%rsp)
+	movq	%r13,TF_R13(%rsp)
+	movq	%r14,TF_R14(%rsp)
+	movq	%r15,TF_R15(%rsp)
+	SAVE_SEGS
+	movl	$TF_HASSEGS,TF_FLAGS(%rsp)
+	cld
+	xorl	%ebx,%ebx
+	testb	$SEL_RPL_MASK,TF_CS(%rsp)
+	jnz	mchk_fromuserspace
+	/*
+	 * We've interrupted the kernel.  Preserve GS.base in %r12
+	 * and %cr3 in %r13.
+	 */
+	movl	$MSR_GSBASE,%ecx
+	rdmsr
+	movq	%rax,%r12
+	shlq	$32,%rdx
+	orq	%rdx,%r12
+	/* Retrieve and load the canonical value for GS.base. */
+	movq	TF_SIZE(%rsp),%rdx
+	movl	%edx,%eax
+	shrq	$32,%rdx
+	wrmsr
+	movq	%cr3,%r13
+	movq	PCPU(KCR3),%rax
+	cmpq	$~0,%rax
+	je	mchk_calltrap
+	movq	%rax,%cr3
+	jmp	mchk_calltrap
+mchk_fromuserspace:
+	incl	%ebx
+	swapgs
+	movq	%cr3,%r13
+	movq	PCPU(KCR3),%rax
+	cmpq	$~0,%rax
+	je	1f
+	movq	%rax,%cr3
+1:
+/* Note: this label is also used by ddb and gdb: */
+mchk_calltrap:
+	FAKE_MCOUNT(TF_RIP(%rsp))
+	movq	%rsp,%rdi
+	call	mca_intr
+	MEXITCOUNT
+	testl	%ebx,%ebx	/* %ebx == 0 => return to userland */
+	jnz	doreti_exit
+	/*
+	 * Put back the preserved MSR_GSBASE value.
+	 */
+	movl	$MSR_GSBASE,%ecx
+	movq	%r12,%rdx
+	movl	%edx,%eax
+	shrq	$32,%rdx
+	wrmsr
+	movq	%r13,%cr3
 	RESTORE_REGS
 	addq	$TF_RIP,%rsp
 	jmp	doreti_iret

@@ -416,6 +416,7 @@ SYSCTL_INT(_vm_pmap, OID_AUTO, invpcid_works, CTLFLAG_RD, &invpcid_works, 0,
     "Is the invpcid instruction available ?");
 
 #ifdef PAX
+/* The related part of code is in x86/identcpu.c - see pti_get_default() */
 int pti = 1;
 #else
 int pti = 0;
@@ -2580,6 +2581,15 @@ _pmap_allocpte(pmap_t pmap, vm_pindex_t ptepindex, struct rwlock **lockp)
 		pml4 = &pmap->pm_pml4[pml4index];
 		*pml4 = VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V | PG_A | PG_M;
 		if (pmap->pm_pml4u != NULL && pml4index < NUPML4E) {
+			/*
+			 * PTI: Make all user-space mappings in the
+			 * kernel-mode page table no-execute so that
+			 * we detect any programming errors that leave
+			 * the kernel-mode page table active on return
+			 * to user space.
+			 */
+			*pml4 |= pg_nx;
+
 			pml4u = &pmap->pm_pml4u[pml4index];
 			*pml4u = VM_PAGE_TO_PHYS(m) | PG_U | PG_RW | PG_V |
 			    PG_A | PG_M;
@@ -7555,20 +7565,17 @@ pmap_pti_alloc_page(void)
 }
 
 static bool
-pmap_pti_free_page(vm_page_t m, bool last)
+pmap_pti_free_page(vm_page_t m)
 {
 
+	KASSERT(m->wire_count > 0, ("page %p not wired", m));
 	m->wire_count--;
-	if (m->wire_count == 0 || last) {
-		KASSERT(m->wire_count == 0, ("page %p wired", m));
-		atomic_subtract_int(&vm_cnt.v_wire_count, 1);
-		vm_page_free_zero(m);
-		return (true);
-	}
-	return (false);
+	if (m->wire_count != 0)
+		return (false);
+	atomic_subtract_int(&vm_cnt.v_wire_count, 1);
+	vm_page_free_zero(m);
+	return (true);
 }
-
-extern char kernphys[], etext[];
 
 static void
 pmap_pti_init(void)
@@ -7604,6 +7611,9 @@ pmap_pti_init(void)
 		/* NMI stack IST 2 */
 		va = common_tss[i].tss_ist2 + sizeof(struct nmi_pcpu);
 		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
+		/* MC# stack IST 3 */
+		va = common_tss[i].tss_ist3 + sizeof(struct nmi_pcpu);
+		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
 	}
 	pmap_pti_add_kva_locked((vm_offset_t)kernphys + KERNBASE,
 	    (vm_offset_t)etext, true);
@@ -7631,7 +7641,7 @@ pmap_pti_pdpe(vm_offset_t va)
 			panic("pml4 alloc after finalization\n");
 		m = pmap_pti_alloc_page();
 		if (*pml4e != 0) {
-			pmap_pti_free_page(m, true);
+			pmap_pti_free_page(m);
 			mphys = *pml4e & ~PAGE_MASK;
 		} else {
 			mphys = VM_PAGE_TO_PHYS(m);
@@ -7663,7 +7673,7 @@ pmap_pti_unwire_pde(void *pde, bool only_ref)
 	m = PHYS_TO_VM_PAGE(DMAP_TO_PHYS((uintptr_t)pde));
 	MPASS(m->wire_count > 0);
 	MPASS(only_ref || m->wire_count > 1);
-	pmap_pti_free_page(m, false);
+	pmap_pti_free_page(m);
 }
 
 static void
@@ -7675,7 +7685,7 @@ pmap_pti_unwire_pte(void *pte, vm_offset_t va)
 	VM_OBJECT_ASSERT_WLOCKED(pti_obj);
 	m = PHYS_TO_VM_PAGE(DMAP_TO_PHYS((uintptr_t)pte));
 	MPASS(m->wire_count > 0);
-	if (pmap_pti_free_page(m, false)) {
+	if (pmap_pti_free_page(m)) {
 		pde = pmap_pti_pde(va);
 		MPASS((*pde & (X86_PG_PS | X86_PG_V)) == X86_PG_V);
 		*pde = 0;
@@ -7698,7 +7708,7 @@ pmap_pti_pde(vm_offset_t va)
 	if (*pdpe == 0) {
 		m = pmap_pti_alloc_page();
 		if (*pdpe != 0) {
-			pmap_pti_free_page(m, true);
+			pmap_pti_free_page(m);
 			MPASS((*pdpe & X86_PG_PS) == 0);
 			mphys = *pdpe & ~PAGE_MASK;
 		} else {
@@ -7734,7 +7744,7 @@ pmap_pti_pte(vm_offset_t va, bool *unwire_pde)
 	if (*pde == 0) {
 		m = pmap_pti_alloc_page();
 		if (*pde != 0) {
-			pmap_pti_free_page(m, true);
+			pmap_pti_free_page(m);
 			MPASS((*pde & X86_PG_PS) == 0);
 			mphys = *pde & ~(PAGE_MASK | pg_nx);
 		} else {
