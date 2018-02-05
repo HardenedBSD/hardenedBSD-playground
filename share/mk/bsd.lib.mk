@@ -84,7 +84,19 @@ CTFFLAGS+= -g
 PICFLAG=-fPIC
 .endif
 
+<<<<<<< HEAD
 .if defined(MK_PIE) && !defined(NOPIE)
+=======
+.if defined(MK_RETPOLINE) && ${MK_RETPOLINE} != "no"
+CFLAGS+=	-mretpoline
+CXXFLAGS+=	-mretpoline
+.if !defined(NO_PIC)
+LDFLAGS+=	-Wl,-z,retpolineplt
+.endif
+.endif
+
+.if defined(MK_PIE)
+>>>>>>> origin/hardened/current/master
 # Ports will not have MK_PIE defined and the following logic requires
 # it be defined.
 .if ${MK_PIE} != "no"

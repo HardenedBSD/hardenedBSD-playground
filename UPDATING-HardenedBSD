@@ -1,3 +1,10 @@
+[20180123] retpoline
+__HardenedBSD_version = 1200057
+
+	Integrated the retpoline patch from llvm. The object
+	tree should be removed fully prior to rebuilding
+	world/kernel.
+
 [20180103] PAX_JAIL_SUPPORT
 __HardenedBSD_version = 1200056
 
