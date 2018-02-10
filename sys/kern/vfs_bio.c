@@ -2621,7 +2621,7 @@ vfs_vmio_unwire(struct buf *bp, vm_page_t m)
 	bool freed;
 
 	vm_page_lock(m);
-	if (vm_page_unwire(m, PQ_NONE)) {
+	if (vm_page_unwire_noq(m)) {
 		/*
 		 * Determine if the page should be freed before adding
 		 * it to the inactive queue.
@@ -2637,14 +2637,16 @@ vfs_vmio_unwire(struct buf *bp, vm_page_t m)
 		if (!freed) {
 			/*
 			 * If the page is unlikely to be reused, let the
-			 * VM know.  Otherwise, maintain LRU page
-			 * ordering and put the page at the tail of the
-			 * inactive queue.
+			 * VM know.  Otherwise, maintain LRU.
 			 */
 			if ((bp->b_flags & B_NOREUSE) != 0)
 				vm_page_deactivate_noreuse(m);
-			else
+			else if (m->queue == PQ_ACTIVE)
+				vm_page_reference(m);
+			else if (m->queue != PQ_INACTIVE)
 				vm_page_deactivate(m);
+			else
+				vm_page_requeue(m);
 		}
 	}
 	vm_page_unlock(m);
@@ -4075,10 +4077,6 @@ bufdone(struct buf *bp)
 	runningbufwakeup(bp);
 	if (bp->b_iocmd == BIO_WRITE)
 		dropobj = bp->b_bufobj;
-	else if ((bp->b_flags & B_CKHASH) != 0) {
-		KASSERT(buf_mapped(bp), ("biodone: bp %p not mapped", bp));
-		(*bp->b_ckhashcalc)(bp);
-	}
 	/* call optional completion function if requested */
 	if (bp->b_iodone != NULL) {
 		biodone = bp->b_iodone;
@@ -4114,6 +4112,13 @@ bufdone_finish(struct buf *bp)
 		    !(bp->b_ioflags & BIO_ERROR))
 			bp->b_flags |= B_CACHE;
 		vfs_vmio_iodone(bp);
+	}
+	if ((bp->b_flags & B_CKHASH) != 0) {
+		KASSERT(bp->b_iocmd == BIO_READ,
+		    ("bufdone_finish: b_iocmd %d not BIO_READ", bp->b_iocmd));
+		KASSERT(buf_mapped(bp),
+		    ("bufdone_finish: bp %p not mapped", bp));
+		(*bp->b_ckhashcalc)(bp);
 	}
 
 	/*
@@ -4802,7 +4807,14 @@ vfs_bio_getpages(struct vnode *vp, vm_page_t *ma, int count,
 	la = IDX_TO_OFF(ma[count - 1]->pindex);
 	if (la >= object->un_pager.vnp.vnp_size)
 		return (VM_PAGER_BAD);
-	lpart = la + PAGE_SIZE > object->un_pager.vnp.vnp_size;
+
+	/*
+	 * Change the meaning of la from where the last requested page starts
+	 * to where it ends, because that's the end of the requested region
+	 * and the start of the potential read-ahead region.
+	 */
+	la += PAGE_SIZE;
+	lpart = la > object->un_pager.vnp.vnp_size;
 	bo_bs = get_blksize(vp, get_lblkno(vp, IDX_TO_OFF(ma[0]->pindex)));
 
 	/*
