@@ -136,6 +136,7 @@ bryanv [label="Bryan Venteicher\nbryanv@FreeBSD.org\n2012/11/03"]
 bschmidt [label="Bernhard Schmidt\nbschmidt@FreeBSD.org\n2010/02/06"]
 bz [label="Bjoern A. Zeeb\nbz@FreeBSD.org\n2004/07/27"]
 cem [label="Conrad Meyer\ncem@FreeBSD.org\n2015/07/05"]
+chuck [label="Chuck Tuffli\nchuck@FreeBSD.org\n2017/09/06"]
 cognet [label="Olivier Houchard\ncognet@FreeBSD.org\n2002/10/09"]
 cokane [label="Coleman Kane\ncokane@FreeBSD.org\n2000/06/19"]
 cperciva [label="Colin Percival\ncperciva@FreeBSD.org\n2004/01/20"]
@@ -196,6 +197,7 @@ jasone [label="Jason Evans\njasone@FreeBSD.org\n1999/03/03"]
 jceel [label="Jakub Klama\njceel@FreeBSD.org\n2011/09/25"]
 jch [label="Julien Charbon\njch@FreeBSD.org\n2014/09/24"]
 jchandra [label="Jayachandran C.\njchandra@FreeBSD.org\n2010/05/19"]
+jeb [label="Jeb Cramer\njeb@FreeBSD.org\n2018/01/25"]
 jeff [label="Jeff Roberson\njeff@FreeBSD.org\n2002/02/21"]
 jh [label="Jaakko Heinonen\njh@FreeBSD.org\n2009/10/02"]
 jhb [label="John Baldwin\njhb@FreeBSD.org\n1999/08/23"]
@@ -484,6 +486,8 @@ emaste -> rstone
 
 emax -> markus
 
+erj -> jeb
+
 fjoe -> versus
 
 gallatin -> ticso
@@ -525,6 +529,7 @@ imp -> ambrisko
 imp -> andrew
 imp -> bmah
 imp -> bruno
+imp -> chuck
 imp -> dmlb
 imp -> emax
 imp -> furuta
@@ -616,6 +621,7 @@ julian -> mp
 kan -> kib
 
 ken -> asomers
+ken -> chuck
 ken -> slm
 
 kib -> ae
@@ -770,6 +776,7 @@ sam -> benjsc
 sam -> sephe
 
 sbruno -> hiren
+sbruno -> jeb
 sbruno -> jimharris
 sbruno -> shurd
 

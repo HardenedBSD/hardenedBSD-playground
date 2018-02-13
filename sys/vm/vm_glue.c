@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: (BSD-3-Clause AND MIT-CMU)
+ *
  * Copyright (c) 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -111,9 +113,7 @@ __FBSDID("$FreeBSD$");
  * space.
  */
 int
-kernacc(addr, len, rw)
-	void *addr;
-	int len, rw;
+kernacc(void *addr, int len, int rw)
 {
 	boolean_t rv;
 	vm_offset_t saddr, eaddr;
@@ -145,9 +145,7 @@ kernacc(addr, len, rw)
  * used in conjunction with this call.
  */
 int
-useracc(addr, len, rw)
-	void *addr;
-	int len, rw;
+useracc(void *addr, int len, int rw)
 {
 	boolean_t rv;
 	vm_prot_t prot;
@@ -193,7 +191,7 @@ vslock(void *addr, size_t len)
 	 * Also, the sysctl code, which is the only present user
 	 * of vslock(), does a hard loop on EAGAIN.
 	 */
-	if (npages + vm_cnt.v_wire_count > vm_page_max_wired)
+	if (npages + vm_wire_count() > vm_page_max_wired)
 		return (EAGAIN);
 #endif
 	error = vm_map_wire(&curproc->p_vmspace->vm_map, start, end,
@@ -525,12 +523,8 @@ intr_prof_stack_use(struct thread *td, struct trapframe *frame)
  * to user mode to avoid stack copying and relocation problems.
  */
 int
-vm_forkproc(td, p2, td2, vm2, flags)
-	struct thread *td;
-	struct proc *p2;
-	struct thread *td2;
-	struct vmspace *vm2;
-	int flags;
+vm_forkproc(struct thread *td, struct proc *p2, struct thread *td2,
+    struct vmspace *vm2, int flags)
 {
 	struct proc *p1 = td->td_proc;
 	int error;
@@ -558,7 +552,7 @@ vm_forkproc(td, p2, td2, vm2, flags)
 	}
 
 	while (vm_page_count_severe()) {
-		VM_WAIT;
+		vm_wait_severe();
 	}
 
 	if ((flags & RFMEM) == 0) {

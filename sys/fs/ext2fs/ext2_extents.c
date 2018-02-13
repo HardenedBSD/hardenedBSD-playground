@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2010 Zheng Liu <lz@freebsd.org>
  * All rights reserved.
  *
@@ -123,10 +125,8 @@ ext4_ext_print_path(struct inode *ip, struct ext4_extent_path *path)
 void
 ext4_ext_print_extent_tree_status(struct inode * ip)
 {
-	struct m_ext2fs *fs;
 	struct ext4_extent_header *ehp;
 
-	fs = ip->i_e2fs;
 	ehp = (struct ext4_extent_header *)(char *)ip->i_db;
 
 	printf("Extent status:ip=%d\n", ip->i_number);
@@ -423,9 +423,11 @@ ext4_ext_find_extent(struct inode *ip, daddr_t block,
 		bqrelse(bp);
 
 		eh = ext4_ext_block_header(path[ppos].ep_data);
-		error = ext4_ext_check_header(ip, eh);
-		if (error)
+		if (ext4_ext_check_header(ip, eh) ||
+		    ext2_extent_blk_csum_verify(ip, path[ppos].ep_data)) {
+			error = EIO;
 			goto error;
+		}
 
 		path[ppos].ep_header = eh;
 
@@ -620,6 +622,7 @@ ext4_ext_dirty(struct inode *ip, struct ext4_extent_path *path)
 		if (!bp)
 			return (EIO);
 		ext4_ext_fill_path_buf(path, bp);
+		ext2_extent_blk_csum_set(ip, bp->b_data);
 		error = bwrite(bp);
 	} else {
 		ip->i_flag |= IN_CHANGE | IN_UPDATE;
@@ -789,6 +792,7 @@ ext4_ext_split(struct inode *ip, struct ext4_extent_path *path,
 		neh->eh_ecount = neh->eh_ecount + m;
 	}
 
+	ext2_extent_blk_csum_set(ip, bp->b_data);
 	bwrite(bp);
 	bp = NULL;
 
@@ -836,6 +840,7 @@ ext4_ext_split(struct inode *ip, struct ext4_extent_path *path,
 			neh->eh_ecount = neh->eh_ecount + m;
 		}
 
+		ext2_extent_blk_csum_set(ip, bp->b_data);
 		bwrite(bp);
 		bp = NULL;
 
@@ -875,7 +880,6 @@ ext4_ext_grow_indepth(struct inode *ip, struct ext4_extent_path *path,
 	struct m_ext2fs *fs;
 	struct ext4_extent_path *curpath;
 	struct ext4_extent_header *neh;
-	struct ext4_extent_index *fidx;
 	struct buf *bp;
 	e4fs_daddr_t newblk;
 	int error = 0;
@@ -903,6 +907,7 @@ ext4_ext_grow_indepth(struct inode *ip, struct ext4_extent_path *path,
 	else
 		neh->eh_max = ext4_ext_space_block(ip);
 
+	ext2_extent_blk_csum_set(ip, bp->b_data);
 	error = bwrite(bp);
 	if (error)
 		goto out;
@@ -917,7 +922,6 @@ ext4_ext_grow_indepth(struct inode *ip, struct ext4_extent_path *path,
 	ext4_index_store_pblock(curpath->ep_index, newblk);
 
 	neh = ext4_ext_inode_header(ip);
-	fidx = EXT_FIRST_INDEX(neh);
 	neh->eh_depth = path->ep_depth + 1;
 	ext4_ext_dirty(ip, curpath);
 out:
@@ -930,11 +934,8 @@ static int
 ext4_ext_create_new_leaf(struct inode *ip, struct ext4_extent_path *path,
     struct ext4_extent *newext)
 {
-	struct m_ext2fs *fs;
 	struct ext4_extent_path *curpath;
 	int depth, i, error;
-
-	fs = ip->i_e2fs;
 
 repeat:
 	i = depth = ext4_ext_inode_depth(ip);
@@ -1025,13 +1026,11 @@ static int
 ext4_ext_insert_extent(struct inode *ip, struct ext4_extent_path *path,
     struct ext4_extent *newext)
 {
-	struct m_ext2fs *fs;
 	struct ext4_extent_header * eh;
 	struct ext4_extent *ex, *nex, *nearex;
 	struct ext4_extent_path *npath;
 	int depth, len, error, next;
 
-	fs = ip->i_e2fs;
 	depth = ext4_ext_inode_depth(ip);
 	ex = path[depth].ep_ext;
 	npath = NULL;
@@ -1158,11 +1157,7 @@ ext4_new_blocks(struct inode *ip, daddr_t lbn, e4fs_daddr_t pref,
     struct ucred *cred, unsigned long *count, int *perror)
 {
 	struct m_ext2fs *fs;
-	struct ext2mount *ump;
 	e4fs_daddr_t newblk;
-
-	fs = ip->i_e2fs;
-	ump = ip->i_ump;
 
 	/*
 	 * We will allocate only single block for now.
@@ -1170,6 +1165,7 @@ ext4_new_blocks(struct inode *ip, daddr_t lbn, e4fs_daddr_t pref,
 	if (*count > 1)
 		return (0);
 
+	fs = ip->i_e2fs;
 	EXT2_LOCK(ip->i_ump);
 	*perror = ext2_alloc(ip, lbn, pref, (int)fs->e2fs_bsize, cred, &newblk);
 	if (*perror)
@@ -1186,7 +1182,7 @@ ext4_new_blocks(struct inode *ip, daddr_t lbn, e4fs_daddr_t pref,
 int
 ext4_ext_get_blocks(struct inode *ip, e4fs_daddr_t iblk,
     unsigned long max_blocks, struct ucred *cred, struct buf **bpp,
-    int *pallocated, uint32_t *nb)
+    int *pallocated, daddr_t *nb)
 {
 	struct m_ext2fs *fs;
 	struct buf *bp = NULL;
@@ -1196,13 +1192,12 @@ ext4_ext_get_blocks(struct inode *ip, e4fs_daddr_t iblk,
 	unsigned long allocated = 0;
 	int error = 0, depth;
 
-	fs = ip->i_e2fs;
-	*pallocated = 0;
-	path = NULL;
 	if(bpp)
 		*bpp = NULL;
+	*pallocated = 0;
 
 	/* Check cache. */
+	path = NULL;
 	if ((bpref = ext4_ext_in_cache(ip, iblk, &newex))) {
 		if (bpref == EXT4_EXT_CACHE_IN) {
 			/* Block is already allocated. */
@@ -1274,6 +1269,7 @@ out:
 
 	if (bpp)
 	{
+		fs = ip->i_e2fs;
 		error = bread(ip->i_devvp, fsbtodb(fs, newblk),
 		    fs->e2fs_bsize, cred, &bp);
 		if (error) {
@@ -1307,7 +1303,7 @@ static inline struct ext4_extent_header *
 ext4_ext_header(struct inode *ip)
 {
 
-	return (struct ext4_extent_header *)ip->i_db;
+	return ((struct ext4_extent_header *)ip->i_db);
 }
 
 static int
@@ -1348,19 +1344,15 @@ static int
 ext4_ext_rm_leaf(struct inode *ip, struct ext4_extent_path *path,
     uint64_t start)
 {
-	struct m_ext2fs *fs;
-	int depth;
 	struct ext4_extent_header *eh;
+	struct ext4_extent *ex;
 	unsigned int a, b, block, num;
 	unsigned long ex_blk;
 	unsigned short ex_len;
-	struct ext4_extent *ex;
+	int depth;
 	int error, correct_index;
 
-	fs = ip->i_e2fs;
 	depth = ext4_ext_inode_depth(ip);
-	correct_index = 0;
-
 	if (!path[depth].ep_header) {
 		if (path[depth].ep_data == NULL)
 			return (EINVAL);
@@ -1370,7 +1362,8 @@ ext4_ext_rm_leaf(struct inode *ip, struct ext4_extent_path *path,
 
 	eh = path[depth].ep_header;
 	if (!eh) {
-		ext2_fserr(fs, ip->i_uid, "bad header => extent corrupted");
+		ext2_fserr(ip->i_e2fs, ip->i_uid,
+		    "bad header => extent corrupted");
 		return (EIO);
 	}
 
@@ -1378,6 +1371,8 @@ ext4_ext_rm_leaf(struct inode *ip, struct ext4_extent_path *path,
 	ex_blk = ex->e_blk;
 	ex_len = ext4_ext_get_actual_len(ex);
 
+	error = 0;
+	correct_index = 0;
 	while (ex >= EXT_FIRST_EXTENT(eh) && ex_blk + ex_len > start) {
 		path[depth].ep_ext = ex;
 		a = ex_blk > start ? ex_blk : start;
@@ -1445,7 +1440,6 @@ ext4_read_extent_tree_block(struct inode *ip, e4fs_daddr_t pblk,
 	int error;
 
 	fs = ip->i_e2fs;
-
 	error = bread(ip->i_devvp, fsbtodb(fs, pblk),
 	    fs->e2fs_bsize, NOCRED, &bp);
 	if (error) {
@@ -1509,10 +1503,10 @@ ext4_ext_remove_space(struct inode *ip, off_t length, int flags,
 	if (!path)
 		return (ENOMEM);
 
-	i = 0;
 	path[0].ep_header = ehp;
 	path[0].ep_depth = depth;
-	while (i >= 0 && error == 0) {
+	i = 0;
+	while (error == 0 && i >= 0) {
 		if (i == depth) {
 			/* This is leaf. */
 			error = ext4_ext_rm_leaf(ip, path, length);
@@ -1571,7 +1565,6 @@ ext4_ext_remove_space(struct inode *ip, off_t length, int flags,
 		 ext4_ext_header(ip)->eh_depth = 0;
 		 ext4_ext_header(ip)->eh_max = ext4_ext_space_root(ip);
 		 ext4_ext_dirty(ip, path);
-
 	}
 
 	ext4_ext_drop_refs(path);

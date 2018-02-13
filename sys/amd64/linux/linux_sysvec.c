@@ -147,7 +147,7 @@ static int bsd_to_linux_errno[ELAST + 1] = {
 	-100,-101,-102,-103,-104,-105,-106,-107,-108,-109,
 	-110,-111, -40, -36,-112,-113, -39, -11, -87,-122,
 	-116, -66,  -6,  -6,  -6,  -6,  -6, -37, -38,  -9,
-	  -6,  -6, -43, -42, -75,-125, -84, -95, -16, -74,
+	  -6,  -6, -43, -42, -75,-125, -84, -61, -16, -74,
 	 -72, -67, -71
 };
 
@@ -758,7 +758,7 @@ linux_vsyscall(struct thread *td)
 	struct trapframe *frame;
 	uint64_t retqaddr;
 	int code, traced;
-	int error; 
+	int error;
 
 	frame = td->td_frame;
 
@@ -832,7 +832,7 @@ linux_vdso_install(void *param)
 
 	amd64_lower_shared_page(&elf_linux_sysvec);
 
-	linux_szsigcode = (&_binary_linux_locore_o_end - 
+	linux_szsigcode = (&_binary_linux_locore_o_end -
 	    &_binary_linux_locore_o_start);
 
 	if (linux_szsigcode > elf_linux_sysvec.sv_shared_page_len)

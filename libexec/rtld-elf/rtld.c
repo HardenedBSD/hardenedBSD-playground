@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright 1996, 1997, 1998, 1999, 2000 John D. Polstra.
  * Copyright 2003 Alexander Kabaev <kan@FreeBSD.ORG>.
  * Copyright 2009-2013 Konstantin Belousov <kib@FreeBSD.ORG>.
@@ -752,6 +754,12 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 	obj_main->preinit_array = obj_main->init_array =
 	    obj_main->fini_array = (Elf_Addr)NULL;
     }
+
+    /*
+     * Execute MD initializers required before we call the objects'
+     * init functions.
+     */
+    pre_init();
 
     wlock_acquire(rtld_bind_lock, &lockstate);
     if (obj_main->crt_no_init)
