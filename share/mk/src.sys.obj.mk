@@ -19,6 +19,12 @@
 #  TARGET.TARGET_ARCH added in as it assumes that MAKEOBJDIRPREFIX is
 #  nested in the existing OBJTOP with TARGET.TARGET_ARCH in it.
 #
+#  The expected OBJDIR is stored in __objdir for auto.obj.mk to use.
+#
+#  AUTO_OBJ is opportunistically enabled if the computed .OBJDIR is writable
+#  by the current user.  Some top-level targets disable this behavior in
+#  Makefile.sys.inc.
+#
 
 _default_makeobjdirprefix?=	/usr/obj
 _default_makeobjdir=	$${.CURDIR:S,^$${SRCTOP},$${OBJTOP},}
@@ -126,12 +132,16 @@ __objdir:=	${MAKEOBJDIR}
 .if ${.MAKE.LEVEL} == 0 && \
     ${MK_AUTO_OBJ} == "no" && empty(.MAKEOVERRIDES:MMK_AUTO_OBJ) && \
     !defined(WITHOUT_AUTO_OBJ) && !make(showconfig) && !make(print-dir) && \
-    !defined(NO_OBJ)
+    !defined(NO_OBJ) && \
+    empty(RELDIR:Msys/*/compile/*)
 # Find the last existing directory component and check if we can write to it.
 # If the last component is a symlink then recurse on the new path.
 CheckAutoObj= \
 DirIsCreatable() { \
-	[ -w "$${1}" ] && return 0; \
+	if [ -w "$${1}" ]; then \
+		[ -d "$${1}" ] || return 1; \
+		return 0; \
+	fi; \
 	d="$${1}"; \
 	IFS=/; \
 	set -- $${d}; \
@@ -148,13 +158,16 @@ DirIsCreatable() { \
 				ret=0; \
 				DirIsCreatable "$${dir%/}" || ret=$$?; \
 				return $${ret}; \
+			elif [ -e "/$${dir}$${d}" ]; then \
+				return 1; \
 			else \
 				break; \
 			fi; \
 		fi; \
 		dir="$${dir}$${d}/"; \
 	done; \
-	[ -w "$${dir}" ]; \
+	[ -w "$${dir}" ] && [ -d "$${dir}" ] && return 0; \
+	return 1; \
 }; \
 CheckAutoObj() { \
 	if DirIsCreatable "$${1}"; then \
@@ -166,7 +179,7 @@ CheckAutoObj() { \
 .if !empty(__objdir)
 .if ${.CURDIR} == ${__objdir}
 __objdir_writable?= yes
-.else
+.elif empty(__objdir_writable)
 __objdir_writable!= \
 	${CheckAutoObj}; CheckAutoObj "${__objdir}" || echo no
 .endif
@@ -186,13 +199,6 @@ MK_AUTO_OBJ:=	${__objdir_writable}
 # The expected OBJDIR already exists, set it as .OBJDIR.
 .if !empty(__objdir) && exists(${__objdir})
 .OBJDIR: ${__objdir}
-# Special case to work around bmake bug.  If the top-level .OBJDIR does not yet
-# exist and MAKEOBJDIR is passed into environment and yield a blank value,
-# bmake will incorrectly set .OBJDIR=${SRCTOP}/ rather than the expected
-# ${SRCTOP} to match ${.CURDIR}.
-.elif ${MAKE_VERSION} <= 20170720 && \
-    ${.CURDIR} == ${SRCTOP} && ${.OBJDIR} == ${SRCTOP}/
-.OBJDIR: ${.CURDIR}
 .else
 # The OBJDIR we wanted does not yet exist, ensure we default to safe .CURDIR
 # in case make started with a bogus MAKEOBJDIR, that expanded before OBJTOP

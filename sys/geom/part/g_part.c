@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2002, 2005-2009 Marcel Moolenaar
  * All rights reserved.
  *
@@ -69,6 +71,7 @@ struct g_part_alias_list {
 	const char *lexeme;
 	enum g_part_alias alias;
 } g_part_alias_list[G_PART_ALIAS_COUNT] = {
+	{ "apple-apfs", G_PART_ALIAS_APPLE_APFS },
 	{ "apple-boot", G_PART_ALIAS_APPLE_BOOT },
 	{ "apple-core-storage", G_PART_ALIAS_APPLE_CORE_STORAGE },
 	{ "apple-hfs", G_PART_ALIAS_APPLE_HFS },
@@ -1352,7 +1355,7 @@ g_part_ctl_resize(struct gctl_req *req, struct g_part_parms *gpp)
 			/* Deny shrinking of an opened partition. */
 			gctl_error(req, "%d", EBUSY);
 			return (EBUSY);
-		} 
+		}
 	}
 
 	error = G_PART_RESIZE(table, entry, gpp);

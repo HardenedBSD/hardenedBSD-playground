@@ -1,6 +1,8 @@
 /*	$NetBSD: tmpfs_subr.c,v 1.35 2007/07/09 21:10:50 ad Exp $	*/
 
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-NetBSD
+ *
  * Copyright (c) 2005 The NetBSD Foundation, Inc.
  * All rights reserved.
  *
@@ -37,8 +39,11 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
+#include <sys/dirent.h>
 #include <sys/fnv_hash.h>
 #include <sys/lock.h>
+#include <sys/limits.h>
+#include <sys/mount.h>
 #include <sys/namei.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
@@ -57,6 +62,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_pageout.h>
 #include <vm/vm_pager.h>
 #include <vm/vm_extern.h>
+#include <vm/swap_pager.h>
 
 #include <fs/tmpfs/tmpfs.h>
 #include <fs/tmpfs/tmpfs_fifoops.h>
@@ -100,7 +106,7 @@ tmpfs_mem_avail(void)
 {
 	vm_ooffset_t avail;
 
-	avail = swap_pager_avail + vm_cnt.v_free_count - tmpfs_pages_reserved;
+	avail = swap_pager_avail + vm_free_count() - tmpfs_pages_reserved;
 	if (__predict_false(avail < 0))
 		avail = 0;
 	return (avail);
@@ -733,8 +739,8 @@ tmpfs_alloc_file(struct vnode *dvp, struct vnode **vpp, struct vattr *vap,
 	if (vap->va_type == VDIR) {
 		/* Ensure that we do not overflow the maximum number of links
 		 * imposed by the system. */
-		MPASS(dnode->tn_links <= LINK_MAX);
-		if (dnode->tn_links == LINK_MAX) {
+		MPASS(dnode->tn_links <= TMPFS_LINK_MAX);
+		if (dnode->tn_links == TMPFS_LINK_MAX) {
 			return (EMLINK);
 		}
 

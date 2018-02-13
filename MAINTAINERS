@@ -65,7 +65,6 @@ lpr		gad	Pre-commit review requested, particularly for
 nanobsd		imp	Pre-commit phabricator review requested.
 net80211	adrian	Pre-commit review requested, send to freebsd-wireless@freebsd.org
 nfs		freebsd-fs@FreeBSD.org, rmacklem is best for reviews.
-nis(8), yp(8)	araujo	Pre-commit review requested.
 nvd(4)		jimharris	Pre-commit review requested.
 nvme(4)		jimharris	Pre-commit review requested.
 nvmecontrol(8)	jimharris	Pre-commit review requested.
@@ -86,7 +85,7 @@ sh(1)		jilles		Pre-commit review requested. This also applies
 				compiled in as builtins.
 share/mk	imp, bapt, bdrewery, emaste, sjg	Make is hard.
 share/mk/*.test.mk	freebsd-testing,ngie (same list as share/mk too)	Pre-commit review requested.
-sys/boot/forth		dteske	Pre-commit review requested.
+stand/forth		dteske	Pre-commit review requested.
 sys/compat/linuxkpi	hselasky	If in doubt, ask.
 sys/dev/e1000	erj	Pre-commit phabricator review requested.
 sys/dev/ixgbe	erj	Pre-commit phabricator review requested.

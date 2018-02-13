@@ -1,6 +1,6 @@
 #!/bin/sh
 #-
-# Copyright (c) 2013-2017 The FreeBSD Foundation
+# Copyright (c) 2013-2018 The FreeBSD Foundation
 # Copyright (c) 2013 Glen Barber
 # Copyright (c) 2011 Nathan Whitehorn
 # All rights reserved.
@@ -148,7 +148,7 @@ env_check() {
 		WITH_COMPRESSED_IMAGES=
 		NODOC=yes
 		case ${EMBEDDED_TARGET}:${EMBEDDED_TARGET_ARCH} in
-			arm:armv6|arm:armv7|arm64:aarch64)
+			arm:arm*|arm64:aarch64)
 				chroot_build_release_cmd="chroot_arm_build_release"
 				;;
 			*)
@@ -203,6 +203,11 @@ env_check() {
 		exit 1
 	fi
 
+	# Unset CHROOTBUILD_SKIP if the chroot(8) does not appear to exist.
+	if [ ! -z "${CHROOTBUILD_SKIP}" -a ! -e ${CHROOTDIR}/bin/sh ]; then
+		CHROOTBUILD_SKIP=
+	fi
+
 	CHROOT_MAKEENV="${CHROOT_MAKEENV} \
 		MAKEOBJDIRPREFIX=${CHROOTDIR}/tmp/obj"
 	CHROOT_WMAKEFLAGS="${MAKE_FLAGS} ${WORLD_FLAGS} ${CONF_FILES}"
@@ -252,8 +257,8 @@ chroot_setup() {
 extra_chroot_setup() {
 	mkdir -p ${CHROOTDIR}/dev
 	mount -t devfs devfs ${CHROOTDIR}/dev
-	[ -e /etc/resolv.conf ] && cp /etc/resolv.conf \
-		${CHROOTDIR}/etc/resolv.conf
+	[ -e /etc/resolv.conf -a ! -e ${CHROOTDIR}/etc/resolv.conf ] && \
+		cp /etc/resolv.conf ${CHROOTDIR}/etc/resolv.conf
 	# Run ldconfig(8) in the chroot directory so /var/run/ld-elf*.so.hints
 	# is created.  This is needed by ports-mgmt/pkg.
 	eval chroot ${CHROOTDIR} /etc/rc.d/ldconfig forcerestart
@@ -280,8 +285,11 @@ extra_chroot_setup() {
 			PBUILD_FLAGS="OSVERSION=${_OSVERSION} BATCH=yes"
 			PBUILD_FLAGS="${PBUILD_FLAGS} UNAME_r=${UNAME_r}"
 			PBUILD_FLAGS="${PBUILD_FLAGS} OSREL=${REVISION}"
-			chroot ${CHROOTDIR} make -C /usr/ports/textproc/docproj \
-				${PBUILD_FLAGS} OPTIONS_UNSET="FOP IGOR" \
+			PBUILD_FLAGS="${PBUILD_FLAGS} WRKDIRPREFIX=/tmp/ports"
+			PBUILD_FLAGS="${PBUILD_FLAGS} DISTDIR=/tmp/distfiles"
+			chroot ${CHROOTDIR} env ${PBUILD_FLAGS} make -C \
+				/usr/ports/textproc/docproj \
+				OPTIONS_UNSET="FOP IGOR" \
 				FORCE_PKG_REGISTER=1 \
 				install clean distclean
 		fi
@@ -294,9 +302,12 @@ extra_chroot_setup() {
 		PBUILD_FLAGS="OSVERSION=${_OSVERSION} BATCH=yes"
 		PBUILD_FLAGS="${PBUILD_FLAGS} UNAME_r=${UNAME_r}"
 		PBUILD_FLAGS="${PBUILD_FLAGS} OSREL=${REVISION}"
+		PBUILD_FLAGS="${PBUILD_FLAGS} WRKDIRPREFIX=/tmp/ports"
+		PBUILD_FLAGS="${PBUILD_FLAGS} DISTDIR=/tmp/distfiles"
 		for _PORT in ${EMBEDDEDPORTS}; do
-			eval chroot ${CHROOTDIR} make -C /usr/ports/${_PORT} \
-				FORCE_PKG_REGISTER=1 ${PBUILD_FLAGS} install clean distclean
+			eval chroot ${CHROOTDIR} env ${PBUILD_FLAGS} make -C \
+				/usr/ports/${_PORT} \
+				FORCE_PKG_REGISTER=1 install clean distclean
 		done
 	fi
 
