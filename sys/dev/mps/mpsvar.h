@@ -243,6 +243,7 @@ struct mps_command {
 #define MPS_CM_STATE_FREE		0
 #define MPS_CM_STATE_BUSY		1
 #define MPS_CM_STATE_TIMEDOUT		2
+#define MPS_CM_STATE_INQUEUE		3
 	bus_dmamap_t			cm_dmamap;
 	struct scsi_sense_data		*cm_sense;
 	TAILQ_HEAD(, mps_chain)		cm_chain_list;
@@ -315,6 +316,7 @@ struct mps_softc {
 	int				chain_free;
 	int				max_chains;
 	int				max_io_pages;
+	u_int				maxio;
 	int				chain_free_lowwater;
 	u_int				enable_ssu;
 	int				spinup_wait_time;
@@ -349,6 +351,7 @@ struct mps_softc {
 	int				num_reqs;
 	int				num_prireqs;
 	int				num_replies;
+	int				num_chains;
 	int				fqdepth;	/* Free queue */
 	int				pqdepth;	/* Post queue */
 
@@ -539,6 +542,8 @@ mps_free_command(struct mps_softc *sc, struct mps_command *cm)
 {
 	struct mps_chain *chain, *chain_temp;
 
+	KASSERT(cm->cm_state == MPS_CM_STATE_BUSY, ("state not busy\n"));
+
 	if (cm->cm_reply != NULL)
 		mps_free_reply(sc, cm->cm_reply_data);
 	cm->cm_reply = NULL;
@@ -572,8 +577,10 @@ mps_alloc_command(struct mps_softc *sc)
 	if (cm == NULL)
 		return (NULL);
 
+	KASSERT(cm->cm_state == MPS_CM_STATE_FREE,
+	    ("mps: Allocating busy command\n"));
+
 	TAILQ_REMOVE(&sc->req_list, cm, cm_link);
-	KASSERT(cm->cm_state == MPS_CM_STATE_FREE, ("mps: Allocating busy command\n"));
 	cm->cm_state = MPS_CM_STATE_BUSY;
 	return (cm);
 }
@@ -582,6 +589,8 @@ static __inline void
 mps_free_high_priority_command(struct mps_softc *sc, struct mps_command *cm)
 {
 	struct mps_chain *chain, *chain_temp;
+
+	KASSERT(cm->cm_state == MPS_CM_STATE_BUSY, ("state not busy\n"));
 
 	if (cm->cm_reply != NULL)
 		mps_free_reply(sc, cm->cm_reply_data);
@@ -609,8 +618,10 @@ mps_alloc_high_priority_command(struct mps_softc *sc)
 	if (cm == NULL)
 		return (NULL);
 
+	KASSERT(cm->cm_state == MPS_CM_STATE_FREE,
+	    ("mps: Allocating busy command\n"));
+
 	TAILQ_REMOVE(&sc->high_priority_req_list, cm, cm_link);
-	KASSERT(cm->cm_state == MPS_CM_STATE_FREE, ("mps: Allocating busy command\n"));
 	cm->cm_state = MPS_CM_STATE_BUSY;
 	return (cm);
 }

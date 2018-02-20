@@ -3032,6 +3032,10 @@ options 	PAX_JAIL_SUPPORT	# Allow to override PAX settings per jail
 options 	PAX_INSECURE_MODE	# Allow to override INVARIANTS enforcements
 options 	HBSD_DEBUG
 
+# zstd I/O stream support
+# This enables support for Zstd compressed core dumps.
+options 	ZSTDIO
+
 # BHND(4) drivers
 options		BHND_LOGLEVEL	# Logging threshold level
 
