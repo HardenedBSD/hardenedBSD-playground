@@ -2490,8 +2490,10 @@ device		smb
 
 # SMBus peripheral devices
 #
+# jedec_dimm	Asset and temperature reporting for DDR3 and DDR4 DIMMs
 # jedec_ts	Temperature Sensor compliant with JEDEC Standard 21-C
 #
+device		jedec_dimm
 device		jedec_ts
 
 # I2C Bus
@@ -3031,6 +3033,10 @@ options 	PAX_SYSCTLS	# Run-time settings for PAX and Hardening
 options 	PAX_JAIL_SUPPORT	# Allow to override PAX settings per jail
 options 	PAX_INSECURE_MODE	# Allow to override INVARIANTS enforcements
 options 	HBSD_DEBUG
+
+# zstd I/O stream support
+# This enables support for Zstd compressed core dumps.
+options 	ZSTDIO
 
 # BHND(4) drivers
 options		BHND_LOGLEVEL	# Logging threshold level

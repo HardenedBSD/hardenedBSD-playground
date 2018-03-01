@@ -41,7 +41,16 @@ __<src.opts.mk>__:
 # that haven't been converted over.
 #
 
-# These options are used by the src builds
+# These options are used by the src builds. Those listed in
+# __DEFAULT_YES_OPTIONS default to 'yes' and will build unless turned
+# off.  __DEFAULT_NO_OPTIONS will default to 'no' and won't build
+# unless turned on. Any options listed in 'BROKEN_OPTIONS' will be
+# hard-wired to 'no'.  "Broken" here means not working or
+# not-appropriate and/or not supported. It doesn't imply something is
+# wrong with the code. There's not a single good word for this, so
+# BROKEN was selected as the least imperfect one considered at the
+# time. Options are added to BROKEN_OPTIONS list on a per-arch basis.
+# At this time, there's no provision for mutually incompatible options.
 
 __DEFAULT_YES_OPTIONS = \
     ACCT \
@@ -121,11 +130,13 @@ __DEFAULT_YES_OPTIONS = \
     LIBPTHREAD \
     LIBRESSL \
     LIBTHR \
+    LLVM_COV \
     LOCALES \
     LOCATE \
     LPR \
     LS_COLORS \
     LZMA_SUPPORT \
+    LOADER_EFI \
     LOADER_GELI \
     MAIL \
     MAILWRAPPER \
@@ -188,6 +199,7 @@ __DEFAULT_NO_OPTIONS = \
     LIBSOFT \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
+    LOADER_LUA \
     NAND \
     NTP \
     OFED \
@@ -292,8 +304,9 @@ BROKEN_OPTIONS+=LIBSOFT
 .if ${__T:Mmips*}
 BROKEN_OPTIONS+=SSP
 .endif
+# EFI doesn't exist on mips, powerpc, sparc or riscv.
 .if ${__T:Mmips*} || ${__T:Mpowerpc*} || ${__T:Msparc64} || ${__T:Mriscv*}
-BROKEN_OPTIONS+=EFI
+BROKEN_OPTIONS+=EFI LOADER_EFI
 .endif
 
 .if ${__T} == "amd64" || ${__T} == "i386" || ${__T} == "aarch64"
@@ -468,6 +481,7 @@ MK_LLDB:=	no
 .if ${MK_CLANG} == "no"
 MK_CLANG_EXTRAS:= no
 MK_CLANG_FULL:= no
+MK_LLVM_COV:= no
 MK_SAFESTACK:=	no
 .endif
 
@@ -491,6 +505,7 @@ MK_NTP:=	no
 .if ${MK_NTP} != "no"
 MK_OPENNTPD:=	no
 .endif
+
 
 #
 # MK_* options whose default value depends on another option.

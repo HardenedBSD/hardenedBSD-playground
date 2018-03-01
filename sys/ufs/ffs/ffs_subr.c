@@ -140,7 +140,7 @@ ffs_load_inode(struct buf *bp, struct inode *ip, struct fs *fs, ino_t ino)
  * the superblock and its associated data.
  */
 static off_t sblock_try[] = SBLOCKSEARCH;
-static int readsuper(void *, struct fs **, off_t,
+static int readsuper(void *, struct fs **, off_t, int,
 	int (*)(void *, off_t, void **, int));
 
 /*
@@ -162,42 +162,42 @@ static int readsuper(void *, struct fs **, off_t,
  *         The administrator must complete newfs before using this volume.
  */
 int
-ffs_sbget(void *devfd, struct fs **fsp, off_t altsuperblock,
+ffs_sbget(void *devfd, struct fs **fsp, off_t altsblock,
     struct malloc_type *filltype,
     int (*readfunc)(void *devfd, off_t loc, void **bufp, int size))
 {
 	struct fs *fs;
-	int i, ret, size, blks;
+	int i, error, size, blks;
 	uint8_t *space;
 	int32_t *lp;
 	char *buf;
 
-	if (altsuperblock != -1) {
-		if ((ret = readsuper(devfd, fsp, altsuperblock, readfunc)) != 0)
-			return (ret);
+	*fsp = NULL;
+	if (altsblock != -1) {
+		if ((error = readsuper(devfd, fsp, altsblock, 1,
+		     readfunc)) != 0)
+			return (error);
 	} else {
 		for (i = 0; sblock_try[i] != -1; i++) {
-			if ((ret = readsuper(devfd, fsp, sblock_try[i],
+			if ((error = readsuper(devfd, fsp, sblock_try[i], 0,
 			     readfunc)) == 0)
 				break;
-			if (ret == ENOENT)
+			if (error == ENOENT)
 				continue;
-			return (ret);
+			return (error);
 		}
 		if (sblock_try[i] == -1)
 			return (ENOENT);
 	}
 	/*
-	 * If not filling in summary information, NULL out fs_csp and return.
+	 * If not filling in summary information, return.
 	 */
-	fs = *fsp;
-	if (filltype == NULL) {
-		fs->fs_csp = NULL;
+	if (filltype == NULL)
 		return (0);
-	}
 	/*
 	 * Read in the superblock summary information.
 	 */
+	fs = *fsp;
 	size = fs->fs_cssize;
 	blks = howmany(size, fs->fs_fsize);
 	if (fs->fs_contigsumsize > 0)
@@ -209,12 +209,14 @@ ffs_sbget(void *devfd, struct fs **fsp, off_t altsuperblock,
 		size = fs->fs_bsize;
 		if (i + fs->fs_frag > blks)
 			size = (blks - i) * fs->fs_fsize;
-		ret = (*readfunc)(devfd,
+		buf = NULL;
+		error = (*readfunc)(devfd,
 		    dbtob(fsbtodb(fs, fs->fs_csaddr + i)), (void **)&buf, size);
-		if (ret) {
+		if (error) {
+			UFS_FREE(buf, filltype);
 			UFS_FREE(fs->fs_csp, filltype);
 			fs->fs_csp = NULL;
-			return (ret);
+			return (error);
 		}
 		memcpy(space, buf, size);
 		UFS_FREE(buf, filltype);
@@ -237,21 +239,24 @@ ffs_sbget(void *devfd, struct fs **fsp, off_t altsuperblock,
  * Return zero on success or an errno on failure.
  */
 static int
-readsuper(void *devfd, struct fs **fsp, off_t sblockloc,
+readsuper(void *devfd, struct fs **fsp, off_t sblockloc, int isaltsblk,
     int (*readfunc)(void *devfd, off_t loc, void **bufp, int size))
 {
 	struct fs *fs;
 	int error;
 
 	error = (*readfunc)(devfd, sblockloc, (void **)fsp, SBLOCKSIZE);
+	if (*fsp != NULL)
+		(*fsp)->fs_csp = NULL;	/* Not yet any summary information */
 	if (error != 0)
 		return (error);
 	fs = *fsp;
 	if (fs->fs_magic == FS_BAD_MAGIC)
 		return (EINVAL);
-	if (((fs->fs_magic == FS_UFS1_MAGIC && sblockloc <= SBLOCK_UFS1) ||
-	     (fs->fs_magic == FS_UFS2_MAGIC &&
-	      sblockloc == fs->fs_sblockloc)) &&
+	if (((fs->fs_magic == FS_UFS1_MAGIC && (isaltsblk ||
+	      sblockloc <= SBLOCK_UFS1)) ||
+	     (fs->fs_magic == FS_UFS2_MAGIC && (isaltsblk ||
+	      sblockloc == fs->fs_sblockloc))) &&
 	    fs->fs_ncg >= 1 &&
 	    fs->fs_bsize >= MINBSIZE &&
 	    fs->fs_bsize <= MAXBSIZE &&

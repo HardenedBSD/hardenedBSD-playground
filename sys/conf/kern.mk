@@ -203,7 +203,7 @@ CFLAGS+=	-ffreestanding
 # gcc and clang opimizers take advantage of this.  The kernel makes
 # use of signed integer wraparound mechanics so we need the compiler
 # to treat it as a wraparound and not take shortcuts.
-# 
+#
 CFLAGS+=	-fwrapv
 
 #

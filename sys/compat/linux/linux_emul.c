@@ -140,7 +140,7 @@ linux_proc_init(struct thread *td, struct thread *newtd, int flags)
 
 }
 
-void 
+void
 linux_proc_exit(void *arg __unused, struct proc *p)
 {
 	struct linux_pemuldata *pem;
@@ -155,7 +155,7 @@ linux_proc_exit(void *arg __unused, struct proc *p)
 
 	pem = pem_find(p);
 	if (pem == NULL)
-		return;	
+		return;
 	(p->p_sysent->sv_thread_detach)(td);
 
 	p->p_emuldata = NULL;
@@ -170,7 +170,7 @@ linux_proc_exit(void *arg __unused, struct proc *p)
 	free(pem, M_LINUX);
 }
 
-int 
+int
 linux_common_execve(struct thread *td, struct image_args *eargs)
 {
 	struct linux_pemuldata *pem;
@@ -193,7 +193,7 @@ linux_common_execve(struct thread *td, struct image_args *eargs)
 
 	/*
 	 * In a case of transition from Linux binary execing to
-	 * FreeBSD binary we destroy linux emuldata thread & proc entries.
+	 * FreeBSD binary we destroy Linux emuldata thread & proc entries.
 	 */
 	if (SV_CURPROC_ABI() != SV_ABI_LINUX) {
 		PROC_LOCK(p);
@@ -218,7 +218,7 @@ linux_common_execve(struct thread *td, struct image_args *eargs)
 	return (EJUSTRETURN);
 }
 
-void 
+void
 linux_proc_exec(void *arg __unused, struct proc *p, struct image_params *imgp)
 {
 	struct thread *td = curthread;
@@ -228,7 +228,7 @@ linux_proc_exec(void *arg __unused, struct proc *p, struct image_params *imgp)
 #endif
 
 	/*
-	 * In a case of execing from linux binary properly detach
+	 * In a case of execing from Linux binary properly detach
 	 * other threads from the user space.
 	 */
 	if (__predict_false(SV_PROC_ABI(p) == SV_ABI_LINUX)) {
@@ -239,7 +239,7 @@ linux_proc_exec(void *arg __unused, struct proc *p, struct image_params *imgp)
 	}
 
 	/*
-	 * In a case of execing to linux binary we create linux
+	 * In a case of execing to Linux binary we create Linux
 	 * emuldata thread entry.
 	 */
 	if (__predict_false((imgp->sysent->sv_flags & SV_ABI_MASK) ==

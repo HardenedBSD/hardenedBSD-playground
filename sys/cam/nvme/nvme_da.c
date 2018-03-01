@@ -101,14 +101,14 @@ struct trim_request {
 };
 struct nda_softc {
 	struct   cam_iosched_softc *cam_iosched;
-	int	 outstanding_cmds;	/* Number of active commands */
-	int	 refcount;		/* Active xpt_action() calls */
-	nda_state state;
-	nda_flags flags;
-	nda_quirks quirks;
-	int	 unmappedio;
-	uint32_t  nsid;			/* Namespace ID for this nda device */
-	struct disk *disk;
+	int			outstanding_cmds;	/* Number of active commands */
+	int			refcount;		/* Active xpt_action() calls */
+	nda_state		state;
+	nda_flags		flags;
+	nda_quirks		quirks;
+	int			unmappedio;
+	uint32_t		nsid;			/* Namespace ID for this nda device */
+	struct disk		*disk;
 	struct task		sysctl_task;
 	struct sysctl_ctx_list	sysctl_ctx;
 	struct sysctl_oid	*sysctl_tree;
@@ -116,9 +116,9 @@ struct nda_softc {
 #ifdef CAM_IO_STATS
 	struct sysctl_ctx_list	sysctl_stats_ctx;
 	struct sysctl_oid	*sysctl_stats_tree;
-	u_int	timeouts;
-	u_int	errors;
-	u_int	invalidations;
+	u_int			timeouts;
+	u_int			errors;
+	u_int			invalidations;
 #endif
 };
 
@@ -260,7 +260,7 @@ ndaopen(struct disk *dp)
 	int error;
 
 	periph = (struct cam_periph *)dp->d_drv1;
-	if (cam_periph_acquire(periph) != CAM_REQ_CMP) {
+	if (cam_periph_acquire(periph) != 0) {
 		return(ENXIO);
 	}
 
@@ -676,6 +676,7 @@ ndaregister(struct cam_periph *periph, void *arg)
 	const struct nvme_namespace_data *nsd;
 	const struct nvme_controller_data *cd;
 	char   announce_buf[80];
+	uint8_t flbas_fmt, lbads, vwc_present;
 	u_int maxio;
 	int quirks;
 
@@ -744,13 +745,19 @@ ndaregister(struct cam_periph *periph, void *arg)
 	else if (maxio > MAXPHYS)
 		maxio = MAXPHYS;	/* for safety */
 	disk->d_maxsize = maxio;
-	disk->d_sectorsize = 1 << nsd->lbaf[nsd->flbas.format].lbads;
+	flbas_fmt = (nsd->flbas >> NVME_NS_DATA_FLBAS_FORMAT_SHIFT) &
+		NVME_NS_DATA_FLBAS_FORMAT_MASK;
+	lbads = (nsd->lbaf[flbas_fmt] >> NVME_NS_DATA_LBAF_LBADS_SHIFT) &
+		NVME_NS_DATA_LBAF_LBADS_MASK;
+	disk->d_sectorsize = 1 << lbads;
 	disk->d_mediasize = (off_t)(disk->d_sectorsize * nsd->nsze);
 	disk->d_delmaxsize = disk->d_mediasize;
 	disk->d_flags = DISKFLAG_DIRECT_COMPLETION;
 //	if (cd->oncs.dsm) // XXX broken?
 		disk->d_flags |= DISKFLAG_CANDELETE;
-	if (cd->vwc.present)
+	vwc_present = (cd->vwc >> NVME_CTRLR_DATA_VWC_PRESENT_SHIFT) &
+		NVME_CTRLR_DATA_VWC_PRESENT_MASK;
+	if (vwc_present)
 		disk->d_flags |= DISKFLAG_CANFLUSHCACHE;
 	if ((cpi.hba_misc & PIM_UNMAPPED) != 0) {
 		disk->d_flags |= DISKFLAG_UNMAPPED_BIO;
@@ -785,7 +792,7 @@ ndaregister(struct cam_periph *periph, void *arg)
 	 * We'll release this reference once GEOM calls us back (via
 	 * ndadiskgonecb()) telling us that our provider has been freed.
 	 */
-	if (cam_periph_acquire(periph) != CAM_REQ_CMP) {
+	if (cam_periph_acquire(periph) != 0) {
 		xpt_print(periph->path, "%s: lost periph during "
 			  "registration!\n", __func__);
 		cam_periph_lock(periph);
@@ -807,7 +814,7 @@ ndaregister(struct cam_periph *periph, void *arg)
 	 * Create our sysctl variables, now that we know
 	 * we have successfully attached.
 	 */
-	if (cam_periph_acquire(periph) == CAM_REQ_CMP)
+	if (cam_periph_acquire(periph) == 0)
 		taskqueue_enqueue(taskqueue_thread, &softc->sysctl_task);
 
 	/*
@@ -905,9 +912,9 @@ ndastart(struct cam_periph *periph, union ccb *start_ccb)
 				return;
 			}
 			dsm_range->length =
-			    bp->bio_bcount / softc->disk->d_sectorsize;
+			    htole32(bp->bio_bcount / softc->disk->d_sectorsize);
 			dsm_range->starting_lba =
-			    bp->bio_offset / softc->disk->d_sectorsize;
+			    htole64(bp->bio_offset / softc->disk->d_sectorsize);
 			bp->bio_driver2 = dsm_range;
 			nda_nvme_trim(softc, &start_ccb->nvmeio, dsm_range, 1);
 			start_ccb->ccb_h.ccb_state = NDA_CCB_TRIM;
@@ -1094,19 +1101,25 @@ ndaflush(void)
 
 	CAM_PERIPH_FOREACH(periph, &ndadriver) {
 		softc = (struct nda_softc *)periph->softc;
+
 		if (SCHEDULER_STOPPED()) {
-			/* If we paniced with the lock held, do not recurse. */
+			/*
+			 * If we paniced with the lock held or the periph is not
+			 * open, do not recurse.  Otherwise, call ndadump since
+			 * that avoids the sleeping cam_periph_getccb does if no
+			 * CCBs are available.
+			 */
 			if (!cam_periph_owned(periph) &&
 			    (softc->flags & NDA_FLAG_OPEN)) {
 				ndadump(softc->disk, NULL, 0, 0, 0);
 			}
 			continue;
 		}
-		cam_periph_lock(periph);
+
 		/*
-		 * We only sync the cache if the drive is still open, and
-		 * if the drive is capable of it..
+		 * We only sync the cache if the drive is still open
 		 */
+		cam_periph_lock(periph);
 		if ((softc->flags & NDA_FLAG_OPEN) == 0) {
 			cam_periph_unlock(periph);
 			continue;

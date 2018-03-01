@@ -21,5 +21,4 @@ CFLAGS+=	-Wformat -Wall
 NOPIE=		1
 .endif
 
-.include <bsd.stand.mk>
 .include <bsd.lib.mk>
