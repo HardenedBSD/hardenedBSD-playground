@@ -340,9 +340,8 @@ __DEFAULT_NO_OPTIONS+=LLVM_OBJDUMP_IS_OBJDUMP
 __DEFAULT_NO_OPTIONS+=RETPOLINE
 .endif
 
-<<<<<<< HEAD
 __DEFAULT_NO_OPTIONS+=CROSS_DSO_CFI
-=======
+
 # GELI isn't supported on !x86
 .if ${__T} != "i386" && ${__T} != "amd64"
 BROKEN_OPTIONS+=LOADER_GELI
@@ -355,7 +354,6 @@ BROKEN_OPTIONS+=LOADER_OFW
 .if ${__T:Marm*} == "" && ${__T:Mmips*} == "" && ${__T:Mpowerpc*} == ""
 BROKEN_OPTIONS+=LOADER_UBOOT
 .endif
->>>>>>> upstream/hardened/current/master
 
 .if ${__T:Mmips64*}
 # profiling won't work on MIPS64 because there is only assembly for o32
