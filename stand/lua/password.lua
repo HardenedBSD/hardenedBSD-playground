@@ -42,41 +42,38 @@ local twiddle_chars = {"/", "-", "\\", "|"}
 -- Module exports
 function password.read(prompt_length)
 	local str = ""
-	local n = 0
 	local twiddle_pos = 1
 
 	local function draw_twiddle()
-		loader.printc("  " .. twiddle_chars[twiddle_pos])
+		printc("  " .. twiddle_chars[twiddle_pos])
 		-- Reset cursor to just after the password prompt
 		screen.setcursor(prompt_length + 2, screen.default_y)
 		twiddle_pos = (twiddle_pos % #twiddle_chars) + 1
 	end
 
 	-- Space between the prompt and any on-screen feedback
-	loader.printc(" ")
+	printc(" ")
 	while true do
 		local ch = io.getchar()
 		if ch == core.KEY_ENTER then
 			break
 		end
 		if ch == core.KEY_BACKSPACE or ch == core.KEY_DELETE then
-			if n > 0 then
-				n = n - 1
+			if #str > 0 then
 				if show_password_mask then
-					loader.printc("\008 \008")
+					printc("\008 \008")
 				else
 					draw_twiddle()
 				end
-				str = str:sub(1, n)
+				str = str:sub(1, #str - 1)
 			end
 		else
 			if show_password_mask then
-				loader.printc("*")
+				printc("*")
 			else
 				draw_twiddle()
 			end
 			str = str .. string.char(ch)
-			n = n + 1
 		end
 	end
 	return str
@@ -90,23 +87,23 @@ function password.check()
 		local attempts = 1
 
 		local function clear_incorrect_text_prompt()
-			loader.printc("\n")
-			loader.printc(string.rep(" ", #INCORRECT_PASSWORD))
+			printc("\n")
+			printc(string.rep(" ", #INCORRECT_PASSWORD))
 		end
 
 		while true do
 			screen.defcursor()
-			loader.printc(prompt)
+			printc(prompt)
 			local read_pwd = password.read(#prompt)
 			if pwd == nil or pwd == read_pwd then
 				-- Clear the prompt + twiddle
-				loader.printc(string.rep(" ", #prompt + 5))
+				printc(string.rep(" ", #prompt + 5))
 				if attempts > 1 then
 					clear_incorrect_text_prompt()
 				end
 				return read_pwd
 			end
-			loader.printc("\n" .. INCORRECT_PASSWORD)
+			printc("\n" .. INCORRECT_PASSWORD)
 			attempts = attempts + 1
 			loader.delay(3*1000*1000)
 		end
