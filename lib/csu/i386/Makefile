@@ -1,5 +1,7 @@
 # $FreeBSD$
 
+.include <bsd.init.mk>
+
 .PATH: ${.CURDIR:H}/common
 
 SRCS=		crti.S crtn.S
@@ -7,6 +9,8 @@ OBJS=		${SRCS:N*.h:R:S/$/.o/g}
 OBJS+=		gcrt1.o crt1.o Scrt1.o
 CFLAGS+=	-I${.CURDIR:H}/common \
 		-I${SRCTOP}/lib/libc/include
+
+MK_CROSS_DSO_CFI=	no
 
 FILES=		${OBJS}
 FILESMODE=	${LIBMODE}

@@ -8,6 +8,7 @@
 PACKAGE=	clibs
 MK_SSP=		no
 MK_CFI=		no
+MK_CROSS_DSO_CFI=	no
 
 PROG?=		ld-elf.so.1
 .if (${PROG:M*ld-elf32*} != "")

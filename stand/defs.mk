@@ -37,6 +37,7 @@ BINDIR?=	/boot
 
 MK_SAFESTACK=	no
 MK_CFI=		no
+MK_CROSS_DSO_CFI=	no
 
 LIBSA=		${BOOTOBJ}/libsa/libsa.a
 .if ${MACHINE} == "i386"

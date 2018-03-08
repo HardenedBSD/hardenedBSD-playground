@@ -1,5 +1,7 @@
 # $FreeBSD$
 
+.include <bsd.init.mk>
+
 .PATH: ${.CURDIR:H}/common
 
 SRCS=		crt1.c crti.S crtn.S
@@ -8,7 +10,8 @@ OBJS+=		Scrt1.o gcrt1.o
 CFLAGS+=	-I${.CURDIR:H}/common \
 		-I${SRCTOP}/lib/libc/include
 CFLAGS+=	-fno-omit-frame-pointer
-NOCFI=		yes
+MK_CFI=		no
+MK_CROSS_DSO_CFI=	no
 
 FILES=		${OBJS}
 FILESMODE=	${LIBMODE}
