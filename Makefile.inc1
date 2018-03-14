@@ -560,11 +560,8 @@ BSARGS= 	DESTDIR= \
 		-DNO_CPU_CFLAGS MK_WARNS=no MK_CTF=no \
 		MK_CLANG_EXTRAS=yes MK_CLANG_FULL=no \
 		MK_LLDB=no MK_TESTS=no \
-<<<<<<< HEAD
-		MK_INCLUDES=yes MK_CFI=no MK_ASAN=no
-=======
-		MK_INCLUDES=yes MK_CFI=no MK_RETPOLINE=no
->>>>>>> origin/hardened/current/master
+		MK_INCLUDES=yes MK_CFI=no MK_RETPOLINE=no \
+		MK_ASAN=no
 
 BMAKE=		\
 		${BMAKEENV} ${MAKE} ${WORLD_FLAGS} -f Makefile.inc1 \
@@ -581,11 +578,8 @@ TMAKE=		\
 		-DNO_LINT \
 		-DNO_CPU_CFLAGS MK_WARNS=no MK_CTF=no \
 		MK_CLANG_EXTRAS=yes MK_CLANG_FULL=no \
-<<<<<<< HEAD
-		MK_LLDB=no MK_TESTS=no MK_ASAN=no MK_CFI=no
-=======
-		MK_LLDB=no MK_TESTS=no MK_CFI=no MK_RETPOLINE=no
->>>>>>> origin/hardened/current/master
+		MK_LLDB=no MK_TESTS=no MK_CFI=no MK_RETPOLINE=no \
+		MK_ASAN=no
 
 # cross-tools stage
 # TOOLS_PREFIX set in BMAKE
@@ -607,12 +601,8 @@ KTMAKE=		TOOLS_PREFIX=${WORLDTMP} \
 		SSP_CFLAGS= \
 		MK_HTML=no -DNO_LINT MK_MAN=no \
 		-DNO_PIC MK_PROFILE=no -DNO_SHARED \
-<<<<<<< HEAD
-		-DNO_CPU_CFLAGS MK_WARNS=no MK_CTF=no MK_CFI=no MK_ASAN=no
-=======
 		-DNO_CPU_CFLAGS MK_WARNS=no MK_CTF=no MK_CFI=no \
-		MK_RETPOLINE=no
->>>>>>> origin/hardened/current/master
+		MK_RETPOLINE=no MK_ASAN=no
 
 # world stage
 WMAKEENV=	${CROSSENV} \
