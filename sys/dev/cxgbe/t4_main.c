@@ -63,9 +63,12 @@ __FBSDID("$FreeBSD$");
 #include <net/rss_config.h>
 #endif
 #if defined(__i386__) || defined(__amd64__)
+#include <machine/md_var.h>
+#include <machine/cputypes.h>
 #include <vm/vm.h>
 #include <vm/pmap.h>
 #endif
+#include <crypto/rijndael/rijndael.h>
 #ifdef DDB
 #include <ddb/ddb.h>
 #include <ddb/db_lex.h>
@@ -353,10 +356,12 @@ TUNABLE_INT("hw.cxgbe.nnmrxq_vi", &t4_nnmrxq_vi);
 #define TMR_IDX 1
 int t4_tmr_idx = TMR_IDX;
 TUNABLE_INT("hw.cxgbe.holdoff_timer_idx", &t4_tmr_idx);
+TUNABLE_INT("hw.cxgbe.holdoff_timer_idx_10G", &t4_tmr_idx);	/* Old name */
 
 #define PKTC_IDX (-1)
 int t4_pktc_idx = PKTC_IDX;
 TUNABLE_INT("hw.cxgbe.holdoff_pktc_idx", &t4_pktc_idx);
+TUNABLE_INT("hw.cxgbe.holdoff_pktc_idx_10G", &t4_pktc_idx);	/* Old name */
 
 /*
  * Size (# of entries) of each tx and rx queue.
@@ -454,6 +459,16 @@ TUNABLE_INT("hw.cxl.write_combine", &t5_write_combine);
 
 static int t4_num_vis = 1;
 TUNABLE_INT("hw.cxgbe.num_vis", &t4_num_vis);
+/*
+ * PCIe Relaxed Ordering.
+ * -1: driver should figure out a good value.
+ * 0: disable RO.
+ * 1: enable RO.
+ * 2: leave RO alone.
+ */
+static int pcie_relaxed_ordering = -1;
+TUNABLE_INT("hw.cxgbe.pcie_relaxed_ordering", &pcie_relaxed_ordering);
+
 
 /* Functions used by VIs to obtain unique MAC addresses for each VI. */
 static int vi_mac_funcs[] = {
@@ -576,6 +591,7 @@ static int sysctl_wcwr_stats(SYSCTL_HANDLER_ARGS);
 static int sysctl_tc_params(SYSCTL_HANDLER_ARGS);
 #endif
 #ifdef TCP_OFFLOAD
+static int sysctl_tls_rx_ports(SYSCTL_HANDLER_ARGS);
 static int sysctl_tp_tick(SYSCTL_HANDLER_ARGS);
 static int sysctl_tp_dack_timer(SYSCTL_HANDLER_ARGS);
 static int sysctl_tp_timer(SYSCTL_HANDLER_ARGS);
@@ -856,10 +872,16 @@ t4_attach(device_t dev)
 
 		pci_set_max_read_req(dev, 4096);
 		v = pci_read_config(dev, i + PCIER_DEVICE_CTL, 2);
-		v |= PCIEM_CTL_RELAXED_ORD_ENABLE;
-		pci_write_config(dev, i + PCIER_DEVICE_CTL, v, 2);
-
 		sc->params.pci.mps = 128 << ((v & PCIEM_CTL_MAX_PAYLOAD) >> 5);
+		if (pcie_relaxed_ordering == 0 &&
+		    (v | PCIEM_CTL_RELAXED_ORD_ENABLE) != 0) {
+			v &= ~PCIEM_CTL_RELAXED_ORD_ENABLE;
+			pci_write_config(dev, i + PCIER_DEVICE_CTL, v, 2);
+		} else if (pcie_relaxed_ordering == 1 &&
+		    (v & PCIEM_CTL_RELAXED_ORD_ENABLE) == 0) {
+			v |= PCIEM_CTL_RELAXED_ORD_ENABLE;
+			pci_write_config(dev, i + PCIER_DEVICE_CTL, v, 2);
+		}
 	}
 
 	sc->sge_gts_reg = MYPF_REG(A_SGE_PF_GTS);
@@ -1369,6 +1391,7 @@ t4_detach_common(device_t dev)
 	free(sc->sge.iqmap, M_CXGBE);
 	free(sc->sge.eqmap, M_CXGBE);
 	free(sc->tids.ftid_tab, M_CXGBE);
+	free(sc->tt.tls_rx_ports, M_CXGBE);
 	t4_destroy_dma_tag(sc);
 	if (mtx_initialized(&sc->sc_lock)) {
 		sx_xlock(&t4_list_lock);
@@ -3642,6 +3665,18 @@ get_params__post_init(struct adapter *sc)
 		sc->vres.iscsi.start = val[0];
 		sc->vres.iscsi.size = val[1] - val[0] + 1;
 	}
+	if (sc->cryptocaps & FW_CAPS_CONFIG_TLSKEYS) {
+		param[0] = FW_PARAM_PFVF(TLS_START);
+		param[1] = FW_PARAM_PFVF(TLS_END);
+		rc = -t4_query_params(sc, sc->mbox, sc->pf, 0, 2, param, val);
+		if (rc != 0) {
+			device_printf(sc->dev,
+			    "failed to query TLS parameters: %d.\n", rc);
+			return (rc);
+		}
+		sc->vres.key.start = val[0];
+		sc->vres.key.size = val[1] - val[0] + 1;
+	}
 
 	t4_init_sge_params(sc);
 
@@ -5400,6 +5435,14 @@ t4_sysctls(struct adapter *sc)
 		SYSCTL_ADD_INT(ctx, children, OID_AUTO, "rx_coalesce",
 		    CTLFLAG_RW, &sc->tt.rx_coalesce, 0, "receive coalescing");
 
+		sc->tt.tls = 0;
+		SYSCTL_ADD_INT(ctx, children, OID_AUTO, "tls", CTLFLAG_RW,
+		    &sc->tt.tls, 0, "Inline TLS allowed");
+
+		SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "tls_rx_ports",
+		    CTLTYPE_INT | CTLFLAG_RW, sc, 0, sysctl_tls_rx_ports,
+		    "I", "TCP ports that use inline TLS+TOE RX");
+
 		sc->tt.tx_align = 1;
 		SYSCTL_ADD_INT(ctx, children, OID_AUTO, "tx_align",
 		    CTLFLAG_RW, &sc->tt.tx_align, 0, "chop and align payload");
@@ -5803,6 +5846,19 @@ cxgbe_sysctls(struct port_info *pi)
 	    "# of buffer-group 3 truncated packets");
 
 #undef SYSCTL_ADD_T4_PORTSTAT
+
+	SYSCTL_ADD_ULONG(ctx, children, OID_AUTO, "tx_tls_records",
+	    CTLFLAG_RD, &pi->tx_tls_records,
+	    "# of TLS records transmitted");
+	SYSCTL_ADD_ULONG(ctx, children, OID_AUTO, "tx_tls_octets",
+	    CTLFLAG_RD, &pi->tx_tls_octets,
+	    "# of payload octets in transmitted TLS records");
+	SYSCTL_ADD_ULONG(ctx, children, OID_AUTO, "rx_tls_records",
+	    CTLFLAG_RD, &pi->rx_tls_records,
+	    "# of TLS records received");
+	SYSCTL_ADD_ULONG(ctx, children, OID_AUTO, "rx_tls_octets",
+	    CTLFLAG_RD, &pi->rx_tls_octets,
+	    "# of payload octets in received TLS records");
 }
 
 static int
@@ -6986,7 +7042,7 @@ sysctl_meminfo(SYSCTL_HANDLER_ARGS)
 		"TDDP region:", "TPT region:", "STAG region:", "RQ region:",
 		"RQUDP region:", "PBL region:", "TXPBL region:",
 		"DBVFIFO region:", "ULPRX state:", "ULPTX state:",
-		"On-chip queues:"
+		"On-chip queues:", "TLS keys:",
 	};
 	struct mem_desc avail[4];
 	struct mem_desc mem[nitems(region) + 3];	/* up to 3 holes */
@@ -7122,6 +7178,13 @@ sysctl_meminfo(SYSCTL_HANDLER_ARGS)
 	md->base = sc->vres.ocq.start;
 	if (sc->vres.ocq.size)
 		md->limit = md->base + sc->vres.ocq.size - 1;
+	else
+		md->idx = nitems(region);  /* hide it */
+	md++;
+
+	md->base = sc->vres.key.start;
+	if (sc->vres.key.size)
+		md->limit = md->base + sc->vres.key.size - 1;
 	else
 		md->idx = nitems(region);  /* hide it */
 	md++;
@@ -8217,6 +8280,68 @@ done:
 #endif
 
 #ifdef TCP_OFFLOAD
+static int
+sysctl_tls_rx_ports(SYSCTL_HANDLER_ARGS)
+{
+	struct adapter *sc = arg1;
+	int *old_ports, *new_ports;
+	int i, new_count, rc;
+
+	if (req->newptr == NULL && req->oldptr == NULL)
+		return (SYSCTL_OUT(req, NULL, imax(sc->tt.num_tls_rx_ports, 1) *
+		    sizeof(sc->tt.tls_rx_ports[0])));
+
+	rc = begin_synchronized_op(sc, NULL, SLEEP_OK | INTR_OK, "t4tlsrx");
+	if (rc)
+		return (rc);
+
+	if (sc->tt.num_tls_rx_ports == 0) {
+		i = -1;
+		rc = SYSCTL_OUT(req, &i, sizeof(i));
+	} else
+		rc = SYSCTL_OUT(req, sc->tt.tls_rx_ports,
+		    sc->tt.num_tls_rx_ports * sizeof(sc->tt.tls_rx_ports[0]));
+	if (rc == 0 && req->newptr != NULL) {
+		new_count = req->newlen / sizeof(new_ports[0]);
+		new_ports = malloc(new_count * sizeof(new_ports[0]), M_CXGBE,
+		    M_WAITOK);
+		rc = SYSCTL_IN(req, new_ports, new_count *
+		    sizeof(new_ports[0]));
+		if (rc)
+			goto err;
+
+		/* Allow setting to a single '-1' to clear the list. */
+		if (new_count == 1 && new_ports[0] == -1) {
+			ADAPTER_LOCK(sc);
+			old_ports = sc->tt.tls_rx_ports;
+			sc->tt.tls_rx_ports = NULL;
+			sc->tt.num_tls_rx_ports = 0;
+			ADAPTER_UNLOCK(sc);
+			free(old_ports, M_CXGBE);
+		} else {
+			for (i = 0; i < new_count; i++) {
+				if (new_ports[i] < 1 ||
+				    new_ports[i] > IPPORT_MAX) {
+					rc = EINVAL;
+					goto err;
+				}
+			}
+
+			ADAPTER_LOCK(sc);
+			old_ports = sc->tt.tls_rx_ports;
+			sc->tt.tls_rx_ports = new_ports;
+			sc->tt.num_tls_rx_ports = new_count;
+			ADAPTER_UNLOCK(sc);
+			free(old_ports, M_CXGBE);
+			new_ports = NULL;
+		}
+	err:
+		free(new_ports, M_CXGBE);
+	}
+	end_synchronized_op(sc, 0);
+	return (rc);
+}
+
 static void
 unit_conv(char *buf, size_t len, u_int val, u_int factor)
 {
@@ -9962,6 +10087,14 @@ tweak_tunables(void)
 		t4_num_vis = nitems(vi_mac_funcs);
 		printf("cxgbe: number of VIs limited to %d\n", t4_num_vis);
 	}
+
+	if (pcie_relaxed_ordering < 0 || pcie_relaxed_ordering > 2) {
+		pcie_relaxed_ordering = 1;
+#if defined(__i386__) || defined(__amd64__)
+		if (cpu_vendor_id == CPU_VENDOR_INTEL)
+			pcie_relaxed_ordering = 0;
+#endif
+	}
 }
 
 #ifdef DDB
@@ -10136,6 +10269,44 @@ DB_FUNC(tcb, db_show_t4tcb, db_t4_table, CS_OWN, NULL)
 	t4_dump_tcb(device_get_softc(dev), tid);
 }
 #endif
+
+/*
+ * Borrowed from cesa_prep_aes_key().
+ *
+ * NB: The crypto engine wants the words in the decryption key in reverse
+ * order.
+ */
+void
+t4_aes_getdeckey(void *dec_key, const void *enc_key, unsigned int kbits)
+{
+	uint32_t ek[4 * (RIJNDAEL_MAXNR + 1)];
+	uint32_t *dkey;
+	int i;
+
+	rijndaelKeySetupEnc(ek, enc_key, kbits);
+	dkey = dec_key;
+	dkey += (kbits / 8) / 4;
+
+	switch (kbits) {
+	case 128:
+		for (i = 0; i < 4; i++)
+			*--dkey = htobe32(ek[4 * 10 + i]);
+		break;
+	case 192:
+		for (i = 0; i < 2; i++)
+			*--dkey = htobe32(ek[4 * 11 + 2 + i]);
+		for (i = 0; i < 4; i++)
+			*--dkey = htobe32(ek[4 * 12 + i]);
+		break;
+	case 256:
+		for (i = 0; i < 4; i++)
+			*--dkey = htobe32(ek[4 * 13 + i]);
+		for (i = 0; i < 4; i++)
+			*--dkey = htobe32(ek[4 * 14 + i]);
+		break;
+	}
+	MPASS(dkey == dec_key);
+}
 
 static struct sx mlu;	/* mod load unload */
 SX_SYSINIT(cxgbe_mlu, &mlu, "cxgbe mod load/unload");

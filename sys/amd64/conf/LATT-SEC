@@ -1,0 +1,12 @@
+include HARDENEDBSD
+
+ident LATT-SEC
+
+options 	EVDEV_SUPPORT
+options 	MMCCAM
+
+nooptions 	WITNESS
+nooptions 	WITNESS_SKIPSPIN
+nooptions 	MALLOC_DEBUG_MAXZONES
+
+device 		evdev

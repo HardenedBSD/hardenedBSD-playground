@@ -24,7 +24,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd December 9, 2017
+.Dd March 10, 2018
 .Dt RC.CONF 5
 .Os
 .Sh NAME
@@ -421,6 +421,9 @@ If
 .Xr dhclient 8
 is used to set the hostname via DHCP,
 this variable should be set to an empty string.
+Within a
+.Xr jail 8
+the hostname is generally already set and this variable may absent.
 If this value remains unset when the system is done booting
 your console login will display the default hostname of
 .Dq Amnesiac .
@@ -989,7 +992,7 @@ is set to the list of
 instances that should be started at system boot time.
 If
 .Va pflog_instances
-is set, for each whitespace-seperated
+is set, for each whitespace-separated
 .Ar element
 in the list,
 .Ao Ar element Ac Ns Va _dev
@@ -1031,7 +1034,7 @@ If multiple instances of
 .Xr ftp-proxy 8
 are desired at boot time,
 .Va ftpproxy_instances
-should contain a whitespace-seperated list of instance names.
+should contain a whitespace-separated list of instance names.
 For each
 .Ar element
 in the list, a variable named
@@ -2056,8 +2059,8 @@ of the file systems fails.
 .It Va background_fsck
 .Pq Vt bool
 If set to
-.Dq Li YES ,
-the system will attempt to run
+.Dq Li NO ,
+the system will not attempt to run
 .Xr fsck 8
 in the background where possible.
 .It Va background_fsck_delay

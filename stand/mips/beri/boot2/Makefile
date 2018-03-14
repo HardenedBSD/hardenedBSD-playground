@@ -43,8 +43,6 @@ SRCS=		relocate.S		\
 		cfi.c			\
 		sdcard.c
 
-MAN=
-
 AFLAGS=		-G0
 
 CFLAGS+=	-I${LDRSRC}			\
@@ -53,8 +51,7 @@ CFLAGS+=	-I${LDRSRC}			\
 		-fno-pic -mno-abicalls		\
 		-g
 
-LDFLAGS=	-nostdlib			\
-		-static				\
+LDFLAGS+=	-static				\
 		-Wl,-N				\
 		-G0				\
 		-L${.CURDIR}

@@ -380,6 +380,11 @@ static vm_offset_t	mmu_booke_quick_enter_page(mmu_t mmu, vm_page_t m);
 static void		mmu_booke_quick_remove_page(mmu_t mmu, vm_offset_t addr);
 static int		mmu_booke_change_attr(mmu_t mmu, vm_offset_t addr,
     vm_size_t sz, vm_memattr_t mode);
+static int		mmu_booke_map_user_ptr(mmu_t mmu, pmap_t pm,
+    volatile const void *uaddr, void **kaddr, size_t ulen, size_t *klen);
+static int		mmu_booke_decode_kernel_ptr(mmu_t mmu, vm_offset_t addr,
+    int *is_user, vm_offset_t *decoded_addr);
+
 
 static mmu_method_t mmu_booke_methods[] = {
 	/* pmap dispatcher interface */
@@ -432,6 +437,8 @@ static mmu_method_t mmu_booke_methods[] = {
 	MMUMETHOD(mmu_kremove,		mmu_booke_kremove),
 	MMUMETHOD(mmu_unmapdev,		mmu_booke_unmapdev),
 	MMUMETHOD(mmu_change_attr,	mmu_booke_change_attr),
+	MMUMETHOD(mmu_map_user_ptr,	mmu_booke_map_user_ptr),
+	MMUMETHOD(mmu_decode_kernel_ptr, mmu_booke_decode_kernel_ptr),
 
 	/* dumpsys() support */
 	MMUMETHOD(mmu_dumpsys_map,	mmu_booke_dumpsys_map),
@@ -494,12 +501,12 @@ tlb_miss_lock(void)
 		if (pc != pcpup) {
 
 			CTR3(KTR_PMAP, "%s: tlb miss LOCK of CPU=%d, "
-			    "tlb_lock=%p", __func__, pc->pc_cpuid, pc->pc_booke_tlb_lock);
+			    "tlb_lock=%p", __func__, pc->pc_cpuid, pc->pc_booke.tlb_lock);
 
 			KASSERT((pc->pc_cpuid != PCPU_GET(cpuid)),
 			    ("tlb_miss_lock: tried to lock self"));
 
-			tlb_lock(pc->pc_booke_tlb_lock);
+			tlb_lock(pc->pc_booke.tlb_lock);
 
 			CTR1(KTR_PMAP, "%s: locked", __func__);
 		}
@@ -521,7 +528,7 @@ tlb_miss_unlock(void)
 			CTR2(KTR_PMAP, "%s: tlb miss UNLOCK of CPU=%d",
 			    __func__, pc->pc_cpuid);
 
-			tlb_unlock(pc->pc_booke_tlb_lock);
+			tlb_unlock(pc->pc_booke.tlb_lock);
 
 			CTR1(KTR_PMAP, "%s: unlocked", __func__);
 		}
@@ -674,7 +681,7 @@ pdir_free(mmu_t mmu, pmap_t pmap, unsigned int pp2d_idx)
 		pa = pte_vatopa(mmu, kernel_pmap, va);
 		m = PHYS_TO_VM_PAGE(pa);
 		vm_page_free_zero(m);
-		atomic_subtract_int(&vm_cnt.v_wire_count, 1);
+		vm_wire_sub(1);
 		pmap_kremove(va);
 	}
 
@@ -779,10 +786,10 @@ ptbl_alloc(mmu_t mmu, pmap_t pmap, pte_t ** pdir, unsigned int pdir_idx,
 				ptbl_free_pmap_ptbl(pmap, ptbl);
 				for (j = 0; j < i; j++)
 					vm_page_free(mtbl[j]);
-				atomic_subtract_int(&vm_cnt.v_wire_count, i);
+				vm_wire_sub(i);
 				return (NULL);
 			}
-			VM_WAIT;
+			vm_wait(NULL);
 			rw_wlock(&pvh_global_lock);
 			PMAP_LOCK(pmap);
 		}
@@ -821,7 +828,7 @@ ptbl_free(mmu_t mmu, pmap_t pmap, pte_t ** pdir, unsigned int pdir_idx)
 		pa = pte_vatopa(mmu, kernel_pmap, va);
 		m = PHYS_TO_VM_PAGE(pa);
 		vm_page_free_zero(m);
-		atomic_subtract_int(&vm_cnt.v_wire_count, 1);
+		vm_wire_sub(1);
 		pmap_kremove(va);
 	}
 
@@ -1023,10 +1030,10 @@ ptbl_alloc(mmu_t mmu, pmap_t pmap, unsigned int pdir_idx, boolean_t nosleep)
 				ptbl_free_pmap_ptbl(pmap, ptbl);
 				for (j = 0; j < i; j++)
 					vm_page_free(mtbl[j]);
-				atomic_subtract_int(&vm_cnt.v_wire_count, i);
+				vm_wire_sub(i);
 				return (NULL);
 			}
-			VM_WAIT;
+			vm_wait(NULL);
 			rw_wlock(&pvh_global_lock);
 			PMAP_LOCK(pmap);
 		}
@@ -1084,7 +1091,7 @@ ptbl_free(mmu_t mmu, pmap_t pmap, unsigned int pdir_idx)
 		pa = pte_vatopa(mmu, kernel_pmap, va);
 		m = PHYS_TO_VM_PAGE(pa);
 		vm_page_free_zero(m);
-		atomic_subtract_int(&vm_cnt.v_wire_count, 1);
+		vm_wire_sub(1);
 		mmu_booke_kremove(mmu, va);
 	}
 
@@ -1183,7 +1190,7 @@ pv_alloc(void)
 
 	pv_entry_count++;
 	if (pv_entry_count > pv_entry_high_water)
-		pagedaemon_wakeup();
+		pagedaemon_wakeup(0); /* XXX powerpc NUMA */
 	pv = uma_zalloc(pvzone, M_NOWAIT);
 
 	return (pv);
@@ -1339,7 +1346,7 @@ pdir_alloc(mmu_t mmu, pmap_t pmap, unsigned int pp2d_idx, bool nosleep)
 		req = VM_ALLOC_NOOBJ | VM_ALLOC_WIRED;
 		while ((m = vm_page_alloc(NULL, pidx, req)) == NULL) {
 			PMAP_UNLOCK(pmap);
-			VM_WAIT;
+			vm_wait(NULL);
 			PMAP_LOCK(pmap);
 		}
 		mtbl[i] = m;
@@ -2265,6 +2272,45 @@ mmu_booke_kremove(mmu_t mmu, vm_offset_t va)
 
 	tlb_miss_unlock();
 	mtx_unlock_spin(&tlbivax_mutex);
+}
+
+/*
+ * Provide a kernel pointer corresponding to a given userland pointer.
+ * The returned pointer is valid until the next time this function is
+ * called in this thread. This is used internally in copyin/copyout.
+ */
+int
+mmu_booke_map_user_ptr(mmu_t mmu, pmap_t pm, volatile const void *uaddr,
+    void **kaddr, size_t ulen, size_t *klen)
+{
+
+	if ((uintptr_t)uaddr + ulen > VM_MAXUSER_ADDRESS + PAGE_SIZE)
+		return (EFAULT);
+
+	*kaddr = (void *)(uintptr_t)uaddr;
+	if (klen)
+		*klen = ulen;
+
+	return (0);
+}
+
+/*
+ * Figure out where a given kernel pointer (usually in a fault) points
+ * to from the VM's perspective, potentially remapping into userland's
+ * address space.
+ */
+static int
+mmu_booke_decode_kernel_ptr(mmu_t mmu, vm_offset_t addr, int *is_user,
+    vm_offset_t *decoded_addr)
+{
+
+	if (addr < VM_MAXUSER_ADDRESS)
+		*is_user = 1;
+	else
+		*is_user = 0;
+
+	*decoded_addr = addr;
+	return (0);
 }
 
 /*
@@ -3692,10 +3738,10 @@ tid_alloc(pmap_t pmap)
 
 	thiscpu = PCPU_GET(cpuid);
 
-	tid = PCPU_GET(tid_next);
+	tid = PCPU_GET(booke.tid_next);
 	if (tid > TID_MAX)
 		tid = TID_MIN;
-	PCPU_SET(tid_next, tid + 1);
+	PCPU_SET(booke.tid_next, tid + 1);
 
 	/* If we are stealing TID then clear the relevant pmap's field */
 	if (tidbusy[thiscpu][tid] != NULL) {
@@ -3713,7 +3759,7 @@ tid_alloc(pmap_t pmap)
 	__asm __volatile("msync; isync");
 
 	CTR3(KTR_PMAP, "%s: e (%02d next = %02d)", __func__, tid,
-	    PCPU_GET(tid_next));
+	    PCPU_GET(booke.tid_next));
 
 	return (tid);
 }

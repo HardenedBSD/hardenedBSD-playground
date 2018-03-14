@@ -195,7 +195,7 @@ enum mlx4_ib_qp_flags {
 	/* Mellanox specific flags start from IB_QP_CREATE_RESERVED_START */
 	MLX4_IB_ROCE_V2_GSI_QP = MLX4_IB_QP_CREATE_ROCE_V2_GSI,
 	MLX4_IB_SRIOV_TUNNEL_QP = 1 << 30,
-	MLX4_IB_SRIOV_SQP = 1 << 31,
+	MLX4_IB_SRIOV_SQP = 1U << 31,
 };
 
 struct mlx4_ib_gid_entry {
@@ -747,7 +747,8 @@ int mlx4_ib_arm_cq(struct ib_cq *cq, enum ib_cq_notify_flags flags);
 void __mlx4_ib_cq_clean(struct mlx4_ib_cq *cq, u32 qpn, struct mlx4_ib_srq *srq);
 void mlx4_ib_cq_clean(struct mlx4_ib_cq *cq, u32 qpn, struct mlx4_ib_srq *srq);
 
-struct ib_ah *mlx4_ib_create_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr);
+struct ib_ah *mlx4_ib_create_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr,
+				struct ib_udata *udata);
 int mlx4_ib_query_ah(struct ib_ah *ibah, struct ib_ah_attr *ah_attr);
 int mlx4_ib_destroy_ah(struct ib_ah *ah);
 

@@ -59,6 +59,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sysctl.h>
 #include <sys/taskqueue.h>
 #include <sys/vmem.h>
+#include <sys/vmmeter.h>
 
 #include "opt_vm.h"
 
@@ -70,7 +71,13 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_kern.h>
 #include <vm/vm_extern.h>
 #include <vm/vm_param.h>
+#include <vm/vm_page.h>
 #include <vm/vm_pageout.h>
+#include <vm/vm_phys.h>
+#include <vm/vm_pagequeue.h>
+#include <vm/uma_int.h>
+
+int	vmem_startup_count(void);
 
 #define	VMEM_OPTORDER		5
 #define	VMEM_OPTVALUE		(1 << VMEM_OPTORDER)
@@ -186,6 +193,7 @@ static struct task	vmem_periodic_wk;
 
 static struct mtx_padalign __exclusive_cache_line vmem_list_lock;
 static LIST_HEAD(, vmem) vmem_list = LIST_HEAD_INITIALIZER(vmem_list);
+static uma_zone_t vmem_zone;
 
 /* ---- misc */
 #define	VMEM_CONDVAR_INIT(vm, wchan)	cv_init(&vm->vm_cv, wchan)
@@ -255,11 +263,11 @@ bt_fill(vmem_t *vm, int flags)
 	VMEM_ASSERT_LOCKED(vm);
 
 	/*
-	 * Only allow the kernel arena to dip into reserve tags.  It is the
-	 * vmem where new tags come from.
+	 * Only allow the kernel arena and arenas derived from kernel arena to
+	 * dip into reserve tags.  They are where new tags come from.
 	 */
 	flags &= BT_FLAGS;
-	if (vm != kernel_arena)
+	if (vm != kernel_arena && vm->vm_arg != kernel_arena)
 		flags &= ~M_USE_RESERVE;
 
 	/*
@@ -498,7 +506,7 @@ bt_insfree(vmem_t *vm, bt_t *bt)
  * Import from the arena into the quantum cache in UMA.
  */
 static int
-qc_import(void *arg, void **store, int cnt, int flags)
+qc_import(void *arg, void **store, int cnt, int domain, int flags)
 {
 	qcache_t *qc;
 	vmem_addr_t addr;
@@ -612,7 +620,8 @@ static struct mtx_padalign __exclusive_cache_line vmem_bt_lock;
  * we are really out of KVA.
  */
 static void *
-vmem_bt_alloc(uma_zone_t zone, vm_size_t bytes, uint8_t *pflag, int wait)
+vmem_bt_alloc(uma_zone_t zone, vm_size_t bytes, int domain, uint8_t *pflag,
+    int wait)
 {
 	vmem_addr_t addr;
 
@@ -623,22 +632,22 @@ vmem_bt_alloc(uma_zone_t zone, vm_size_t bytes, uint8_t *pflag, int wait)
 	 * and memory are added in one atomic operation.
 	 */
 	mtx_lock(&vmem_bt_lock);
-	if (vmem_xalloc(kernel_arena, bytes, 0, 0, 0, VMEM_ADDR_MIN,
-	    VMEM_ADDR_MAX, M_NOWAIT | M_NOVM | M_USE_RESERVE | M_BESTFIT,
-	    &addr) == 0) {
-		if (kmem_back(kernel_object, addr, bytes,
+	if (vmem_xalloc(vm_dom[domain].vmd_kernel_arena, bytes, 0, 0, 0,
+	    VMEM_ADDR_MIN, VMEM_ADDR_MAX,
+	    M_NOWAIT | M_NOVM | M_USE_RESERVE | M_BESTFIT, &addr) == 0) {
+		if (kmem_back_domain(domain, kernel_object, addr, bytes,
 		    M_NOWAIT | M_USE_RESERVE) == 0) {
 			mtx_unlock(&vmem_bt_lock);
 			return ((void *)addr);
 		}
-		vmem_xfree(kernel_arena, addr, bytes);
+		vmem_xfree(vm_dom[domain].vmd_kernel_arena, addr, bytes);
 		mtx_unlock(&vmem_bt_lock);
 		/*
 		 * Out of memory, not address space.  This may not even be
 		 * possible due to M_USE_RESERVE page allocation.
 		 */
 		if (wait & M_WAITOK)
-			VM_WAIT;
+			vm_wait_domain(domain);
 		return (NULL);
 	}
 	mtx_unlock(&vmem_bt_lock);
@@ -650,6 +659,17 @@ vmem_bt_alloc(uma_zone_t zone, vm_size_t bytes, uint8_t *pflag, int wait)
 
 	return (NULL);
 }
+
+/*
+ * How many pages do we need to startup_alloc.
+ */
+int
+vmem_startup_count(void)
+{
+
+	return (howmany(BT_MAXALLOC,
+	    UMA_SLAB_SPACE / sizeof(struct vmem_btag)));
+}
 #endif
 
 void
@@ -657,9 +677,12 @@ vmem_startup(void)
 {
 
 	mtx_init(&vmem_list_lock, "vmem list lock", NULL, MTX_DEF);
+	vmem_zone = uma_zcreate("vmem",
+	    sizeof(struct vmem), NULL, NULL, NULL, NULL,
+	    UMA_ALIGN_PTR, UMA_ZONE_VM);
 	vmem_bt_zone = uma_zcreate("vmem btag",
 	    sizeof(struct vmem_btag), NULL, NULL, NULL, NULL,
-	    UMA_ALIGN_PTR, UMA_ZONE_VM);
+	    UMA_ALIGN_PTR, UMA_ZONE_VM | UMA_ZONE_NOFREE);
 #ifndef UMA_MD_SMALL_ALLOC
 	mtx_init(&vmem_bt_lock, "btag lock", NULL, MTX_DEF);
 	uma_prealloc(vmem_bt_zone, BT_MAXALLOC);
@@ -826,7 +849,7 @@ vmem_destroy1(vmem_t *vm)
 
 	VMEM_CONDVAR_DESTROY(vm);
 	VMEM_LOCK_DESTROY(vm);
-	free(vm, M_VMEM);
+	uma_zfree(vmem_zone, vm);
 }
 
 static int
@@ -1058,7 +1081,7 @@ vmem_create(const char *name, vmem_addr_t base, vmem_size_t size,
 
 	vmem_t *vm;
 
-	vm = malloc(sizeof(*vm), M_VMEM, flags & (M_WAITOK|M_NOWAIT));
+	vm = uma_zalloc(vmem_zone, flags & (M_WAITOK|M_NOWAIT));
 	if (vm == NULL)
 		return (NULL);
 	if (vmem_init(vm, name, base, size, quantum, qcache_max,

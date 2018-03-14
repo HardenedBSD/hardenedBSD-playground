@@ -392,7 +392,8 @@ swi_vm(void *v)
 }
 
 void *
-uma_small_alloc(uma_zone_t zone, vm_size_t bytes, u_int8_t *flags, int wait)
+uma_small_alloc(uma_zone_t zone, vm_size_t bytes, int domain, u_int8_t *flags,
+    int wait)
 {
 	vm_paddr_t pa;
 	vm_page_t m;
@@ -402,7 +403,7 @@ uma_small_alloc(uma_zone_t zone, vm_size_t bytes, u_int8_t *flags, int wait)
 
 	*flags = UMA_SLAB_PRIV;
 
-	m = vm_page_alloc(NULL, 0, 
+	m = vm_page_alloc_domain(NULL, 0, domain,
 	    malloc2vm_flags(wait) | VM_ALLOC_WIRED | VM_ALLOC_NOOBJ);
 	if (m == NULL)
 		return (NULL);
@@ -428,9 +429,8 @@ uma_small_free(void *mem, vm_size_t size, u_int8_t flags)
 
 	PMAP_STATS_INC(uma_nsmall_free);
 	m = PHYS_TO_VM_PAGE(TLB_DIRECT_TO_PHYS((vm_offset_t)mem));
-	m->wire_count--;
+	vm_page_unwire_noq(m);
 	vm_page_free(m);
-	atomic_subtract_int(&vm_cnt.v_wire_count, 1);
 }
 
 void

@@ -49,6 +49,7 @@
 #include <sys/mnttab.h>
 #include <sys/mntent.h>
 #include <sys/types.h>
+#include <sys/sysctl.h>
 #include <libcmdutils.h>
 
 #include <libzfs.h>
@@ -240,6 +241,9 @@ libzfs_error_description(libzfs_handle_t *hdl)
 		return (dgettext(TEXT_DOMAIN, "invalid diff data"));
 	case EZFS_POOLREADONLY:
 		return (dgettext(TEXT_DOMAIN, "pool is read-only"));
+	case EZFS_NO_PENDING:
+		return (dgettext(TEXT_DOMAIN, "operation is not "
+		    "in progress"));
 	case EZFS_UNKNOWN:
 		return (dgettext(TEXT_DOMAIN, "unknown error"));
 	default:
@@ -487,6 +491,10 @@ zpool_standard_error_fmt(libzfs_handle_t *hdl, int error, const char *fmt, ...)
 	case EROFS:
 		zfs_verror(hdl, EZFS_POOLREADONLY, fmt, ap);
 		break;
+	/* There is no pending operation to cancel */
+	case ESRCH:
+		zfs_verror(hdl, EZFS_NO_PENDING, fmt, ap);
+		break;
 
 	default:
 		zfs_error_aux(hdl, strerror(error));
@@ -593,9 +601,18 @@ static int
 libzfs_load(void)
 {
 	int error;
-
 #ifdef HARDENEDBSD
-	if (getuid() == 0) {
+	int jailed;
+	size_t sz;
+
+	sz = sizeof(jailed);
+	jailed = 0;
+	/*
+	 * XXX sysctlbyname(3) can fail, but we don't care.
+	 * Autoloading the module here is purely for convenience.
+	 */
+	sysctlbyname("security.jail.jailed", &jailed, &sz, NULL, 0);
+	if (getuid() == 0 && jailed == 0) {
 #endif
 		if (modfind("zfs") < 0) {
 			/* Not present in kernel, try loading it. */

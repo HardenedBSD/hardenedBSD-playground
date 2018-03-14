@@ -23,7 +23,7 @@
     ..
     lib
         clang
-            5.0.1
+            6.0.0
                 include
                     sanitizer
                     ..
@@ -115,6 +115,8 @@
             ..
         ..
         bsdinstall
+        ..
+        dwatch
         ..
         hyperv
         ..
@@ -230,6 +232,8 @@
             dma
             ..
             drivers
+            ..
+            dwatch
             ..
             etc
                 defaults

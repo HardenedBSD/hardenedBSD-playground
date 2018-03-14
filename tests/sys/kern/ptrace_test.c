@@ -2958,7 +2958,7 @@ ATF_TC_BODY(ptrace__PT_CONTINUE_with_sigmask, tc)
 /*
  * Verify that if ptrace stops due to a signal but continues with
  * a different signal that the new signal is routed to a thread
- * that can accept it, and that that thread is awakened by the signal
+ * that can accept it, and that the thread is awakened by the signal
  * in a timely manner.
  */
 ATF_TC_WITHOUT_HEAD(ptrace__PT_CONTINUE_with_signal_thread_sigmask);
@@ -3474,7 +3474,7 @@ ATF_TC_BODY(ptrace__PT_STEP_with_signal, tc)
  * that restarting doesn't retrigger the breakpoint.
  */
 static void *
-continue_thread(void *arg)
+continue_thread(void *arg __unused)
 {
 	breakpoint();
 	return (NULL);

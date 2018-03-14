@@ -126,6 +126,7 @@ MAN=	accept_filter.9 \
 	eventtimers.9 \
 	extattr.9 \
 	fail.9 \
+	fdt_pinctrl.9 \
 	fetch.9 \
 	firmware.9 \
 	fpu_kern.9 \
@@ -199,6 +200,7 @@ MAN=	accept_filter.9 \
 	mod_cc.9 \
 	module.9 \
 	MODULE_DEPEND.9 \
+	MODULE_PNP_INFO.9 \
 	MODULE_VERSION.9 \
 	mtx_pool.9 \
 	mutex.9 \
@@ -283,8 +285,10 @@ MAN=	accept_filter.9 \
 	stack.9 \
 	store.9 \
 	style.9 \
+	style.lua.9 \
 	swi.9 \
 	sx.9 \
+	syscall_helper_register.9 \
 	SYSCALL_MODULE.9 \
 	sysctl.9 \
 	sysctl_add_oid.9 \
@@ -856,6 +860,7 @@ MLINKS+=crypto.9 crypto_dispatch.9 \
 	crypto.9 crypto_unregister_all.9
 MLINKS+=DB_COMMAND.9 DB_SHOW_ALL_COMMAND.9 \
 	DB_COMMAND.9 DB_SHOW_COMMAND.9
+MLINKS+=DECLARE_MODULE.9 DECLARE_MODULE_TIED.9
 MLINKS+=dev_clone.9 drain_dev_clone_events.9
 MLINKS+=devfs_set_cdevpriv.9 devfs_clear_cdevpriv.9 \
 	devfs_set_cdevpriv.9 devfs_get_cdevpriv.9
@@ -941,6 +946,10 @@ MLINKS+=fail.9 KFAIL_POINT_CODE.9 \
 	fail.9 KFAIL_POINT_GOTO.9 \
 	fail.9 KFAIL_POINT_RETURN.9 \
 	fail.9 KFAIL_POINT_RETURN_VOID.9
+MLINKS+=fdt_pinctrl.9 fdt_pinctrl_configure.9 \
+	fdt_pinctrl.9 fdt_pinctrl_configure_by_name.9 \
+	fdt_pinctrl.9 fdt_pinctrl_configure_tree.9 \
+	fdt_pinctrl.9 fdt_pinctrl_register.9
 MLINKS+=fetch.9 fubyte.9 \
 	fetch.9 fuswintr.9 \
 	fetch.9 fuword.9 \
@@ -1262,6 +1271,7 @@ MLINKS+=make_dev.9 destroy_dev.9 \
 	make_dev.9 make_dev_p.9 \
 	make_dev.9 make_dev_s.9
 MLINKS+=malloc.9 free.9 \
+	malloc.9 mallocarray.9 \
 	malloc.9 MALLOC_DECLARE.9 \
 	malloc.9 MALLOC_DEFINE.9 \
 	malloc.9 realloc.9 \
@@ -1820,6 +1830,7 @@ MLINKS+=sleep.9 msleep.9 \
 	sleep.9 msleep_spin.9 \
 	sleep.9 msleep_spin_sbt.9 \
 	sleep.9 pause.9 \
+	sleep.9 pause_sig.9 \
 	sleep.9 pause_sbt.9 \
 	sleep.9 tsleep.9 \
 	sleep.9 tsleep_sbt.9 \
@@ -1920,6 +1931,11 @@ MLINKS+=sx.9 sx_assert.9 \
 	sx.9 sx_xlock_sig.9 \
 	sx.9 sx_xlocked.9 \
 	sx.9 sx_xunlock.9
+MLINKS+=syscall_helper_register.9 syscall_helper_unregister.9 \
+	syscall_helper_register.9 SYSCALL_INIT_HELPER.9 \
+	syscall_helper_register.9 SYSCALL_INIT_HELPER_COMPAT.9 \
+	syscall_helper_register.9 SYSCALL_INIT_HELPER_COMPAT_F.9 \
+	syscall_helper_register.9 SYSCALL_INIT_HELPER_F.9
 MLINKS+=sysctl.9 SYSCTL_DECL.9 \
 	sysctl.9 SYSCTL_ADD_INT.9 \
 	sysctl.9 SYSCTL_ADD_LONG.9 \

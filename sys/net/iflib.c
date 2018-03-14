@@ -1068,7 +1068,6 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 	if (netmap_no_pendintr || force_update) {
 		int crclen = iflib_crcstrip ? 0 : 4;
 		int error, avail;
-		uint16_t slot_flags = kring->nkr_slot_flags;
 
 		for (i = 0; i < rxq->ifr_nfl; i++) {
 			fl = &rxq->ifr_fl[i];
@@ -1084,7 +1083,7 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 
 				error = ctx->isc_rxd_pkt_get(ctx->ifc_softc, &ri);
 				ring->slot[nm_i].len = error ? 0 : ri.iri_len - crclen;
-				ring->slot[nm_i].flags = slot_flags;
+				ring->slot[nm_i].flags = 0;
 				if (fl->ifl_sds.ifsd_map)
 					bus_dmamap_sync(fl->ifl_ifdi->idi_tag,
 							fl->ifl_sds.ifsd_map[nic_i], BUS_DMASYNC_POSTREAD);
@@ -1984,7 +1983,8 @@ iflib_fl_bufs_free(iflib_fl_t fl)
 			if (fl->ifl_sds.ifsd_map != NULL) {
 				bus_dmamap_t sd_map = fl->ifl_sds.ifsd_map[i];
 				bus_dmamap_unload(fl->ifl_desc_tag, sd_map);
-				bus_dmamap_destroy(fl->ifl_desc_tag, sd_map);
+				if (fl->ifl_rxq->ifr_ctx->ifc_in_detach)
+					bus_dmamap_destroy(fl->ifl_desc_tag, sd_map);
 			}
 			if (*sd_m != NULL) {
 				m_init(*sd_m, M_NOWAIT, MT_DATA, 0);
@@ -2266,6 +2266,10 @@ iflib_stop(if_ctx_t ctx)
 	/* Wait for current tx queue users to exit to disarm watchdog timer. */
 	for (i = 0; i < scctx->isc_ntxqsets; i++, txq++) {
 		/* make sure all transmitters have completed before proceeding XXX */
+
+		CALLOUT_LOCK(txq);
+		callout_stop(&txq->ift_timer);
+		CALLOUT_UNLOCK(txq);
 
 		/* clean any enqueued buffers */
 		iflib_ifmp_purge(txq);
@@ -2635,7 +2639,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 			if ((m->m_pkthdr.csum_flags & (CSUM_L4_CALC|CSUM_L4_VALID)) ==
 			    (CSUM_L4_CALC|CSUM_L4_VALID)) {
 				if (lro_possible && tcp_lro_rx(&rxq->ifr_lc, m, 0) == 0)
-				continue;
+					continue;
 			}
 		}
 #endif
@@ -5174,7 +5178,6 @@ iflib_irq_set_affinity(if_ctx_t ctx, int irq, iflib_intr_type_t type, int qid,
 	if (cpuid > ctx->ifc_cpuid_highest)
 		ctx->ifc_cpuid_highest = cpuid;
 #endif
-	MPASS(gtask->gt_taskqueue != NULL);
 	return 0;
 }
 
@@ -5348,10 +5351,10 @@ iflib_legacy_setup(if_ctx_t ctx, driver_filter_t filter, void *filter_arg, int *
 	if ((err = _iflib_irq_alloc(ctx, irq, tqrid, iflib_fast_intr_ctx, NULL, info, name)) != 0)
 		return (err);
 	GROUPTASK_INIT(gtask, 0, fn, q);
-	taskqgroup_attach(tqg, gtask, q, tqrid, name);
+	taskqgroup_attach(tqg, gtask, q, rman_get_start(irq->ii_res), name);
 
 	GROUPTASK_INIT(&txq->ift_task, 0, _task_fn_tx, txq);
-	taskqgroup_attach(qgroup_if_io_tqg, &txq->ift_task, txq, tqrid, "tx");
+	taskqgroup_attach(qgroup_if_io_tqg, &txq->ift_task, txq, rman_get_start(irq->ii_res), "tx");
 	return (0);
 }
 

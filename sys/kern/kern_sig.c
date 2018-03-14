@@ -40,7 +40,6 @@
 __FBSDID("$FreeBSD$");
 
 #include "opt_compat.h"
-#include "opt_gzio.h"
 #include "opt_ktrace.h"
 #include "opt_pax.h"
 
@@ -52,6 +51,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/acct.h>
 #include <sys/bus.h>
 #include <sys/capsicum.h>
+#include <sys/compressor.h>
 #include <sys/condvar.h>
 #include <sys/event.h>
 #include <sys/fcntl.h>
@@ -1679,12 +1679,11 @@ killpg1(struct thread *td, int sig, int pgid, int all, ksiginfo_t *ksi)
 		 */
 		sx_slock(&allproc_lock);
 		FOREACH_PROC_IN_SYSTEM(p) {
-			PROC_LOCK(p);
 			if (p->p_pid <= 1 || p->p_flag & P_SYSTEM ||
 			    p == td->td_proc || p->p_state == PRS_NEW) {
-				PROC_UNLOCK(p);
 				continue;
 			}
+			PROC_LOCK(p);
 			err = p_cansignal(td, p, sig);
 			if (err == 0) {
 				if (sig)
@@ -3258,19 +3257,35 @@ sysctl_debug_num_cores_check (SYSCTL_HANDLER_ARGS)
 SYSCTL_PROC(_debug, OID_AUTO, ncores, CTLTYPE_INT|CTLFLAG_RW,
 	    0, sizeof(int), sysctl_debug_num_cores_check, "I", "");
 
-#define	GZ_SUFFIX	".gz"
+#define	GZIP_SUFFIX	".gz"
+#define	ZSTD_SUFFIX	".zst"
 
-#ifdef GZIO
-static int compress_user_cores = 1;
-SYSCTL_INT(_kern, OID_AUTO, compress_user_cores, CTLFLAG_RWTUN,
-    &compress_user_cores, 0, "Compression of user corefiles");
+int compress_user_cores = 0;
 
-int compress_user_cores_gzlevel = 6;
-SYSCTL_INT(_kern, OID_AUTO, compress_user_cores_gzlevel, CTLFLAG_RWTUN,
-    &compress_user_cores_gzlevel, 0, "Corefile gzip compression level");
-#else
-static int compress_user_cores = 0;
-#endif
+static int
+sysctl_compress_user_cores(SYSCTL_HANDLER_ARGS)
+{
+	int error, val;
+
+	val = compress_user_cores;
+	error = sysctl_handle_int(oidp, &val, 0, req);
+	if (error != 0 || req->newptr == NULL)
+		return (error);
+	if (val != 0 && !compressor_avail(val))
+		return (EINVAL);
+	compress_user_cores = val;
+	return (error);
+}
+SYSCTL_PROC(_kern, OID_AUTO, compress_user_cores, CTLTYPE_INT | CTLFLAG_RWTUN,
+    0, sizeof(int), sysctl_compress_user_cores, "I",
+    "Enable compression of user corefiles ("
+    __XSTRING(COMPRESS_GZIP) " = gzip, "
+    __XSTRING(COMPRESS_ZSTD) " = zstd)");
+
+int compress_user_cores_level = 6;
+SYSCTL_INT(_kern, OID_AUTO, compress_user_cores_level, CTLFLAG_RWTUN,
+    &compress_user_cores_level, 0,
+    "Corefile compression level");
 
 /*
  * Protect the access to corefilename[] by allproc_lock.
@@ -3368,8 +3383,10 @@ corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
 	}
 	sx_sunlock(&corefilename_lock);
 	free(hostname, M_TEMP);
-	if (compress)
-		sbuf_printf(&sb, GZ_SUFFIX);
+	if (compress == COMPRESS_GZIP)
+		sbuf_printf(&sb, GZIP_SUFFIX);
+	else if (compress == COMPRESS_ZSTD)
+		sbuf_printf(&sb, ZSTD_SUFFIX);
 	if (sbuf_error(&sb) != 0) {
 		log(LOG_ERR, "pid %ld (%s), uid (%lu): corename is too "
 		    "long\n", (long)pid, comm, (u_long)uid);
@@ -3538,8 +3555,7 @@ coredump(struct thread *td)
 	PROC_UNLOCK(p);
 
 	if (p->p_sysent->sv_coredump != NULL) {
-		error = p->p_sysent->sv_coredump(td, vp, limit,
-		    compress_user_cores ? IMGACT_CORE_COMPRESS : 0);
+		error = p->p_sysent->sv_coredump(td, vp, limit, 0);
 	} else {
 		error = ENOSYS;
 	}

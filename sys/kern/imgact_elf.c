@@ -36,14 +36,14 @@ __FBSDID("$FreeBSD$");
 
 #include "opt_capsicum.h"
 #include "opt_compat.h"
-#include "opt_pax.h"
 #include "opt_gzio.h"
+#include "opt_pax.h"
 
 #include <sys/param.h>
 #include <sys/capsicum.h>
+#include <sys/compressor.h>
 #include <sys/exec.h>
 #include <sys/fcntl.h>
-#include <sys/gzio.h>
 #include <sys/imgact.h>
 #include <sys/imgact_elf.h>
 #include <sys/jail.h>
@@ -99,9 +99,9 @@ static int __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
     caddr_t vmaddr, size_t memsz, size_t filsz, vm_prot_t prot,
     size_t pagesize);
 static int __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp);
-static boolean_t __elfN(freebsd_trans_osrel)(const Elf_Note *note,
+static bool __elfN(freebsd_trans_osrel)(const Elf_Note *note,
     int32_t *osrel);
-static boolean_t kfreebsd_trans_osrel(const Elf_Note *note, int32_t *osrel);
+static bool kfreebsd_trans_osrel(const Elf_Note *note, int32_t *osrel);
 static boolean_t __elfN(check_note)(struct image_params *imgp,
     Elf_Brandnote *checknote, int32_t *osrel);
 static vm_prot_t __elfN(trans_prot)(Elf_Word);
@@ -150,7 +150,7 @@ Elf_Brandnote __elfN(freebsd_brandnote) = {
 	.trans_osrel	= __elfN(freebsd_trans_osrel)
 };
 
-static boolean_t
+static bool
 __elfN(freebsd_trans_osrel)(const Elf_Note *note, int32_t *osrel)
 {
 	uintptr_t p;
@@ -159,7 +159,7 @@ __elfN(freebsd_trans_osrel)(const Elf_Note *note, int32_t *osrel)
 	p += roundup2(note->n_namesz, ELF_NOTE_ROUNDSIZE);
 	*osrel = *(const int32_t *)(p);
 
-	return (TRUE);
+	return (true);
 }
 
 static const char GNU_ABI_VENDOR[] = "GNU";
@@ -174,7 +174,7 @@ Elf_Brandnote __elfN(kfreebsd_brandnote) = {
 	.trans_osrel	= kfreebsd_trans_osrel
 };
 
-static boolean_t
+static bool
 kfreebsd_trans_osrel(const Elf_Note *note, int32_t *osrel)
 {
 	const Elf32_Word *desc;
@@ -185,7 +185,7 @@ kfreebsd_trans_osrel(const Elf_Note *note, int32_t *osrel)
 
 	desc = (const Elf32_Word *)p;
 	if (desc[0] != GNU_KFREEBSD_ABI_DESC)
-		return (FALSE);
+		return (false);
 
 	/*
 	 * Debian GNU/kFreeBSD embed the earliest compatible kernel version
@@ -193,7 +193,7 @@ kfreebsd_trans_osrel(const Elf_Note *note, int32_t *osrel)
 	 */
 	*osrel = desc[1] * 100000 + desc[2] * 1000 + desc[3];
 
-	return (TRUE);
+	return (true);
 }
 
 int
@@ -316,7 +316,7 @@ __elfN(get_brandinfo)(struct image_params *imgp, const char *interp,
 		    strcmp((const char *)&hdr->e_ident[OLD_EI_BRAND],
 		    bi->compat_3_brand) == 0))) {
 			/* Looks good, but give brand a chance to veto */
-			if (!bi->header_supported ||
+			if (bi->header_supported == NULL ||
 			    bi->header_supported(imgp)) {
 				/*
 				 * Again, prefer strictly matching
@@ -364,7 +364,8 @@ __elfN(get_brandinfo)(struct image_params *imgp, const char *interp,
 			    /* ELF image p_filesz includes terminating zero */
 			    strlen(bi->interp_path) + 1 == interp_name_len &&
 			    strncmp(interp, bi->interp_path, interp_name_len)
-			    == 0)
+			    == 0 && (bi->header_supported == NULL ||
+			    bi->header_supported(imgp)))
 				return (bi);
 		}
 	}
@@ -376,7 +377,9 @@ __elfN(get_brandinfo)(struct image_params *imgp, const char *interp,
 		    (interp != NULL && (bi->flags & BI_BRAND_ONLY_STATIC) != 0))
 			continue;
 		if (hdr->e_machine == bi->machine &&
-		    __elfN(fallback_brand) == bi->brand)
+		    __elfN(fallback_brand) == bi->brand &&
+		    (bi->header_supported == NULL ||
+		    bi->header_supported(imgp)))
 			return (bi);
 	}
 	return (NULL);
@@ -1197,8 +1200,11 @@ struct coredump_params {
 	struct ucred	*file_cred;
 	struct thread	*td;
 	struct vnode	*vp;
-	struct gzio_stream *gzs;
+	struct compressor *comp;
 };
+
+extern int compress_user_cores;
+extern int compress_user_cores_level;
 
 static void cb_put_phdr(vm_map_entry_t, void *);
 static void cb_size_segment(vm_map_entry_t, void *);
@@ -1231,9 +1237,6 @@ static void note_procstat_rlimit(void *, struct sbuf *, size_t *);
 static void note_procstat_umask(void *, struct sbuf *, size_t *);
 static void note_procstat_vmmap(void *, struct sbuf *, size_t *);
 
-#ifdef GZIO
-extern int compress_user_cores_gzlevel;
-
 /*
  * Write out a core segment to the compression stream.
  */
@@ -1253,7 +1256,7 @@ compress_chunk(struct coredump_params *p, char *base, char *buf, u_int len)
 		error = copyin(base, buf, chunk_len);
 		if (error != 0)
 			bzero(buf, chunk_len);
-		error = gzio_write(p->gzs, buf, chunk_len);
+		error = compressor_write(p->comp, buf, chunk_len);
 		if (error != 0)
 			break;
 		base += chunk_len;
@@ -1263,13 +1266,12 @@ compress_chunk(struct coredump_params *p, char *base, char *buf, u_int len)
 }
 
 static int
-core_gz_write(void *base, size_t len, off_t offset, void *arg)
+core_compressed_write(void *base, size_t len, off_t offset, void *arg)
 {
 
 	return (core_write((struct coredump_params *)arg, base, len, offset,
 	    UIO_SYSSPACE));
 }
-#endif /* GZIO */
 
 static int
 core_write(struct coredump_params *p, const void *base, size_t len,
@@ -1287,10 +1289,9 @@ core_output(void *base, size_t len, off_t offset, struct coredump_params *p,
 {
 	int error;
 
-#ifdef GZIO
-	if (p->gzs != NULL)
+	if (p->comp != NULL)
 		return (compress_chunk(p, base, tmpbuf, len));
-#endif
+
 	/*
 	 * EFAULT is a non-fatal error that we can get, for example,
 	 * if the segment is backed by a file but extends beyond its
@@ -1335,11 +1336,9 @@ sbuf_drain_core_output(void *arg, const char *data, int len)
 	locked = PROC_LOCKED(p->td->td_proc);
 	if (locked)
 		PROC_UNLOCK(p->td->td_proc);
-#ifdef GZIO
-	if (p->gzs != NULL)
-		error = gzio_write(p->gzs, __DECONST(char *, data), len);
+	if (p->comp != NULL)
+		error = compressor_write(p->comp, __DECONST(char *, data), len);
 	else
-#endif
 		error = core_write(p, __DECONST(void *, data), len, p->offset,
 		    UIO_SYSSPACE);
 	if (locked)
@@ -1374,11 +1373,7 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	struct note_info *ninfo;
 	void *hdr, *tmpbuf;
 	size_t hdrsize, notesz, coresize;
-#ifdef GZIO
-	boolean_t compress;
 
-	compress = (flags & IMGACT_CORE_COMPRESS) != 0;
-#endif
 	hdr = NULL;
 	tmpbuf = NULL;
 	TAILQ_INIT(&notelst);
@@ -1403,7 +1398,7 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	params.file_cred = NOCRED;
 	params.td = td;
 	params.vp = vp;
-	params.gzs = NULL;
+	params.comp = NULL;
 
 #ifdef RACCT
 	if (racct_enable) {
@@ -1421,18 +1416,17 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 		goto done;
 	}
 
-#ifdef GZIO
 	/* Create a compression stream if necessary. */
-	if (compress) {
-		params.gzs = gzio_init(core_gz_write, GZIO_DEFLATE,
-		    CORE_BUF_SIZE, compress_user_cores_gzlevel, &params);
-		if (params.gzs == NULL) {
+	if (compress_user_cores != 0) {
+		params.comp = compressor_init(core_compressed_write,
+		    compress_user_cores, CORE_BUF_SIZE,
+		    compress_user_cores_level, &params);
+		if (params.comp == NULL) {
 			error = EFAULT;
 			goto done;
 		}
 		tmpbuf = malloc(CORE_BUF_SIZE, M_TEMP, M_WAITOK | M_ZERO);
         }
-#endif
 
 	/*
 	 * Allocate memory for building the header, fill it up,
@@ -1458,10 +1452,8 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 			offset += php->p_filesz;
 			php++;
 		}
-#ifdef GZIO
-		if (error == 0 && compress)
-			error = gzio_flush(params.gzs);
-#endif
+		if (error == 0 && params.comp != NULL)
+			error = compressor_flush(params.comp);
 	}
 	if (error) {
 		log(LOG_WARNING,
@@ -1470,13 +1462,9 @@ __elfN(coredump)(struct thread *td, struct vnode *vp, off_t limit, int flags)
 	}
 
 done:
-#ifdef GZIO
-	if (compress) {
-		free(tmpbuf, M_TEMP);
-		if (params.gzs != NULL)
-			gzio_fini(params.gzs);
-	}
-#endif
+	free(tmpbuf, M_TEMP);
+	if (params.comp != NULL)
+		compressor_fini(params.comp);
 	while ((ninfo = TAILQ_FIRST(&notelst)) != NULL) {
 		TAILQ_REMOVE(&notelst, ninfo, link);
 		free(ninfo, M_TEMP);
@@ -1492,9 +1480,7 @@ done:
  * program header entry.
  */
 static void
-cb_put_phdr(entry, closure)
-	vm_map_entry_t entry;
-	void *closure;
+cb_put_phdr(vm_map_entry_t entry, void *closure)
 {
 	struct phdr_closure *phc = (struct phdr_closure *)closure;
 	Elf_Phdr *phdr = phc->phdr;
@@ -2453,8 +2439,8 @@ __elfN(check_note)(struct image_params *imgp, Elf_Brandnote *checknote,
  * Tell kern_execve.c about it, with a little help from the linker.
  */
 static struct execsw __elfN(execsw) = {
-	__CONCAT(exec_, __elfN(imgact)),
-	__XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
+	.ex_imgact = __CONCAT(exec_, __elfN(imgact)),
+	.ex_name = __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
 };
 EXEC_SET(__CONCAT(elf, __ELF_WORD_SIZE), __elfN(execsw));
 

@@ -176,6 +176,7 @@ root_mount_hold(const char *identifier)
 	h = malloc(sizeof *h, M_DEVBUF, M_ZERO | M_WAITOK);
 	h->who = identifier;
 	mtx_lock(&root_holds_mtx);
+	TSHOLD("root mount");
 	LIST_INSERT_HEAD(&root_holds, h, list);
 	mtx_unlock(&root_holds_mtx);
 	return (h);
@@ -190,6 +191,7 @@ root_mount_rel(struct root_hold_token *h)
 
 	mtx_lock(&root_holds_mtx);
 	LIST_REMOVE(h, list);
+	TSRELEASE("root mount");
 	wakeup(&root_holds);
 	mtx_unlock(&root_holds_mtx);
 	free(h, M_DEVBUF);
@@ -712,7 +714,7 @@ parse_mount(char **conf)
 	char *errmsg;
 	struct mntarg *ma;
 	char *dev, *fs, *opts, *tok;
-	int error;
+	int delay, error, timeout;
 
 	error = parse_token(conf, &tok);
 	if (error)
@@ -753,15 +755,31 @@ parse_mount(char **conf)
 	if (error != 0)
 		goto out;
 
-	ma = NULL;
-	ma = mount_arg(ma, "fstype", fs, -1);
-	ma = mount_arg(ma, "fspath", "/", -1);
-	ma = mount_arg(ma, "from", dev, -1);
-	ma = mount_arg(ma, "errmsg", errmsg, ERRMSGL);
-	ma = mount_arg(ma, "ro", NULL, 0);
-	ma = parse_mountroot_options(ma, opts);
-	error = kernel_mount(ma, MNT_ROOTFS);
+	delay = hz / 10;
+	timeout = root_mount_timeout * hz;
 
+	for (;;) {
+		ma = NULL;
+		ma = mount_arg(ma, "fstype", fs, -1);
+		ma = mount_arg(ma, "fspath", "/", -1);
+		ma = mount_arg(ma, "from", dev, -1);
+		ma = mount_arg(ma, "errmsg", errmsg, ERRMSGL);
+		ma = mount_arg(ma, "ro", NULL, 0);
+		ma = parse_mountroot_options(ma, opts);
+
+		error = kernel_mount(ma, MNT_ROOTFS);
+		if (error == 0 || timeout <= 0)
+			break;
+
+		if (root_mount_timeout * hz == timeout ||
+		    (bootverbose && timeout % hz == 0)) {
+			printf("Mounting from %s:%s failed with error %d; "
+			    "retrying for %d more second%s\n", fs, dev, error,
+			    timeout / hz, (timeout / hz > 1) ? "s" : "");
+		}
+		pause("rmretry", delay);
+		timeout -= delay;
+	}
  out:
 	if (error) {
 		printf("Mounting from %s:%s failed with error %d",
@@ -938,6 +956,8 @@ vfs_mountroot_wait(void)
 	struct timeval lastfail;
 	int curfail;
 
+	TSENTER();
+
 	curfail = 0;
 	while (1) {
 		DROP_GIANT();
@@ -954,9 +974,13 @@ vfs_mountroot_wait(void)
 				printf(" %s", h->who);
 			printf("\n");
 		}
+		TSWAIT("root mount");
 		msleep(&root_holds, &root_holds_mtx, PZERO | PDROP, "roothold",
 		    hz);
+		TSUNWAIT("root mount");
 	}
+
+	TSEXIT();
 }
 
 static int
@@ -1013,6 +1037,8 @@ vfs_mountroot(void)
 	struct thread *td;
 	time_t timebase;
 	int error;
+	
+	TSENTER();
 
 	td = curthread;
 
@@ -1062,6 +1088,8 @@ vfs_mountroot(void)
 	mtx_unlock(&root_holds_mtx);
 
 	EVENTHANDLER_INVOKE(mountroot);
+
+	TSEXIT();
 }
 
 static struct mntarg *

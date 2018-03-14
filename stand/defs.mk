@@ -7,6 +7,15 @@ WARNS?=1
 .if !defined(__BOOT_DEFS_MK__)
 __BOOT_DEFS_MK__=${MFILE}
 
+MK_CTF=		no
+MK_SSP=		no
+MK_PROFILE=	no
+MAN=
+.if !defined(PIC)
+NO_PIC=
+INTERNALLIB=
+.endif
+
 BOOTSRC=	${SRCTOP}/stand
 EFISRC=		${BOOTSRC}/efi
 EFIINC=		${EFISRC}/include
@@ -14,6 +23,8 @@ EFIINCMD=	${EFIINC}/${MACHINE}
 FDTSRC=		${BOOTSRC}/fdt
 FICLSRC=	${BOOTSRC}/ficl
 LDRSRC=		${BOOTSRC}/common
+LIBLUASRC=	${BOOTSRC}/liblua
+LUASRC=		${SRCTOP}/contrib/lua/src
 SASRC=		${BOOTSRC}/libsa
 SYSDIR=		${SRCTOP}/sys
 UBOOTSRC=	${BOOTSRC}/uboot
@@ -44,6 +55,9 @@ CFLAGS+=	-I${BOOTOBJ}/libsa
 .endif
 CFLAGS+=	-I${SASRC} -D_STANDALONE
 CFLAGS+=	-I${SYSDIR}
+# Spike the floating point interfaces
+CFLAGS+=	-Ddouble=jagged-little-pill -Dfloat=floaty-mcfloatface
+
 
 # GELI Support, with backward compat hooks (mostly)
 .if defined(HAVE_GELI)
@@ -61,6 +75,13 @@ CFLAGS+=	-I${BOOTSRC}/geli
 LIBGELIBOOT=	${BOOTOBJ}/geli/libgeliboot.a
 .endif # MK_LOADER_GELI
 .endif # HAVE_GELI
+
+# These should be confined to loader.mk, but can't because uboot/lib
+# also uses it. It's part of loader, but isn't a loader so we can't
+# just include loader.mk
+.if ${LOADER_DISK_SUPPORT:Uyes} == "yes"
+CFLAGS+= -DLOADER_DISK_SUPPORT
+.endif
 
 # Machine specific flags for all builds here
 
@@ -87,8 +108,10 @@ SSP_CFLAGS=
 # currently has no /boot/loader, but may soon.
 CFLAGS+=	-ffreestanding ${CFLAGS_NO_SIMD}
 .if ${MACHINE_CPUARCH} == "aarch64"
-CFLAGS+=	-mgeneral-regs-only
-.elif ${MACHINE_CPUARCH} != "riscv"
+CFLAGS+=	-mgeneral-regs-only -fPIC
+.elif ${MACHINE_CPUARCH} == "riscv"
+CFLAGS+=	-march=rv64imac -mabi=lp64
+.else
 CFLAGS+=	-msoft-float
 .endif
 
@@ -96,7 +119,9 @@ CFLAGS+=	-msoft-float
 CFLAGS+=	-march=i386
 CFLAGS.gcc+=	-mpreferred-stack-boundary=2
 .endif
-
+.if ${MACHINE_CPUARCH} == "amd64" && ${DO32:U0} == 0
+CFLAGS+=	-fPIC -mno-red-zone
+.endif
 
 .if ${MACHINE_CPUARCH} == "arm"
 # Do not generate movt/movw, because the relocation fixup for them does not
@@ -108,6 +133,7 @@ CFLAGS.clang+=	-mllvm -arm-use-movt=0
 CFLAGS.clang+=	-mno-movt
 .endif
 CFLAGS.clang+=  -mfpu=none
+CFLAGS+=	-fPIC
 .endif
 
 # The boot loader build uses dd status=none, where possible, for reproducible
@@ -116,6 +142,10 @@ CFLAGS.clang+=  -mfpu=none
 # when this test succeeds rather than require dd to be a bootstrap tool.
 DD_NOSTATUS!=(dd status=none count=0 2> /dev/null && echo status=none) || true
 DD=dd ${DD_NOSTATUS}
+
+.if ${MACHINE_CPUARCH} == "mips"
+CFLAGS+=	-G0 -fno-pic -mno-abicalls
+.endif
 
 .if ${MK_LOADER_FORCE_LE} != "no"
 .if ${MACHINE_ARCH} == "powerpc64"
@@ -137,6 +167,7 @@ CLEANFILES+=${_ILINKS}
 
 all: ${PROG}
 
+.if !defined(NO_OBJ)
 beforedepend: ${_ILINKS}
 beforebuild: ${_ILINKS}
 
@@ -164,5 +195,5 @@ ${_ILINKS}:
 	path=`(cd $$path && /bin/pwd)` ; \
 	${ECHO} ${.TARGET:T} "->" $$path ; \
 	ln -fhs $$path ${.TARGET:T}
-
+.endif
 .endif # __BOOT_DEFS_MK__

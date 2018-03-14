@@ -31,15 +31,14 @@
 __FBSDID("$FreeBSD$");
 
 #include <stand.h>
-#include <fdt.h>
 #include <libfdt.h>
+#include <fdt.h>
 #include <sys/param.h>
 #include <sys/linker.h>
 #include <machine/elf.h>
 
 #include "bootstrap.h"
 #include "fdt_platform.h"
-#include "fdt_overlay.h"
 
 #ifdef DEBUG
 #define debugf(fmt, args...) do { printf("%s(): ", __func__);	\
@@ -68,14 +67,13 @@ static struct fdt_header *fdt_to_load = NULL;
 static struct fdt_header *fdtp = NULL;
 /* Size of FDT blob */
 static size_t fdtp_size = 0;
-/* Location of FDT in kernel or module. */
-/* This won't be set if FDT is loaded from disk or memory. */
-/* If it is set, we'll update it when fdt_copy() gets called. */
-static vm_offset_t fdtp_va = 0;
 
 static int fdt_load_dtb(vm_offset_t va);
+static void fdt_print_overlay_load_error(int err, const char *filename);
+static int fdt_check_overlay_compatible(void *base_fdt, void *overlay_fdt);
 
 static int fdt_cmd_nyi(int argc, char *argv[]);
+static int fdt_load_dtb_overlays_string(const char * filenames);
 
 static int fdt_cmd_addr(int argc, char *argv[]);
 static int fdt_cmd_mkprop(int argc, char *argv[]);
@@ -219,7 +217,6 @@ fdt_load_dtb(vm_offset_t va)
 		return (1);
 	}
 
-	fdtp_va = va;
 	COPYOUT(va, fdtp, fdtp_size);
 	debugf("DTB blob found at 0x%jx, size: 0x%jx\n", (uintmax_t)va, (uintmax_t)fdtp_size);
 
@@ -246,7 +243,6 @@ fdt_load_dtb_addr(struct fdt_header *header)
 		return (1);
 	}
 
-	fdtp_va = 0; // Don't write this back into module or kernel.
 	bcopy(header, fdtp, fdtp_size);
 	return (0);
 }
@@ -281,50 +277,65 @@ fdt_load_dtb_file(const char * filename)
 static int
 fdt_load_dtb_overlay(const char * filename)
 {
-	struct preloaded_file *bfp, *oldbfp;
+	struct preloaded_file *bfp;
 	struct fdt_header header;
 	int err;
 
 	debugf("fdt_load_dtb_overlay(%s)\n", filename);
 
-	oldbfp = file_findfile(filename, "dtbo");
-
-	/* Attempt to load and validate a new dtb from a file. */
-	if ((bfp = file_loadraw(filename, "dtbo", 1)) == NULL) {
-		printf("failed to load file '%s'\n", filename);
-		return (1);
-	}
+	/* Attempt to load and validate a new dtb from a file. FDT_ERR_NOTFOUND
+	 * is normally a libfdt error code, but libfdt would actually return
+	 * -FDT_ERR_NOTFOUND. We re-purpose the error code here to convey a
+	 * similar meaning: the file itself was not found, which can still be
+	 * considered an error dealing with FDT pieces.
+	 */
+	if ((bfp = file_loadraw(filename, "dtbo", 1)) == NULL)
+		return (FDT_ERR_NOTFOUND);
 
 	COPYOUT(bfp->f_addr, &header, sizeof(header));
 	err = fdt_check_header(&header);
 
 	if (err < 0) {
 		file_discard(bfp);
-		if (err == -FDT_ERR_BADVERSION)
-			printf("incompatible blob version: %d, should be: %d\n",
-			    fdt_version(fdtp), FDT_LAST_SUPPORTED_VERSION);
-
-		else
-			printf("error validating blob: %s\n",
-			    fdt_strerror(err));
-		return (1);
+		return (err);
 	}
-
-	/* A new dtb was validated, discard any previous file. */
-	if (oldbfp)
-		file_discard(oldbfp);
 
 	return (0);
 }
 
-int
-fdt_load_dtb_overlays(const char * filenames)
+static void
+fdt_print_overlay_load_error(int err, const char *filename)
+{
+
+	switch (err) {
+		case FDT_ERR_NOTFOUND:
+			printf("%s: failed to load file\n", filename);
+			break;
+		case -FDT_ERR_BADVERSION:
+			printf("%s: incompatible blob version: %d, should be: %d\n",
+			    filename, fdt_version(fdtp),
+			    FDT_LAST_SUPPORTED_VERSION);
+			break;
+		default:
+			/* libfdt errs are negative */
+			if (err < 0)
+				printf("%s: error validating blob: %s\n",
+				    filename, fdt_strerror(err));
+			else
+				printf("%s: unknown load error\n", filename);
+			break;
+	}
+}
+
+static int
+fdt_load_dtb_overlays_string(const char * filenames)
 {
 	char *names;
-	char *name;
+	char *name, *name_ext;
 	char *comaptr;
+	int err, namesz;
 
-	debugf("fdt_load_dtb_overlay(%s)\n", filenames);
+	debugf("fdt_load_dtb_overlays_string(%s)\n", filenames);
 
 	names = strdup(filenames);
 	if (names == NULL)
@@ -334,7 +345,23 @@ fdt_load_dtb_overlays(const char * filenames)
 		comaptr = strchr(name, ',');
 		if (comaptr)
 			*comaptr = '\0';
-		fdt_load_dtb_overlay(name);
+		err = fdt_load_dtb_overlay(name);
+		if (err == FDT_ERR_NOTFOUND) {
+			/* Allocate enough to append ".dtbo" */
+			namesz = strlen(name) + 6;
+			name_ext = malloc(namesz);
+			if (name_ext == NULL) {
+				fdt_print_overlay_load_error(err, name);
+				name = comaptr + 1;
+				continue;
+			}
+			snprintf(name_ext, namesz, "%s.dtbo", name);
+			err = fdt_load_dtb_overlay(name_ext);
+			free(name_ext);
+		}
+		/* Catch error with either initial load or fallback load */
+		if (err != 0)
+			fdt_print_overlay_load_error(err, name);
 		name = comaptr + 1;
 	} while(comaptr);
 
@@ -342,63 +369,143 @@ fdt_load_dtb_overlays(const char * filenames)
 	return (0);
 }
 
+/*
+ * fdt_check_overlay_compatible - check that the overlay_fdt is compatible with
+ * base_fdt before we attempt to apply it. It will need to re-calculate offsets
+ * in the base every time, rather than trying to cache them earlier in the
+ * process, because the overlay application process can/will invalidate a lot of
+ * offsets.
+ */
+static int
+fdt_check_overlay_compatible(void *base_fdt, void *overlay_fdt)
+{
+	const char *compat;
+	int compat_len, ocompat_len;
+	int oroot_offset, root_offset;
+	int slidx, sllen;
+
+	oroot_offset = fdt_path_offset(overlay_fdt, "/");
+	if (oroot_offset < 0)
+		return (oroot_offset);
+	/*
+	 * If /compatible in the overlay does not exist or if it is empty, then
+	 * we're automatically compatible. We do this for the sake of rapid
+	 * overlay development for overlays that aren't intended to be deployed.
+	 * The user assumes the risk of using an overlay without /compatible.
+	 */
+	if (fdt_get_property(overlay_fdt, oroot_offset, "compatible",
+	    &ocompat_len) == NULL || ocompat_len == 0)
+		return (0);
+	root_offset = fdt_path_offset(base_fdt, "/");
+	if (root_offset < 0)
+		return (root_offset);
+	/*
+	 * However, an empty or missing /compatible on the base is an error,
+	 * because allowing this offers no advantages.
+	 */
+	if (fdt_get_property(base_fdt, root_offset, "compatible",
+	    &compat_len) == NULL)
+		return (compat_len);
+	else if(compat_len == 0)
+		return (1);
+
+	slidx = 0;
+	compat = fdt_stringlist_get(overlay_fdt, oroot_offset, "compatible",
+	    slidx, &sllen);
+	while (compat != NULL) {
+		if (fdt_stringlist_search(base_fdt, root_offset, "compatible",
+		    compat) >= 0)
+			return (0);
+		++slidx;
+		compat = fdt_stringlist_get(overlay_fdt, oroot_offset,
+		    "compatible", slidx, &sllen);
+	};
+
+	/* We've exhausted the overlay's /compatible property... no match */
+	return (1);
+}
+
 void
 fdt_apply_overlays()
 {
 	struct preloaded_file *fp;
-	size_t overlays_size, max_overlay_size, new_fdtp_size;
-	void *new_fdtp;
+	size_t max_overlay_size, next_fdtp_size;
+	size_t current_fdtp_size;
+	void *current_fdtp;
+	void *next_fdtp;
 	void *overlay;
 	int rv;
 
 	if ((fdtp == NULL) || (fdtp_size == 0))
 		return;
 
-	overlays_size = 0;
 	max_overlay_size = 0;
 	for (fp = file_findfile(NULL, "dtbo"); fp != NULL; fp = fp->f_next) {
 		if (max_overlay_size < fp->f_size)
 			max_overlay_size = fp->f_size;
-		overlays_size += fp->f_size;
 	}
 
 	/* Nothing to apply */
-	if (overlays_size == 0)
+	if (max_overlay_size == 0)
 		return;
-
-	/* It's actually more than enough */
-	new_fdtp_size = fdtp_size + overlays_size;
-	new_fdtp = malloc(new_fdtp_size);
-	if (new_fdtp == NULL) {
-		printf("failed to allocate memory for DTB blob with overlays\n");
-		return;
-	}
 
 	overlay = malloc(max_overlay_size);
 	if (overlay == NULL) {
 		printf("failed to allocate memory for DTB blob with overlays\n");
-		free(new_fdtp);
 		return;
 	}
-
-	rv = fdt_open_into(fdtp, new_fdtp, new_fdtp_size);
-	if (rv != 0) {
-		printf("failed to open DTB blob for applying overlays\n");
-		free(new_fdtp);
-		free(overlay);
-		return;
-	}
-
+	current_fdtp = fdtp;
+	current_fdtp_size = fdtp_size;
 	for (fp = file_findfile(NULL, "dtbo"); fp != NULL; fp = fp->f_next) {
-		printf("applying DTB overlay '%s'\n", fp->f_name);
 		COPYOUT(fp->f_addr, overlay, fp->f_size);
-		fdt_overlay_apply(new_fdtp, overlay, fp->f_size);
+		/* Check compatible first to avoid unnecessary allocation */
+		rv = fdt_check_overlay_compatible(current_fdtp, overlay);
+		if (rv != 0) {
+			printf("DTB overlay '%s' not compatible\n", fp->f_name);
+			continue;
+		}
+		printf("applying DTB overlay '%s'\n", fp->f_name);
+		next_fdtp_size = current_fdtp_size + fp->f_size;
+		next_fdtp = malloc(next_fdtp_size);
+		if (next_fdtp == NULL) {
+			/*
+			 * Output warning, then move on to applying other
+			 * overlays in case this one is simply too large.
+			 */
+			printf("failed to allocate memory for overlay base\n");
+			continue;
+		}
+		rv = fdt_open_into(current_fdtp, next_fdtp, next_fdtp_size);
+		if (rv != 0) {
+			free(next_fdtp);
+			printf("failed to open base dtb into overlay base\n");
+			continue;
+		}
+		/* Both overlay and next_fdtp may be modified in place */
+		rv = fdt_overlay_apply(next_fdtp, overlay);
+		if (rv == 0) {
+			/* Rotate next -> current */
+			if (current_fdtp != fdtp)
+				free(current_fdtp);
+			current_fdtp = next_fdtp;
+			current_fdtp_size = next_fdtp_size;
+		} else {
+			/*
+			 * Assume here that the base we tried to apply on is
+			 * either trashed or in an inconsistent state. Trying to
+			 * load it might work, but it's better to discard it and
+			 * play it safe. */
+			free(next_fdtp);
+			printf("failed to apply overlay: %s\n",
+			    fdt_strerror(rv));
+		}
 	}
-
-	free(fdtp);
-	fdtp = new_fdtp;
-	fdtp_size = new_fdtp_size;
-
+	/* We could have failed to apply all overlays; then we do nothing */
+	if (current_fdtp != fdtp) {
+		free(fdtp);
+		fdtp = current_fdtp;
+		fdtp_size = current_fdtp_size;
+	}
 	free(overlay);
 }
 
@@ -781,6 +888,25 @@ fdt_fixup_stdout(const char *str)
 	}
 }
 
+void
+fdt_load_dtb_overlays(const char *extras)
+{
+	const char *s;
+
+	/* Any extra overlays supplied by pre-loader environment */
+	if (extras != NULL && *extras != '\0') {
+		printf("Loading DTB overlays: '%s'\n", extras);
+		fdt_load_dtb_overlays_string(extras);
+	}
+
+	/* Any overlays supplied by loader environment */
+	s = getenv("fdt_overlays");
+	if (s != NULL && *s != '\0') {
+		printf("Loading DTB overlays: '%s'\n", s);
+		fdt_load_dtb_overlays_string(s);
+	}
+}
+
 /*
  * Locate the blob, fix it up and return its location.
  */
@@ -830,11 +956,6 @@ fdt_copy(vm_offset_t va)
 	if (fdt_fixup() == 0)
 		return (0);
 
-	if (fdtp_va != 0) {
-		/* Overwrite the FDT with the fixed version. */
-		/* XXX Is this really appropriate? */
-		COPYIN(fdtp, fdtp_va, fdtp_size);
-	}
 	COPYIN(fdtp, va, fdtp_size);
 	return (fdtp_size);
 }

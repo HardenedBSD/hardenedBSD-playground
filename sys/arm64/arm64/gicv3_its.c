@@ -30,6 +30,7 @@
  * SUCH DAMAGE.
  */
 
+#include "opt_acpi.h"
 #include "opt_platform.h"
 
 #include <sys/cdefs.h>
@@ -488,7 +489,7 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 				break;
 			case PAGE_SIZE_16K:	/* 16KB */
 				reg |=
-				    GITS_BASER_PSZ_4K << GITS_BASER_PSZ_SHIFT;
+				    GITS_BASER_PSZ_16K << GITS_BASER_PSZ_SHIFT;
 				break;
 			case PAGE_SIZE_64K:	/* 64KB */
 				reg |=
@@ -501,7 +502,7 @@ gicv3_its_table_init(device_t dev, struct gicv3_its_softc *sc)
 			/* Read back to check */
 			tmp = gic_its_read_8(sc, GITS_BASER(i));
 
-			/* Do the snareability masks line up? */
+			/* Do the shareability masks line up? */
 			if ((tmp & GITS_BASER_SHARE_MASK) !=
 			    (reg & GITS_BASER_SHARE_MASK)) {
 				share = (tmp & GITS_BASER_SHARE_MASK) >>
@@ -566,7 +567,7 @@ gicv3_its_pendtables_init(struct gicv3_its_softc *sc)
 		    0, LPI_PENDTAB_MAX_ADDR, LPI_PENDTAB_ALIGN, 0);
 
 		/* Flush so the ITS can see the memory */
-		cpu_dcache_wb_range((vm_offset_t)sc->sc_pend_base,
+		cpu_dcache_wb_range((vm_offset_t)sc->sc_pend_base[i],
 		    LPI_PENDTAB_SIZE);
 	}
 }
@@ -692,6 +693,10 @@ gicv3_its_attach(device_t dev)
 	int domain, err, i, rid;
 
 	sc = device_get_softc(dev);
+
+	sc->sc_irq_length = gicv3_get_nirqs(dev);
+	sc->sc_irq_base = GIC_FIRST_LPI;
+	sc->sc_irq_base += device_get_unit(dev) * sc->sc_irq_length;
 
 	rid = 0;
 	sc->sc_its_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid,
@@ -1640,7 +1645,7 @@ DEFINE_CLASS_1(its, gicv3_its_fdt_driver, gicv3_its_fdt_methods,
 #undef its_baseclasses
 static devclass_t gicv3_its_fdt_devclass;
 
-EARLY_DRIVER_MODULE(its, gic, gicv3_its_fdt_driver,
+EARLY_DRIVER_MODULE(its_fdt, gic, gicv3_its_fdt_driver,
     gicv3_its_fdt_devclass, 0, 0, BUS_PASS_INTERRUPT + BUS_PASS_ORDER_MIDDLE);
 
 static int
@@ -1665,11 +1670,6 @@ gicv3_its_fdt_attach(device_t dev)
 	int err;
 
 	sc = device_get_softc(dev);
-
-	sc->sc_irq_length = gicv3_get_nirqs(dev);
-	sc->sc_irq_base = GIC_FIRST_LPI;
-	sc->sc_irq_base += device_get_unit(dev) * sc->sc_irq_length;
-
 	err = gicv3_its_attach(dev);
 	if (err != 0)
 		return (err);
@@ -1682,6 +1682,65 @@ gicv3_its_fdt_attach(device_t dev)
 
 	/* Register this device to handle MSI interrupts */
 	intr_msi_register(dev, xref);
+
+	return (0);
+}
+#endif
+
+#ifdef DEV_ACPI
+static device_probe_t gicv3_its_acpi_probe;
+static device_attach_t gicv3_its_acpi_attach;
+
+static device_method_t gicv3_its_acpi_methods[] = {
+	/* Device interface */
+	DEVMETHOD(device_probe,		gicv3_its_acpi_probe),
+	DEVMETHOD(device_attach,	gicv3_its_acpi_attach),
+
+	/* End */
+	DEVMETHOD_END
+};
+
+#define its_baseclasses its_acpi_baseclasses
+DEFINE_CLASS_1(its, gicv3_its_acpi_driver, gicv3_its_acpi_methods,
+    sizeof(struct gicv3_its_softc), gicv3_its_driver);
+#undef its_baseclasses
+static devclass_t gicv3_its_acpi_devclass;
+
+EARLY_DRIVER_MODULE(its_acpi, gic, gicv3_its_acpi_driver,
+    gicv3_its_acpi_devclass, 0, 0, BUS_PASS_INTERRUPT + BUS_PASS_ORDER_MIDDLE);
+
+static int
+gicv3_its_acpi_probe(device_t dev)
+{
+
+	if (gic_get_bus(dev) != GIC_BUS_ACPI)
+		return (EINVAL);
+
+	if (gic_get_hw_rev(dev) < 3)
+		return (EINVAL);
+
+	device_set_desc(dev, "ARM GIC Interrupt Translation Service");
+	return (BUS_PROBE_DEFAULT);
+}
+
+static int
+gicv3_its_acpi_attach(device_t dev)
+{
+	struct gicv3_its_softc *sc;
+	int err;
+
+	sc = device_get_softc(dev);
+	err = gicv3_its_attach(dev);
+	if (err != 0)
+		return (err);
+
+	sc->sc_pic = intr_pic_register(dev,
+	    device_get_unit(dev) + ACPI_MSI_XREF);
+	intr_pic_add_handler(device_get_parent(dev), sc->sc_pic,
+	    gicv3_its_intr, sc, GIC_FIRST_LPI, LPI_NIRQS);
+
+	/* Register this device to handle MSI interrupts */
+	intr_msi_register(dev, device_get_unit(dev) + ACPI_MSI_XREF);
 
 	return (0);
 }

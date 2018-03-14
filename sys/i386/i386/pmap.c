@@ -280,6 +280,8 @@ SYSCTL_INT(_debug, OID_AUTO, PMAP1unchanged, CTLFLAG_RD,
 	   "Number of times pmap_pte_quick didn't change PMAP1");
 static struct mtx PMAP2mutex;
 
+int pti;
+
 static void	free_pv_chunk(struct pv_chunk *pc);
 static void	free_pv_entry(pmap_t pmap, pv_entry_t pv);
 static pv_entry_t get_pv_entry(pmap_t pmap, boolean_t try);
@@ -338,8 +340,8 @@ static pt_entry_t *pmap_pte_quick(pmap_t pmap, vm_offset_t va);
 static void pmap_pte_release(pt_entry_t *pte);
 static int pmap_unuse_pt(pmap_t, vm_offset_t, struct spglist *);
 #if defined(PAE) || defined(PAE_TABLES)
-static void *pmap_pdpt_allocf(uma_zone_t zone, vm_size_t bytes, uint8_t *flags,
-    int wait);
+static void *pmap_pdpt_allocf(uma_zone_t zone, vm_size_t bytes, int domain,
+    uint8_t *flags, int wait);
 #endif
 static void pmap_set_pg(void);
 
@@ -697,12 +699,13 @@ pmap_page_init(vm_page_t m)
 
 #if defined(PAE) || defined(PAE_TABLES)
 static void *
-pmap_pdpt_allocf(uma_zone_t zone, vm_size_t bytes, uint8_t *flags, int wait)
+pmap_pdpt_allocf(uma_zone_t zone, vm_size_t bytes, int domain, uint8_t *flags,
+    int wait)
 {
 
 	/* Inform UMA that this allocator uses kernel_map/object. */
 	*flags = UMA_SLAB_KERNEL;
-	return ((void *)kmem_alloc_contig(kernel_arena, bytes, wait, 0x0ULL,
+	return ((void *)kmem_alloc_contig_domain(domain, bytes, wait, 0x0ULL,
 	    0xffffffffULL, 1, 0, VM_MEMATTR_DEFAULT));
 }
 #endif
@@ -1042,7 +1045,7 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
 		CPU_AND(&other_cpus, &pmap->pm_active);
 		mask = &other_cpus;
 	}
-	smp_masked_invlpg(*mask, va);
+	smp_masked_invlpg(*mask, va, pmap);
 	sched_unpin();
 }
 
@@ -1076,7 +1079,7 @@ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		CPU_AND(&other_cpus, &pmap->pm_active);
 		mask = &other_cpus;
 	}
-	smp_masked_invlpg_range(*mask, sva, eva);
+	smp_masked_invlpg_range(*mask, sva, eva, pmap);
 	sched_unpin();
 }
 
@@ -1674,7 +1677,11 @@ pmap_qenter(vm_offset_t sva, vm_page_t *ma, int count)
 		pa = VM_PAGE_TO_PHYS(m) | pmap_cache_bits(m->md.pat_mode, 0);
 		if ((*pte & (PG_FRAME | PG_PTE_CACHE)) != pa) {
 			oldpte |= *pte;
+#if defined(PAE) || defined(PAE_TABLES)
+			pte_store(pte, pa | pgeflag | pg_nx | PG_RW | PG_V);
+#else
 			pte_store(pte, pa | pgeflag | PG_RW | PG_V);
+#endif
 		}
 		pte++;
 	}
@@ -1704,20 +1711,6 @@ pmap_qremove(vm_offset_t sva, int count)
 /***************************************************
  * Page table page management routines.....
  ***************************************************/
-static __inline void
-pmap_free_zero_pages(struct spglist *free)
-{
-	vm_page_t m;
-	int count;
-
-	for (count = 0; (m = SLIST_FIRST(free)) != NULL; count++) {
-		SLIST_REMOVE_HEAD(free, plinks.s.ss);
-		/* Preserve the page's PG_ZERO setting. */
-		vm_page_free_toq(m);
-	}
-	atomic_subtract_int(&vm_cnt.v_wire_count, count);
-}
-
 /*
  * Schedule the specified unused page table page to be freed.  Specifically,
  * add the page to the specified list of pages that will be released to the
@@ -1886,10 +1879,9 @@ pmap_pinit(pmap_t pmap)
 		m = vm_page_alloc(NULL, 0, VM_ALLOC_NORMAL | VM_ALLOC_NOOBJ |
 		    VM_ALLOC_WIRED | VM_ALLOC_ZERO);
 		if (m == NULL)
-			VM_WAIT;
-		else {
+			vm_wait(NULL);
+		else
 			ptdpg[i++] = m;
-		}
 	}
 
 	pmap_qenter((vm_offset_t)pmap->pm_pdir, ptdpg, NPGPTD);
@@ -1938,7 +1930,7 @@ _pmap_allocpte(pmap_t pmap, u_int ptepindex, u_int flags)
 		if ((flags & PMAP_ENTER_NOSLEEP) == 0) {
 			PMAP_UNLOCK(pmap);
 			rw_wunlock(&pvh_global_lock);
-			VM_WAIT;
+			vm_wait(NULL);
 			rw_wlock(&pvh_global_lock);
 			PMAP_LOCK(pmap);
 		}
@@ -2054,10 +2046,9 @@ pmap_release(pmap_t pmap)
 		KASSERT(VM_PAGE_TO_PHYS(m) == (pmap->pm_pdpt[i] & PG_FRAME),
 		    ("pmap_release: got wrong ptd page"));
 #endif
-		m->wire_count--;
+		vm_page_unwire_noq(m);
 		vm_page_free_zero(m);
 	}
-	atomic_subtract_int(&vm_cnt.v_wire_count, NPGPTD);
 }
 
 static int
@@ -2319,7 +2310,7 @@ out:
 		/* Recycle a freed page table page. */
 		m_pc->wire_count = 1;
 	}
-	pmap_free_zero_pages(&free);
+	vm_page_free_pages_toq(&free, true);
 	return (m_pc);
 }
 
@@ -2669,7 +2660,7 @@ pmap_demote_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t va)
 			pmap_remove_pde(pmap, pde, sva, &free);
 			if ((oldpde & PG_G) == 0)
 				pmap_invalidate_pde_page(pmap, sva, oldpde);
-			pmap_free_zero_pages(&free);
+			vm_page_free_pages_toq(&free, true);
 			CTR2(KTR_PMAP, "pmap_demote_pde: failure for va %#x"
 			    " in pmap %p", va, pmap);
 			return (FALSE);
@@ -3039,7 +3030,7 @@ out:
 		pmap_invalidate_all(pmap);
 	rw_wunlock(&pvh_global_lock);
 	PMAP_UNLOCK(pmap);
-	pmap_free_zero_pages(&free);
+	vm_page_free_pages_toq(&free, true);
 }
 
 /*
@@ -3113,7 +3104,7 @@ small_mappings:
 	vm_page_aflag_clear(m, PGA_WRITEABLE);
 	sched_unpin();
 	rw_wunlock(&pvh_global_lock);
-	pmap_free_zero_pages(&free);
+	vm_page_free_pages_toq(&free, true);
 }
 
 /*
@@ -3881,7 +3872,7 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 			SLIST_INIT(&free);
 			if (pmap_unwire_ptp(pmap, mpte, &free)) {
 				pmap_invalidate_page(pmap, va);
-				pmap_free_zero_pages(&free);
+				vm_page_free_pages_toq(&free, true);
 			}
 			
 			mpte = NULL;
@@ -4196,7 +4187,8 @@ pmap_copy(pmap_t dst_pmap, pmap_t src_pmap, vm_offset_t dst_addr, vm_size_t len,
 					    &free)) {
 						pmap_invalidate_page(dst_pmap,
 						    addr);
-						pmap_free_zero_pages(&free);
+						vm_page_free_pages_toq(&free,
+						    true);
 					}
 					goto out;
 				}
@@ -4614,7 +4606,7 @@ pmap_remove_pages(pmap_t pmap)
 	pmap_invalidate_all(pmap);
 	rw_wunlock(&pvh_global_lock);
 	PMAP_UNLOCK(pmap);
-	pmap_free_zero_pages(&free);
+	vm_page_free_pages_toq(&free, true);
 }
 
 /*

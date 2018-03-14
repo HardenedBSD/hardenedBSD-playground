@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2006 Bernd Walter <tisco@FreeBSD.org>
  * Copyright (c) 2006 M. Warner Losh <imp@FreeBSD.org>
  * Copyright (c) 2009 Alexander Motin <mav@FreeBSD.org>
@@ -367,7 +369,7 @@ sddaopen(struct disk *dp)
 	int error;
 
 	periph = (struct cam_periph *)dp->d_drv1;
-	if (cam_periph_acquire(periph) != CAM_REQ_CMP) {
+	if (cam_periph_acquire(periph) != 0) {
 		return(ENXIO);
 	}
 
@@ -742,7 +744,7 @@ sdda_hook_into_geom(struct cam_periph *periph)
 	 * We'll release this reference once GEOM calls us back (via
 	 * sddadiskgonecb()) telling us that our provider has been freed.
 	 */
-	if (cam_periph_acquire(periph) != CAM_REQ_CMP) {
+	if (cam_periph_acquire(periph) != 0) {
 		xpt_print(periph->path, "%s: lost periph during "
 			  "registration!\n", __func__);
 		cam_periph_lock(periph);

@@ -69,6 +69,10 @@ PORTSMODULESENV=\
 	-u CC \
 	-u CXX \
 	-u CPP \
+	-u MAKESYSPATH \
+	-u MAKEOBJDIR \
+	MAKEFLAGS="${MAKEFLAGS:M*:tW:S/^-m /-m_/g:S/ -m / -m_/g:tw:N-m_*}" \
+	SYSDIR=${SYSDIR} \
 	PATH=${PATH}:${LOCALBASE}/bin:${LOCALBASE}/sbin \
 	SRC_BASE=${SRC_BASE} \
 	OSVERSION=${OSRELDATE} \
@@ -196,7 +200,9 @@ _meta_filemon=	1
 # Also skip generating or including .depend.* files if in meta+filemon mode
 # since it will track dependencies itself.  OBJS_DEPEND_GUESS is still used
 # for _meta_filemon but not for _SKIP_DEPEND.
-.if !defined(NO_SKIP_DEPEND) && (make(*obj) || \
+.if !defined(NO_SKIP_DEPEND) && \
+    ((!empty(.MAKEFLAGS:M-V) && empty(.MAKEFLAGS:M*DEP*)) || \
+    ${.TARGETS:M*obj} == ${.TARGETS} || \
     ${.TARGETS:M*clean*} == ${.TARGETS} || \
     ${.TARGETS:M*install*} == ${.TARGETS})
 _SKIP_DEPEND=	1
@@ -300,7 +306,7 @@ ${_ILINKS}:
 		path=${S}/${.TARGET}/include ;; \
 	esac ; \
 	${ECHO} ${.TARGET} "->" $$path ; \
-	ln -fhs $$path ${.TARGET}
+	ln -fns $$path ${.TARGET}
 
 # .depend needs include links so we remove them only together.
 kernel-cleandepend: .PHONY

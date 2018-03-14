@@ -40,7 +40,7 @@
 #define _STAND_NET_H
 #ifndef _KERNEL	/* XXX - see <netinet/in.h> */
 #undef __IPADDR
-#define __IPADDR(x)	htonl((u_int32_t)(x))
+#define __IPADDR(x)	htonl((uint32_t)(x))
 #endif
 
 #include "iodesc.h"
@@ -115,8 +115,9 @@ ssize_t	readudp(struct iodesc *, void **, void **, time_t);
 ssize_t	sendrecv(struct iodesc *,
 			ssize_t (*)(struct iodesc *, void *, size_t),
 			void *, size_t,
-			ssize_t (*)(struct iodesc *, void **, void **, time_t),
-			void **, void **);
+			ssize_t (*)(struct iodesc *, void **, void **, time_t,
+			    void *),
+			void **, void **, void *);
 
 /* bootp/DHCP */
 void	bootp(int);
@@ -128,6 +129,4 @@ char	*inet_ntoa(struct in_addr);
 char	*intoa(n_long);		/* similar to inet_ntoa */
 n_long	inet_addr(char *);
 
-/* Machine-dependent functions: */
-time_t	getsecs(void);
 #endif /* ! _STAND_NET_H */

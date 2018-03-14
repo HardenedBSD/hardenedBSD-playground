@@ -1,7 +1,5 @@
 # $FreeBSD$
 
-MAN=
-
 LOADER_NET_SUPPORT?=	yes
 LOADER_MSDOS_SUPPORT?=	yes
 LOADER_UFS_SUPPORT?=	yes
@@ -9,8 +7,6 @@ LOADER_CD9660_SUPPORT?=	no
 LOADER_EXT2FS_SUPPORT?=	no
 
 .include <bsd.init.mk>
-
-MK_SSP=		no
 
 PROG=		loader.sym
 INTERNALPROG=
@@ -36,6 +32,7 @@ SRCS=	autoload.c \
 LIBZFSBOOT=	${BOOTOBJ}/zfs/libzfsboot.a
 CFLAGS+=	-I${ZFSSRC}
 CFLAGS+=	-DEFI_ZFS_BOOT
+HAVE_ZFS=	yes
 .endif
 
 .if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} > 40201
@@ -127,8 +124,8 @@ loader.efi: ${PROG}
 
 LIBEFI=		${BOOTOBJ}/efi/libefi/libefi.a
 
-DPADD=		${LIBFICL} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBZFSBOOT} ${LIBSA} \
+DPADD=		${LDR_INTERP} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBZFSBOOT} ${LIBSA} \
 		${LDSCRIPT}
-LDADD=		${LIBFICL} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBZFSBOOT} ${LIBSA}
+LDADD=		${LDR_INTERP} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBZFSBOOT} ${LIBSA}
 
 .include <bsd.prog.mk>

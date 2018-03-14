@@ -120,6 +120,10 @@ CFLAGS+=	${CONF_CFLAGS}
 LDFLAGS+=	-Wl,--build-id=sha1
 .endif
 
+.if ${MACHINE_CPUARCH} == "amd64"
+LDFLAGS+=	-Wl,-z max-page-size=2097152 -Wl,-z common-page-size=4096
+.endif
+
 NORMAL_C= ${CC} -c ${CFLAGS} ${WERROR} ${PROF} ${.IMPSRC}
 NORMAL_S= ${CC:N${CCACHE_BIN}} -c ${ASM_CFLAGS} ${WERROR} ${.IMPSRC}
 PROFILE_C= ${CC} -c ${CFLAGS} ${WERROR} ${.IMPSRC}
@@ -131,6 +135,9 @@ NORMAL_M= ${AWK} -f $S/tools/makeobjops.awk ${.IMPSRC} -c ; \
 NORMAL_FW= uudecode -o ${.TARGET} ${.ALLSRC}
 NORMAL_FWO= ${LD} -b binary --no-warn-mismatch -d -warn-common -r \
 	-m ${LD_EMULATION} -o ${.TARGET} ${.ALLSRC:M*.fw}
+
+# for ZSTD in the kernel (include zstd/lib/freebsd before other CFLAGS)
+ZSTD_C= ${CC} -c -DZSTD_HEAPMODE=1 -I$S/contrib/zstd/lib/freebsd ${CFLAGS} -I$S/contrib/zstd/lib -I$S/contrib/zstd/lib/common ${WERROR} -Wno-inline -Wno-missing-prototypes ${PROF} -U__BMI__ ${.IMPSRC}
 
 # Common for dtrace / zfs
 CDDL_CFLAGS=	-DFREEBSD_NAMECACHE -nostdinc -I$S/cddl/compat/opensolaris -I$S/cddl/contrib/opensolaris/uts/common -I$S -I$S/cddl/contrib/opensolaris/common ${CFLAGS} -Wno-unknown-pragmas -Wno-missing-prototypes -Wno-undef -Wno-strict-prototypes -Wno-cast-qual -Wno-parentheses -Wno-redundant-decls -Wno-missing-braces -Wno-uninitialized -Wno-unused -Wno-inline -Wno-switch -Wno-pointer-arith -Wno-unknown-pragmas
@@ -207,7 +214,8 @@ SYSTEM_LD_TAIL= @${OBJCOPY} --strip-symbol gcc2_compiled. ${.TARGET} ; \
 SYSTEM_DEP+= ${LDSCRIPT}
 
 # Calculate path for .m files early, if needed.
-.if !defined(NO_MODULES) && !defined(__MPATH) && !make(install)
+.if !defined(NO_MODULES) && !defined(__MPATH) && !make(install) && \
+    (empty(.MAKEFLAGS:M-V) || defined(NO_SKIP_MPATH))
 __MPATH!=find ${S:tA}/ -name \*_if.m
 .endif
 

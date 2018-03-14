@@ -91,7 +91,7 @@ PMC_SOFT_DECLARE( , , lock, failed);
 	WITNESS_SAVE_DECL(Giant)					\
 
 #define	GIANT_SAVE(work) do {						\
-	if (mtx_owned(&Giant)) {					\
+	if (__predict_false(mtx_owned(&Giant))) {			\
 		work++;							\
 		WITNESS_SAVE(&Giant.lock_object, Giant);		\
 		while (mtx_owned(&Giant)) {				\
@@ -413,6 +413,7 @@ int
 sx_try_upgrade_int(struct sx *sx LOCK_FILE_LINE_ARG_DEF)
 {
 	uintptr_t x;
+	uintptr_t waiters;
 	int success;
 
 	if (SCHEDULER_STOPPED())
@@ -427,9 +428,18 @@ sx_try_upgrade_int(struct sx *sx LOCK_FILE_LINE_ARG_DEF)
 	 * to maintain the SX_LOCK_EXCLUSIVE_WAITERS flag if set so that
 	 * we will wake up the exclusive waiters when we drop the lock.
 	 */
-	x = sx->sx_lock & SX_LOCK_EXCLUSIVE_WAITERS;
-	success = atomic_cmpset_acq_ptr(&sx->sx_lock, SX_SHARERS_LOCK(1) | x,
-	    (uintptr_t)curthread | x);
+	success = 0;
+	x = SX_READ_VALUE(sx);
+	for (;;) {
+		if (SX_SHARERS(x) > 1)
+			break;
+		waiters = (x & SX_LOCK_EXCLUSIVE_WAITERS);
+		if (atomic_fcmpset_acq_ptr(&sx->sx_lock, &x,
+		    (uintptr_t)curthread | waiters)) {
+			success = 1;
+			break;
+		}
+	}
 	LOCK_LOG_TRY("XUPGRADE", &sx->lock_object, 0, success, file, line);
 	if (success) {
 		WITNESS_UPGRADE(&sx->lock_object, LOP_EXCLUSIVE | LOP_TRYLOCK,
@@ -533,6 +543,8 @@ _sx_xlock_hard(struct sx *sx, uintptr_t x, int opts LOCK_FILE_LINE_ARG_DEF)
 #ifdef ADAPTIVE_SX
 	volatile struct thread *owner;
 	u_int i, n, spintries = 0;
+	enum { READERS, WRITER } sleep_reason;
+	bool adaptive;
 #endif
 #ifdef LOCK_PROFILING
 	uint64_t waittime = 0;
@@ -581,6 +593,10 @@ _sx_xlock_hard(struct sx *sx, uintptr_t x, int opts LOCK_FILE_LINE_ARG_DEF)
 		CTR5(KTR_LOCK, "%s: %s contested (lock=%p) at %s:%d", __func__,
 		    sx->lock_object.lo_name, (void *)sx->sx_lock, file, line);
 
+#ifdef ADAPTIVE_SX
+	adaptive = ((sx->lock_object.lo_flags & SX_NOADAPTIVE) == 0);
+#endif
+
 #ifdef HWPMC_HOOKS
 	PMC_SOFT_CALL( , , lock, failed);
 #endif
@@ -597,6 +613,9 @@ _sx_xlock_hard(struct sx *sx, uintptr_t x, int opts LOCK_FILE_LINE_ARG_DEF)
 		state = x;
 	}
 #endif
+#ifndef INVARIANTS
+	GIANT_SAVE(extra_work);
+#endif
 
 	for (;;) {
 		if (x == SX_LOCK_UNLOCKED) {
@@ -604,67 +623,65 @@ _sx_xlock_hard(struct sx *sx, uintptr_t x, int opts LOCK_FILE_LINE_ARG_DEF)
 				break;
 			continue;
 		}
+#ifdef INVARIANTS
+		GIANT_SAVE(extra_work);
+#endif
 #ifdef KDTRACE_HOOKS
 		lda.spin_cnt++;
 #endif
 #ifdef ADAPTIVE_SX
+		if (__predict_false(!adaptive))
+			goto sleepq;
 		/*
 		 * If the lock is write locked and the owner is
 		 * running on another CPU, spin until the owner stops
 		 * running or the state of the lock changes.
 		 */
-		if ((sx->lock_object.lo_flags & SX_NOADAPTIVE) == 0) {
-			if ((x & SX_LOCK_SHARED) == 0) {
+		if ((x & SX_LOCK_SHARED) == 0) {
+			sleep_reason = WRITER;
+			owner = lv_sx_owner(x);
+			if (!TD_IS_RUNNING(owner))
+				goto sleepq;
+			if (LOCK_LOG_TEST(&sx->lock_object, 0))
+				CTR3(KTR_LOCK, "%s: spinning on %p held by %p",
+				    __func__, sx, owner);
+			KTR_STATE1(KTR_SCHED, "thread", sched_tdname(curthread),
+			    "spinning", "lockname:\"%s\"",
+			    sx->lock_object.lo_name);
+			do {
+				lock_delay(&lda);
+				x = SX_READ_VALUE(sx);
 				owner = lv_sx_owner(x);
-				if (TD_IS_RUNNING(owner)) {
-					if (LOCK_LOG_TEST(&sx->lock_object, 0))
-						CTR3(KTR_LOCK,
-					    "%s: spinning on %p held by %p",
-						    __func__, sx, owner);
-					KTR_STATE1(KTR_SCHED, "thread",
-					    sched_tdname(curthread), "spinning",
-					    "lockname:\"%s\"",
-					    sx->lock_object.lo_name);
-					GIANT_SAVE(extra_work);
-					do {
-						lock_delay(&lda);
-						x = SX_READ_VALUE(sx);
-						owner = lv_sx_owner(x);
-					} while (owner != NULL &&
-						    TD_IS_RUNNING(owner));
-					KTR_STATE0(KTR_SCHED, "thread",
-					    sched_tdname(curthread), "running");
-					continue;
-				}
-			} else if (SX_SHARERS(x) && spintries < asx_retries) {
-				KTR_STATE1(KTR_SCHED, "thread",
-				    sched_tdname(curthread), "spinning",
-				    "lockname:\"%s\"", sx->lock_object.lo_name);
-				GIANT_SAVE(extra_work);
-				spintries++;
-				for (i = 0; i < asx_loops; i += n) {
-					if (LOCK_LOG_TEST(&sx->lock_object, 0))
-						CTR4(KTR_LOCK,
-				    "%s: shared spinning on %p with %u and %u",
-						    __func__, sx, spintries, i);
-					n = SX_SHARERS(x);
-					lock_delay_spin(n);
-					x = SX_READ_VALUE(sx);
-					if ((x & SX_LOCK_SHARED) == 0 ||
-					    SX_SHARERS(x) == 0)
-						break;
-				}
-#ifdef KDTRACE_HOOKS
-				lda.spin_cnt += i;
-#endif
-				KTR_STATE0(KTR_SCHED, "thread",
-				    sched_tdname(curthread), "running");
-				if (i != asx_loops)
-					continue;
+			} while (owner != NULL && TD_IS_RUNNING(owner));
+			KTR_STATE0(KTR_SCHED, "thread", sched_tdname(curthread),
+			    "running");
+			continue;
+		} else if (SX_SHARERS(x) > 0) {
+			sleep_reason = READERS;
+			if (spintries == asx_retries)
+				goto sleepq;
+			spintries++;
+			KTR_STATE1(KTR_SCHED, "thread", sched_tdname(curthread),
+			    "spinning", "lockname:\"%s\"",
+			    sx->lock_object.lo_name);
+			for (i = 0; i < asx_loops; i += n) {
+				n = SX_SHARERS(x);
+				lock_delay_spin(n);
+				x = SX_READ_VALUE(sx);
+				if ((x & SX_LOCK_SHARED) == 0 ||
+				    SX_SHARERS(x) == 0)
+					break;
 			}
-		}
+#ifdef KDTRACE_HOOKS
+			lda.spin_cnt += i;
 #endif
-
+			KTR_STATE0(KTR_SCHED, "thread", sched_tdname(curthread),
+			    "running");
+			if (i < asx_loops)
+				continue;
+		}
+sleepq:
+#endif
 		sleepq_lock(&sx->lock_object);
 		x = SX_READ_VALUE(sx);
 retry_sleepq:
@@ -686,10 +703,14 @@ retry_sleepq:
 		 * chain lock.  If so, drop the sleep queue lock and try
 		 * again.
 		 */
-		if (!(x & SX_LOCK_SHARED) &&
-		    (sx->lock_object.lo_flags & SX_NOADAPTIVE) == 0) {
-			owner = (struct thread *)SX_OWNER(x);
-			if (TD_IS_RUNNING(owner)) {
+		if (adaptive) {
+			if (!(x & SX_LOCK_SHARED)) {
+				owner = (struct thread *)SX_OWNER(x);
+				if (TD_IS_RUNNING(owner)) {
+					sleepq_release(&sx->lock_object);
+					continue;
+				}
+			} else if (SX_SHARERS(x) > 0 && sleep_reason == WRITER) {
 				sleepq_release(&sx->lock_object);
 				continue;
 			}
@@ -742,7 +763,6 @@ retry_sleepq:
 #ifdef KDTRACE_HOOKS
 		sleep_time -= lockstat_nsecs(&sx->lock_object);
 #endif
-		GIANT_SAVE(extra_work);
 		sleepq_add(&sx->lock_object, NULL, sx->lock_object.lo_name,
 		    SLEEPQ_SX | ((opts & SX_INTERRUPTIBLE) ?
 		    SLEEPQ_INTERRUPTIBLE : 0), SQ_EXCLUSIVE_QUEUE);
@@ -892,6 +912,7 @@ _sx_slock_hard(struct sx *sx, int opts, uintptr_t x LOCK_FILE_LINE_ARG_DEF)
 	GIANT_DECLARE;
 #ifdef ADAPTIVE_SX
 	volatile struct thread *owner;
+	bool adaptive;
 #endif
 #ifdef LOCK_PROFILING
 	uint64_t waittime = 0;
@@ -920,6 +941,10 @@ _sx_slock_hard(struct sx *sx, int opts, uintptr_t x LOCK_FILE_LINE_ARG_DEF)
 	lock_delay_arg_init(&lda, NULL);
 #endif
 
+#ifdef ADAPTIVE_SX
+	adaptive = ((sx->lock_object.lo_flags & SX_NOADAPTIVE) == 0);
+#endif
+
 #ifdef HWPMC_HOOKS
 	PMC_SOFT_CALL( , , lock, failed);
 #endif
@@ -936,6 +961,9 @@ _sx_slock_hard(struct sx *sx, int opts, uintptr_t x LOCK_FILE_LINE_ARG_DEF)
 		state = x;
 	}
 #endif
+#ifndef INVARIANTS
+	GIANT_SAVE(extra_work);
+#endif
 
 	/*
 	 * As with rwlocks, we don't make any attempt to try to block
@@ -944,37 +972,40 @@ _sx_slock_hard(struct sx *sx, int opts, uintptr_t x LOCK_FILE_LINE_ARG_DEF)
 	for (;;) {
 		if (__sx_slock_try(sx, &x LOCK_FILE_LINE_ARG))
 			break;
+#ifdef INVARIANTS
+		GIANT_SAVE(extra_work);
+#endif
 #ifdef KDTRACE_HOOKS
 		lda.spin_cnt++;
 #endif
 
 #ifdef ADAPTIVE_SX
+		if (__predict_false(!adaptive))
+			goto sleepq;
 		/*
 		 * If the owner is running on another CPU, spin until
 		 * the owner stops running or the state of the lock
 		 * changes.
 		 */
-		if ((sx->lock_object.lo_flags & SX_NOADAPTIVE) == 0) {
-			owner = lv_sx_owner(x);
-			if (TD_IS_RUNNING(owner)) {
-				if (LOCK_LOG_TEST(&sx->lock_object, 0))
-					CTR3(KTR_LOCK,
-					    "%s: spinning on %p held by %p",
-					    __func__, sx, owner);
-				KTR_STATE1(KTR_SCHED, "thread",
-				    sched_tdname(curthread), "spinning",
-				    "lockname:\"%s\"", sx->lock_object.lo_name);
-				GIANT_SAVE(extra_work);
-				do {
-					lock_delay(&lda);
-					x = SX_READ_VALUE(sx);
-					owner = lv_sx_owner(x);
-				} while (owner != NULL && TD_IS_RUNNING(owner));
-				KTR_STATE0(KTR_SCHED, "thread",
-				    sched_tdname(curthread), "running");
-				continue;
-			}
+		owner = lv_sx_owner(x);
+		if (TD_IS_RUNNING(owner)) {
+			if (LOCK_LOG_TEST(&sx->lock_object, 0))
+				CTR3(KTR_LOCK,
+				    "%s: spinning on %p held by %p",
+				    __func__, sx, owner);
+			KTR_STATE1(KTR_SCHED, "thread",
+			    sched_tdname(curthread), "spinning",
+			    "lockname:\"%s\"", sx->lock_object.lo_name);
+			do {
+				lock_delay(&lda);
+				x = SX_READ_VALUE(sx);
+				owner = lv_sx_owner(x);
+			} while (owner != NULL && TD_IS_RUNNING(owner));
+			KTR_STATE0(KTR_SCHED, "thread",
+			    sched_tdname(curthread), "running");
+			continue;
 		}
+sleepq:
 #endif
 
 		/*
@@ -999,8 +1030,7 @@ retry_sleepq:
 		 * the owner stops running or the state of the lock
 		 * changes.
 		 */
-		if (!(x & SX_LOCK_SHARED) &&
-		    (sx->lock_object.lo_flags & SX_NOADAPTIVE) == 0) {
+		if (!(x & SX_LOCK_SHARED) && adaptive) {
 			owner = (struct thread *)SX_OWNER(x);
 			if (TD_IS_RUNNING(owner)) {
 				sleepq_release(&sx->lock_object);
@@ -1035,7 +1065,6 @@ retry_sleepq:
 #ifdef KDTRACE_HOOKS
 		sleep_time -= lockstat_nsecs(&sx->lock_object);
 #endif
-		GIANT_SAVE(extra_work);
 		sleepq_add(&sx->lock_object, NULL, sx->lock_object.lo_name,
 		    SLEEPQ_SX | ((opts & SX_INTERRUPTIBLE) ?
 		    SLEEPQ_INTERRUPTIBLE : 0), SQ_SHARED_QUEUE);
@@ -1098,9 +1127,12 @@ _sx_slock_int(struct sx *sx, int opts LOCK_FILE_LINE_ARG_DEF)
 
 	error = 0;
 	x = SX_READ_VALUE(sx);
-	if (__predict_false(LOCKSTAT_OOL_PROFILE_ENABLED(sx__acquire) ||
+	if (__predict_false(LOCKSTAT_PROFILE_ENABLED(sx__acquire) ||
 	    !__sx_slock_try(sx, &x LOCK_FILE_LINE_ARG)))
 		error = _sx_slock_hard(sx, opts, x LOCK_FILE_LINE_ARG);
+	else
+		lock_profile_obtain_lock_success(&sx->lock_object, 0, 0,
+		    file, line);
 	if (error == 0) {
 		LOCK_LOG_LOCK("SLOCK", &sx->lock_object, 0, 0, file, line);
 		WITNESS_LOCK(&sx->lock_object, 0, file, line);
@@ -1169,7 +1201,7 @@ _sx_sunlock_try(struct sx *sx, uintptr_t *xp)
 static void __noinline
 _sx_sunlock_hard(struct sx *sx, uintptr_t x LOCK_FILE_LINE_ARG_DEF)
 {
-	int wakeup_swapper;
+	int wakeup_swapper = 0;
 	uintptr_t setx;
 
 	if (SCHEDULER_STOPPED())
@@ -1189,6 +1221,9 @@ _sx_sunlock_hard(struct sx *sx, uintptr_t x LOCK_FILE_LINE_ARG_DEF)
 	for (;;) {
 		MPASS(x & SX_LOCK_EXCLUSIVE_WAITERS);
 		MPASS(!(x & SX_LOCK_SHARED_WAITERS));
+		if (_sx_sunlock_try(sx, &x))
+			break;
+
 		/*
 		 * Wake up semantic here is quite simple:
 		 * Just wake up all the exclusive waiters.
@@ -1225,9 +1260,11 @@ _sx_sunlock_int(struct sx *sx LOCK_FILE_LINE_ARG_DEF)
 	LOCK_LOG_LOCK("SUNLOCK", &sx->lock_object, 0, 0, file, line);
 
 	x = SX_READ_VALUE(sx);
-	if (__predict_false(LOCKSTAT_OOL_PROFILE_ENABLED(sx__release) ||
+	if (__predict_false(LOCKSTAT_PROFILE_ENABLED(sx__release) ||
 	    !_sx_sunlock_try(sx, &x)))
 		_sx_sunlock_hard(sx, x LOCK_FILE_LINE_ARG);
+	else
+		lock_profile_release_lock(&sx->lock_object);
 
 	TD_LOCKS_DEC(curthread);
 }

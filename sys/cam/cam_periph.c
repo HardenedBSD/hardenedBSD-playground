@@ -403,19 +403,19 @@ retry:
 	return (count);
 }
 
-cam_status
+int
 cam_periph_acquire(struct cam_periph *periph)
 {
-	cam_status status;
+	int status;
 
-	status = CAM_REQ_CMP_ERR;
 	if (periph == NULL)
-		return (status);
+		return (EINVAL);
 
+	status = ENOENT;
 	xpt_lock_buses();
 	if ((periph->flags & CAM_PERIPH_INVALID) == 0) {
 		periph->refcount++;
-		status = CAM_REQ_CMP;
+		status = 0;
 	}
 	xpt_unlock_buses();
 
@@ -482,7 +482,7 @@ cam_periph_hold(struct cam_periph *periph, int priority)
 	 * from user us while we sleep.
 	 */
 
-	if (cam_periph_acquire(periph) != CAM_REQ_CMP)
+	if (cam_periph_acquire(periph) != 0)
 		return (ENXIO);
 
 	cam_periph_assert(periph, MA_OWNED);
@@ -1160,8 +1160,6 @@ cam_periph_runccb(union ccb *ccb,
 	struct bintime ltime;
 	int error;
 	bool must_poll;
-	struct mtx *periph_mtx;
-	struct cam_periph *periph;
 	uint32_t timeout = 1;
 
 	starttime = NULL;
@@ -1188,20 +1186,26 @@ cam_periph_runccb(union ccb *ccb,
 	 * stopped for dumping, except when we call doadump from ddb. While the
 	 * scheduler is running in this case, we still need to poll the I/O to
 	 * avoid sleeping waiting for the ccb to complete.
+	 *
+	 * A panic triggered dump stops the scheduler, any callback from the
+	 * shutdown_post_sync event will run with the scheduler stopped, but
+	 * before we're officially dumping. To avoid hanging in adashutdown
+	 * initiated commands (or other similar situations), we have to test for
+	 * either SCHEDULER_STOPPED() here as well.
+	 *
+	 * To avoid locking problems, dumping/polling callers must call
+	 * without a periph lock held.
 	 */
-	must_poll = dumping;
+	must_poll = dumping || SCHEDULER_STOPPED();
 	ccb->ccb_h.cbfcnp = cam_periph_done;
-	periph = xpt_path_periph(ccb->ccb_h.path);
-	periph_mtx = cam_periph_mtx(periph);
 
 	/*
 	 * If we're polling, then we need to ensure that we have ample resources
-	 * in the periph. We also need to drop the periph lock while we're polling.
+	 * in the periph.  
 	 * cam_periph_error can reschedule the ccb by calling xpt_action and returning
 	 * ERESTART, so we have to effect the polling in the do loop below.
 	 */
 	if (must_poll) {
-		mtx_unlock(periph_mtx);
 		timeout = xpt_poll_setup(ccb);
 	}
 
@@ -1226,9 +1230,6 @@ cam_periph_runccb(union ccb *ccb,
 				error = 0;
 		} while (error == ERESTART);
 	}
-
-	if (must_poll)
-		mtx_lock(periph_mtx);
 
 	if ((ccb->ccb_h.status & CAM_DEV_QFRZN) != 0) {
 		cam_release_devq(ccb->ccb_h.path,
@@ -1910,8 +1911,11 @@ cam_periph_error(union ccb *ccb, cam_flags camflags,
 			    error, action_string);
 		} else if (action_string != NULL)
 			xpt_print(ccb->ccb_h.path, "%s\n", action_string);
-		else
-			xpt_print(ccb->ccb_h.path, "Retrying command\n");
+		else {
+			xpt_print(ccb->ccb_h.path,
+			    "Retrying command, %d more tries remain\n",
+			    ccb->ccb_h.retry_count);
+		}
 	}
 
 	if (devctl_err && (error != 0 || (action & SSQ_PRINT_SENSE) != 0))

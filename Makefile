@@ -106,9 +106,13 @@
 #
 
 # This is included so CC is set to ccache for -V, and COMPILER_TYPE/VERSION
-# can be cached for sub-makes.
+# can be cached for sub-makes. We can't do this while still running on the
+# old fmake from FreeBSD 9.x or older, so avoid including it then to avoid
+# heartburn upgrading from older systems. The need for CC is done with new
+# make later in the build, and caching COMPILER_TYPE/VERSION is only an
+# optimization. Also sinclude it to be friendlier to foreign OS hosted builds.
 .if ${MAKE_VERSION} >= 20140620 && defined(.PARSEDIR)
-.include <bsd.compiler.mk>
+.sinclude <bsd.compiler.mk>
 .endif
 
 # Note: we use this awkward construct to be compatible with FreeBSD's
@@ -191,11 +195,11 @@ PATH=	/sbin:/bin:/usr/sbin:/usr/bin
 MAKEOBJDIRPREFIX?=	/usr/obj
 _MAKEOBJDIRPREFIX!= /usr/bin/env -i PATH=${PATH} ${MAKE} MK_AUTO_OBJ=no \
     ${.MAKEFLAGS:MMAKEOBJDIRPREFIX=*} __MAKE_CONF=${__MAKE_CONF} \
-    SRCCONF=${SRCCONF} \
+    SRCCONF=${SRCCONF} SRC_ENV_CONF= \
     -f /dev/null -V MAKEOBJDIRPREFIX dummy
 .if !empty(_MAKEOBJDIRPREFIX)
-.error MAKEOBJDIRPREFIX can only be set in environment, not as a global\
-	(in make.conf(5) or src.conf(5)) or command-line variable.
+.error MAKEOBJDIRPREFIX can only be set in environment or src-env.conf(5),\
+    not as a global (in make.conf(5) or src.conf(5)) or command-line variable.
 .endif
 
 # We often need to use the tree's version of make to build it.
@@ -352,7 +356,7 @@ _guard: .PHONY
 	@false
 
 STARTTIME!= LC_ALL=C date
-CHECK_TIME!= find ${.CURDIR}/sys/sys/param.h -mtime -0s ; echo
+CHECK_TIME!= cmp=`mktemp`; find ${.CURDIR}/sys/sys/param.h -newer "$$cmp" && rm "$$cmp"; echo
 .if !empty(CHECK_TIME)
 .error check your date/time: ${STARTTIME}
 .endif

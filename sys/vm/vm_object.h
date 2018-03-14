@@ -74,6 +74,7 @@
 #include <sys/_mutex.h>
 #include <sys/_pctrie.h>
 #include <sys/_rwlock.h>
+#include <sys/_domainset.h>
 
 #include <vm/_vm_radix.h>
 
@@ -102,6 +103,7 @@ struct vm_object {
 	struct pglist memq;		/* list of resident pages */
 	struct vm_radix rtree;		/* root of the resident page radix trie*/
 	vm_pindex_t size;		/* Object size */
+	struct domainset_ref domain;	/* NUMA policy. */
 	int generation;			/* generation ID */
 	int ref_count;			/* How many refs?? */
 	int shadow_count;		/* how many objects that this is a shadow for */
@@ -293,6 +295,17 @@ vm_object_color(vm_object_t object, u_short color)
 		object->pg_color = color;
 		object->flags |= OBJ_COLORED;
 	}
+}
+
+static __inline bool
+vm_object_reserv(vm_object_t object)
+{
+
+	if (object != NULL &&
+	    (object->flags & (OBJ_COLORED | OBJ_FICTITIOUS)) == OBJ_COLORED) {
+		return (true);
+	}
+	return (false);
 }
 
 void vm_object_clear_flag(vm_object_t object, u_short bits);

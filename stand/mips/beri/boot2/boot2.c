@@ -118,8 +118,6 @@ static const unsigned char flags[NOPT] = {
 static const char *const dev_nm[] = {"dram", "cfi", "sdcard"};
 static const u_int dev_nm_count = nitems(dev_nm);
 
-static struct dmadat __dmadat;
-
 static struct dsk {
     unsigned type;		/* BOOTINFO_DEV_TYPE_x object type. */
     uintptr_t unitptr;		/* Unit number or pointer to object. */
@@ -139,7 +137,6 @@ static int comspeed = SIOSPD;
 struct bootinfo bootinfo;
 static uint8_t ioctrl = IO_KEYBOARD;
 
-void exit(int);
 void putchar(int);
 static void boot_fromdram(void);
 static void boot_fromfs(void);
@@ -149,9 +146,10 @@ static int dskread(void *, unsigned, unsigned);
 static int xputc(int);
 static int xgetc(int);
 
-
 #define	UFS_SMALL_CGBASE
 #include "ufsread.c"
+
+static struct dmadat __dmadat;
 
 static inline int
 xfsread(ufs_ino_t inode, void *buf, size_t nbyte)
@@ -277,12 +275,6 @@ main(u_int argc, const char *argv[], const char *envv[], uint64_t memsize)
 	else
 	    load();
     }
-}
-
-/* XXX - Needed for btxld to link the boot2 binary; do not remove. */
-void
-exit(int x)
-{
 }
 
 static void
@@ -635,7 +627,7 @@ static int
 xputc(int c)
 {
     if (ioctrl & IO_KEYBOARD)
-	putc(c);
+	beri_putc(c);
 #if 0
     if (ioctrl & IO_SERIAL)
 	sio_putc(c);
@@ -650,7 +642,7 @@ xgetc(int fn)
 	return 0;
     for (;;) {
 	if (ioctrl & IO_KEYBOARD && keyhit(0))
-	    return fn ? 1 : getc();
+	    return fn ? 1 : beri_getc();
 #if 0
 	if (ioctrl & IO_SERIAL && sio_ischar())
 	    return fn ? 1 : sio_getc();

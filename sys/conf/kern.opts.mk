@@ -47,6 +47,7 @@ __DEFAULT_YES_OPTIONS = \
 
 __DEFAULT_NO_OPTIONS = \
     EXTRA_TCP_STACKS \
+    KERNEL_RETPOLINE \
     NAND \
     OFED \
     RATELIMIT \
@@ -83,6 +84,12 @@ BROKEN_OPTIONS+= FORMAT_EXTENSIONS
 # for them.
 .if ${MACHINE} != "i386" && ${MACHINE} != "amd64"
 BROKEN_OPTIONS+= OFED
+.endif
+
+.if ${MACHINE_CPUARCH} == "amd64"
+__DEFAULT_YES_OPTIONS+=	RETPOLINE
+.else
+__DEFAULT_NO_OPTIONS+=	RETPOLINE
 .endif
 
 # expanded inline from bsd.mkopt.mk to avoid share/mk dependency

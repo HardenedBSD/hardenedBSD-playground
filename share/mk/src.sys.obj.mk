@@ -132,7 +132,8 @@ __objdir:=	${MAKEOBJDIR}
 .if ${.MAKE.LEVEL} == 0 && \
     ${MK_AUTO_OBJ} == "no" && empty(.MAKEOVERRIDES:MMK_AUTO_OBJ) && \
     !defined(WITHOUT_AUTO_OBJ) && !make(showconfig) && !make(print-dir) && \
-    !defined(NO_OBJ)
+    !defined(NO_OBJ) && \
+    empty(RELDIR:Msys/*/compile/*)
 # Find the last existing directory component and check if we can write to it.
 # If the last component is a symlink then recurse on the new path.
 CheckAutoObj= \
@@ -176,7 +177,8 @@ CheckAutoObj() { \
 	fi; \
 }
 .if !empty(__objdir)
-.if ${.CURDIR} == ${__objdir}
+.if ${.CURDIR} == ${__objdir} || \
+    (exists(${__objdir}) && ${.TARGETS:M*install*} == ${.TARGETS})
 __objdir_writable?= yes
 .elif empty(__objdir_writable)
 __objdir_writable!= \

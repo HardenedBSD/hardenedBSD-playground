@@ -71,6 +71,7 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/cpuset.h>
 #include <sys/lock.h>
 #include <sys/mman.h>
 #include <sys/mount.h>
@@ -95,6 +96,8 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_page.h>
 #include <vm/vm_pageout.h>
 #include <vm/vm_pager.h>
+#include <vm/vm_phys.h>
+#include <vm/vm_pagequeue.h>
 #include <vm/swap_pager.h>
 #include <vm/vm_kern.h>
 #include <vm/vm_extern.h>
@@ -1272,7 +1275,7 @@ next_page:
 		if (tm->valid != VM_PAGE_BITS_ALL)
 			goto next_pindex;
 		vm_page_lock(tm);
-		if (tm->hold_count != 0 || tm->wire_count != 0) {
+		if (vm_page_held(tm)) {
 			vm_page_unlock(tm);
 			goto next_pindex;
 		}
@@ -1364,6 +1367,7 @@ vm_object_shadow(
 	result->backing_object_offset = *offset;
 	if (source != NULL) {
 		VM_OBJECT_WLOCK(source);
+		result->domain = source->domain;
 		LIST_INSERT_HEAD(&source->shadow_head, result, shadow_list);
 		source->shadow_count++;
 #if VM_NRESERVLEVEL > 0
@@ -1419,6 +1423,7 @@ vm_object_split(vm_map_entry_t entry)
 	 */
 	VM_OBJECT_WLOCK(new_object);
 	VM_OBJECT_WLOCK(orig_object);
+	new_object->domain = orig_object->domain;
 	source = orig_object->backing_object;
 	if (source != NULL) {
 		VM_OBJECT_WLOCK(source);
@@ -2275,7 +2280,7 @@ void
 vm_object_unwire(vm_object_t object, vm_ooffset_t offset, vm_size_t length,
     uint8_t queue)
 {
-	vm_object_t tobject;
+	vm_object_t tobject, t1object;
 	vm_page_t m, tm;
 	vm_pindex_t end_pindex, pindex, tpindex;
 	int depth, locked_depth;
@@ -2289,6 +2294,7 @@ vm_object_unwire(vm_object_t object, vm_ooffset_t offset, vm_size_t length,
 		return;
 	pindex = OFF_TO_IDX(offset);
 	end_pindex = pindex + atop(length);
+again:
 	locked_depth = 1;
 	VM_OBJECT_RLOCK(object);
 	m = vm_page_find_least(object, pindex);
@@ -2322,16 +2328,26 @@ vm_object_unwire(vm_object_t object, vm_ooffset_t offset, vm_size_t length,
 			m = TAILQ_NEXT(m, listq);
 		}
 		vm_page_lock(tm);
+		if (vm_page_xbusied(tm)) {
+			for (tobject = object; locked_depth >= 1;
+			    locked_depth--) {
+				t1object = tobject->backing_object;
+				VM_OBJECT_RUNLOCK(tobject);
+				tobject = t1object;
+			}
+			vm_page_busy_sleep(tm, "unwbo", true);
+			goto again;
+		}
 		vm_page_unwire(tm, queue);
 		vm_page_unlock(tm);
 next_page:
 		pindex++;
 	}
 	/* Release the accumulated object locks. */
-	for (depth = 0; depth < locked_depth; depth++) {
-		tobject = object->backing_object;
-		VM_OBJECT_RUNLOCK(object);
-		object = tobject;
+	for (tobject = object; locked_depth >= 1; locked_depth--) {
+		t1object = tobject->backing_object;
+		VM_OBJECT_RUNLOCK(tobject);
+		tobject = t1object;
 	}
 }
 
