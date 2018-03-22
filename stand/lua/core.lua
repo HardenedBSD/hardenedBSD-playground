@@ -30,6 +30,7 @@
 --
 
 local config = require("config")
+local hook = require("hook")
 
 local core = {}
 
@@ -138,7 +139,18 @@ function core.setSafeMode(safe_mode)
 	core.sm = safe_mode
 end
 
+function core.clearCachedKernels()
+	-- Clear the kernel cache on config changes, autodetect might have
+	-- changed or if we've switched boot environments then we could have
+	-- a new kernel set.
+	core.cached_kernels = nil
+end
+
 function core.kernelList()
+	if core.cached_kernels ~= nil then
+		return core.cached_kernels
+	end
+
 	local k = loader.getenv("kernel")
 	local v = loader.getenv("kernels")
 	local autodetect = loader.getenv("kernels_autodetect") or ""
@@ -166,7 +178,8 @@ function core.kernelList()
 	-- setting, kernels_autodetect. If it's set to 'yes', we'll add
 	-- any kernels we detect based on the criteria described.
 	if autodetect:lower() ~= "yes" then
-		return kernels
+		core.cached_kernels = kernels
+		return core.cached_kernels
 	end
 
 	-- Automatically detect other bootable kernel directories using a
@@ -195,7 +208,8 @@ function core.kernelList()
 
 		::continue::
 	end
-	return kernels
+	core.cached_kernels = kernels
+	return core.cached_kernels
 end
 
 function core.bootenvDefault()
@@ -258,6 +272,12 @@ end
 function core.isSingleUserBoot()
 	local single_user = loader.getenv("boot_single")
 	return single_user ~= nil and single_user:lower() == "yes"
+end
+
+function core.isUEFIBoot()
+	local efiver = loader.getenv("efi-version")
+
+	return efiver ~= nil
 end
 
 function core.isZFSBoot()
@@ -351,4 +371,6 @@ end
 if core.isSystem386() and core.getACPIPresent(false) then
 	core.setACPI(true)
 end
+
+hook.register("config.reloaded", core.clearCachedKernels)
 return core

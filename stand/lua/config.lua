@@ -29,6 +29,8 @@
 -- $FreeBSD$
 --
 
+local hook = require("hook")
+
 local config = {}
 local modules = {}
 local carousel_choices = {}
@@ -109,7 +111,7 @@ local pattern_table = {
 	{
 		str = "^%s*exec%s*=%s*\"([%w%s%p]-)\"%s*(.*)",
 		process = function(k, _)
-			if loader.perform(k) ~= 0 then
+			if cli_execute_unparsed(k) ~= 0 then
 				print(MSG_FAILEXEC:format(k))
 			end
 		end,
@@ -197,6 +199,7 @@ end
 config.env_changed = {}
 -- Values to restore env to (nil to unset)
 config.env_restore = {}
+config.verbose = false
 
 -- The first item in every carousel is always the default item.
 function config.getCarouselIndex(id)
@@ -290,25 +293,25 @@ function config.loadmod(mod, silent)
 				str = str .. k
 			end
 			if v.before ~= nil then
-				pstatus = loader.perform(v.before) == 0
+				pstatus = cli_execute_unparsed(v.before) == 0
 				if not pstatus and not silent then
 					print(MSG_FAILEXBEF:format(v.before, k))
 				end
 				status = status and pstatus
 			end
 
-			if loader.perform(str) ~= 0 then
+			if cli_execute_unparsed(str) ~= 0 then
 				if not silent then
 					print(MSG_FAILEXMOD:format(str))
 				end
 				if v.error ~= nil then
-					loader.perform(v.error)
+					cli_execute_unparsed(v.error)
 				end
 				status = false
 			end
 
 			if v.after ~= nil then
-				pstatus = loader.perform(v.after) == 0
+				pstatus = cli_execute_unparsed(v.after) == 0
 				if not pstatus and not silent then
 					print(MSG_FAILEXAF:format(v.after, k))
 				end
@@ -490,6 +493,11 @@ function config.load(file)
 
 	-- Cache the provided module_path at load time for later use
 	config.module_path = loader.getenv("module_path")
+	local verbose = loader.getenv("verbose_loading")
+	if verbose == nil then
+		verbose = "no"
+	end
+	config.verbose = verbose:lower() == "yes"
 end
 
 -- Reload configuration
@@ -497,6 +505,7 @@ function config.reload(file)
 	modules = {}
 	config.restoreEnv()
 	config.load(file)
+	hook.runAll("config.reloaded")
 end
 
 function config.loadelf()
@@ -511,9 +520,10 @@ function config.loadelf()
 	end
 
 	print(MSG_MODLOADING)
-	if not config.loadmod(modules) then
+	if not config.loadmod(modules, not config.verbose) then
 		print(MSG_MODLOADFAIL)
 	end
 end
 
+hook.registerType("config.reloaded")
 return config
