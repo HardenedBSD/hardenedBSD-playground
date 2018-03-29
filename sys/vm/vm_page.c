@@ -1660,7 +1660,7 @@ vm_page_alloc_after(vm_object_t object, vm_pindex_t pindex,
 	vm_page_t m;
 	int domain;
 
-	vm_domainset_iter_page_init(&di, object, &domain, &req);
+	vm_domainset_iter_page_init(&di, object, pindex, &domain, &req);
 	do {
 		m = vm_page_alloc_domain_after(object, pindex, domain, req,
 		    mpred);
@@ -1783,7 +1783,9 @@ again:
 	 */
 	KASSERT(m != NULL, ("missing page"));
 
+#if VM_NRESERVLEVEL > 0
 found:
+#endif
 	vm_page_alloc_check(m);
 
 	/*
@@ -1891,7 +1893,7 @@ vm_page_alloc_contig(vm_object_t object, vm_pindex_t pindex, int req,
 	vm_page_t m;
 	int domain;
 
-	vm_domainset_iter_page_init(&di, object, &domain, &req);
+	vm_domainset_iter_page_init(&di, object, pindex, &domain, &req);
 	do {
 		m = vm_page_alloc_contig_domain(object, pindex, domain, req,
 		    npages, low, high, alignment, boundary, memattr);
@@ -2090,7 +2092,7 @@ vm_page_alloc_freelist(int freelist, int req)
 	vm_page_t m;
 	int domain;
 
-	vm_domainset_iter_page_init(&di, kernel_object, &domain, &req);
+	vm_domainset_iter_page_init(&di, NULL, 0, &domain, &req);
 	do {
 		m = vm_page_alloc_freelist_domain(domain, freelist, req);
 		if (m != NULL)
@@ -2473,7 +2475,7 @@ retry:
 						goto unlock;
 					}
 					KASSERT(m_new->wire_count == 0,
-					    ("page %p is wired", m));
+					    ("page %p is wired", m_new));
 
 					/*
 					 * Replace "m" with the new page.  For
@@ -2485,7 +2487,7 @@ retry:
 						pmap_remove_all(m);
 					m_new->aflags = m->aflags;
 					KASSERT(m_new->oflags == VPO_UNMANAGED,
-					    ("page %p is managed", m));
+					    ("page %p is managed", m_new));
 					m_new->oflags = m->oflags & VPO_NOSYNC;
 					pmap_copy_page(m, m_new);
 					m_new->valid = m->valid;
@@ -2689,7 +2691,7 @@ vm_page_reclaim_contig(int req, u_long npages, vm_paddr_t low, vm_paddr_t high,
 	int domain;
 	bool ret;
 
-	vm_domainset_iter_page_init(&di, kernel_object, &domain, &req);
+	vm_domainset_iter_page_init(&di, NULL, 0, &domain, &req);
 	do {
 		ret = vm_page_reclaim_contig_domain(domain, req, npages, low,
 		    high, alignment, boundary);

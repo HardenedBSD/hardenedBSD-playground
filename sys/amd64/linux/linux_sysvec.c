@@ -55,8 +55,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/proc.h>
 #include <sys/resourcevar.h>
 #include <sys/signalvar.h>
-#include <sys/sysctl.h>
 #include <sys/syscallsubr.h>
+#include <sys/sysctl.h>
 #include <sys/sysent.h>
 #include <sys/sysproto.h>
 #include <sys/vnode.h>
@@ -74,6 +74,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/md_var.h>
 #include <machine/pcb.h>
 #include <machine/specialreg.h>
+#include <machine/trap.h>
 
 #include <amd64/linux/linux.h>
 #include <amd64/linux/linux_proto.h>
@@ -186,15 +187,15 @@ linux_translate_traps(int signal, int trap_code)
 {
 
 	if (signal != SIGBUS)
-		return signal;
+		return (signal);
 	switch (trap_code) {
 	case T_PROTFLT:
 	case T_TSSFLT:
 	case T_DOUBLEFLT:
 	case T_PAGEFLT:
-		return SIGSEGV;
+		return (SIGSEGV);
 	default:
-		return signal;
+		return (signal);
 	}
 }
 
@@ -813,7 +814,7 @@ linux_vdso_install(void *param)
 	    (linux_platform - (caddr_t)elf_linux_sysvec.sv_shared_page_base);
 }
 SYSINIT(elf_linux_vdso_init, SI_SUB_EXEC, SI_ORDER_ANY,
-    (sysinit_cfunc_t)linux_vdso_install, NULL);
+    linux_vdso_install, NULL);
 
 static void
 linux_vdso_deinstall(void *param)
@@ -822,7 +823,7 @@ linux_vdso_deinstall(void *param)
 	__elfN(linux_shared_page_fini)(linux_shared_page_obj);
 }
 SYSUNINIT(elf_linux_vdso_uninit, SI_SUB_EXEC, SI_ORDER_FIRST,
-    (sysinit_cfunc_t)linux_vdso_deinstall, NULL);
+    linux_vdso_deinstall, NULL);
 
 static char GNULINUX_ABI_VENDOR[] = "GNU";
 static int GNULINUX_ABI_DESC = 0;
