@@ -1194,7 +1194,7 @@ bool RegisterCoalescer::reMaterializeTrivialDef(const CoalescerPair &CP,
        i != e; ++i) {
     MachineOperand &MO = NewMI.getOperand(i);
     if (MO.isReg() && MO.isDef()) {
-      assert(MO.isImplicit() && MO.isDead() &&
+      assert(MO.isImplicit() &&
              TargetRegisterInfo::isPhysicalRegister(MO.getReg()));
       NewMIImplDefs.push_back(MO.getReg());
     }

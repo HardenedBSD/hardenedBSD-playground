@@ -1061,6 +1061,7 @@ SRCS_MIN+=	Target/X86/X86RegisterInfo.cpp
 SRCS_MIN+=	Target/X86/X86RetpolineThunks.cpp
 SRCS_MIN+=	Target/X86/X86SelectionDAGInfo.cpp
 SRCS_MIN+=	Target/X86/X86ShuffleDecodeConstantPool.cpp
+SRCS_MIN+=	Target/X86/X86SpeculativeLoadHardening.cpp
 SRCS_MIN+=	Target/X86/X86Subtarget.cpp
 SRCS_MIN+=	Target/X86/X86TargetMachine.cpp
 SRCS_MIN+=	Target/X86/X86TargetObjectFile.cpp

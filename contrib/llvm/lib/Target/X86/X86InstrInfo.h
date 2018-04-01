@@ -77,6 +77,9 @@ unsigned getSETFromCond(CondCode CC, bool HasMemoryOperand = false);
 unsigned getCMovFromCond(CondCode CC, unsigned RegBytes,
                          bool HasMemoryOperand = false);
 
+/// Returns the condition code from a branch opcode.
+CondCode getCondFromBranchOpc(unsigned BrOpc);
+
 // Turn CMov opcode into condition code.
 CondCode getCondFromCMovOpc(unsigned Opc);
 
@@ -345,7 +348,7 @@ public:
   bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                      MachineBasicBlock *&FBB,
                      SmallVectorImpl<MachineOperand> &Cond,
-                     bool AllowModify) const override;
+                     bool AllowModify = false) const override;
 
   bool getMemOpBaseRegImmOfs(MachineInstr &LdSt, unsigned &BaseReg,
                              int64_t &Offset,

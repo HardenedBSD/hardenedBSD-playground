@@ -112,6 +112,8 @@ InstructionSelector *createX86InstructionSelector(const X86TargetMachine &TM,
 
 void initializeEvexToVexInstPassPass(PassRegistry &);
 
+FunctionPass *createX86SpeculativeLoadHardeningPass();
+
 } // End llvm namespace
 
 #endif
