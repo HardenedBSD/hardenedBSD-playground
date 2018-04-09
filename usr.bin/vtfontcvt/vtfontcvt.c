@@ -265,10 +265,23 @@ parse_bdf(FILE *fp, unsigned int map_idx)
 
 		if (strncmp(ln, "BITMAP", 6) == 0 &&
 		    (ln[6] == ' ' || ln[6] == '\0')) {
+			/*
+			 * Assume that the next _height_ lines are bitmap
+			 * data.  ENDCHAR is allowed to terminate the bitmap
+			 * early but is not otherwise checked; any extra data
+			 * is ignored.
+			 */
 			for (i = 0; i < height; i++) {
 				if ((ln = fgetln(fp, &length)) == NULL)
 					errx(1, "Unexpected EOF!\n");
 				ln[length - 1] = '\0';
+				if (strcmp(ln, "ENDCHAR") == 0) {
+					memset(bytes + i * wbytes, 0,
+					    (height - i) * wbytes);
+					memset(bytes_r + i * wbytes, 0,
+					    (height - i) * wbytes);
+					break;
+				}
 				sscanf(ln, "%x", &line);
 				if (parse_bitmap_line(bytes + i * wbytes,
 				     bytes_r + i * wbytes, line, dwidth) != 0)
@@ -315,12 +328,13 @@ parse_hex(FILE *fp, unsigned int map_idx)
 			if (bytes != NULL)
 				errx(1, "malformed input: Width tag after font data");
 			set_width(atoi(ln + 9));
-		} else if (sscanf(ln, "%4x:", &curchar)) {
+		} else if (sscanf(ln, "%6x:", &curchar)) {
 			if (bytes == NULL) {
 				bytes = xmalloc(wbytes * height);
 				bytes_r = xmalloc(wbytes * height);
 			}
-			p = ln + 5;
+			/* ln is guaranteed to have a colon here. */
+			p = strchr(ln, ':') + 1;
 			chars_per_row = strlen(p) / height;
 			dwidth = width;
 			if (chars_per_row / 2 > (width + 7) / 8)
@@ -499,24 +513,24 @@ print_font_info(void)
 {
 	printf(
 "Statistics:\n"
-"- glyph_total:                 %5u\n"
-"- glyph_normal:                %5u\n"
-"- glyph_normal_right:          %5u\n"
-"- glyph_bold:                  %5u\n"
-"- glyph_bold_right:            %5u\n"
-"- glyph_unique:                %5u\n"
-"- glyph_dupe:                  %5u\n"
-"- mapping_total:               %5u\n"
-"- mapping_normal:              %5u\n"
-"- mapping_normal_folded:       %5u\n"
-"- mapping_normal_right:        %5u\n"
-"- mapping_normal_right_folded: %5u\n"
-"- mapping_bold:                %5u\n"
-"- mapping_bold_folded:         %5u\n"
-"- mapping_bold_right:          %5u\n"
-"- mapping_bold_right_folded:   %5u\n"
-"- mapping_unique:              %5u\n"
-"- mapping_dupe:                %5u\n",
+"- glyph_total:                 %6u\n"
+"- glyph_normal:                %6u\n"
+"- glyph_normal_right:          %6u\n"
+"- glyph_bold:                  %6u\n"
+"- glyph_bold_right:            %6u\n"
+"- glyph_unique:                %6u\n"
+"- glyph_dupe:                  %6u\n"
+"- mapping_total:               %6u\n"
+"- mapping_normal:              %6u\n"
+"- mapping_normal_folded:       %6u\n"
+"- mapping_normal_right:        %6u\n"
+"- mapping_normal_right_folded: %6u\n"
+"- mapping_bold:                %6u\n"
+"- mapping_bold_folded:         %6u\n"
+"- mapping_bold_right:          %6u\n"
+"- mapping_bold_right_folded:   %6u\n"
+"- mapping_unique:              %6u\n"
+"- mapping_dupe:                %6u\n",
 	    glyph_total,
 	    glyph_count[0],
 	    glyph_count[1],
