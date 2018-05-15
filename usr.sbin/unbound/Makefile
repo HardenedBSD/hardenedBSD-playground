@@ -2,7 +2,7 @@
 .include <src.opts.mk>
 
 SUBDIR=	daemon anchor checkconf control host
-SUBDIR+= local-setup
+SUBDIR+= setup
 SUBDIR_PARALLEL=
 
 .if ${MK_LIBRESSL} != "no"

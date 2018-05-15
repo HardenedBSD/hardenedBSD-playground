@@ -3722,8 +3722,6 @@ int t4_link_l1cfg(struct adapter *adap, unsigned int mbox, unsigned int port,
 		fec = FW_PORT_CAP_FEC_RS;
 	else if (lc->requested_fec & FEC_BASER_RS)
 		fec = FW_PORT_CAP_FEC_BASER_RS;
-	else if (lc->requested_fec & FEC_RESERVED)
-		fec = FW_PORT_CAP_FEC_RESERVED;
 
 	if (!(lc->supported & FW_PORT_CAP_ANEG) ||
 	    lc->requested_aneg == AUTONEG_DISABLE) {
@@ -7720,8 +7718,6 @@ static void handle_port_info(struct port_info *pi, const struct fw_port_info *p)
 		fec |= FEC_RS;
 	if (lc->advertising & FW_PORT_CAP_FEC_BASER_RS)
 		fec |= FEC_BASER_RS;
-	if (lc->advertising & FW_PORT_CAP_FEC_RESERVED)
-		fec |= FEC_RESERVED;
 	lc->fec = fec;
 }
 
@@ -8372,6 +8368,7 @@ int t4_init_sge_params(struct adapter *adapter)
 static void read_filter_mode_and_ingress_config(struct adapter *adap,
     bool sleep_ok)
 {
+	uint32_t v;
 	struct tp_params *tpp = &adap->params.tp;
 
 	t4_tp_pio_read(adap, &tpp->vlan_pri_map, 1, A_TP_VLAN_PRI_MAP,
@@ -8395,12 +8392,12 @@ static void read_filter_mode_and_ingress_config(struct adapter *adap,
 	tpp->matchtype_shift = t4_filter_field_shift(adap, F_MPSHITTYPE);
 	tpp->frag_shift = t4_filter_field_shift(adap, F_FRAGMENTATION);
 
-	/*
-	 * If TP_INGRESS_CONFIG.VNID == 0, then TP_VLAN_PRI_MAP.VNIC_ID
-	 * represents the presence of an Outer VLAN instead of a VNIC ID.
-	 */
-	if ((tpp->ingress_config & F_VNIC) == 0)
-		tpp->vnic_shift = -1;
+	if (chip_id(adap) > CHELSIO_T4) {
+		v = t4_read_reg(adap, LE_HASH_MASK_GEN_IPV4T5(3));
+		adap->params.tp.hash_filter_mask = v;
+		v = t4_read_reg(adap, LE_HASH_MASK_GEN_IPV4T5(4));
+		adap->params.tp.hash_filter_mask |= (u64)v << 32;
+	}
 }
 
 /**

@@ -57,7 +57,6 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#include "opt_compat.h"
 #include "opt_ddb.h"
 #include "opt_kstack_pages.h"
 #include "opt_platform.h"
@@ -213,6 +212,7 @@ aim_early_init(vm_offset_t fdt, vm_offset_t toc, vm_offset_t ofentry, void *mdp,
 		case IBMPOWER7PLUS:
 		case IBMPOWER8:
 		case IBMPOWER8E:
+		case IBMPOWER9:
 			/* XXX: get from ibm,slb-size in device tree */
 			n_slbs = 32;
 			break;

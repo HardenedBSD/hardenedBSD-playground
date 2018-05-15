@@ -1857,7 +1857,7 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			break;
 		}
 #endif
-		error = copyin(ifr->ifr_data, &vlr, sizeof(vlr));
+		error = copyin(ifr_data_get_ptr(ifr), &vlr, sizeof(vlr));
 		if (error)
 			break;
 		if (vlr.vlr_parent[0] == '\0') {
@@ -1888,7 +1888,7 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			vlr.vlr_tag = ifv->ifv_vid;
 		}
 		VLAN_SUNLOCK();
-		error = copyout(&vlr, ifr->ifr_data, sizeof(vlr));
+		error = copyout(&vlr, ifr_data_get_ptr(ifr), sizeof(vlr));
 		break;
 		
 	case SIOCSIFFLAGS:
@@ -1947,6 +1947,8 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 		ifv->ifv_pcp = ifr->ifr_vlan_pcp;
 		vlan_tag_recalculate(ifv);
+		/* broadcast event about PCP change */
+		EVENTHANDLER_INVOKE(ifnet_event, ifp, IFNET_EVENT_PCP);
 		break;
 
 	case SIOCSIFCAP:

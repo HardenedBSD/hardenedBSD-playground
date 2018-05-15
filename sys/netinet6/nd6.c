@@ -58,10 +58,8 @@ __FBSDID("$FreeBSD$");
 
 #include <net/if.h>
 #include <net/if_var.h>
-#include <net/if_arc.h>
 #include <net/if_dl.h>
 #include <net/if_types.h>
-#include <net/fddi.h>
 #include <net/route.h>
 #include <net/vnet.h>
 
@@ -335,18 +333,7 @@ nd6_setmtu0(struct ifnet *ifp, struct nd_ifinfo *ndi)
 	u_int32_t omaxmtu;
 
 	omaxmtu = ndi->maxmtu;
-
-	switch (ifp->if_type) {
-	case IFT_ARCNET:
-		ndi->maxmtu = MIN(ARC_PHDS_MAXMTU, ifp->if_mtu); /* RFC2497 */
-		break;
-	case IFT_FDDI:
-		ndi->maxmtu = MIN(FDDIIPMTU, ifp->if_mtu); /* RFC2467 */
-		break;
-	default:
-		ndi->maxmtu = ifp->if_mtu;
-		break;
-	}
+	ndi->maxmtu = ifp->if_mtu;
 
 	/*
 	 * Decreasing the interface MTU under IPV6 minimum MTU may cause
@@ -2272,7 +2259,6 @@ nd6_resolve(struct ifnet *ifp, int is_gw, struct mbuf *m,
 	if (m != NULL && m->m_flags & M_MCAST) {
 		switch (ifp->if_type) {
 		case IFT_ETHER:
-		case IFT_FDDI:
 		case IFT_L2VLAN:
 		case IFT_BRIDGE:
 			ETHER_MAP_IPV6_MULTICAST(&dst6->sin6_addr,
@@ -2524,15 +2510,13 @@ nd6_need_cache(struct ifnet *ifp)
 {
 	/*
 	 * XXX: we currently do not make neighbor cache on any interface
-	 * other than ARCnet, Ethernet, FDDI and GIF.
+	 * other than Ethernet and GIF.
 	 *
 	 * RFC2893 says:
 	 * - unidirectional tunnels needs no ND
 	 */
 	switch (ifp->if_type) {
-	case IFT_ARCNET:
 	case IFT_ETHER:
-	case IFT_FDDI:
 	case IFT_IEEE1394:
 	case IFT_L2VLAN:
 	case IFT_INFINIBAND:
