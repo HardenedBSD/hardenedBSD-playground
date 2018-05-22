@@ -127,7 +127,12 @@ usb_decode_str_desc(struct usb_string_descriptor *sd, char *buf, size_t buflen)
 {
 	size_t i;
 
-	for (i = 0; i < buflen - 1 && i < sd->bLength / 2; i++)
+	if (sd->bLength < 2) {
+		buf[0] = '\0';
+		return;
+	}
+
+	for (i = 0; i < buflen - 1 && i < (sd->bLength / 2) - 1; i++)
 		buf[i] = UGETW(sd->bString[i]);
 
 	buf[i] = '\0';
@@ -1426,6 +1431,9 @@ usb_temp_setup_by_index(struct usb_device *udev, uint16_t index)
 		break;
 	case USB_TEMP_MIDI:
 		err = usb_temp_setup(udev, &usb_template_midi);
+		break;
+	case USB_TEMP_MULTI:
+		err = usb_temp_setup(udev, &usb_template_multi);
 		break;
 	default:
 		return (USB_ERR_INVAL);

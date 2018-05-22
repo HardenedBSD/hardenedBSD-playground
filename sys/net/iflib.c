@@ -960,10 +960,10 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 	 */
 
 	nm_i = netmap_idx_n2k(kring, kring->nr_hwcur);
-	pkt_info_zero(&pi);
-	pi.ipi_segs = txq->ift_segs;
-	pi.ipi_qsidx = kring->ring_id;
 	if (nm_i != head) {	/* we have new packets to send */
+		pkt_info_zero(&pi);
+		pi.ipi_segs = txq->ift_segs;
+		pi.ipi_qsidx = kring->ring_id;
 		nic_i = netmap_idx_k2n(kring, nm_i);
 
 		__builtin_prefetch(&ring->slot[nm_i]);
@@ -1025,11 +1025,24 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 
 	/*
 	 * Second part: reclaim buffers for completed transmissions.
+	 *
+	 * If there are unclaimed buffers, attempt to reclaim them.
+	 * If none are reclaimed, and TX IRQs are not in use, do an initial
+	 * minimal delay, then trigger the tx handler which will spin in the
+	 * group task queue.
 	 */
-	if (iflib_tx_credits_update(ctx, txq)) {
-		/* some tx completed, increment avail */
-		nic_i = txq->ift_cidx_processed;
-		kring->nr_hwtail = nm_prev(netmap_idx_n2k(kring, nic_i), lim);
+	if (kring->nr_hwtail != nm_prev(head, lim)) {
+		if (iflib_tx_credits_update(ctx, txq)) {
+			/* some tx completed, increment avail */
+			nic_i = txq->ift_cidx_processed;
+			kring->nr_hwtail = nm_prev(netmap_idx_n2k(kring, nic_i), lim);
+		}
+		else {
+			if (!(ctx->ifc_flags & IFC_NETMAP_TX_IRQ)) {
+				DELAY(1);
+				GROUPTASK_ENQUEUE(&ctx->ifc_txqs[txq->ift_id].ift_task);
+			}
+		}
 	}
 	return (0);
 }
@@ -1257,7 +1270,6 @@ static void
 iflib_gen_mac(if_ctx_t ctx)
 {
 	struct thread *td;
-	struct ifnet *ifp;
 	MD5_CTX mdctx;
 	char uuid[HOSTUUIDLEN+1];
 	char buf[HOSTUUIDLEN+16];
@@ -1265,7 +1277,6 @@ iflib_gen_mac(if_ctx_t ctx)
 	unsigned char digest[16];
 
 	td = curthread;
-	ifp = ctx->ifc_ifp;
 	mac = ctx->ifc_mac;
 	uuid[HOSTUUIDLEN] = 0;
 	bcopy(td->td_ucred->cr_prison->pr_hostuuid, uuid, HOSTUUIDLEN);
@@ -2588,8 +2599,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 	iflib_fl_t fl;
 	struct ifnet *ifp;
 	int lro_enabled;
-	bool lro_possible = false;
-	bool v4_forwarding, v6_forwarding;
+	bool v4_forwarding, v6_forwarding, lro_possible;
 
 	/*
 	 * XXX early demux data packets so that if_input processing only handles
@@ -2597,6 +2607,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 	 */
 	struct mbuf *m, *mh, *mt, *mf;
 
+	lro_possible = v4_forwarding = v6_forwarding = false;
 	ifp = ctx->ifc_ifp;
 	mh = mt = NULL;
 	MPASS(budget > 0);
@@ -3702,8 +3713,22 @@ _task_fn_tx(void *context)
 	if (!(if_getdrvflags(ctx->ifc_ifp) & IFF_DRV_RUNNING))
 		return;
 	if (if_getcapenable(ifp) & IFCAP_NETMAP) {
+		/*
+		 * If there are no available credits, and TX IRQs are not in use,
+		 * re-schedule the task immediately.
+		 */
 		if (ctx->isc_txd_credits_update(ctx->ifc_softc, txq->ift_id, false))
 			netmap_tx_irq(ifp, txq->ift_id);
+		else {
+#ifdef DEV_NETMAP			
+			if (!(ctx->ifc_flags & IFC_NETMAP_TX_IRQ)) {
+				struct netmap_kring *kring = NA(ctx->ifc_ifp)->tx_rings[txq->ift_id];
+
+				if (kring->nr_hwtail != nm_prev(kring->rhead, kring->nkr_num_slots - 1))
+					GROUPTASK_ENQUEUE(&txq->ift_task);
+			}
+#endif			
+		}
 		IFDI_TX_QUEUE_INTR_ENABLE(ctx, txq->ift_id);
 		return;
 	}
@@ -4254,10 +4279,7 @@ iflib_reset_qvalues(if_ctx_t ctx)
 	if_softc_ctx_t scctx = &ctx->ifc_softc_ctx;
 	if_shared_ctx_t sctx = ctx->ifc_sctx;
 	device_t dev = ctx->ifc_dev;
-	int i, main_txq, main_rxq;
-
-	main_txq = (sctx->isc_flags & IFLIB_HAS_TXCQ) ? 1 : 0;
-	main_rxq = (sctx->isc_flags & IFLIB_HAS_RXCQ) ? 1 : 0;
+	int i;
 
 	scctx->isc_txrx_budget_bytes_max = IFLIB_MAX_TX_BYTES;
 	scctx->isc_tx_qdepth = IFLIB_DEFAULT_TX_QDEPTH;
@@ -5548,6 +5570,7 @@ iflib_irq_alloc_generic(if_ctx_t ctx, if_irq_t irq, int rid,
 		fn = _task_fn_tx;
 		intr_fast = iflib_fast_intr;
 		GROUPTASK_INIT(gtask, 0, fn, q);
+		ctx->ifc_flags |= IFC_NETMAP_TX_IRQ;
 		break;
 	case IFLIB_INTR_RX:
 		q = &ctx->ifc_rxqs[qid];

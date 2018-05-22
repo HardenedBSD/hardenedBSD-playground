@@ -33,6 +33,7 @@ __FBSDID("$FreeBSD$");
 #include "opt_ddb.h"
 #include "opt_inet.h"
 #include "opt_inet6.h"
+#include "opt_ratelimit.h"
 #include "opt_rss.h"
 
 #include <sys/param.h>
@@ -269,7 +270,7 @@ TUNABLE_INT("hw.cxgbe.nrxq_vi", &t4_nrxq_vi);
 static int t4_rsrv_noflowq = 0;
 TUNABLE_INT("hw.cxgbe.rsrv_noflowq", &t4_rsrv_noflowq);
 
-#ifdef TCP_OFFLOAD
+#if defined(TCP_OFFLOAD) || defined(RATELIMIT)
 #define NOFLDTXQ 8
 static int t4_nofldtxq = -NOFLDTXQ;
 TUNABLE_INT("hw.cxgbe.nofldtxq", &t4_nofldtxq);
@@ -379,9 +380,10 @@ int t4_intr_types = INTR_MSIX | INTR_MSI | INTR_INTX;
 TUNABLE_INT("hw.cxgbe.interrupt_types", &t4_intr_types);
 
 /*
- * Configuration file.
+ * Configuration file.  All the _CF names here are special.
  */
 #define DEFAULT_CF	"default"
+#define BUILTIN_CF	"built-in"
 #define FLASH_CF	"flash"
 #define UWIRE_CF	"uwire"
 #define FPGA_CF		"fpga"
@@ -437,7 +439,7 @@ static int t4_switchcaps_allowed = FW_CAPS_CONFIG_SWITCH_INGRESS |
 TUNABLE_INT("hw.cxgbe.switchcaps_allowed", &t4_switchcaps_allowed);
 
 static int t4_niccaps_allowed = FW_CAPS_CONFIG_NIC |
-	FW_CAPS_CONFIG_NIC_HASHFILTER;
+	FW_CAPS_CONFIG_NIC_HASHFILTER | FW_CAPS_CONFIG_NIC_ETHOFLD;
 TUNABLE_INT("hw.cxgbe.niccaps_allowed", &t4_niccaps_allowed);
 
 static int t4_toecaps_allowed = -1;
@@ -498,7 +500,7 @@ struct intrs_and_queues {
 	uint16_t nirq;		/* Total # of vectors */
 	uint16_t ntxq;		/* # of NIC txq's for each port */
 	uint16_t nrxq;		/* # of NIC rxq's for each port */
-	uint16_t nofldtxq;	/* # of TOE txq's for each port */
+	uint16_t nofldtxq;	/* # of TOE/ETHOFLD txq's for each port */
 	uint16_t nofldrxq;	/* # of TOE rxq's for each port */
 
 	/* The vcxgbe/vcxl interfaces use these and not the ones above. */
@@ -645,16 +647,10 @@ struct {
 	{0x5412,  "Chelsio T560-CR"},		/* 1 x 40G, 2 x 10G */
 	{0x5414,  "Chelsio T580-LP-SO-CR"},	/* 2 x 40G, nomem */
 	{0x5415,  "Chelsio T502-BT"},		/* 2 x 1G */
-#ifdef notyet
-	{0x5404,  "Chelsio T520-BCH"},
-	{0x5405,  "Chelsio T540-BCH"},
-	{0x5406,  "Chelsio T540-CH"},
-	{0x5408,  "Chelsio T520-CX"},
-	{0x540b,  "Chelsio B520-SR"},
-	{0x540c,  "Chelsio B504-BT"},
-	{0x540f,  "Chelsio Amsterdam"},
-	{0x5413,  "Chelsio T580-CHR"},
-#endif
+	{0x5418,  "Chelsio T540-BT"},		/* 4 x 10GBaseT */
+	{0x5419,  "Chelsio T540-LP-BT"},	/* 4 x 10GBaseT */
+	{0x541a,  "Chelsio T540-SO-BT"},	/* 4 x 10GBaseT, nomem */
+	{0x541b,  "Chelsio T540-SO-CR"},	/* 4 x 10G, nomem */
 }, t6_pciids[] = {
 	{0xc006, "Chelsio Terminator 6 FPGA"},	/* T6 PE10K6 FPGA (PF0) */
 	{0x6400, "Chelsio T6-DBG-25"},		/* 2 x 10/25G, debug */
@@ -674,9 +670,14 @@ struct {
 	{0x6415, "Chelsio T6201-BT"},		/* 2 x 1000BASE-T */
 
 	/* Custom */
-	{0x6480, "Chelsio T6225 80"},
-	{0x6481, "Chelsio T62100 81"},
-	{0x6484, "Chelsio T62100 84"},
+	{0x6480, "Custom T6225-CR"},
+	{0x6481, "Custom T62100-CR"},
+	{0x6482, "Custom T6225-CR"},
+	{0x6483, "Custom T62100-CR"},
+	{0x6484, "Custom T64100-CR"},
+	{0x6485, "Custom T6240-SO"},
+	{0x6486, "Custom T6225-SO-CR"},
+	{0x6487, "Custom T6225-CR"},
 };
 
 #ifdef TCP_OFFLOAD
@@ -834,8 +835,11 @@ t4_attach(device_t dev)
 	struct intrs_and_queues iaq;
 	struct sge *s;
 	uint32_t *buf;
+#if defined(TCP_OFFLOAD) || defined(RATELIMIT)
+	int ofld_tqidx;
+#endif
 #ifdef TCP_OFFLOAD
-	int ofld_rqidx, ofld_tqidx;
+	int ofld_rqidx;
 #endif
 #ifdef DEV_NETMAP
 	int nm_rqidx, nm_tqidx;
@@ -1048,20 +1052,26 @@ t4_attach(device_t dev)
 	s->neq = s->ntxq + s->nrxq;	/* the free list in an rxq is an eq */
 	s->neq += nports + 1;/* ctrl queues: 1 per port + 1 mgmt */
 	s->niq = s->nrxq + 1;		/* 1 extra for firmware event queue */
+#if defined(TCP_OFFLOAD) || defined(RATELIMIT)
+	if (is_offload(sc) || is_ethoffload(sc)) {
+		s->nofldtxq = nports * iaq.nofldtxq;
+		if (num_vis > 1)
+			s->nofldtxq += nports * (num_vis - 1) * iaq.nofldtxq_vi;
+		s->neq += s->nofldtxq;
+
+		s->ofld_txq = malloc(s->nofldtxq * sizeof(struct sge_wrq),
+		    M_CXGBE, M_ZERO | M_WAITOK);
+	}
+#endif
 #ifdef TCP_OFFLOAD
 	if (is_offload(sc)) {
 		s->nofldrxq = nports * iaq.nofldrxq;
-		s->nofldtxq = nports * iaq.nofldtxq;
-		if (num_vis > 1) {
+		if (num_vis > 1)
 			s->nofldrxq += nports * (num_vis - 1) * iaq.nofldrxq_vi;
-			s->nofldtxq += nports * (num_vis - 1) * iaq.nofldtxq_vi;
-		}
-		s->neq += s->nofldtxq + s->nofldrxq;
+		s->neq += s->nofldrxq;	/* free list */
 		s->niq += s->nofldrxq;
 
 		s->ofld_rxq = malloc(s->nofldrxq * sizeof(struct sge_ofld_rxq),
-		    M_CXGBE, M_ZERO | M_WAITOK);
-		s->ofld_txq = malloc(s->nofldtxq * sizeof(struct sge_wrq),
 		    M_CXGBE, M_ZERO | M_WAITOK);
 	}
 #endif
@@ -1095,14 +1105,20 @@ t4_attach(device_t dev)
 
 	t4_init_l2t(sc, M_WAITOK);
 	t4_init_tx_sched(sc);
+#ifdef RATELIMIT
+	t4_init_etid_table(sc);
+#endif
 
 	/*
 	 * Second pass over the ports.  This time we know the number of rx and
 	 * tx queues that each port should get.
 	 */
 	rqidx = tqidx = 0;
+#if defined(TCP_OFFLOAD) || defined(RATELIMIT)
+	ofld_tqidx = 0;
+#endif
 #ifdef TCP_OFFLOAD
-	ofld_rqidx = ofld_tqidx = 0;
+	ofld_rqidx = 0;
 #endif
 #ifdef DEV_NETMAP
 	nm_rqidx = nm_tqidx = 0;
@@ -1135,16 +1151,18 @@ t4_attach(device_t dev)
 			else
 				vi->rsrv_noflowq = 0;
 
+#if defined(TCP_OFFLOAD) || defined(RATELIMIT)
+			vi->first_ofld_txq = ofld_tqidx;
+			vi->nofldtxq = j == 0 ? iaq.nofldtxq : iaq.nofldtxq_vi;
+			ofld_tqidx += vi->nofldtxq;
+#endif
 #ifdef TCP_OFFLOAD
 			vi->ofld_tmr_idx = t4_tmr_idx_ofld;
 			vi->ofld_pktc_idx = t4_pktc_idx_ofld;
 			vi->first_ofld_rxq = ofld_rqidx;
-			vi->first_ofld_txq = ofld_tqidx;
 			vi->nofldrxq = j == 0 ? iaq.nofldrxq : iaq.nofldrxq_vi;
-			vi->nofldtxq = j == 0 ? iaq.nofldtxq : iaq.nofldtxq_vi;
 
 			ofld_rqidx += vi->nofldrxq;
-			ofld_tqidx += vi->nofldtxq;
 #endif
 #ifdef DEV_NETMAP
 			if (j > 0) {
@@ -1360,10 +1378,15 @@ t4_detach_common(device_t dev)
 
 	if (sc->l2t)
 		t4_free_l2t(sc->l2t);
+#ifdef RATELIMIT
+	t4_free_etid_table(sc);
+#endif
 
+#if defined(TCP_OFFLOAD) || defined(RATELIMIT)
+	free(sc->sge.ofld_txq, M_CXGBE);
+#endif
 #ifdef TCP_OFFLOAD
 	free(sc->sge.ofld_rxq, M_CXGBE);
-	free(sc->sge.ofld_txq, M_CXGBE);
 #endif
 #ifdef DEV_NETMAP
 	free(sc->sge.nm_rxq, M_CXGBE);
@@ -1469,6 +1492,12 @@ cxgbe_vi_attach(device_t dev, struct vi_info *vi)
 	ifp->if_transmit = cxgbe_transmit;
 	ifp->if_qflush = cxgbe_qflush;
 	ifp->if_get_counter = cxgbe_get_counter;
+#ifdef RATELIMIT
+	ifp->if_snd_tag_alloc = cxgbe_snd_tag_alloc;
+	ifp->if_snd_tag_modify = cxgbe_snd_tag_modify;
+	ifp->if_snd_tag_query = cxgbe_snd_tag_query;
+	ifp->if_snd_tag_free = cxgbe_snd_tag_free;
+#endif
 
 	ifp->if_capabilities = T4_CAP;
 #ifdef TCP_OFFLOAD
@@ -2793,10 +2822,14 @@ calculate_iaq(struct adapter *sc, struct intrs_and_queues *iaq, int itype,
 	iaq->ntxq_vi = t4_ntxq_vi;
 	iaq->nrxq = t4_nrxq;
 	iaq->nrxq_vi = t4_nrxq_vi;
-#ifdef TCP_OFFLOAD
-	if (is_offload(sc)) {
+#if defined(TCP_OFFLOAD) || defined(RATELIMIT)
+	if (is_offload(sc) || is_ethoffload(sc)) {
 		iaq->nofldtxq = t4_nofldtxq;
 		iaq->nofldtxq_vi = t4_nofldtxq_vi;
+	}
+#endif
+#ifdef TCP_OFFLOAD
+	if (is_offload(sc)) {
 		iaq->nofldrxq = t4_nofldrxq;
 		iaq->nofldrxq_vi = t4_nofldrxq_vi;
 	}
@@ -3343,7 +3376,8 @@ partition_resources(struct adapter *sc, const struct firmware *default_cfg,
 			snprintf(sc->cfg_file, sizeof(sc->cfg_file), UWIRE_CF);
 		if (is_fpga(sc))
 			snprintf(sc->cfg_file, sizeof(sc->cfg_file), FPGA_CF);
-	}
+	} else if (strncmp(t4_cfg_file, BUILTIN_CF, sizeof(t4_cfg_file)) == 0)
+		goto use_built_in_config;	/* go straight to config. */
 
 	/*
 	 * We need to load another module if the profile is anything except
@@ -3454,8 +3488,31 @@ use_config_on_flash:
 	if (rc != 0) {
 		device_printf(sc->dev,
 		    "failed to pre-process config file: %d "
-		    "(mtype %d, moff 0x%x).\n", rc, mtype, moff);
-		goto done;
+		    "(mtype %d, moff 0x%x).  Will reset the firmware and retry "
+		    "with the built-in configuration.\n", rc, mtype, moff);
+
+	    	rc = -t4_fw_reset(sc, sc->mbox, F_PIORSTMODE | F_PIORST);
+		if (rc != 0) {
+			device_printf(sc->dev,
+			    "firmware reset failed: %d.\n", rc);
+			if (rc != ETIMEDOUT && rc != EIO) {
+				t4_fw_bye(sc, sc->mbox);
+				sc->flags &= ~FW_OK;
+			}
+			goto done;
+		}
+		snprintf(sc->cfg_file, sizeof(sc->cfg_file), "%s", "built-in");
+use_built_in_config:
+		bzero(&caps, sizeof(caps));
+		caps.op_to_write = htobe32(V_FW_CMD_OP(FW_CAPS_CONFIG_CMD) |
+		    F_FW_CMD_REQUEST | F_FW_CMD_READ);
+		caps.cfvalid_to_len16 = htobe32(FW_LEN16(caps));
+		rc = t4_wr_mbox(sc, sc->mbox, &caps, sizeof(caps), &caps);
+		if (rc != 0) {
+			device_printf(sc->dev,
+			    "built-in configuration failed: %d.\n", rc);
+			goto done;
+		}
 	}
 
 	finicsum = be32toh(caps.finicsum);
@@ -4209,7 +4266,7 @@ update_mac_settings(struct ifnet *ifp, int flags)
 		int i = 0, j;
 
 		if_maddr_rlock(ifp);
-		TAILQ_FOREACH(ifma, &ifp->if_multiaddrs, ifma_link) {
+		CK_STAILQ_FOREACH(ifma, &ifp->if_multiaddrs, ifma_link) {
 			if (ifma->ifma_addr->sa_family != AF_LINK)
 				continue;
 			mcaddr[i] =
@@ -7883,8 +7940,8 @@ sysctl_tids(SYSCTL_HANDLER_ARGS)
 	}
 
 	if (t->netids) {
-		sbuf_printf(sb, "ETID range: %u-%u\n", t->etid_base,
-		    t->etid_base + t->netids - 1);
+		sbuf_printf(sb, "ETID range: %u-%u, in use: %u\n", t->etid_base,
+		    t->etid_base + t->netids - 1, t->etids_in_use);
 	}
 
 	sbuf_printf(sb, "HW TID usage: %u IP users, %u IPv6 users",
@@ -9633,9 +9690,11 @@ tweak_tunables(void)
 
 	calculate_nqueues(&t4_nrxq_vi, nc, NRXQ_VI);
 
-#ifdef TCP_OFFLOAD
+#if defined(TCP_OFFLOAD) || defined(RATELIMIT)
 	calculate_nqueues(&t4_nofldtxq, nc, NOFLDTXQ);
 	calculate_nqueues(&t4_nofldtxq_vi, nc, NOFLDTXQ_VI);
+#endif
+#ifdef TCP_OFFLOAD
 	calculate_nqueues(&t4_nofldrxq, nc, NOFLDRXQ);
 	calculate_nqueues(&t4_nofldrxq_vi, nc, NOFLDRXQ_VI);
 
