@@ -17,6 +17,7 @@ SRCS+=		sanitizer_common/sanitizer_common_nolibc.cc
 SRCS+=		sanitizer_common/sanitizer_deadlock_detector1.cc
 SRCS+=		sanitizer_common/sanitizer_deadlock_detector2.cc
 SRCS+=		sanitizer_common/sanitizer_errno.cc
+SRCS+=		sanitizer_common/sanitizer_file.cc
 SRCS+=		sanitizer_common/sanitizer_flag_parser.cc
 SRCS+=		sanitizer_common/sanitizer_flags.cc
 SRCS+=		sanitizer_common/sanitizer_libc.cc
