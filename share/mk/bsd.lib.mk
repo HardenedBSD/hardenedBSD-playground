@@ -100,13 +100,14 @@ LDFLAGS+=	-Wl,-z,retpolineplt
 # it be defined.
 .if ${MK_PIE} != "no"
 CFLAGS+= ${PICFLAG}
-.endif
-.endif
 
 .if !defined(NOCFI)
 .if defined(MK_CROSS_DSO_CFI) && ${MK_CROSS_DSO_CFI} != "no"
 CFLAGS+=	-flto
 CXXFLAGS+=	-flto
+LDFLAGS+=	-flto
+.endif
+.endif
 .endif
 .endif
 
