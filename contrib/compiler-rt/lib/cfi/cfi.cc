@@ -175,13 +175,20 @@ void ShadowBuilder::Install() {
 }
 #elif SANITIZER_FREEBSD
 void ShadowBuilder::Install() {
-  MprotectReadOnly(shadow_, GetShadowSize());
+  unsigned char *dst, *src, t;
+  size_t sz;
+  sz = GetShadowSize();
+  MprotectReadOnly(shadow_, sz);
   uptr main_shadow = GetShadow();
   if (main_shadow) {
     // Update.
-    void *res = mmap((void *)shadow_, GetShadowSize(), PROT_READ,
-		     MAP_ANONYMOUS | MAP_FIXED | MAP_SHARED, -1, 0);
-    CHECK(res != MAP_FAILED);
+    dst = (unsigned char *)main_shadow;
+    src = (unsigned char *)shadow_;
+
+    while ((dst - (unsigned char *)shadow_) < sz) {
+      t = *src++;
+      *dst++ = t;
+    }
   } else {
     // Initial setup.
     CHECK_EQ(kCfiShadowLimitsStorageSize, GetPageSizeCached());
