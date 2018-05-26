@@ -2,8 +2,6 @@
 
 .include <bsd.init.mk>
 
-NOCFI=		yes
-
 LIB=		clang_rt.cfi-${CRTARCH}
 
 SRCS+=		interception/interception_linux.cc
