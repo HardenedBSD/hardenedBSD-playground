@@ -528,6 +528,22 @@ MK_NTP:=	no
 MK_OPENNTPD:=	no
 .endif
 
+.if ${MK_CROSS_DSO_CFI} != "no"
+# XXX devd crashes when Cross-DSO CFI is enabled and devd is not built
+# as a PIE. I still need to figure this out. For now, force devd to
+# be built as a PIE when Cross-DSO CFI is enabled. This works on
+# ZFS-based systems but not UFS.
+#
+# (lldb) target create "/sbin/devd" --core "/devd.core"
+# error: Invalid cie offset of 0x50000000 found in cie/fde at 0x60
+# Core file '/devd.core' (x86_64) was loaded.
+# (lldb) bt
+# * thread #1, name = 'devd', stop reason = signal SIGSEGV
+#   * frame #0: 0x000000000022adab devd`_init_tls at tls.c:426
+#     frame #1: 0x0000000000215089 devd`_start(ap=<unavailable>, cleanup=<unavailable>) at crt1.c:65
+MK_DEVD_PIE:=	yes
+.endif
+
 
 #
 # MK_* options whose default value depends on another option.
