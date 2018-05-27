@@ -24,6 +24,6 @@ PACKAGE=	clang
 LIBADD+=	ncursesw
 LIBADD+=	pthread
 
-NOCFI=		yes
+#NOCFI=		yes
 
 .include <bsd.prog.mk>

@@ -54,4 +54,4 @@ STATIC_CFLAGS+= -mlong-calls
 STATIC_CXXFLAGS+= -mlong-calls
 .endif
 
-NOCFI=		yes
+#NOCFI=		yes
