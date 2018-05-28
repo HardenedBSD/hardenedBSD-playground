@@ -2,8 +2,6 @@
 
 .include <src.opts.mk>
 
-#MK_CFI=		no
-
 LLVM_SRCS=	${SRCTOP}/contrib/llvm
 LLD_SRCS=	${LLVM_SRCS}/tools/lld
 

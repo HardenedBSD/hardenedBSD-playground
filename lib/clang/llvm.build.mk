@@ -54,4 +54,4 @@ STATIC_CFLAGS+= -mlong-calls
 STATIC_CXXFLAGS+= -mlong-calls
 .endif
 
-#NOCFI=		yes
+.include "${SRCTOP}/lib/clang/llvm.cfi.mk"
