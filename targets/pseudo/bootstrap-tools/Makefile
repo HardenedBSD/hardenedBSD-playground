@@ -41,11 +41,11 @@ BSARGS= 	DESTDIR= \
 		BWPHASE=${.TARGET} \
 		SSP_CFLAGS= \
 		MK_HTML=no NO_LINT=yes MK_MAN=no \
-		-DNO_PIC MK_PROFILE=no -DNO_SHARED \
+		-DNO_PIC MK_PROFILE=no \
 		-DNO_CPU_CFLAGS MK_WARNS=no MK_CTF=no \
 		MK_CLANG_EXTRAS=yes MK_CLANG_FULL=no \
 		MK_LLDB=no MK_TESTS=no \
-		MK_INCLUDES=yes MK_CFI=no MK_CROSS_DSO_CFI=no
+		MK_INCLUDES=yes
 
 # We will handle building the toolchain and cross-compiler.
 BSARGS+= MK_CROSS_COMPILER=no MK_CLANG=no MK_GCC=no
