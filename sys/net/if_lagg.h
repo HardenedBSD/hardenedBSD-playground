@@ -42,9 +42,8 @@
 #define	LAGG_PORT_ACTIVE	0x00000004	/* port is active */
 #define	LAGG_PORT_COLLECTING	0x00000008	/* port is receiving frames */
 #define	LAGG_PORT_DISTRIBUTING	0x00000010	/* port is sending frames */
-#define	LAGG_PORT_DISABLED	0x00000020	/* port is disabled */
 #define	LAGG_PORT_BITS		"\20\01MASTER\02STACK\03ACTIVE\04COLLECTING" \
-				  "\05DISTRIBUTING\06DISABLED"
+				  "\05DISTRIBUTING"
 
 /* Supported lagg PROTOs */
 typedef enum {
@@ -218,7 +217,7 @@ struct lagg_softc {
 	uint32_t			sc_flags;
 	int				sc_destroying;	/* destroying lagg */
 
-	SLIST_HEAD(__tplhd, lagg_port)	sc_ports;	/* list of interfaces */
+	CK_SLIST_HEAD(__tplhd, lagg_port)	sc_ports;	/* list of interfaces */
 	SLIST_ENTRY(lagg_softc)	sc_entries;
 
 	eventhandler_tag vlan_attach;
@@ -252,7 +251,7 @@ struct lagg_port {
 		     const struct sockaddr *, struct route *);
 	struct lagg_counters		port_counters;	/* ifp counters copy */
 
-	SLIST_ENTRY(lagg_port)		lp_entries;
+	CK_SLIST_ENTRY(lagg_port)		lp_entries;
 	struct epoch_context	lp_epoch_ctx;
 };
 

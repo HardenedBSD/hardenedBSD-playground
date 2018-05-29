@@ -175,7 +175,7 @@ static LIST_HEAD(pmc_ownerhash, pmc_owner)	*pmc_ownerhash;
  * List of PMC owners with system-wide sampling PMCs.
  */
 
-static LIST_HEAD(, pmc_owner)			pmc_ss_owners;
+static CK_LIST_HEAD(, pmc_owner)			pmc_ss_owners;
 
 /*
  * List of free thread entries. This is protected by the spin
@@ -1657,7 +1657,7 @@ pmc_process_csw_out(struct thread *td)
 				mtx_pool_unlock_spin(pmc_mtxpool, pm);
 
 				if (pm->pm_flags & PMC_F_LOG_PROCCSW)
-					pmclog_process_proccsw(pm, pp, tmp);
+					pmclog_process_proccsw(pm, pp, tmp, td);
 			}
 		}
 
@@ -4576,10 +4576,13 @@ pmc_process_interrupt(int cpu, int ring, struct pmc *pm, struct trapframe *tf,
 	counter_u64_add(pm->pm_runcount, 1);	/* hold onto PMC */
 
 	ps->ps_pmc = pm;
-	if ((td = curthread) && td->td_proc)
-		ps->ps_pid = td->td_proc->p_pid;
-	else
-		ps->ps_pid = -1;
+	ps->ps_pid = -1;
+	ps->ps_tid = -1;
+	if ((td = curthread) != NULL) {
+		ps->ps_tid = td->td_tid;
+		if (td->td_proc)
+			ps->ps_pid = td->td_proc->p_pid;
+	}
 	ps->ps_cpu = cpu;
 	ps->ps_td = td;
 	ps->ps_flags = inuserspace ? PMC_CC_F_USERSPACE : 0;
@@ -5432,7 +5435,7 @@ pmc_initialize(void)
 	mtx_init(&pmc_processhash_mtx, "pmc-process-hash", "pmc-leaf",
 	    MTX_SPIN);
 
-	LIST_INIT(&pmc_ss_owners);
+	CK_LIST_INIT(&pmc_ss_owners);
 	pmc_ss_count = 0;
 
 	/* allocate a pool of spin mutexes */
@@ -5580,7 +5583,7 @@ pmc_cleanup(void)
 		pmc_ownerhash = NULL;
 	}
 
-	KASSERT(LIST_EMPTY(&pmc_ss_owners),
+	KASSERT(CK_LIST_EMPTY(&pmc_ss_owners),
 	    ("[pmc,%d] Global SS owner list not empty", __LINE__));
 	KASSERT(pmc_ss_count == 0,
 	    ("[pmc,%d] Global SS count not empty", __LINE__));

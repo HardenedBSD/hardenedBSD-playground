@@ -751,6 +751,7 @@ vendor TRIPPLITE	0x2478	Tripp-Lite
 vendor HIROSE		0x2631	Hirose Electric
 vendor NHJ		0x2770	NHJ
 vendor THINGM		0x27b8	ThingM
+vendor PERASO		0x2932	Peraso Technologies, Inc.
 vendor PLANEX		0x2c02	Planex Communications
 vendor QUECTEL		0x2c7c	Quectel Wireless Solutions
 vendor VIDZMEDIA	0x3275	VidzMedia Pte Ltd
@@ -3582,6 +3583,9 @@ product PERACOM ENET		0x0002	Ethernet
 product PERACOM ENET3		0x0003	At Home Ethernet
 product PERACOM ENET2		0x0005	Ethernet
 
+/* Peraso Technologies, Inc products */
+product PERASO PRS4001		0x4001	PRS4001 WLAN
+
 /* Philips products */
 product PHILIPS DSS350		0x0101	DSS 350 Digital Speaker System
 product PHILIPS DSS		0x0104	DSS XXX Digital Speaker System
@@ -4322,6 +4326,7 @@ product SMC2 2514HUB		0x2514	USB Hub
 product SMC3 2662WUSB		0xa002	2662W-AR Wireless
 product SMC2 LAN7800_ETH	0x7800	USB/Ethernet
 product SMC2 LAN7801_ETH	0x7801	USB/Ethernet
+product SMC2 LAN7850_ETH	0x7850	USB/Ethernet
 product SMC2 LAN9500_ETH	0x9500	USB/Ethernet
 product SMC2 LAN9505_ETH	0x9505	USB/Ethernet
 product SMC2 LAN9530_ETH	0x9530	USB/Ethernet

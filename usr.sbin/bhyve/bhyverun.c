@@ -193,6 +193,8 @@ topology_parse(const char *opt)
 	c = 1, n = 1, s = 1, t = 1;
 	ns = false, scts = false;
 	str = strdup(opt);
+	if (str == NULL)
+		goto out;
 
 	while ((cp = strsep(&str, ",")) != NULL) {
 		if (sscanf(cp, "%i%n", &tmp, &chk) == 1) {
@@ -218,11 +220,14 @@ topology_parse(const char *opt)
 		} else if (cp[0] == '\0')
 			continue;
 		else
-			return (-1);
+			goto out;
 		/* Any trailing garbage causes an error */
 		if (cp[chk] != '\0')
-			return (-1);
+			goto out;
 	}
+	free(str);
+	str = NULL;
+
 	/*
 	 * Range check 1 <= n <= UINT16_MAX all values
 	 */
@@ -248,6 +253,11 @@ topology_parse(const char *opt)
 	cores = c;
 	threads = t;
 	return(0);
+
+out:
+	if (str != NULL)
+		free(str);
+	return (-1);
 }
 
 static int

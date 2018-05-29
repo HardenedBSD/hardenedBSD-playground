@@ -1069,7 +1069,7 @@ netdump_configure(struct netdump_conf *conf, struct thread *td)
 		return (EINVAL);
 	}
 	IFNET_RLOCK_NOSLEEP();
-	TAILQ_FOREACH(ifp, &V_ifnet, if_link) {
+	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
 		if (strcmp(ifp->if_xname, conf->ndc_iface) == 0)
 			break;
 	}
@@ -1204,6 +1204,7 @@ netdump_ioctl(struct cdev *dev __unused, u_long cmd, caddr_t addr,
 			}
 		}
 
+		memset(&dumper, 0, sizeof(dumper));
 		dumper.dumper_start = netdump_start;
 		dumper.dumper_hdr = netdump_write_headers;
 		dumper.dumper = netdump_dumper;
