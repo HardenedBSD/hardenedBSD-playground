@@ -8,13 +8,6 @@ PROG_CXX=devd
 SRCS=	devd.cc token.l parse.y y.tab.h
 MAN=	devd.8 devd.conf.5
 
-<<<<<<< HEAD
-MK_SAFESTACK=		no
-
-WARNS?=	3
-
-=======
->>>>>>> upstream/hardened/current/master
 .if ${MK_DEVD_PIE} == "no"
 NO_SHARED?=YES
 .endif
