@@ -324,6 +324,7 @@ __DEFAULT_YES_OPTIONS+=SHARED_TOOLCHAIN
 
 .if ${__T} == "amd64"
 __DEFAULT_YES_OPTIONS+=CLANG_EXTRAS
+__DEFAULT_YES_OPTIONS+=CROSS_DSO_CFI
 __DEFAULT_YES_OPTIONS+=SAFESTACK
 __DEFAULT_YES_OPTIONS+=CFI
 __DEFAULT_YES_OPTIONS+=LLVM_AR_IS_AR
@@ -332,6 +333,7 @@ __DEFAULT_YES_OPTIONS+=LLVM_OBJDUMP_IS_OBJDUMP
 __DEFAULT_YES_OPTIONS+=RETPOLINE
 .else
 __DEFAULT_NO_OPTIONS+=CLANG_EXTRAS
+__DEFAULT_NO_OPTIONS+=CROSS_DSO_CFI
 __DEFAULT_NO_OPTIONS+=SAFESTACK
 __DEFAULT_NO_OPTIONS+=CFI
 __DEFAULT_NO_OPTIONS+=LLVM_AR_IS_AR
@@ -339,8 +341,6 @@ __DEFAULT_NO_OPTIONS+=LLVM_NM_IS_NM
 __DEFAULT_NO_OPTIONS+=LLVM_OBJDUMP_IS_OBJDUMP
 __DEFAULT_NO_OPTIONS+=RETPOLINE
 .endif
-
-__DEFAULT_NO_OPTIONS+=CROSS_DSO_CFI
 
 # GELI isn't supported on !x86
 .if ${__T} != "i386" && ${__T} != "amd64"
@@ -542,6 +542,11 @@ MK_OPENNTPD:=	no
 #   * frame #0: 0x000000000022adab devd`_init_tls at tls.c:426
 #     frame #1: 0x0000000000215089 devd`_start(ap=<unavailable>, cleanup=<unavailable>) at crt1.c:65
 MK_DEVD_PIE:=	yes
+
+# Until we build a common sanitizer library, we need to disable
+# SafeStack. Including SafeStack will break the One Definition Rule
+# (ODR).
+MK_SAFESTACK:=	no
 .endif
 
 
