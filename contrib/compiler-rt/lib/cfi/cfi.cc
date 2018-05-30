@@ -418,8 +418,10 @@ __cfi_slowpath_diag(u64 CallSiteTypeId, void *Ptr, void *DiagData) {
 // We could insert a high-priority constructor into the library, but that would
 // not help with the uninstrumented libraries.
 INTERCEPTOR(void*, dlopen, const char *filename, int flag) {
+  void *(*rdlo)(const char *, int);
   EnterLoader();
-  void *handle = REAL(dlopen)(filename, flag);
+  rdlo = REAL(dlopen);
+  void *handle = rdlo(filename, flag);
   ExitLoader();
   return handle;
 }
