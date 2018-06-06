@@ -1004,8 +1004,7 @@ exec_fail:
 }
 
 int
-exec_map_first_page(imgp)
-	struct image_params *imgp;
+exec_map_first_page(struct image_params *imgp)
 {
 	int rv, i, after, initial_pagein;
 	vm_page_t ma[VM_INITIAL_PAGEIN];
@@ -1450,7 +1449,7 @@ exec_release_args_kva(struct exec_args_kva *argkva, u_int gen)
 
 	base = argkva->addr;
 	if (argkva->gen != gen) {
-		vm_map_madvise(exec_map, base, base + exec_map_entry_size,
+		(void)vm_map_madvise(exec_map, base, base + exec_map_entry_size,
 		    MADV_FREE);
 		argkva->gen = gen;
 	}

@@ -13,15 +13,17 @@
  */
 
 #include <sys/types.h>
-#include <sys/param.h>
-#include <sys/jail.h>
 #include <sys/time.h>
+#include <sys/cdefs.h>
+#include <sys/limits.h>
+#include <sys/select.h>
+#include <sys/signal.h>
+#include <time.h>
 
-#include <ctype.h>
-#include <curses.h>
 #include <errno.h>
 #include <jail.h>
-#include <setjmp.h>
+#include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <string.h>
@@ -31,7 +33,6 @@
 #include "display.h"		/* interface to display package */
 #include "screen.h"		/* interface to screen package */
 #include "top.h"
-#include "boolean.h"
 #include "machine.h"
 #include "utils.h"
 #include "username.h"
@@ -52,7 +53,7 @@ static char stdoutbuf[Buffersize];
 
 
 static int fmt_flags = 0;
-int pcpu_stats = No;
+int pcpu_stats = false;
 
 /* signal handling routines */
 static sigret_t leave(int);
@@ -70,15 +71,6 @@ static int max_topn;		/* maximum displayable processes */
 struct process_select ps;
 const char * myname = "top";
 
-char *username(int);
-
-time_t time(time_t *tloc);
-
-/* different routines for displaying the user's identification */
-/* (values assigned to get_userid) */
-char *username(int);
-char *itoa7(int);
-
 /* pointers to display routines */
 static void (*d_loadave)(int mpid, double *avenrun) = i_loadave;
 static void (*d_procstates)(int total, int *brkdn) = i_procstates;
@@ -88,7 +80,7 @@ static void (*d_arc)(int *stats) = i_arc;
 static void (*d_carc)(int *stats) = i_carc;
 static void (*d_swap)(int *stats) = i_swap;
 static void (*d_message)(void) = i_message;
-static void (*d_header)(char *text) = i_header;
+static void (*d_header)(const char *text) = i_header;
 static void (*d_process)(int line, char *thisline) = i_process;
 
 static void reset_display(void);
@@ -149,7 +141,7 @@ handle_user(char *buf, size_t buflen)
     char *buf2 = buf;
 
     new_message(MT_standout, "Username to show (+ for all): ");
-    if (readline(buf, buflen, No) <= 0)
+    if (readline(buf, buflen, false) <= 0)
     {
 	clear_message();
 	return rc;
@@ -217,18 +209,18 @@ main(int argc, char *argv[])
     int sel_ret = 0;
     time_t curr_time;
     char *(*get_userid)(int) = username;
-    char *uname_field = "USERNAME";
-    char *header_text;
+    const char *uname_field = "USERNAME";
+    const char *header_text;
     char *env_top;
-    char **preset_argv;
+    const char **preset_argv;
     int  preset_argc = 0;
     char **av;
     int  ac;
-    char dostates = No;
-    char do_unames = Yes;
-    char interactive = Maybe;
+    bool dostates = false;
+    bool do_unames = true;
+    char interactive = 2;
     char warnings = 0;
-    char topn_specified = No;
+    char topn_specified = false;
     char ch;
     char *iptr;
     char no_command = 1;
@@ -236,8 +228,9 @@ main(int argc, char *argv[])
     char *order_name = NULL;
     int order_index = 0;
     fd_set readfds;
+    char old_system = false;
 
-    static char command_chars[] = "\f qh?en#sdkriIutHmSCajzPJwo";
+    static const char command_chars[] = "\f qh?en#sdkriIutHmSCajzPJwop";
 /* these defines enumerate the "strchr"s of the commands in command_chars */
 #define CMD_redraw	0
 #define CMD_update	1
@@ -266,7 +259,8 @@ main(int argc, char *argv[])
 #define CMD_pcputog	23
 #define CMD_jail	24
 #define CMD_swaptog	25
-#define CMD_order       26
+#define CMD_order	26
+#define CMD_pid		27
 
     /* set the buffer for stdout */
 #ifdef DEBUG
@@ -291,16 +285,17 @@ main(int argc, char *argv[])
     }
 
     /* initialize some selection options */
-    ps.idle    = Yes;
+    ps.idle    = true;
     ps.self    = -1;
-    ps.system  = No;
+    ps.system  = false;
     reset_uids();
-    ps.thread  = No;
+    ps.thread  = false;
     ps.wcpu    = 1;
     ps.jid     = -1;
-    ps.jail    = No;
-    ps.swap    = No;
-    ps.kidle   = Yes;
+    ps.jail    = false;
+    ps.swap    = false;
+    ps.kidle   = true;
+    ps.pid     = -1; 
     ps.command = NULL;
 
     /* get preset options from the environment */
@@ -326,7 +321,7 @@ main(int argc, char *argv[])
 	    optind = 1;
 	}
 
-	while ((i = getopt(ac, av, "CSIHPabijJ:nquvzs:d:U:m:o:tw")) != EOF)
+	while ((i = getopt(ac, av, "CSIHPabijJ:nquvzs:d:U:m:o:p:tw")) != EOF)
 	{
 	    switch(i)
 	    {
@@ -348,7 +343,8 @@ main(int argc, char *argv[])
 		break;
 
 	      case 'S':			/* show system processes */
-		ps.system = !ps.system;
+		ps.system = true;
+		old_system = true;
 		break;
 
 	      case 'I':                   /* show idle processes */
@@ -356,12 +352,12 @@ main(int argc, char *argv[])
 		break;
 
 	      case 'i':			/* go interactive regardless */
-		interactive = Yes;
+		interactive = 1;
 		break;
 
 	      case 'n':			/* batch, or non-interactive */
 	      case 'b':
-		interactive = No;
+		interactive = 0;
 		break;
 
 	      case 'a':
@@ -381,6 +377,19 @@ main(int argc, char *argv[])
 		    displays = i;
 		}
 		break;
+	      case 'p': {
+		unsigned long long num;
+		const char *errstr;
+
+		num = strtonum(optarg, 0, INT_MAX, &errstr);
+		if (errstr != NULL || !find_pid(num)) {
+			fprintf(stderr, "%s: unknown pid\n", optarg);
+			exit(1);
+		}
+		ps.pid = (pid_t)num;
+		ps.system = true;
+		break;
+	      }
 
 	      case 's':
 		if ((delay = atoi(optarg)) < 0 || (delay == 0 && getuid() != 0))
@@ -466,8 +475,8 @@ main(int argc, char *argv[])
 
 	      default:
 		fprintf(stderr,
-"Usage: %s [-abCHIijnPqStuvwz] [-d count] [-m io | cpu] [-o field] [-s time]\n"
-"       [-J jail] [-U username] [number]\n",
+"Usage: %s [-abCHIijnPqStuvwz] [-d count] [-m io | cpu] [-o field] [-p pid]\n"
+"       [-s time] [-J jail] [-U username] [number]\n",
 			myname);
 		exit(1);
 	    }
@@ -485,7 +494,7 @@ main(int argc, char *argv[])
 	    }
             else
 	    {
-		topn_specified = Yes;
+		topn_specified = true;
 	    }
 	}
 
@@ -572,7 +581,7 @@ main(int argc, char *argv[])
     display_header(topn > 0);
 
     /* determine interactive state */
-    if (interactive == Maybe)
+    if (interactive == 2)
     {
 	interactive = smart_terminal;
     }
@@ -650,7 +659,7 @@ restart:
 	    {
 		putchar('\n');
 	    }
-	    dostates = Yes;
+	    dostates = true;
 	}
 
 	/* display memory stats */
@@ -731,7 +740,7 @@ restart:
 		}
 	    }
     
-	    no_command = Yes;
+	    no_command = true;
 	    if (!interactive)
 	    {
 		sleep(delay);
@@ -743,7 +752,7 @@ restart:
 	    else while (no_command)
 	    {
 		/* assume valid command unless told otherwise */
-		no_command = No;
+		no_command = false;
 
 		/* set up arguments for select with timeout */
 		FD_ZERO(&readfds);
@@ -823,7 +832,7 @@ restart:
 			    new_message(MT_standout, " Command not understood");
 			}
 			putchar('\r');
-			no_command = Yes;
+			no_command = true;
 		    }
 		    else
 		    {
@@ -834,7 +843,7 @@ restart:
 			    new_message(MT_standout,
 			    " Command cannot be handled by this terminal");
 			    putchar('\r');
-			    no_command = Yes;
+			    no_command = true;
 			}
 			else switch(change)
 			{
@@ -873,7 +882,7 @@ restart:
 				    new_message(MT_standout,
 					" Currently no errors to report.");
 				    putchar('\r');
-				    no_command = Yes;
+				    no_command = true;
 				}
 				else
 				{
@@ -890,7 +899,7 @@ restart:
 			    case CMD_number2:
 				new_message(MT_standout,
 				    "Number of processes to show: ");
-				newval = readline(tempbuf1, 8, Yes);
+				newval = readline(tempbuf1, 8, true);
 				if (newval > -1)
 				{
 				    if (newval > max_topn)
@@ -904,12 +913,12 @@ restart:
 				    if (newval == 0)
 				    {
 					/* inhibit the header */
-					display_header(No);
+					display_header(false);
 				    }
 				    else if (newval > topn && topn == 0)
 				    {
 					/* redraw the header */
-					display_header(Yes);
+					display_header(true);
 					d_header = i_header;
 				    }
 				    topn = newval;
@@ -918,7 +927,7 @@ restart:
 	    
 			    case CMD_delay:	/* new seconds delay */
 				new_message(MT_standout, "Seconds to delay: ");
-				if ((i = readline(tempbuf1, 8, Yes)) > -1)
+				if ((i = readline(tempbuf1, 8, true)) > -1)
 				{
 				    if ((delay = i) == 0 && getuid() != 0)
 				    {
@@ -933,7 +942,7 @@ restart:
 					"Displays to show (currently %s): ",
 					displays == -1 ? "infinite" :
 							 itoa(displays));
-				if ((i = readline(tempbuf1, 10, Yes)) > 0)
+				if ((i = readline(tempbuf1, 10, true)) > 0)
 				{
 				    displays = i;
 				}
@@ -946,13 +955,13 @@ restart:
     
 			    case CMD_kill:	/* kill program */
 				new_message(0, "kill ");
-				if (readline(tempbuf2, sizeof(tempbuf2), No) > 0)
+				if (readline(tempbuf2, sizeof(tempbuf2), false) > 0)
 				{
 				    if ((errmsg = kill_procs(tempbuf2)) != NULL)
 				    {
 					new_message(MT_standout, "%s", errmsg);
 					putchar('\r');
-					no_command = Yes;
+					no_command = true;
 				    }
 				}
 				else
@@ -963,13 +972,13 @@ restart:
 	    
 			    case CMD_renice:	/* renice program */
 				new_message(0, "renice ");
-				if (readline(tempbuf2, sizeof(tempbuf2), No) > 0)
+				if (readline(tempbuf2, sizeof(tempbuf2), false) > 0)
 				{
 				    if ((errmsg = renice_procs(tempbuf2)) != NULL)
 				    {
 					new_message(MT_standout, "%s", errmsg);
 					putchar('\r');
-					no_command = Yes;
+					no_command = true;
 				    }
 				}
 				else
@@ -997,7 +1006,7 @@ restart:
 
 			    case CMD_user:
 				if (handle_user(tempbuf2, sizeof(tempbuf2)))
-				    no_command = Yes;
+				    no_command = true;
 				break;
 	    
 			    case CMD_thrtog:
@@ -1022,12 +1031,13 @@ restart:
 				if (++displaymode == DISP_MAX)
 					displaymode = 0;
 				header_text = format_header(uname_field);
-				display_header(Yes);
+				display_header(true);
 				d_header = i_header;
 				reset_display();
 				break;
 			    case CMD_viewsys:
 				ps.system = !ps.system;
+				old_system = ps.system;
 				break;
 			    case CMD_showargs:
 				fmt_flags ^= FMT_SHOWARGS;
@@ -1035,13 +1045,13 @@ restart:
 			    case CMD_order:
 				new_message(MT_standout,
 				    "Order to sort: ");
-				if (readline(tempbuf2, sizeof(tempbuf2), No) > 0)
+				if (readline(tempbuf2, sizeof(tempbuf2), false) > 0)
 				{
 				  if ((i = string_index(tempbuf2, statics.order_names)) == -1)
 					{
 					  new_message(MT_standout,
 					      " %s: unrecognized sorting order", tempbuf2);
-					  no_command = Yes;
+					  no_command = true;
 				    }
 				    else
 				    {
@@ -1067,7 +1077,7 @@ restart:
 			    case CMD_jail:
 				new_message(MT_standout,
 				    "Jail to show (+ for all): ");
-				if (readline(tempbuf2, sizeof(tempbuf2), No) > 0)
+				if (readline(tempbuf2, sizeof(tempbuf2), false) > 0)
 				{
 				    if (tempbuf2[0] == '+' &&
 					tempbuf2[1] == '\0')
@@ -1078,7 +1088,7 @@ restart:
 				    {
 					new_message(MT_standout,
 					    " %s: unknown jail", tempbuf2);
-					no_command = Yes;
+					no_command = true;
 				    }
 				    else
 				    {
@@ -1127,6 +1137,36 @@ restart:
 				reset_display();
 				putchar('\r');
 				break;
+			    case CMD_pid:
+				new_message(MT_standout,
+					"Process id to show (+ for all): ");
+				if (readline(tempbuf2, sizeof(tempbuf2), false) > 0) {
+					if (tempbuf2[0] == '+' &&
+                   			    tempbuf2[1] == '\0') {
+						ps.pid = (pid_t)-1;
+						ps.system = old_system;
+					} else {
+						unsigned long long num;
+						const char *errstr;
+
+						num = strtonum(tempbuf2, 0, INT_MAX,
+							&errstr);
+						if (errstr != NULL || !find_pid(num)) {
+							new_message(MT_standout,
+								" %s: unknown pid",
+								tempbuf2);
+							no_command = true;
+						} else {
+							if (ps.system == false)
+								old_system = false;
+							ps.pid = (pid_t)num;
+							ps.system = true;
+						}
+					}
+					putchar('\r');
+				} else
+					clear_message();
+				break;
 			    default:
 				new_message(MT_standout, " BAD CASE IN SWITCH!");
 				putchar('\r');
@@ -1153,8 +1193,7 @@ restart:
  */
 
 static void
-reset_display()
-
+reset_display(void)
 {
     d_loadave    = i_loadave;
     d_procstates = i_procstates;

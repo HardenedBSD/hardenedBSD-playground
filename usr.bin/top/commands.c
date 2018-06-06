@@ -17,12 +17,13 @@
  *  "top" (i.e.:  changing the number of processes to display).
  */
 
-#include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/signal.h>
 
 #include <ctype.h>
 #include <errno.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,8 +32,6 @@
 #include "commands.h"
 #include "sigdesc.h"		/* generated automatically */
 #include "top.h"
-#include "boolean.h"
-#include "utils.h"
 #include "machine.h"
 
 static int err_compar(const void *p1, const void *p2);
@@ -45,7 +44,7 @@ struct errs		/* structure for a system-call error */
 
 static char *err_string(void);
 static int str_adderr(char *str, int len, int err);
-static int str_addarg(char *str, int len, char *arg, int first);
+static int str_addarg(char *str, int len, char *arg, bool first);
 
 /*
  *  show_help() - display the help screen; invoked in response to
@@ -53,8 +52,7 @@ static int str_addarg(char *str, int len, char *arg, int first);
  */
 
 void
-show_help()
-
+show_help(void)
 {
     printf("Top version FreeBSD, %s\n", copyright);
     fputs("\n\n\
@@ -66,7 +64,7 @@ These single-character commands are available:\n\
 q       - quit\n\
 h or ?  - help; show this text\n", stdout);
 
-    /* not all commands are availalbe with overstrike terminals */
+    /* not all commands are available with overstrike terminals */
     if (overstrike)
     {
 	fputs("\n\
@@ -95,6 +93,7 @@ o       - specify sort order (pri, size, res, cpu, time, threads, jid, pid)\n",
 o       - specify sort order (vcsw, ivcsw, read, write, fault, total, jid, pid)\n",
 	    stdout);
 	fputs("\
+p       - display one process (+ selects all processes)\n\
 P       - toggle the displaying of per-CPU statistics\n\
 r       - renice a process\n\
 s       - change number of seconds to delay between updates\n\
@@ -198,12 +197,12 @@ static char err_listem[] =
 
 #define STRMAX 80
 
-char *err_string()
+char *err_string(void)
 {
     struct errs *errp;
-    int  cnt = 0;
-    int  first = Yes;
-    int  currerr = -1;
+    int cnt = 0;
+    bool first = true;
+    int currerr = -1;
     int stringlen;		/* characters still available in "string" */
     static char string[STRMAX];
 
@@ -236,13 +235,13 @@ char *err_string()
 		strcat(string, "; ");	  /* we know there's more */
 	    }
 	    currerr = errp->errnum;
-	    first = Yes;
+	    first = true;
 	}
 	if ((stringlen = str_addarg(string, stringlen, errp->arg, first)) ==0)
 	{
 	    return(err_listem);
 	}
-	first = No;
+	first = false;
     }
 
     /* add final message */
@@ -281,13 +280,7 @@ str_adderr(char *str, int len, int err)
  */
 
 static int
-str_addarg(str, len, arg, first)
-
-char *str;
-int  len;
-char *arg;
-int  first;
-
+str_addarg(char str[], int len, char arg[], bool first)
 {
     int arglen;
 
@@ -334,8 +327,7 @@ err_compar(const void *p1, const void *p2)
  */
 
 int
-error_count()
-
+error_count(void)
 {
     return(errcnt);
 }
@@ -345,8 +337,7 @@ error_count()
  */
 
 void
-show_errors()
-
+show_errors(void)
 {
     int cnt = 0;
     struct errs *errp = errs;

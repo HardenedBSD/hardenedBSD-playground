@@ -10,20 +10,26 @@
 #ifndef MACHINE_H
 #define MACHINE_H
 
-#include "top.h"
+#include <sys/time.h>
+#include <sys/types.h>
+
+#define NUM_AVERAGES    3
+
+/* Log base 2 of 1024 is 10 (2^10 == 1024) */
+#define LOG1024		10
 
 /*
  * the statics struct is filled in by machine_init
  */
 struct statics
 {
-    char **procstate_names;
-    char **cpustate_names;
-    char **memory_names;
-    char **arc_names;
-    char **carc_names;
-    char **swap_names;
-    char **order_names;
+    const char * const *procstate_names;
+    const char * const *cpustate_names;
+    const char * const *memory_names;
+    const char * const *arc_names;
+    const char * const *carc_names;
+    const char * const *swap_names;
+    const char * const *order_names;
     int ncpus;
 };
 
@@ -69,13 +75,14 @@ struct process_select
     int jail;		/* show jail ID */
     int swap;		/* show swap usage */
     int kidle;		/* show per-CPU idle threads */
+    pid_t pid;		/* only this pid (unless pid == -1) */
     char *command;	/* only this command (unless == NULL) */
 };
 
 /* routines defined by the machine dependent module */
 
-char	*format_header(char *uname_field);
-char	*format_next_process(caddr_t handle, char *(*get_userid)(int),
+const char	*format_header(const char *uname_field);
+char	*format_next_process(void* handle, char *(*get_userid)(int),
 	    int flags);
 void	 toggle_pcpustats(void);
 void	 get_system_info(struct system_info *si);
@@ -83,7 +90,6 @@ int	 machine_init(struct statics *statics);
 int	 proc_owner(int pid);
 
 /* non-int routines typically used by the machine dependent module */
-char	*printable(char *string);
 extern struct process_select ps;
 
 void *

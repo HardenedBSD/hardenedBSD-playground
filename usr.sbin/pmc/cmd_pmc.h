@@ -1,8 +1,7 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
- * Copyright (c) 2003-2005 Joseph Koshy
- * All rights reserved.
+ * Copyright (c) 2018, Matthew Macy
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,36 +23,38 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $FreeBSD$
+ *
  */
+#ifndef _CMD_PMC_H_
+#define _CMD_PMC_H_
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#define	DEFAULT_DISPLAY_HEIGHT		256	/* file virtual height */
+#define	DEFAULT_DISPLAY_WIDTH		1024	/* file virtual width */
 
-#include <sys/param.h>
-#include <sys/lock.h>
-#include <sys/mutex.h>
-#include <sys/pmc.h>
-#include <sys/pmckern.h>
-#include <sys/smp.h>
-#include <sys/systm.h>
+extern int pmc_displayheight;
+extern int pmc_displaywidth;
+extern int pmc_kq;
+extern struct pmcstat_args pmc_args;
 
-#include <machine/cpufunc.h>
-#include <machine/md_var.h>
-#include <machine/pmc_mdep.h>
+typedef int (*cmd_disp_t)(int, char **);
 
-/*
- * Intel Pentium PMCs
- */
+#if defined(__cplusplus)
+extern "C" {
+#endif
+	int	cmd_pmc_stat(int, char **);
+	int	cmd_pmc_filter(int, char **);
+	int	cmd_pmc_stat_system(int, char **);
+	int	cmd_pmc_list_events(int, char **);
+	int	cmd_pmc_summary(int, char **);
+#if defined(__cplusplus)
+};
+#endif
+int	pmc_util_get_pid(struct pmcstat_args *);
+void	pmc_util_start_pmcs(struct pmcstat_args *);
+void	pmc_util_cleanup(struct pmcstat_args *);
+void	pmc_util_shutdown_logging(struct pmcstat_args *args);
+void	pmc_util_kill_process(struct pmcstat_args *args);
 
-int
-pmc_p5_initialize(struct pmc_mdep *pmc_mdep, int ncpus)
-{
-	(void) pmc_mdep; (void) ncpus;
-	return (ENOSYS);		/* nothing here yet */
-}
-
-void
-pmc_p5_finalize(struct pmc_mdep *pmc_mdep)
-{
-	(void) pmc_mdep;
-}
+#endif

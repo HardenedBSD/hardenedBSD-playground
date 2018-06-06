@@ -40,28 +40,43 @@
 #include <libpmcstat.h>
 #include "pmu-events/pmu-events.h"
 
-#if defined(__amd64__)
+#if defined(__amd64__) || defined(__i386__)
 struct pmu_alias {
 	const char *pa_alias;
 	const char *pa_name;
 };
 static struct pmu_alias pmu_alias_table[] = {
-    { "UNHALTED_CORE_CYCLES", "CPU_CLK_UNHALTED.THREAD_P_ANY"},
-    { "UNHALTED-CORE-CYCLES", "CPU_CLK_UNHALTED.THREAD_P_ANY"},
-	{ "LLC_MISSES", "LONGEST_LAT_CACHE.MISS"},
-	{ "LLC-MISSES", "LONGEST_LAT_CACHE.MISS"},
-	{ "LLC_REFERENCE", "LONGEST_LAT_CACHE.REFERENCE"},
-	{ "LLC-REFERENCE", "LONGEST_LAT_CACHE.REFERENCE"},
-	{ "LLC_MISS_RHITM", "mem_load_l3_miss_retired.remote_hitm"},
-	{ "LLC-MISS-RHITM", "mem_load_l3_miss_retired.remote_hitm"},
-	{ "RESOURCE_STALL", "RESOURCE_STALLS.ANY"},
-	{ "RESOURCE_STALLS_ANY", "RESOURCE_STALLS.ANY"},
-	{ "BRANCH_INSTRUCTION_RETIRED", "BR_INST_RETIRED.ALL_BRANCHES"},
-	{ "BRANCH-INSTRUCTION-RETIRED", "BR_INST_RETIRED.ALL_BRANCHES"},
-	{ "BRANCH_MISSES_RETIRED", "BR_MISP_RETIRED.ALL_BRANCHES"},
-	{ "BRANCH-MISSES-RETIRED", "BR_MISP_RETIRED.ALL_BRANCHES"},
-	{ NULL, NULL },
+	{"UNHALTED_CORE_CYCLES", "CPU_CLK_UNHALTED.THREAD_P_ANY"},
+	{"UNHALTED-CORE-CYCLES", "CPU_CLK_UNHALTED.THREAD_P_ANY"},
+	{"LLC_MISSES", "LONGEST_LAT_CACHE.MISS"},
+	{"LLC-MISSES", "LONGEST_LAT_CACHE.MISS"},
+	{"LLC_REFERENCE", "LONGEST_LAT_CACHE.REFERENCE"},
+	{"LLC-REFERENCE", "LONGEST_LAT_CACHE.REFERENCE"},
+	{"LLC_MISS_RHITM", "mem_load_l3_miss_retired.remote_hitm"},
+	{"LLC-MISS-RHITM", "mem_load_l3_miss_retired.remote_hitm"},
+	{"RESOURCE_STALL", "RESOURCE_STALLS.ANY"},
+	{"RESOURCE_STALLS_ANY", "RESOURCE_STALLS.ANY"},
+	{"BRANCH_INSTRUCTION_RETIRED", "BR_INST_RETIRED.ALL_BRANCHES"},
+	{"BRANCH-INSTRUCTION-RETIRED", "BR_INST_RETIRED.ALL_BRANCHES"},
+	{"BRANCH_MISSES_RETIRED", "BR_MISP_RETIRED.ALL_BRANCHES"},
+	{"BRANCH-MISSES-RETIRED", "BR_MISP_RETIRED.ALL_BRANCHES"},
+	{"cycles", "tsc-tsc"},
+	{"instructions", "inst-retired.any_p"},
+	{"branch-mispredicts", "br_misp_retired.all_branches"},
+	{"branches", "br_inst_retired.all_branches"},
+	{"interrupts", "hw_interrupts.received"},
+	{"ic-misses", "frontend_retired.l1i_miss"},
+	{NULL, NULL},
 };
+
+/*
+ *  The Intel fixed mode counters are:
+ *	"inst_retired.any",
+ *	"cpu_clk_unhalted.thread",
+ *	"cpu_clk_unhalted.thread_any",
+ *	"cpu_clk_unhalted.ref_tsc",
+ *
+ */
 
 static const char *
 pmu_alias_get(const char *name)
@@ -81,28 +96,32 @@ struct pmu_event_desc {
 	uint32_t ped_frontend;
 	uint32_t ped_ldlat;
 	uint32_t ped_config1;
-	uint8_t ped_umask;
-	uint8_t ped_cmask;
-	uint8_t ped_any;
-	uint8_t ped_inv;
-	uint8_t ped_edge;
-	uint8_t ped_fc_mask;
-	uint8_t ped_ch_mask;
+	int16_t	ped_umask;
+	uint8_t	ped_cmask;
+	uint8_t	ped_any;
+	uint8_t	ped_inv;
+	uint8_t	ped_edge;
+	uint8_t	ped_fc_mask;
+	uint8_t	ped_ch_mask;
 };
 
 static const struct pmu_events_map *
-pmu_events_map_get(void)
+pmu_events_map_get(const char *cpuid)
 {
 	size_t s;
 	char buf[64];
 	const struct pmu_events_map *pme;
 
-	if (sysctlbyname("kern.hwpmc.cpuid", (void *)NULL, &s,
-					 (void *)NULL, 0) == -1)
-		return (NULL);
-	if (sysctlbyname("kern.hwpmc.cpuid", buf, &s,
-					 (void *)NULL, 0) == -1)
-		return (NULL);
+	if (cpuid != NULL) {
+		memcpy(buf, cpuid, 64);
+	} else {
+		if (sysctlbyname("kern.hwpmc.cpuid", (void *)NULL, &s,
+		    (void *)NULL, 0) == -1)
+			return (NULL);
+		if (sysctlbyname("kern.hwpmc.cpuid", buf, &s,
+		    (void *)NULL, 0) == -1)
+			return (NULL);
+	}
 	for (pme = pmu_events_map; pme->cpuid != NULL; pme++)
 		if (strcmp(buf, pme->cpuid) == 0)
 			return (pme);
@@ -110,13 +129,13 @@ pmu_events_map_get(void)
 }
 
 static const struct pmu_event *
-pmu_event_get(const char *event_name, int *idx)
+pmu_event_get(const char *cpuid, const char *event_name, int *idx)
 {
 	const struct pmu_events_map *pme;
 	const struct pmu_event *pe;
 	int i;
 
-	if ((pme = pmu_events_map_get()) == NULL)
+	if ((pme = pmu_events_map_get(cpuid)) == NULL)
 		return (NULL);
 	for (i = 0, pe = pme->table; pe->name || pe->desc || pe->event; pe++, i++) {
 		if (pe->name == NULL)
@@ -130,17 +149,28 @@ pmu_event_get(const char *event_name, int *idx)
 	return (NULL);
 }
 
+int
+pmc_pmu_idx_get_by_event(const char *cpuid, const char *event)
+{
+	int idx;
+	const char *realname;
+
+	realname = pmu_alias_get(event);
+	if (pmu_event_get(cpuid, realname, &idx) == NULL)
+		return (-1);
+	return (idx);
+}
+
 const char *
-pmu_event_get_by_idx(int idx)
+pmc_pmu_event_get_by_idx(const char *cpuid, int idx)
 {
 	const struct pmu_events_map *pme;
 	const struct pmu_event *pe;
 	int i;
 
-	if ((pme = pmu_events_map_get()) == NULL)
+	if ((pme = pmu_events_map_get(cpuid)) == NULL)
 		return (NULL);
-	for (i = 0, pe = pme->table; (pe->name || pe->desc || pe->event) && i < idx; pe++, i++)
-		;
+	for (i = 0, pe = pme->table; (pe->name || pe->desc || pe->event) && i < idx; pe++, i++);
 	return (pe->name);
 }
 
@@ -148,12 +178,14 @@ static int
 pmu_parse_event(struct pmu_event_desc *ped, const char *eventin)
 {
 	char *event;
-	char *kvp, *key, *value;
+	char *kvp, *key, *value, *r;
 	char *debug;
 
 	if ((event = strdup(eventin)) == NULL)
 		return (ENOMEM);
+	r = event;
 	bzero(ped, sizeof(*ped));
+	ped->ped_umask = -1;
 	while ((kvp = strsep(&event, ",")) != NULL) {
 		key = strsep(&kvp, "=");
 		if (key == NULL)
@@ -191,7 +223,7 @@ pmu_parse_event(struct pmu_event_desc *ped, const char *eventin)
 				printf("unrecognized kvpair: %s:%s\n", key, value);
 		}
 	}
-	free(event);
+	free(r);
 	return (0);
 }
 
@@ -202,9 +234,9 @@ pmc_pmu_sample_rate_get(const char *event_name)
 	struct pmu_event_desc ped;
 
 	event_name = pmu_alias_get(event_name);
-	if ((pe = pmu_event_get(event_name, NULL)) == NULL)
+	if ((pe = pmu_event_get(NULL, event_name, NULL)) == NULL)
 		return (DEFAULT_SAMPLE_COUNT);
-	if (pe->alias && (pe = pmu_event_get(pe->alias, NULL)) == NULL)
+	if (pe->alias && (pe = pmu_event_get(NULL, pe->alias, NULL)) == NULL)
 		return (DEFAULT_SAMPLE_COUNT);
 	if (pe->event == NULL)
 		return (DEFAULT_SAMPLE_COUNT);
@@ -217,27 +249,29 @@ int
 pmc_pmu_enabled(void)
 {
 
-	return (pmu_events_map_get() != NULL);
+	return (pmu_events_map_get(NULL) != NULL);
 }
 
 void
-pmc_pmu_print_counters(void)
+pmc_pmu_print_counters(const char *event_name)
 {
 	const struct pmu_events_map *pme;
 	const struct pmu_event *pe;
 	struct pmu_event_desc ped;
 	char *debug;
 	int do_debug;
-	
+
 	debug = getenv("PMUDEBUG");
 	do_debug = 0;
 
 	if (debug != NULL && strcmp(debug, "true") == 0)
 		do_debug = 1;
-	if ((pme = pmu_events_map_get()) == NULL)
+	if ((pme = pmu_events_map_get(NULL)) == NULL)
 		return;
 	for (pe = pme->table; pe->name || pe->desc || pe->event; pe++) {
 		if (pe->name == NULL)
+			continue;
+		if (event_name != NULL && strcasestr(pe->name, event_name) == NULL)
 			continue;
 		printf("\t%s\n", pe->name);
 		if (do_debug)
@@ -251,14 +285,14 @@ pmc_pmu_print_counter_desc(const char *ev)
 	const struct pmu_events_map *pme;
 	const struct pmu_event *pe;
 
-	if ((pme = pmu_events_map_get()) == NULL)
+	if ((pme = pmu_events_map_get(NULL)) == NULL)
 		return;
 	for (pe = pme->table; pe->name || pe->desc || pe->event; pe++) {
 		if (pe->name == NULL)
 			continue;
 		if (strcasestr(pe->name, ev) != NULL &&
-			pe->desc != NULL)
-				printf("%s:\t%s\n", pe->name, pe->desc);
+		    pe->desc != NULL)
+			printf("%s:\t%s\n", pe->name, pe->desc);
 	}
 }
 
@@ -268,7 +302,7 @@ pmc_pmu_print_counter_desc_long(const char *ev)
 	const struct pmu_events_map *pme;
 	const struct pmu_event *pe;
 
-	if ((pme = pmu_events_map_get()) == NULL)
+	if ((pme = pmu_events_map_get(NULL)) == NULL)
 		return;
 	for (pe = pme->table; pe->name || pe->desc || pe->event; pe++) {
 		if (pe->name == NULL)
@@ -282,30 +316,81 @@ pmc_pmu_print_counter_desc_long(const char *ev)
 	}
 }
 
+void
+pmc_pmu_print_counter_full(const char *ev)
+{
+	const struct pmu_events_map *pme;
+	const struct pmu_event *pe;
+
+	if ((pme = pmu_events_map_get(NULL)) == NULL)
+		return;
+	for (pe = pme->table; pe->name || pe->desc || pe->event; pe++) {
+		if (pe->name == NULL)
+			continue;
+		if (strcasestr(pe->name, ev) == NULL)
+			continue;
+		printf("name: %s\n", pe->name);
+		if (pe->long_desc != NULL)
+			printf("desc: %s\n", pe->long_desc);
+		else if (pe->desc != NULL)
+			printf("desc: %s\n", pe->desc);
+		if (pe->event != NULL)
+			printf("event: %s\n", pe->event);
+		if (pe->topic != NULL)
+			printf("topic: %s\n", pe->topic);
+		if (pe->pmu != NULL)
+			printf("pmu: %s\n", pe->pmu);
+		if (pe->unit != NULL)
+			printf("unit: %s\n", pe->unit);
+		if (pe->perpkg != NULL)
+			printf("perpkg: %s\n", pe->perpkg);
+		if (pe->metric_expr != NULL)
+			printf("metric_expr: %s\n", pe->metric_expr);
+		if (pe->metric_name != NULL)
+			printf("metric_name: %s\n", pe->metric_name);
+		if (pe->metric_group != NULL)
+			printf("metric_group: %s\n", pe->metric_group);
+	}
+}
+
 int
 pmc_pmu_pmcallocate(const char *event_name, struct pmc_op_pmcallocate *pm)
 {
 	const struct pmu_event *pe;
 	struct pmu_event_desc ped;
 	struct pmc_md_iap_op_pmcallocate *iap;
-	int idx;
+	int idx, isfixed;
 
 	iap = &pm->pm_md.pm_iap;
+	isfixed = 0;
 	bzero(iap, sizeof(*iap));
 	event_name = pmu_alias_get(event_name);
-	if ((pe = pmu_event_get(event_name, &idx)) == NULL)
+	pm->pm_caps |= (PMC_CAP_READ | PMC_CAP_WRITE);
+	if ((pe = pmu_event_get(NULL, event_name, &idx)) == NULL)
 		return (ENOENT);
-	if (pe->alias && (pe = pmu_event_get(pe->alias, &idx)) == NULL)
+	if (pe->alias && (pe = pmu_event_get(NULL, pe->alias, &idx)) == NULL)
 		return (ENOENT);
 	if (pe->event == NULL)
 		return (ENOENT);
 	if (pmu_parse_event(&ped, pe->event))
 		return (ENOENT);
 
-	pm->pm_class = PMC_CLASS_IAP;
+
+	if (strcasestr(event_name, "UNC_") == event_name ||
+	    strcasestr(event_name, "uncore") != NULL) {
+		pm->pm_class = PMC_CLASS_UCP;
+		pm->pm_caps |= PMC_CAP_QUALIFIER;
+	} else if ((ped.ped_umask == -1) ||
+	    (ped.ped_event == 0x0 && ped.ped_umask == 0x3)) {
+		pm->pm_class = PMC_CLASS_IAF;
+	} else {
+		pm->pm_class = PMC_CLASS_IAP;
+		pm->pm_caps |= PMC_CAP_QUALIFIER;
+	}
 	pm->pm_ev = idx;
 	iap->pm_iap_config |= IAP_EVSEL(ped.ped_event);
-	iap->pm_iap_config |= IAP_UMASK(ped.ped_umask);
+	if (ped.ped_umask > 0)
+		iap->pm_iap_config |= IAP_UMASK(ped.ped_umask);
 	iap->pm_iap_config |= IAP_CMASK(ped.ped_cmask);
 	iap->pm_iap_rsp = ped.ped_offcore_rsp;
 
@@ -321,13 +406,85 @@ pmc_pmu_pmcallocate(const char *event_name, struct pmc_op_pmcallocate *pm)
 	return (0);
 }
 
+/*
+ * Ultimately rely on AMD calling theirs the same
+ */
+static const char *stat_mode_cntrs[] = {
+	"cpu_clk_unhalted.thread",
+	"inst_retired.any",
+	"br_inst_retired.all_branches",
+	"br_misp_retired.all_branches",
+	"longest_lat_cache.reference",
+	"longest_lat_cache.miss",
+};
+
+int
+pmc_pmu_stat_mode(const char ***cntrs)
+{
+	if (pmc_pmu_enabled()) {
+		*cntrs = stat_mode_cntrs;
+		return (0);
+	}
+	return (EOPNOTSUPP);
+}
+
 #else
-uint64_t pmc_pmu_sample_rate_get(const char *event_name __unused) { return (DEFAULT_SAMPLE_COUNT); }
-void pmc_pmu_print_counters(void) {}
-void pmc_pmu_print_counter_desc(const char *e __unused) {}
-void pmc_pmu_print_counter_desc_long(const char *e __unused) {}
-int pmc_pmu_enabled(void) { return (0); }
-int pmc_pmu_pmcallocate(const char *e __unused, struct pmc_op_pmcallocate *p __unused) { return (EOPNOTSUPP); }
-const char *pmu_event_get_by_idx(int idx __unused) { return (NULL); }
+
+uint64_t
+pmc_pmu_sample_rate_get(const char *event_name __unused)
+{
+	return (DEFAULT_SAMPLE_COUNT);
+}
+
+void
+pmc_pmu_print_counters(const char *event_name __unused)
+{
+}
+
+void
+pmc_pmu_print_counter_desc(const char *e __unused)
+{
+}
+
+void
+pmc_pmu_print_counter_desc_long(const char *e __unused)
+{
+}
+
+void
+pmc_pmu_print_counter_full(const char *e __unused)
+{
+
+}
+
+int
+pmc_pmu_enabled(void)
+{
+	return (0);
+}
+
+int
+pmc_pmu_pmcallocate(const char *e __unused, struct pmc_op_pmcallocate *p __unused)
+{
+	return (EOPNOTSUPP);
+}
+
+const char *
+pmc_pmu_event_get_by_idx(const char *c __unused, int idx __unused)
+{
+	return (NULL);
+}
+
+int
+pmc_pmu_stat_mode(const char ***a __unused)
+{
+	return (EOPNOTSUPP);
+}
+
+int
+pmc_pmu_idx_get_by_event(const char *c __unused, const char *e __unused)
+{
+	return (-1);
+}
 
 #endif

@@ -224,8 +224,9 @@ static int
 iaf_allocate_pmc(int cpu, int ri, struct pmc *pm,
     const struct pmc_op_pmcallocate *a)
 {
-	enum pmc_event ev;
-	uint32_t caps, flags, validflags;
+	uint8_t ev, umask;
+	uint32_t caps, flags, config;
+	const struct pmc_md_iap_op_pmcallocate *iap;
 
 	KASSERT(cpu >= 0 && cpu < pmc_cpu_max(),
 	    ("[core,%d] illegal CPU %d", __LINE__, cpu));
@@ -241,27 +242,31 @@ iaf_allocate_pmc(int cpu, int ri, struct pmc *pm,
 	    (caps & IAF_PMC_CAPS) != caps)
 		return (EINVAL);
 
-	ev = pm->pm_event;
-	if (ev < PMC_EV_IAF_FIRST || ev > PMC_EV_IAF_LAST)
+	iap = &a->pm_md.pm_iap;
+	config = iap->pm_iap_config;
+	ev = IAP_EVSEL_GET(config);
+	umask = IAP_UMASK_GET(config);
+
+	/* INST_RETIRED.ANY */
+	if (ev == 0xC0 && ri != 0)
+		return (EINVAL);
+	/* CPU_CLK_UNHALTED.THREAD */
+	if (ev == 0x3C && ri != 1)
+		return (EINVAL);
+	/* CPU_CLK_UNHALTED.REF */
+	if (ev == 0x0 && umask == 0x3 && ri != 2)
 		return (EINVAL);
 
-	if (ev == PMC_EV_IAF_INSTR_RETIRED_ANY && ri != 0)
-		return (EINVAL);
-	if (ev == PMC_EV_IAF_CPU_CLK_UNHALTED_CORE && ri != 1)
-		return (EINVAL);
-	if (ev == PMC_EV_IAF_CPU_CLK_UNHALTED_REF && ri != 2)
-		return (EINVAL);
 
-	flags = a->pm_md.pm_iaf.pm_iaf_flags;
-
-	validflags = IAF_MASK;
-
-	if (core_cputype != PMC_CPU_INTEL_ATOM &&
-		core_cputype != PMC_CPU_INTEL_ATOM_SILVERMONT)
-		validflags &= ~IAF_ANY;
-
-	if ((flags & ~validflags) != 0)
-		return (EINVAL);
+	flags = 0;
+	if (config & IAP_OS)
+		flags |= IAF_OS;
+	if (config & IAP_USR)
+		flags |= IAF_USR;
+	if (config & IAP_ANY)
+		flags |= IAF_ANY;
+	if (config & IAP_INT)
+		flags |= IAF_PMI;
 
 	if (caps & PMC_CAP_INTERRUPT)
 		flags |= IAF_PMI;
@@ -445,10 +450,6 @@ iaf_stop_pmc(int cpu, int ri)
 	    ("[core,%d] illegal row-index %d", __LINE__, ri));
 
 	fc = (IAF_MASK << (ri * 4));
-
-	if (core_cputype != PMC_CPU_INTEL_ATOM &&
-		core_cputype != PMC_CPU_INTEL_ATOM_SILVERMONT)
-		fc &= ~IAF_ANY;
 
 	iafc->pc_iafctrl &= ~fc;
 
