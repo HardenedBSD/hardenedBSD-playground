@@ -44,4 +44,10 @@ SRCS+=		sanitizer_common/sanitizer_thread_registry.cc
 SRCS+=		sanitizer_common/sanitizer_tls_get_addr.cc
 SRCS+=		sanitizer_common/sanitizer_win.cc
 
+.if ${MK_CROSS_DSO_CFI} == "no" && ${MK_LLD_IS_LD} != "no" && ${MK_CLANG_IS_CC} != "no"
+CFLAGS+=	-flto
+CXXFLAGS+=	-flto
+LDFLAGS+=	-flto
+.endif
+
 .include <bsd.lib.mk>
