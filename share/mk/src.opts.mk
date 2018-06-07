@@ -542,6 +542,10 @@ MK_DEVD_PIE:=	yes
 # SafeStack. Including SafeStack will break the One Definition Rule
 # (ODR).
 MK_SAFESTACK:=	no
+
+# libpmc and friends are receiving a lot of code churn right now.
+# Disable building libpmc and friends due to build issues.
+MK_PMC:=	no
 .endif
 
 
