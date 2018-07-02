@@ -392,6 +392,7 @@ FBSD_1.5 {
 	getdents;
 	getdirentries;
 	getfsstat;
+	getrandom;
 	kevent;
 	lstat;
 	mknod;
@@ -1009,8 +1010,6 @@ FBSDprivate_1.0 {
 	__sys_utrace;
 	_uuidgen;
 	__sys_uuidgen;
-	_vadvise;
-	__sys_vadvise;
 	_wait4;
 	__sys_wait4;
 	_wait6;

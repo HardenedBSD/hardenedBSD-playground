@@ -30,7 +30,9 @@
 #include <sys/sockio.h>
 #include <machine/atomic.h>
 
-#define	ETH_DRIVER_VERSION	"3.1.0-dev"
+#ifndef ETH_DRIVER_VERSION
+#define	ETH_DRIVER_VERSION	"3.4.1"
+#endif
 char mlx5e_version[] = "Mellanox Ethernet driver"
     " (" ETH_DRIVER_VERSION ")";
 
@@ -642,7 +644,7 @@ mlx5e_update_stats(void *arg)
 {
 	struct mlx5e_priv *priv = arg;
 
-	schedule_work(&priv->update_stats_work);
+	queue_work(priv->wq, &priv->update_stats_work);
 
 	callout_reset(&priv->watchdog, hz, &mlx5e_update_stats, priv);
 }
@@ -654,7 +656,7 @@ mlx5e_async_event_sub(struct mlx5e_priv *priv,
 	switch (event) {
 	case MLX5_DEV_EVENT_PORT_UP:
 	case MLX5_DEV_EVENT_PORT_DOWN:
-		schedule_work(&priv->update_carrier_work);
+		queue_work(priv->wq, &priv->update_carrier_work);
 		break;
 
 	default:
@@ -907,8 +909,7 @@ mlx5e_destroy_rq(struct mlx5e_rq *rq)
 	wq_sz = mlx5_wq_ll_get_size(&rq->wq);
 	for (i = 0; i != wq_sz; i++) {
 		if (rq->mbuf[i].mbuf != NULL) {
-			bus_dmamap_unload(rq->dma_tag,
-			    rq->mbuf[i].dma_map);
+			bus_dmamap_unload(rq->dma_tag, rq->mbuf[i].dma_map);
 			m_freem(rq->mbuf[i].mbuf);
 		}
 		bus_dmamap_destroy(rq->dma_tag, rq->mbuf[i].dma_map);
@@ -1064,8 +1065,11 @@ mlx5e_close_rq(struct mlx5e_rq *rq)
 static void
 mlx5e_close_rq_wait(struct mlx5e_rq *rq)
 {
+	struct mlx5_core_dev *mdev = rq->channel->priv->mdev;
+
 	/* wait till RQ is empty */
-	while (!mlx5_wq_ll_is_empty(&rq->wq)) {
+	while (!mlx5_wq_ll_is_empty(&rq->wq) &&
+	       (mdev->state != MLX5_DEVICE_STATE_INTERNAL_ERROR)) {
 		msleep(4);
 		rq->cq.mcq.comp(&rq->cq.mcq);
 	}
@@ -1404,6 +1408,7 @@ void
 mlx5e_drain_sq(struct mlx5e_sq *sq)
 {
 	int error;
+	struct mlx5_core_dev *mdev= sq->priv->mdev;
 
 	/*
 	 * Check if already stopped.
@@ -1436,7 +1441,8 @@ mlx5e_drain_sq(struct mlx5e_sq *sq)
 	/* wait till SQ is empty or link is down */
 	mtx_lock(&sq->lock);
 	while (sq->cc != sq->pc &&
-	    (sq->priv->media_status_last & IFM_ACTIVE) != 0) {
+	    (sq->priv->media_status_last & IFM_ACTIVE) != 0 &&
+	    mdev->state != MLX5_DEVICE_STATE_INTERNAL_ERROR) {
 		mtx_unlock(&sq->lock);
 		msleep(1);
 		sq->cq.mcq.comp(&sq->cq.mcq);
@@ -1453,7 +1459,8 @@ mlx5e_drain_sq(struct mlx5e_sq *sq)
 
 	/* wait till SQ is empty */
 	mtx_lock(&sq->lock);
-	while (sq->cc != sq->pc) {
+	while (sq->cc != sq->pc &&
+	       mdev->state != MLX5_DEVICE_STATE_INTERNAL_ERROR) {
 		mtx_unlock(&sq->lock);
 		msleep(1);
 		sq->cq.mcq.comp(&sq->cq.mcq);
@@ -2686,7 +2693,7 @@ mlx5e_set_rx_mode(struct ifnet *ifp)
 {
 	struct mlx5e_priv *priv = ifp->if_softc;
 
-	schedule_work(&priv->set_rx_mode_work);
+	queue_work(priv->wq, &priv->set_rx_mode_work);
 }
 
 static int
@@ -2879,7 +2886,7 @@ out:
 		 * Copy from the user-space address ifr_data to the
 		 * kernel-space address i2c
 		 */
-		error = copyin(ifr->ifr_data, &i2c, sizeof(i2c));
+		error = copyin(ifr_data_get_ptr(ifr), &i2c, sizeof(i2c));
 		if (error)
 			break;
 
@@ -2943,7 +2950,7 @@ out:
 			goto err_i2c;
 		}
 
-		error = copyout(&i2c, ifr->ifr_data, sizeof(i2c));
+		error = copyout(&i2c, ifr_data_get_ptr(ifr), sizeof(i2c));
 err_i2c:
 		PRIV_UNLOCK(priv);
 		break;
@@ -3500,6 +3507,13 @@ mlx5e_create_ifp(struct mlx5_core_dev *mdev)
 	ifp->if_capabilities |= IFCAP_LRO;
 	ifp->if_capabilities |= IFCAP_TSO | IFCAP_VLAN_HWTSO;
 	ifp->if_capabilities |= IFCAP_HWSTATS | IFCAP_HWRXTSTMP;
+#ifdef RATELIMIT
+	ifp->if_capabilities |= IFCAP_TXRTLMT;
+	ifp->if_snd_tag_alloc = mlx5e_rl_snd_tag_alloc;
+	ifp->if_snd_tag_free = mlx5e_rl_snd_tag_free;
+	ifp->if_snd_tag_modify = mlx5e_rl_snd_tag_modify;
+	ifp->if_snd_tag_query = mlx5e_rl_snd_tag_query;
+#endif
 
 	/* set TSO limits so that we don't have to drop TX packets */
 	ifp->if_hw_tsomax = MLX5E_MAX_TX_PAYLOAD_SIZE - (ETHER_HDR_LEN + ETHER_VLAN_ENCAP_LEN);
@@ -3540,11 +3554,20 @@ mlx5e_create_ifp(struct mlx5_core_dev *mdev)
 		goto err_free_sysctl;
 	}
 	mlx5e_build_ifp_priv(mdev, priv, ncv);
+
+	snprintf(unit, sizeof(unit), "mce%u_wq",
+	    device_get_unit(mdev->pdev->dev.bsddev));
+	priv->wq = alloc_workqueue(unit, 0, 1);
+	if (priv->wq == NULL) {
+		if_printf(ifp, "%s: alloc_workqueue failed\n", __func__);
+		goto err_free_sysctl;
+	}
+
 	err = mlx5_alloc_map_uar(mdev, &priv->cq_uar);
 	if (err) {
 		if_printf(ifp, "%s: mlx5_alloc_map_uar failed, %d\n",
 		    __func__, err);
-		goto err_free_sysctl;
+		goto err_free_wq;
 	}
 	err = mlx5_core_alloc_pd(mdev, &priv->pdn);
 	if (err) {
@@ -3572,6 +3595,14 @@ mlx5e_create_ifp(struct mlx5_core_dev *mdev)
 		random_ether_addr(dev_addr);
 		if_printf(ifp, "Assigned random MAC address\n");
 	}
+#ifdef RATELIMIT
+	err = mlx5e_rl_init(priv);
+	if (err) {
+		if_printf(ifp, "%s: mlx5e_rl_init failed, %d\n",
+		    __func__, err);
+		goto err_create_mkey;
+	}
+#endif
 
 	/* set default MTU */
 	mlx5e_set_dev_port_mtu(ifp, ifp->if_mtu);
@@ -3657,6 +3688,10 @@ mlx5e_create_ifp(struct mlx5_core_dev *mdev)
 
 	return (priv);
 
+#ifdef RATELIMIT
+err_create_mkey:
+	mlx5_core_destroy_mkey(priv->mdev, &priv->mr);
+#endif
 err_dealloc_transport_domain:
 	mlx5_dealloc_transport_domain(mdev, priv->tdn);
 
@@ -3665,6 +3700,9 @@ err_dealloc_pd:
 
 err_unmap_free_uar:
 	mlx5_unmap_free_uar(mdev, &priv->cq_uar);
+
+err_free_wq:
+	destroy_workqueue(priv->wq);
 
 err_free_sysctl:
 	sysctl_ctx_free(&priv->sysctl_ctx);
@@ -3696,6 +3734,18 @@ mlx5e_destroy_ifp(struct mlx5_core_dev *mdev, void *vpriv)
 	/* XXX wait a bit to allow IOCTL handlers to complete */
 	pause("W", hz);
 
+#ifdef RATELIMIT
+	/*
+	 * The kernel can have reference(s) via the m_snd_tag's into
+	 * the ratelimit channels, and these must go away before
+	 * detaching:
+	 */
+	while (READ_ONCE(priv->rl.stats.tx_active_connections) != 0) {
+		if_printf(priv->ifp, "Waiting for all ratelimit connections "
+		    "to terminate\n");
+		pause("W", hz);
+	}
+#endif
 	/* stop watchdog timer */
 	callout_drain(&priv->watchdog);
 
@@ -3716,6 +3766,9 @@ mlx5e_destroy_ifp(struct mlx5_core_dev *mdev, void *vpriv)
 	ether_ifdetach(ifp);
 	if_free(ifp);
 
+#ifdef RATELIMIT
+	mlx5e_rl_cleanup(priv);
+#endif
 	/* destroy all remaining sysctl nodes */
 	if (priv->sysctl_debug)
 		sysctl_ctx_free(&priv->stats.port_stats_debug.ctx);
@@ -3728,7 +3781,7 @@ mlx5e_destroy_ifp(struct mlx5_core_dev *mdev, void *vpriv)
 	mlx5_core_dealloc_pd(priv->mdev, priv->pdn);
 	mlx5_unmap_free_uar(priv->mdev, &priv->cq_uar);
 	mlx5e_disable_async_events(priv);
-	flush_scheduled_work();
+	destroy_workqueue(priv->wq);
 	mlx5e_priv_mtx_destroy(priv);
 	free(priv, M_MLX5EN);
 }

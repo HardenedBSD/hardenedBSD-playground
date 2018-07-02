@@ -59,7 +59,7 @@ MIASM =  \
 	vfork.o \
 	sbrk.o \
 	sstk.o \
-	vadvise.o \
+	freebsd11_vadvise.o \
 	munmap.o \
 	mprotect.o \
 	madvise.o \
@@ -405,4 +405,5 @@ MIASM =  \
 	mknodat.o \
 	kevent.o \
 	cpuset_getdomain.o \
-	cpuset_setdomain.o
+	cpuset_setdomain.o \
+	getrandom.o

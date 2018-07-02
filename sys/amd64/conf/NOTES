@@ -332,8 +332,8 @@ device		ipw		# Intel 2100 wireless NICs.
 device		iwi		# Intel 2200BG/2225BG/2915ABG wireless NICs.
 device		iwn		# Intel 4965/1000/5000/6000 wireless NICs.
 device		ixl		# Intel XL710 40Gbe PCIE Ethernet
-options		IXL_IW		# Enable iWARP Client Interface in ixl(4)
-device		ixlv		# Intel XL710 40Gbe VF PCIE Ethernet
+#options		IXL_IW		# Enable iWARP Client Interface in ixl(4)
+#device		ixlv		# Intel XL710 40Gbe VF PCIE Ethernet
 device  	mthca		# Mellanox HCA InfiniBand
 device  	mlx4		# Shared code module between IB and Ethernet
 device  	mlx4ib		# Mellanox ConnectX HCA InfiniBand
@@ -412,6 +412,13 @@ device		ntb_hw_plx	# PLX NTB hardware driver
 # CAM is required.
 #
 device		arcmsr		# Areca SATA II RAID
+
+#
+# Microsemi smartpqi controllers.
+# These controllers have a SCSI-like interface, and require the
+# CAM infrastructure.
+#
+device		smartpqi
 
 #
 # 3ware 9000 series PATA/SATA RAID controller driver and options.

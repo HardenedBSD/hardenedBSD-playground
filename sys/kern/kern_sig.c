@@ -39,7 +39,6 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#include "opt_compat.h"
 #include "opt_ktrace.h"
 #include "opt_pax.h"
 
@@ -608,11 +607,8 @@ cursig(struct thread *td)
 void
 signotify(struct thread *td)
 {
-	struct proc *p;
 
-	p = td->td_proc;
-
-	PROC_LOCK_ASSERT(p, MA_OWNED);
+	PROC_LOCK_ASSERT(td->td_proc, MA_OWNED);
 
 	if (SIGPENDING(td)) {
 		thread_lock(td);
@@ -696,8 +692,8 @@ kern_sigaction(struct thread *td, int sig, const struct sigaction *act,
 	ps = p->p_sigacts;
 	mtx_lock(&ps->ps_mtx);
 	if (oact) {
+		memset(oact, 0, sizeof(*oact));
 		oact->sa_mask = ps->ps_catchmask[_SIG_IDX(sig)];
-		oact->sa_flags = 0;
 		if (SIGISMEMBER(ps->ps_sigonstack, sig))
 			oact->sa_flags |= SA_ONSTACK;
 		if (!SIGISMEMBER(ps->ps_sigintr, sig))
@@ -1792,7 +1788,6 @@ int
 sys_pdkill(struct thread *td, struct pdkill_args *uap)
 {
 	struct proc *p;
-	cap_rights_t rights;
 	int error;
 
 	AUDIT_ARG_SIGNUM(uap->signum);
@@ -1800,8 +1795,7 @@ sys_pdkill(struct thread *td, struct pdkill_args *uap)
 	if ((u_int)uap->signum > _SIG_MAXSIG)
 		return (EINVAL);
 
-	error = procdesc_find(td, uap->fd,
-	    cap_rights_init(&rights, CAP_PDKILL), &p);
+	error = procdesc_find(td, uap->fd, &cap_pdkill_rights, &p);
 	if (error)
 		return (error);
 	AUDIT_ARG_PROCESS(p);
@@ -2589,7 +2583,6 @@ ptracestop(struct thread *td, int sig, ksiginfo_t *si)
 			}
 			if ((td->td_dbgflags & TDB_STOPATFORK) != 0) {
 				td->td_dbgflags &= ~TDB_STOPATFORK;
-				cv_broadcast(&p->p_dbgwait);
 			}
 stopme:
 			thread_suspend_switch(td, p);
@@ -3311,6 +3304,88 @@ SYSCTL_PROC(_kern, OID_AUTO, corefile, CTLTYPE_STRING | CTLFLAG_RW |
     CTLFLAG_MPSAFE, 0, 0, sysctl_kern_corefile, "A",
     "Process corefile name format string");
 
+static void
+vnode_close_locked(struct thread *td, struct vnode *vp)
+{
+
+	VOP_UNLOCK(vp, 0);
+	vn_close(vp, FWRITE, td->td_ucred, td);
+}
+
+/*
+ * If the core format has a %I in it, then we need to check
+ * for existing corefiles before defining a name.
+ * To do this we iterate over 0..num_cores to find a
+ * non-existing core file name to use. If all core files are
+ * already used we choose the oldest one.
+ */
+static int
+corefile_open_last(struct thread *td, char *name, int indexpos,
+    struct vnode **vpp)
+{
+	struct vnode *oldvp, *nextvp, *vp;
+	struct vattr vattr;
+	struct nameidata nd;
+	int error, i, flags, oflags, cmode;
+	struct timespec lasttime;
+
+	nextvp = oldvp = NULL;
+	cmode = S_IRUSR | S_IWUSR;
+	oflags = VN_OPEN_NOAUDIT | VN_OPEN_NAMECACHE |
+	    (capmode_coredump ? VN_OPEN_NOCAPCHECK : 0);
+
+	for (i = 0; i < num_cores; i++) {
+		flags = O_CREAT | FWRITE | O_NOFOLLOW;
+		name[indexpos] = '0' + i;
+
+		NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
+		error = vn_open_cred(&nd, &flags, cmode, oflags, td->td_ucred,
+		    NULL);
+		if (error != 0)
+			break;
+
+		vp = nd.ni_vp;
+		NDFREE(&nd, NDF_ONLY_PNBUF);
+		if ((flags & O_CREAT) == O_CREAT) {
+			nextvp = vp;
+			break;
+		}
+
+		error = VOP_GETATTR(vp, &vattr, td->td_ucred);
+		if (error != 0) {
+			vnode_close_locked(td, vp);
+			break;
+		}
+
+		if (oldvp == NULL ||
+		    lasttime.tv_sec > vattr.va_mtime.tv_sec ||
+		    (lasttime.tv_sec == vattr.va_mtime.tv_sec &&
+		    lasttime.tv_nsec >= vattr.va_mtime.tv_nsec)) {
+			if (oldvp != NULL)
+				vnode_close_locked(td, oldvp);
+			oldvp = vp;
+			lasttime = vattr.va_mtime;
+		} else {
+			vnode_close_locked(td, vp);
+		}
+	}
+
+	if (oldvp != NULL) {
+		if (nextvp == NULL)
+			nextvp = oldvp;
+		else
+			vnode_close_locked(td, oldvp);
+	}
+	if (error != 0) {
+		if (nextvp != NULL)
+			vnode_close_locked(td, oldvp);
+	} else {
+		*vpp = nextvp;
+	}
+
+	return (error);
+}
+
 /*
  * corefile_open(comm, uid, pid, td, compress, vpp, namep)
  * Expand the name described in corefilename, using name, uid, and pid
@@ -3327,11 +3402,11 @@ static int
 corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
     int compress, struct vnode **vpp, char **namep)
 {
-	struct nameidata nd;
 	struct sbuf sb;
+	struct nameidata nd;
 	const char *format;
 	char *hostname, *name;
-	int indexpos, i, error, cmode, flags, oflags;
+	int cmode, error, flags, i, indexpos, oflags;
 
 	hostname = NULL;
 	format = corefilename;
@@ -3397,71 +3472,39 @@ corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
 	sbuf_finish(&sb);
 	sbuf_delete(&sb);
 
-	cmode = S_IRUSR | S_IWUSR;
-	oflags = VN_OPEN_NOAUDIT | VN_OPEN_NAMECACHE |
-	    (capmode_coredump ? VN_OPEN_NOCAPCHECK : 0);
-
-	/*
-	 * If the core format has a %I in it, then we need to check
-	 * for existing corefiles before returning a name.
-	 * To do this we iterate over 0..num_cores to find a
-	 * non-existing core file name to use.
-	 */
 	if (indexpos != -1) {
-		for (i = 0; i < num_cores; i++) {
-			flags = O_CREAT | O_EXCL | FWRITE | O_NOFOLLOW;
-			name[indexpos] = '0' + i;
-			NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
-			error = vn_open_cred(&nd, &flags, cmode, oflags,
-			    td->td_ucred, NULL);
-			if (error) {
-				if (error == EEXIST)
-					continue;
-				log(LOG_ERR,
-				    "pid %d (%s), uid (%u):  Path `%s' failed "
-				    "on initial open test, error = %d\n",
-				    pid, comm, uid, name, error);
-			}
-			goto out;
+		error = corefile_open_last(td, name, indexpos, vpp);
+		if (error != 0) {
+			log(LOG_ERR,
+			    "pid %d (%s), uid (%u):  Path `%s' failed "
+			    "on initial open test, error = %d\n",
+			    pid, comm, uid, name, error);
+		}
+	} else {
+		cmode = S_IRUSR | S_IWUSR;
+		oflags = VN_OPEN_NOAUDIT | VN_OPEN_NAMECACHE |
+		    (capmode_coredump ? VN_OPEN_NOCAPCHECK : 0);
+		flags = O_CREAT | FWRITE | O_NOFOLLOW;
+
+		NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
+		error = vn_open_cred(&nd, &flags, cmode, oflags, td->td_ucred,
+		    NULL);
+		if (error == 0) {
+			*vpp = nd.ni_vp;
+			NDFREE(&nd, NDF_ONLY_PNBUF);
 		}
 	}
 
-	flags = O_CREAT | FWRITE | O_NOFOLLOW;
-	NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
-	error = vn_open_cred(&nd, &flags, cmode, oflags, td->td_ucred, NULL);
-out:
-	if (error) {
+	if (error != 0) {
 #ifdef AUDIT
 		audit_proc_coredump(td, name, error);
 #endif
 		free(name, M_TEMP);
 		return (error);
 	}
-	NDFREE(&nd, NDF_ONLY_PNBUF);
-	*vpp = nd.ni_vp;
 	*namep = name;
 	return (0);
 }
-
-#ifdef PAX_INSECURE_MODE
-static int
-coredump_sanitise_path(const char *path)
-{
-	size_t i;
-
-	/*
-	 * Only send a subset of ASCII to devd(8) because it
-	 * might pass these strings to sh -c.
-	 */
-	for (i = 0; path[i]; i++)
-		if (!(isalpha(path[i]) || isdigit(path[i])) &&
-		    path[i] != '/' && path[i] != '.' &&
-		    path[i] != '-')
-			return (0);
-
-	return (1);
-}
-#endif /* PAX_INSECURE_MODE */
 
 /*
  * Dump a process' core.  The main routine does some
@@ -3483,13 +3526,8 @@ coredump(struct thread *td)
 	char *name;			/* name of corefile */
 	void *rl_cookie;
 	off_t limit;
-#ifdef PAX_INSECURE_MODE
-	char *data = NULL;
 	char *fullpath, *freepath = NULL;
-	size_t len;
-	static const char comm_name[] = "comm=";
-	static const char core_name[] = "core=";
-#endif /* PAX_INSECURE_MODE */
+	struct sbuf *sb;
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	MPASS((p->p_flag & P_HADTHREADS) == 0 || p->p_singlethread == td);
@@ -3566,31 +3604,41 @@ coredump(struct thread *td)
 	}
 	vn_rangelock_unlock(vp, rl_cookie);
 
-#ifdef PAX_INSECURE_MODE
 	/*
 	 * Notify the userland helper that a process triggered a core dump.
 	 * This allows the helper to run an automated debugging session.
 	 */
 	if (error != 0 || coredump_devctl == 0)
 		goto out;
-	len = MAXPATHLEN * 2 + sizeof(comm_name) - 1 +
-	    sizeof(' ') + sizeof(core_name) - 1;
-	data = malloc(len, M_TEMP, M_WAITOK);
+	sb = sbuf_new_auto();
 	if (vn_fullpath_global(td, p->p_textvp, &fullpath, &freepath) != 0)
-		goto out;
-	if (!coredump_sanitise_path(fullpath))
-		goto out;
-	snprintf(data, len, "%s%s ", comm_name, fullpath);
+		goto out2;
+	sbuf_printf(sb, "comm=\"");
+	devctl_safe_quote_sb(sb, fullpath);
 	free(freepath, M_TEMP);
-	freepath = NULL;
-	if (vn_fullpath_global(td, vp, &fullpath, &freepath) != 0)
-		goto out;
-	if (!coredump_sanitise_path(fullpath))
-		goto out;
-	strlcat(data, core_name, len);
-	strlcat(data, fullpath, len);
-	devctl_notify("kernel", "signal", "coredump", data);
-#endif /* PAX_INSECURE_MODE */
+	sbuf_printf(sb, "\" core=\"");
+
+	/*
+	 * We can't lookup core file vp directly. When we're replacing a core, and
+	 * other random times, we flush the name cache, so it will fail. Instead,
+	 * if the path of the core is relative, add the current dir in front if it.
+	 */
+	if (name[0] != '/') {
+		fullpath = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
+		if (kern___getcwd(td, fullpath, UIO_SYSSPACE, MAXPATHLEN, MAXPATHLEN) != 0) {
+			free(fullpath, M_TEMP);
+			goto out2;
+		}
+		devctl_safe_quote_sb(sb, fullpath);
+		free(fullpath, M_TEMP);
+		sbuf_putc(sb, '/');
+	}
+	devctl_safe_quote_sb(sb, name);
+	sbuf_printf(sb, "\"");
+	if (sbuf_finish(sb) == 0)
+		devctl_notify("kernel", "signal", "coredump", sbuf_data(sb));
+out2:
+	sbuf_delete(sb);
 out:
 	error1 = vn_close(vp, FWRITE, cred, td);
 	if (error == 0)
@@ -3598,10 +3646,6 @@ out:
 #ifdef AUDIT
 	audit_proc_coredump(td, name, error);
 #endif
-#ifdef PAX_INSECURE_MODE
-	free(freepath, M_TEMP);
-	free(data, M_TEMP);
-#endif /* PAX_INSECURE_MODE */
 	free(name, M_TEMP);
 	return (error);
 }

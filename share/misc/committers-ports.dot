@@ -55,6 +55,7 @@ amdmi3 [label="Dmitry Marakasov\namdmi3@FreeBSD.org\n2008/06/19"]
 anray [label="Andrey Slusar\nanray@FreeBSD.org\n2005/12/11"]
 antoine [label="Antoine Brodin\nantoine@FreeBSD.org\n2013/04/03"]
 araujo [label="Marcelo Araujo\naraujo@FreeBSD.org\n2007/04/26"]
+arrowd [label="Gleb Popov\narrowd@FreeBSD.org\n2018/05/18"]
 arved [label="Tilman Linneweh\narved@FreeBSD.org\n2002/10/15"]
 ashish [label="Ashish SHUKLA\nashish@FreeBSD.org\n2010/06/10"]
 avilla [label="Alberto Villa\navilla@FreeBSD.org\n2010/01/24"]
@@ -93,12 +94,14 @@ delphij [label="Xin Li\ndelphij@FreeBSD.org\n2006/05/01"]
 demon [label="Dmitry Sivachenko\ndemon@FreeBSD.org\n2000/11/13"]
 dhn [label="Dennis Herrmann\ndhn@FreeBSD.org\n2009/03/03"]
 dryice [label="Dryice Dong Liu\ndryice@FreeBSD.org\n2006/12/25"]
+dteske [label="Devin Teske\ndteske@FreeBSD.org\n2018/03/01"]
 dumbbell [label="Jean-Sebastien Pedron\ndumbbell@FreeBSD.org\n2017/01/10"]
 dvl [label="Dan Langille\ndvl@FreeBSD.org\n2014/08/10"]
 eadler [label="Eitan Adler\neadler@FreeBSD.org\n2011/08/17"]
 edwin [label="Edwin Groothuis\nedwin@FreeBSD.org\n2002/10/22"]
 ehaupt [label="Emanuel Haupt\nehaupt@FreeBSD.org\n2005/10/03"]
 eik [label="Oliver Eikemeier\neik@FreeBSD.org\n2003/11/12"]
+ericbsd [label="Eric Turgeon\nericbsd@FreeBSD.org\n2018/03/17"]
 erwin [label="Erwin Lansing\nerwin@FreeBSD.org\n2003/06/04"]
 eugen [label="Eugene Grosbein\neugen@FreeBSD.org\n2017/03/04"]
 farrokhi [label="Babak Farrokhi\nfarrokhi@FreeBSD.org\n2006/11/07"]
@@ -120,6 +123,7 @@ gordon [label="Gordon Tetlow\ngordon@FreeBSD.org\n2014/10/14"]
 grembo [label="Michael Gmelin\ngrembo@FreeBSD.org\n2014/01/21"]
 gnn [label="George Neville-Neil\ngnn@FreeBSD.org\n2013/09/04"]
 hq [label="Herve Quiroz\nhq@FreeBSD.org\n2004/08/05"]
+hrs [label="Hiroki Sato\nhrs@FreeBSD.org\n2004/04/10"]
 ijliao [label="Ying-Chieh Liao\nijliao@FreeBSD.org\n2001/01/20"]
 itetcu [label="Ion-Mihai Tetcu\nitetcu@FreeBSD.org\n2006/06/07"]
 jacula [label="Giuseppe Pilichi\njacula@FreeBSD.org\n2010/04/05"]
@@ -174,7 +178,9 @@ markus [label="Markus Brueffer\nmarkus@FreeBSD.org\n2004/02/21"]
 martymac [label="Ganael Laplanche\nmartymac@FreeBSD.org\n2010/09/24"]
 mat [label="Mathieu Arnold\nmat@FreeBSD.org\n2003/08/15"]
 matthew [label="Matthew Seaman\nmatthew@FreeBSD.org\n2012/02/07"]
+meta [label="Koichiro Iwao\nmeta@FreeBSD.org\n2018/03/19"]
 mezz [label="Jeremy Messenger\nmezz@FreeBSD.org\n2004/04/30"]
+mfechner [label="Matthias Fechner\nmfechner@FreeBSD.org\n2018/03/01"]
 mharo [label="Michael Haro\nmharo@FreeBSD.org\n1999/04/13"]
 milki [label="Jonathan Chu\nmilki@FreeBSD.org\n2013/12/15"]
 misha [label="Mikhail Pchelin\nmisha@FreeBSD.org\n2016/11/15"]
@@ -201,6 +207,7 @@ pclin [label="Po-Chien Lin\npclin@FreeBSD.org\n2013/02/11"]
 pgj [label="Gabor Pali\npgj@FreeBSD.org\n2009/04/12"]
 pgollucci [label="Philip M. Gollucci\npgollucci@FreeBSD.org\n2008/07/21"]
 philip [label="Philip Paeps\nphilip@FreeBSD.org\n2005/10/19"]
+pi [label="Kurt Jaeger\npi@FreeBSD.org\n2014/03/14"]
 pizzamig [label="Luca Pizzamiglio\npizzamig@FreeBSD.org\n2017/08/25"]
 rafan [label="Rong-En Fan\nrafan@FreeBSD.org\n2006/06/23"]
 rakuco [label="Raphael Kubo da Costa\nrakuco@FreeBSD.org\n2011/08/22"]
@@ -280,6 +287,7 @@ ahze -> shaun
 ahze -> tmclaugh
 
 amdmi3 -> jrm
+amdmi3 -> arrowd
 
 antoine -> dumbbell
 
@@ -305,6 +313,7 @@ bapt -> bdrewery
 bapt -> bofh
 bapt -> dumbbell
 bapt -> eadler
+bapt -> ericbsd
 bapt -> grembo
 bapt -> jbeich
 bapt -> jlaffaye
@@ -345,6 +354,7 @@ cs -> kami
 culot -> danilo
 culot -> jase
 culot -> marino
+culot -> pi
 culot -> wg
 
 db -> tj
@@ -431,7 +441,11 @@ glarkin -> rm
 glewis -> hq
 glewis -> jkim
 
+hrs -> meta
+
 ijliao -> leeym
+
+imp -> dteske
 
 itetcu -> ak
 itetcu -> araujo
@@ -442,6 +456,7 @@ itetcu -> sylvio
 jadawin -> bapt
 jadawin -> flo
 jadawin -> olivier
+jadawin -> pi
 jadawin -> riggs
 jadawin -> sbz
 jadawin -> wen
@@ -483,6 +498,8 @@ ler -> leres
 
 lifanov -> ultima
 
+linimon -> hrs
+
 lioux -> pat
 
 lme -> pizzamig
@@ -507,9 +524,11 @@ makc -> jhale
 makc -> rakuco
 
 mat -> bmah
+mat -> dteske
 mat -> dvl
 mat -> gordon
 mat -> mmokhi
+mat -> seanc
 mat -> tcberner
 mat -> thierry
 mat -> tobik
@@ -587,6 +606,7 @@ pgollucci -> swills
 
 philip -> koitsu
 
+pi -> meta
 pi -> tz
 
 rafan -> chinsan
@@ -637,11 +657,13 @@ swills -> dch
 swills -> feld
 swills -> jmd
 swills -> jrm
+swills -> mfechner
 swills -> milki
 swills -> pclin
 swills -> rezny
 swills -> robak
 swills -> rpaulo
+swills -> seanc
 swills -> tz
 swills -> xmj
 
@@ -665,6 +687,7 @@ tcberner -> adridg
 tcberner -> joneum
 tcberner -> yuri
 tcberner -> fernape
+tcberner -> arrowd
 
 thierry -> jadawin
 thierry -> riggs
@@ -674,6 +697,7 @@ tmclaugh -> xride
 
 tz -> joneum
 tz -> fernape
+tz -> mfechner
 
 vsevolod -> eugen
 
@@ -684,6 +708,7 @@ wen -> pawel
 wg -> alexey
 wg -> danilo
 wg -> dvl
+wg -> ericbsd
 wg -> misha
 wg -> nemysis
 

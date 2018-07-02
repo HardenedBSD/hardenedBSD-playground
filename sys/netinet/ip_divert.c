@@ -74,7 +74,6 @@ __FBSDID("$FreeBSD$");
 #endif
 
 #include <security/mac/mac_framework.h>
-
 /*
  * Divert sockets
  */
@@ -235,7 +234,7 @@ divert_packet(struct mbuf *m, int incoming)
 		/* Find IP address for receive interface */
 		ifp = m->m_pkthdr.rcvif;
 		if_addr_rlock(ifp);
-		TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 			if (ifa->ifa_addr->sa_family != AF_INET)
 				continue;
 			divsrc.sin_addr =
@@ -274,7 +273,7 @@ divert_packet(struct mbuf *m, int incoming)
 	sa = NULL;
 	nport = htons((u_int16_t)(((struct ipfw_rule_ref *)(mtag+1))->info));
 	INP_INFO_RLOCK(&V_divcbinfo);
-	LIST_FOREACH(inp, &V_divcb, inp_list) {
+	CK_LIST_FOREACH(inp, &V_divcb, inp_list) {
 		/* XXX why does only one socket match? */
 		if (inp->inp_lport == nport) {
 			INP_RLOCK(inp);
@@ -469,13 +468,15 @@ div_output(struct socket *so, struct mbuf *m, struct sockaddr_in *sin,
 
 			bzero(sin->sin_zero, sizeof(sin->sin_zero));
 			sin->sin_port = 0;
+			NET_EPOCH_ENTER();
 			ifa = ifa_ifwithaddr((struct sockaddr *) sin);
 			if (ifa == NULL) {
 				error = EADDRNOTAVAIL;
+				NET_EPOCH_EXIT();
 				goto cantsend;
 			}
 			m->m_pkthdr.rcvif = ifa->ifa_ifp;
-			ifa_free(ifa);
+			NET_EPOCH_EXIT();
 		}
 #ifdef MAC
 		mac_socket_create_mbuf(so, m);
@@ -674,8 +675,8 @@ div_pcblist(SYSCTL_HANDLER_ARGS)
 		return ENOMEM;
 	
 	INP_INFO_RLOCK(&V_divcbinfo);
-	for (inp = LIST_FIRST(V_divcbinfo.ipi_listhead), i = 0; inp && i < n;
-	     inp = LIST_NEXT(inp, inp_list)) {
+	for (inp = CK_LIST_FIRST(V_divcbinfo.ipi_listhead), i = 0; inp && i < n;
+	     inp = CK_LIST_NEXT(inp, inp_list)) {
 		INP_WLOCK(inp);
 		if (inp->inp_gencnt <= gencnt &&
 		    cr_canseeinpcb(req->td->td_ucred, inp) == 0) {

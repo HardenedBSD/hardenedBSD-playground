@@ -220,7 +220,6 @@ udp6_input(struct mbuf **mp, int *offp, int proto)
 	uint8_t nxt;
 
 	ifp = m->m_pkthdr.rcvif;
-	ip6 = mtod(m, struct ip6_hdr *);
 
 #ifndef PULLDOWN_TEST
 	IP6_EXTHDR_CHECK(m, off, sizeof(struct udphdr), IPPROTO_DONE);
@@ -230,6 +229,7 @@ udp6_input(struct mbuf **mp, int *offp, int proto)
 	IP6_EXTHDR_GET(uh, struct udphdr *, m, off, sizeof(*uh));
 	if (!uh)
 		return (IPPROTO_DONE);
+	ip6 = mtod(m, struct ip6_hdr *);
 #endif
 
 	UDPSTAT_INC(udps_ipackets);
@@ -318,7 +318,7 @@ udp6_input(struct mbuf **mp, int *offp, int proto)
 		 */
 		pcblist = udp_get_pcblist(nxt);
 		last = NULL;
-		LIST_FOREACH(inp, pcblist, inp_list) {
+		CK_LIST_FOREACH(inp, pcblist, inp_list) {
 			if ((inp->inp_vflag & INP_IPV6) == 0)
 				continue;
 			if (inp->inp_lport != uh->uh_dport)
@@ -399,7 +399,7 @@ udp6_input(struct mbuf **mp, int *offp, int proto)
 			 * will never clear these options after setting them.
 			 */
 			if ((last->inp_socket->so_options &
-			     (SO_REUSEPORT|SO_REUSEADDR)) == 0)
+			     (SO_REUSEPORT|SO_REUSEPORT_LB|SO_REUSEADDR)) == 0)
 				break;
 		}
 

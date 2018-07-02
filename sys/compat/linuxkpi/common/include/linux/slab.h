@@ -49,9 +49,9 @@ MALLOC_DECLARE(M_KMALLOC);
 #define	vzalloc(size)			__vmalloc(size, GFP_KERNEL | __GFP_NOWARN | __GFP_ZERO, 0)
 #define	vfree(arg)			kfree(arg)
 #define	kvfree(arg)			kfree(arg)
-#define	vmalloc_node(size, node)        __vmalloc(size, GFP_KERNEL, 0)
-#define	vmalloc_user(size)              __vmalloc(size, GFP_KERNEL | __GFP_ZERO, 0)
-#define	vmalloc(size)                   __vmalloc(size, GFP_KERNEL, 0)
+#define	vmalloc_node(size, node)	__vmalloc(size, GFP_KERNEL, 0)
+#define	vmalloc_user(size)		__vmalloc(size, GFP_KERNEL | __GFP_ZERO, 0)
+#define	vmalloc(size)			__vmalloc(size, GFP_KERNEL, 0)
 #define	__kmalloc(...)			kmalloc(__VA_ARGS__)
 #define	kmalloc_node(chunk, flags, n)	kmalloc(chunk, flags)
 
@@ -62,7 +62,7 @@ MALLOC_DECLARE(M_KMALLOC);
 #define	kmem_cache		linux_kmem_cache
 #define	kmem_cache_create(...)	linux_kmem_cache_create(__VA_ARGS__)
 #define	kmem_cache_alloc(...)	linux_kmem_cache_alloc(__VA_ARGS__)
-#define	kmem_cache_free(...) 	linux_kmem_cache_free(__VA_ARGS__)
+#define	kmem_cache_free(...)	linux_kmem_cache_free(__VA_ARGS__)
 #define	kmem_cache_destroy(...) linux_kmem_cache_destroy(__VA_ARGS__)
 
 #define	KMEM_CACHE(__struct, flags)					\
@@ -79,11 +79,14 @@ struct linux_kmem_cache {
 };
 
 #define	SLAB_HWCACHE_ALIGN	(1 << 0)
-#define	SLAB_TYPESAFE_BY_RCU    (1 << 1)
+#define	SLAB_TYPESAFE_BY_RCU	(1 << 1)
 #define	SLAB_RECLAIM_ACCOUNT	(1 << 2)
 
 #define	SLAB_DESTROY_BY_RCU \
 	SLAB_TYPESAFE_BY_RCU
+
+#define	ARCH_KMALLOC_MINALIGN \
+	__alignof(unsigned long long)
 
 static inline gfp_t
 linux_check_m_flags(gfp_t flags)
@@ -127,6 +130,12 @@ vmalloc_32(size_t size)
 
 static inline void *
 kmalloc_array(size_t n, size_t size, gfp_t flags)
+{
+	return (mallocarray(n, size, M_KMALLOC, linux_check_m_flags(flags)));
+}
+
+static inline void *
+kvmalloc_array(size_t n, size_t size, gfp_t flags)
 {
 	return (mallocarray(n, size, M_KMALLOC, linux_check_m_flags(flags)));
 }

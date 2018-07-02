@@ -38,8 +38,11 @@
 #include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/counter.h>
+#include <sys/cpuset.h>
 #include <sys/malloc.h>
 #include <sys/refcount.h>
+#include <sys/lock.h>
+#include <sys/rmlock.h>
 #include <sys/tree.h>
 #include <vm/uma.h>
 
@@ -147,14 +150,15 @@ extern struct mtx pf_unlnkdrules_mtx;
 #define	PF_UNLNKDRULES_LOCK()	mtx_lock(&pf_unlnkdrules_mtx)
 #define	PF_UNLNKDRULES_UNLOCK()	mtx_unlock(&pf_unlnkdrules_mtx)
 
-extern struct rwlock pf_rules_lock;
-#define	PF_RULES_RLOCK()	rw_rlock(&pf_rules_lock)
-#define	PF_RULES_RUNLOCK()	rw_runlock(&pf_rules_lock)
-#define	PF_RULES_WLOCK()	rw_wlock(&pf_rules_lock)
-#define	PF_RULES_WUNLOCK()	rw_wunlock(&pf_rules_lock)
-#define	PF_RULES_ASSERT()	rw_assert(&pf_rules_lock, RA_LOCKED)
-#define	PF_RULES_RASSERT()	rw_assert(&pf_rules_lock, RA_RLOCKED)
-#define	PF_RULES_WASSERT()	rw_assert(&pf_rules_lock, RA_WLOCKED)
+extern struct rmlock pf_rules_lock;
+#define	PF_RULES_RLOCK_TRACKER	struct rm_priotracker _pf_rules_tracker
+#define	PF_RULES_RLOCK()	rm_rlock(&pf_rules_lock, &_pf_rules_tracker)
+#define	PF_RULES_RUNLOCK()	rm_runlock(&pf_rules_lock, &_pf_rules_tracker)
+#define	PF_RULES_WLOCK()	rm_wlock(&pf_rules_lock)
+#define	PF_RULES_WUNLOCK()	rm_wunlock(&pf_rules_lock)
+#define	PF_RULES_ASSERT()	rm_assert(&pf_rules_lock, RA_LOCKED)
+#define	PF_RULES_RASSERT()	rm_assert(&pf_rules_lock, RA_RLOCKED)
+#define	PF_RULES_WASSERT()	rm_assert(&pf_rules_lock, RA_WLOCKED)
 
 extern struct sx pf_end_lock;
 
@@ -1381,19 +1385,17 @@ struct pfioc_iface {
 #define DIOCGETRULE	_IOWR('D',  7, struct pfioc_rule)
 /* XXX cut 8 - 17 */
 #define DIOCCLRSTATES	_IOWR('D', 18, struct pfioc_state_kill)
-#define DIOCGETSTATE	_IOWR('D', 19, struct pfioc_state)
+/* XXX cut 19 */
 #define DIOCSETSTATUSIF _IOWR('D', 20, struct pfioc_if)
 #define DIOCGETSTATUS	_IOWR('D', 21, struct pf_status)
 #define DIOCCLRSTATUS	_IO  ('D', 22)
 #define DIOCNATLOOK	_IOWR('D', 23, struct pfioc_natlook)
 #define DIOCSETDEBUG	_IOWR('D', 24, u_int32_t)
 #define DIOCGETSTATES	_IOWR('D', 25, struct pfioc_states)
-#define DIOCCHANGERULE	_IOWR('D', 26, struct pfioc_rule)
 /* XXX cut 26 - 28 */
 #define DIOCSETTIMEOUT	_IOWR('D', 29, struct pfioc_tm)
 #define DIOCGETTIMEOUT	_IOWR('D', 30, struct pfioc_tm)
-#define DIOCADDSTATE	_IOWR('D', 37, struct pfioc_state)
-#define DIOCCLRRULECTRS	_IO  ('D', 38)
+/* XXX cut 31-38 */
 #define DIOCGETLIMIT	_IOWR('D', 39, struct pfioc_limit)
 #define DIOCSETLIMIT	_IOWR('D', 40, struct pfioc_limit)
 #define DIOCKILLSTATES	_IOWR('D', 41, struct pfioc_state_kill)
@@ -1402,13 +1404,12 @@ struct pfioc_iface {
 #define DIOCADDALTQ	_IOWR('D', 45, struct pfioc_altq)
 #define DIOCGETALTQS	_IOWR('D', 47, struct pfioc_altq)
 #define DIOCGETALTQ	_IOWR('D', 48, struct pfioc_altq)
-#define DIOCCHANGEALTQ	_IOWR('D', 49, struct pfioc_altq)
+/* XXX cut 49 */
 #define DIOCGETQSTATS	_IOWR('D', 50, struct pfioc_qstats)
 #define DIOCBEGINADDRS	_IOWR('D', 51, struct pfioc_pooladdr)
 #define DIOCADDADDR	_IOWR('D', 52, struct pfioc_pooladdr)
 #define DIOCGETADDRS	_IOWR('D', 53, struct pfioc_pooladdr)
 #define DIOCGETADDR	_IOWR('D', 54, struct pfioc_pooladdr)
-#define DIOCCHANGEADDR	_IOWR('D', 55, struct pfioc_pooladdr)
 /* XXX cut 55 - 57 */
 #define	DIOCGETRULESETS	_IOWR('D', 58, struct pfioc_ruleset)
 #define	DIOCGETRULESET	_IOWR('D', 59, struct pfioc_ruleset)
@@ -1578,13 +1579,13 @@ extern void			 pf_addrcpy(struct pf_addr *, struct pf_addr *,
 void				pf_free_rule(struct pf_rule *);
 
 #ifdef INET
-int	pf_test(int, struct ifnet *, struct mbuf **, struct inpcb *);
+int	pf_test(int, int, struct ifnet *, struct mbuf **, struct inpcb *);
 int	pf_normalize_ip(struct mbuf **, int, struct pfi_kif *, u_short *,
 	    struct pf_pdesc *);
 #endif /* INET */
 
 #ifdef INET6
-int	pf_test6(int, struct ifnet *, struct mbuf **, struct inpcb *);
+int	pf_test6(int, int, struct ifnet *, struct mbuf **, struct inpcb *);
 int	pf_normalize_ip6(struct mbuf **, int, struct pfi_kif *, u_short *,
 	    struct pf_pdesc *);
 void	pf_poolmask(struct pf_addr *, struct pf_addr*,
@@ -1638,6 +1639,7 @@ void	pfr_detach_table(struct pfr_ktable *);
 int	pfr_clr_tables(struct pfr_table *, int *, int);
 int	pfr_add_tables(struct pfr_table *, int, int *, int);
 int	pfr_del_tables(struct pfr_table *, int, int *, int);
+int	pfr_table_count(struct pfr_table *, int);
 int	pfr_get_tables(struct pfr_table *, struct pfr_table *, int *, int);
 int	pfr_get_tstats(struct pfr_table *, struct pfr_tstats *, int *, int);
 int	pfr_clr_tstats(struct pfr_table *, int, int *, int);

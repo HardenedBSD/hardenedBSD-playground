@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
  */
 
 #ifndef _SYS_VDEV_IMPL_H
@@ -71,6 +71,7 @@ typedef uint64_t vdev_asize_func_t(vdev_t *vd, uint64_t psize);
 typedef void	vdev_io_start_func_t(zio_t *zio);
 typedef void	vdev_io_done_func_t(zio_t *zio);
 typedef void	vdev_state_change_func_t(vdev_t *vd, int, int);
+typedef boolean_t vdev_need_resilver_func_t(vdev_t *vd, uint64_t, size_t);
 typedef void	vdev_hold_func_t(vdev_t *vd);
 typedef void	vdev_rele_func_t(vdev_t *vd);
 
@@ -86,6 +87,7 @@ typedef struct vdev_ops {
 	vdev_io_start_func_t		*vdev_op_io_start;
 	vdev_io_done_func_t		*vdev_op_io_done;
 	vdev_state_change_func_t	*vdev_op_state_change;
+	vdev_need_resilver_func_t	*vdev_op_need_resilver;
 	vdev_hold_func_t		*vdev_op_hold;
 	vdev_rele_func_t		*vdev_op_rele;
 	vdev_remap_func_t		*vdev_op_remap;
@@ -247,6 +249,9 @@ struct vdev {
 	kmutex_t	vdev_queue_lock; /* protects vdev_queue_depth	*/
 	uint64_t	vdev_top_zap;
 
+	/* pool checkpoint related */
+	space_map_t	*vdev_checkpoint_sm;	/* contains reserved blocks */
+
 	/*
 	 * Values stored in the config for an indirect or removing vdev.
 	 */
@@ -290,6 +295,13 @@ struct vdev {
 	 */
 	uint64_t	vdev_async_write_queue_depth;
 	uint64_t	vdev_max_async_write_queue_depth;
+
+	/*
+	 * Protects the vdev_scan_io_queue field itself as well as the
+	 * structure's contents (when present).
+	 */
+	kmutex_t			vdev_scan_io_queue_lock;
+	struct dsl_scan_io_queue	*vdev_scan_io_queue;
 
 	/*
 	 * Leaf vdev state.
@@ -465,6 +477,7 @@ extern void vdev_set_min_asize(vdev_t *vd);
 /*
  * Global variables
  */
+extern int vdev_standard_sm_blksz;
 /* zdb uses this tunable, so it must be declared here to make lint happy. */
 extern int zfs_vdev_cache_size;
 extern uint_t zfs_geom_probe_vdev_key;
@@ -479,6 +492,11 @@ extern int vdev_obsolete_sm_object(vdev_t *vd);
 extern boolean_t vdev_obsolete_counts_are_precise(vdev_t *vd);
 
 #ifdef illumos
+/*
+ * Other miscellaneous functions
+ */
+int vdev_checkpoint_sm_object(vdev_t *vd);
+
 /*
  * The vdev_buf_t is used to translate between zio_t and buf_t, and back again.
  */

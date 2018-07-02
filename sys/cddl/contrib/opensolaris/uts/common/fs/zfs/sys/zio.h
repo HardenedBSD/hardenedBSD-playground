@@ -552,7 +552,6 @@ extern zio_t *zio_free_sync(zio_t *pio, spa_t *spa, uint64_t txg,
 
 extern int zio_alloc_zil(spa_t *spa, uint64_t txg, blkptr_t *new_bp,
     blkptr_t *old_bp, uint64_t size, boolean_t *slog);
-extern void zio_free_zil(spa_t *spa, uint64_t txg, blkptr_t *bp);
 extern void zio_flush(zio_t *zio, vdev_t *vd);
 extern zio_t *zio_trim(zio_t *zio, spa_t *spa, vdev_t *vd, uint64_t offset,
     uint64_t size);
@@ -593,6 +592,8 @@ extern zio_t *zio_vdev_delegated_io(vdev_t *vd, uint64_t offset,
 extern void zio_vdev_io_bypass(zio_t *zio);
 extern void zio_vdev_io_reissue(zio_t *zio);
 extern void zio_vdev_io_redone(zio_t *zio);
+
+extern void zio_change_priority(zio_t *pio, zio_priority_t priority);
 
 extern void zio_checksum_verified(zio_t *zio);
 extern int zio_worst_error(int e1, int e2);

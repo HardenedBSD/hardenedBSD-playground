@@ -26,6 +26,7 @@
 __FBSDID("$FreeBSD$");
 
 #include "opt_platform.h"
+#include "opt_spi.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -50,6 +51,11 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_pager.h>
 
 #include <dev/spibus/spi.h>
+#include <dev/spibus/spibusvar.h>
+
+#ifdef FDT
+#include <dev/ofw/ofw_bus_subr.h>
+#endif
 
 #include "spibus_if.h"
 
@@ -59,8 +65,10 @@ __FBSDID("$FreeBSD$");
 struct spigen_softc {
 	device_t sc_dev;
 	struct cdev *sc_cdev;
+#ifdef SPIGEN_LEGACY_CDEVNAME
+	struct cdev *sc_adev;           /* alias device */
+#endif
 	struct mtx sc_mtx;
-	uint32_t sc_clock_speed;
 	uint32_t sc_command_length_max; /* cannot change while mmapped */
 	uint32_t sc_data_length_max;    /* cannot change while mmapped */
 	vm_object_t sc_mmap_buffer;     /* command, then data */
@@ -70,24 +78,27 @@ struct spigen_softc {
 	int sc_flags;
 };
 
-#ifdef FDT
-static void
-spigen_identify(driver_t *driver, device_t parent)
-{
-	if (device_find_child(parent, "spigen", -1) != NULL)
-		return;
-	if (BUS_ADD_CHILD(parent, 0, "spigen", -1) == NULL)
-		device_printf(parent, "add child failed\n");
-}
-#endif
-
 static int
 spigen_probe(device_t dev)
 {
+	int rv;
+
+	/*
+	 * By default we only bid to attach if specifically added by our parent
+	 * (usually via hint.spigen.#.at=busname).  On FDT systems we bid as the
+	 * default driver based on being configured in the FDT data.
+	 */
+	rv = BUS_PROBE_NOWILDCARD;
+
+#ifdef FDT
+	if (ofw_bus_status_okay(dev) &&
+	    ofw_bus_is_compatible(dev, "freebsd,spigen"))
+                rv = BUS_PROBE_DEFAULT;
+#endif
 
 	device_set_desc(dev, "SPI Generic IO");
 
-	return (BUS_PROBE_NOWILDCARD);
+	return (rv);
 }
 
 static int spigen_open(struct cdev *, int, int, struct thread *);
@@ -179,15 +190,46 @@ spigen_attach(device_t dev)
 {
 	struct spigen_softc *sc;
 	const int unit = device_get_unit(dev);
+	int cs, res;
+	struct make_dev_args mda;
+
+	spibus_get_cs(dev, &cs);
+	cs &= ~SPIBUS_CS_HIGH; /* trim 'cs high' bit */
 
 	sc = device_get_softc(dev);
 	sc->sc_dev = dev;
-	sc->sc_cdev = make_dev(&spigen_cdevsw, unit,
-	    UID_ROOT, GID_OPERATOR, 0660, "spigen%d", unit);
-	sc->sc_cdev->si_drv1 = dev;
 	sc->sc_command_length_max = PAGE_SIZE;
 	sc->sc_data_length_max = PAGE_SIZE;
+
 	mtx_init(&sc->sc_mtx, device_get_nameunit(dev), NULL, MTX_DEF);
+
+	make_dev_args_init(&mda);
+	mda.mda_flags = MAKEDEV_WAITOK;
+	mda.mda_devsw = &spigen_cdevsw;
+	mda.mda_cr = NULL;
+	mda.mda_uid = UID_ROOT;
+	mda.mda_gid = GID_OPERATOR;
+	mda.mda_mode = 0660;
+	mda.mda_unit = unit;
+	mda.mda_si_drv1 = dev;
+
+	res = make_dev_s(&mda, &(sc->sc_cdev), "spigen%d.%d",
+	    device_get_unit(device_get_parent(dev)), cs);
+	if (res) {
+		return res;
+	}
+
+#ifdef SPIGEN_LEGACY_CDEVNAME
+	res = make_dev_alias_p(0, &sc->sc_adev, sc->sc_cdev, "spigen%d", unit);
+	if (res) {
+		if (sc->sc_cdev) {
+			destroy_dev(sc->sc_cdev);
+			sc->sc_cdev = NULL;
+		}
+		return res;
+	}
+#endif
+
 	spigen_sysctl_init(sc);
 
 	return (0);
@@ -238,15 +280,9 @@ spigen_transfer(struct cdev *cdev, struct spigen_transfer *st)
 #endif
 	transfer.tx_cmd = transfer.rx_cmd = malloc(st->st_command.iov_len,
 	    M_DEVBUF, M_WAITOK);
-	if (transfer.tx_cmd == NULL)
-		return (ENOMEM);
 	if (st->st_data.iov_len > 0) {
 		transfer.tx_data = transfer.rx_data = malloc(st->st_data.iov_len,
 		    M_DEVBUF, M_WAITOK);
-		if (transfer.tx_data == NULL) {
-			free(transfer.tx_cmd, M_DEVBUF);
-			return (ENOMEM);
-		}
 	}
 	else
 		transfer.tx_data = transfer.rx_data = NULL;
@@ -316,7 +352,6 @@ spigen_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
     struct thread *td)
 {
 	device_t dev = cdev->si_drv1;
-	struct spigen_softc *sc = device_get_softc(dev);
 	int error;
 
 	switch (cmd) {
@@ -327,20 +362,20 @@ spigen_ioctl(struct cdev *cdev, u_long cmd, caddr_t data, int fflag,
 		error = spigen_transfer_mmapped(cdev, (struct spigen_transfer_mmapped *)data);
 		break;
 	case SPIGENIOC_GET_CLOCK_SPEED:
-		mtx_lock(&sc->sc_mtx);
-		*(uint32_t *)data = sc->sc_clock_speed;
-		/* XXX TODO: implement spibus ivar call */
-		mtx_unlock(&sc->sc_mtx);
-		error = 0;
+		error = spibus_get_clock(dev, (uint32_t *)data);
 		break;
 	case SPIGENIOC_SET_CLOCK_SPEED:
-		mtx_lock(&sc->sc_mtx);
-		sc->sc_clock_speed = *(uint32_t *)data;
-		mtx_unlock(&sc->sc_mtx);
-		error = 0;
+		error = spibus_set_clock(dev, *(uint32_t *)data);
+		break;
+	case SPIGENIOC_GET_SPI_MODE:
+		error = spibus_get_mode(dev, (uint32_t *)data);
+		break;
+	case SPIGENIOC_SET_SPI_MODE:
+		error = spibus_set_mode(dev, *(uint32_t *)data);
 		break;
 	default:
-		error = EOPNOTSUPP;
+		error = ENOTTY;
+		break;
 	}
 	return (error);
 }
@@ -429,8 +464,13 @@ spigen_detach(device_t dev)
 
 	mtx_destroy(&sc->sc_mtx);
 
-        if (sc->sc_cdev)
-                destroy_dev(sc->sc_cdev);
+#ifdef SPIGEN_LEGACY_CDEVNAME
+	if (sc->sc_adev)
+		destroy_dev(sc->sc_adev);
+#endif
+
+	if (sc->sc_cdev)
+		destroy_dev(sc->sc_cdev);
 	
 	return (0);
 }
@@ -439,9 +479,6 @@ static devclass_t spigen_devclass;
 
 static device_method_t spigen_methods[] = {
 	/* Device interface */
-#ifdef FDT
-	DEVMETHOD(device_identify,	spigen_identify),
-#endif
 	DEVMETHOD(device_probe,		spigen_probe),
 	DEVMETHOD(device_attach,	spigen_attach),
 	DEVMETHOD(device_detach,	spigen_detach),
@@ -456,3 +493,4 @@ static driver_t spigen_driver = {
 };
 
 DRIVER_MODULE(spigen, spibus, spigen_driver, spigen_devclass, 0, 0);
+MODULE_DEPEND(spigen, spibus, 1, 1, 1);

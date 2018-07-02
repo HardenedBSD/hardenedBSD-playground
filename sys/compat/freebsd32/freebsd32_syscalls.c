@@ -81,7 +81,7 @@ const char *freebsd32_syscallnames[] = {
 	"sbrk",			/* 69 = sbrk */
 	"sstk",			/* 70 = sstk */
 	"compat.mmap",		/* 71 = old mmap */
-	"vadvise",			/* 72 = vadvise */
+	"compat11.vadvise",		/* 72 = freebsd11 vadvise */
 	"munmap",			/* 73 = munmap */
 	"freebsd32_mprotect",			/* 74 = freebsd32_mprotect */
 	"madvise",			/* 75 = madvise */
@@ -595,4 +595,5 @@ const char *freebsd32_syscallnames[] = {
 	"freebsd32_kevent",			/* 560 = freebsd32_kevent */
 	"freebsd32_cpuset_getdomain",			/* 561 = freebsd32_cpuset_getdomain */
 	"freebsd32_cpuset_setdomain",			/* 562 = freebsd32_cpuset_setdomain */
+	"getrandom",			/* 563 = getrandom */
 };

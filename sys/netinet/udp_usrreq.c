@@ -532,7 +532,7 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 		INP_INFO_RLOCK(pcbinfo);
 		pcblist = udp_get_pcblist(proto);
 		last = NULL;
-		LIST_FOREACH(inp, pcblist, inp_list) {
+		CK_LIST_FOREACH(inp, pcblist, inp_list) {
 			if (inp->inp_lport != uh->uh_dport)
 				continue;
 #ifdef INET6
@@ -612,7 +612,7 @@ udp_input(struct mbuf **mp, int *offp, int proto)
 			 * will never clear these options after setting them.
 			 */
 			if ((last->inp_socket->so_options &
-			    (SO_REUSEPORT|SO_REUSEADDR)) == 0)
+			    (SO_REUSEPORT|SO_REUSEPORT_LB|SO_REUSEADDR)) == 0)
 				break;
 		}
 
@@ -802,14 +802,15 @@ udp_common_ctlinput(int cmd, struct sockaddr *sa, void *vip,
 					   INPLOOKUP_WILDCARD | INPLOOKUP_RLOCKPCB, NULL);
 			if (inp != NULL) {
 				struct udpcb *up;
+				void *ctx;
+				udp_tun_icmp_t func;
 
 				up = intoudpcb(inp);
-				if (up->u_icmp_func != NULL) {
-					INP_RUNLOCK(inp);
-					(*up->u_icmp_func)(cmd, sa, vip, up->u_tun_ctx);
-				} else {
-					INP_RUNLOCK(inp);
-				}
+				ctx = up->u_tun_ctx;
+				func = up->u_icmp_func;
+				INP_RUNLOCK(inp);
+				if (func != NULL)
+					(*func)(cmd, sa, vip, ctx);
 			}
 		}
 	} else
@@ -879,8 +880,8 @@ udp_pcblist(SYSCTL_HANDLER_ARGS)
 		return (ENOMEM);
 
 	INP_INFO_RLOCK(&V_udbinfo);
-	for (inp = LIST_FIRST(V_udbinfo.ipi_listhead), i = 0; inp && i < n;
-	     inp = LIST_NEXT(inp, inp_list)) {
+	for (inp = CK_LIST_FIRST(V_udbinfo.ipi_listhead), i = 0; inp && i < n;
+	     inp = CK_LIST_NEXT(inp, inp_list)) {
 		INP_WLOCK(inp);
 		if (inp->inp_gencnt <= gencnt &&
 		    cr_canseeinpcb(req->td->td_ucred, inp) == 0) {
@@ -1572,6 +1573,7 @@ udp_abort(struct socket *so)
 static int
 udp_attach(struct socket *so, int proto, struct thread *td)
 {
+	static uint32_t udp_flowid;
 	struct inpcb *inp;
 	struct inpcbinfo *pcbinfo;
 	int error;
@@ -1592,6 +1594,8 @@ udp_attach(struct socket *so, int proto, struct thread *td)
 	inp = sotoinpcb(so);
 	inp->inp_vflag |= INP_IPV4;
 	inp->inp_ip_ttl = V_ip_defttl;
+	inp->inp_flowid = atomic_fetchadd_int(&udp_flowid, 1);
+	inp->inp_flowtype = M_HASHTYPE_OPAQUE;
 
 	error = udp_newudpcb(inp);
 	if (error) {

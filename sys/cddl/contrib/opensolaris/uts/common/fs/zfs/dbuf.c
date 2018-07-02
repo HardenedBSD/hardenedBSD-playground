@@ -48,6 +48,7 @@
 #include <sys/callb.h>
 #include <sys/abd.h>
 #include <sys/vdev.h>
+#include <sys/cityhash.h>
 
 uint_t zfs_dbuf_evict_key;
 
@@ -84,10 +85,10 @@ static boolean_t dbuf_evict_thread_exit;
  */
 static multilist_t *dbuf_cache;
 static refcount_t dbuf_cache_size;
-uint64_t dbuf_cache_max_bytes = 100 * 1024 * 1024;
+uint64_t dbuf_cache_max_bytes = 0;
 
-/* Cap the size of the dbuf cache to log2 fraction of arc size. */
-int dbuf_cache_max_shift = 5;
+/* Set the default size of the dbuf cache to log2 fraction of arc size. */
+int dbuf_cache_shift = 5;
 
 /*
  * The dbuf cache uses a three-stage eviction policy:
@@ -137,8 +138,8 @@ uint_t dbuf_cache_lowater_pct = 10;
 SYSCTL_DECL(_vfs_zfs);
 SYSCTL_QUAD(_vfs_zfs, OID_AUTO, dbuf_cache_max_bytes, CTLFLAG_RWTUN,
     &dbuf_cache_max_bytes, 0, "dbuf cache size in bytes");
-SYSCTL_INT(_vfs_zfs, OID_AUTO, dbuf_cache_max_shift, CTLFLAG_RDTUN,
-    &dbuf_cache_max_shift, 0, "dbuf size as log2 fraction of ARC");
+SYSCTL_INT(_vfs_zfs, OID_AUTO, dbuf_cache_shift, CTLFLAG_RDTUN,
+    &dbuf_cache_shift, 0, "dbuf cache size as log2 fraction of ARC");
 SYSCTL_UINT(_vfs_zfs, OID_AUTO, dbuf_cache_hiwater_pct, CTLFLAG_RWTUN,
     &dbuf_cache_hiwater_pct, 0, "max percents above the dbuf cache size");
 SYSCTL_UINT(_vfs_zfs, OID_AUTO, dbuf_cache_lowater_pct, CTLFLAG_RWTUN,
@@ -177,23 +178,14 @@ static dbuf_hash_table_t dbuf_hash_table;
 
 static uint64_t dbuf_hash_count;
 
+/*
+ * We use Cityhash for this. It's fast, and has good hash properties without
+ * requiring any large static buffers.
+ */
 static uint64_t
 dbuf_hash(void *os, uint64_t obj, uint8_t lvl, uint64_t blkid)
 {
-	uintptr_t osv = (uintptr_t)os;
-	uint64_t crc = -1ULL;
-
-	ASSERT(zfs_crc64_table[128] == ZFS_CRC64_POLY);
-	crc = (crc >> 8) ^ zfs_crc64_table[(crc ^ (lvl)) & 0xFF];
-	crc = (crc >> 8) ^ zfs_crc64_table[(crc ^ (osv >> 6)) & 0xFF];
-	crc = (crc >> 8) ^ zfs_crc64_table[(crc ^ (obj >> 0)) & 0xFF];
-	crc = (crc >> 8) ^ zfs_crc64_table[(crc ^ (obj >> 8)) & 0xFF];
-	crc = (crc >> 8) ^ zfs_crc64_table[(crc ^ (blkid >> 0)) & 0xFF];
-	crc = (crc >> 8) ^ zfs_crc64_table[(crc ^ (blkid >> 8)) & 0xFF];
-
-	crc ^= (osv>>14) ^ (obj>>16) ^ (blkid>>16);
-
-	return (crc);
+	return (cityhash4((uintptr_t)os, obj, (uint64_t)lvl, blkid));
 }
 
 #define	DBUF_EQUAL(dbuf, os, obj, level, blkid)		\
@@ -618,11 +610,15 @@ retry:
 		mutex_init(&h->hash_mutexes[i], NULL, MUTEX_DEFAULT, NULL);
 
 	/*
-	 * Setup the parameters for the dbuf cache. We cap the size of the
-	 * dbuf cache to 1/32nd (default) of the size of the ARC.
+	 * Setup the parameters for the dbuf cache. We set the size of the
+	 * dbuf cache to 1/32nd (default) of the size of the ARC. If the value
+	 * has been set in /etc/system and it's not greater than the size of
+	 * the ARC, then we honor that value.
 	 */
-	dbuf_cache_max_bytes = MIN(dbuf_cache_max_bytes,
-	    arc_max_bytes() >> dbuf_cache_max_shift);
+	if (dbuf_cache_max_bytes == 0 ||
+	    dbuf_cache_max_bytes >= arc_max_bytes())  {
+		dbuf_cache_max_bytes = arc_max_bytes() >> dbuf_cache_shift;
+	}
 
 	/*
 	 * All entries are queued via taskq_dispatch_ent(), so min/maxalloc
@@ -906,7 +902,8 @@ dbuf_whichblock(dnode_t *dn, int64_t level, uint64_t offset)
 }
 
 static void
-dbuf_read_done(zio_t *zio, arc_buf_t *buf, void *vdb)
+dbuf_read_done(zio_t *zio, const zbookmark_phys_t *zb, const blkptr_t *bp,
+    arc_buf_t *buf, void *vdb)
 {
 	dmu_buf_impl_t *db = vdb;
 
@@ -920,19 +917,22 @@ dbuf_read_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 	ASSERT(db->db.db_data == NULL);
 	if (db->db_level == 0 && db->db_freed_in_flight) {
 		/* we were freed in flight; disregard any error */
+		if (buf == NULL) {
+			buf = arc_alloc_buf(db->db_objset->os_spa,
+			     db, DBUF_GET_BUFC_TYPE(db), db->db.db_size);
+		}
 		arc_release(buf, db);
 		bzero(buf->b_data, db->db.db_size);
 		arc_buf_freeze(buf);
 		db->db_freed_in_flight = FALSE;
 		dbuf_set_data(db, buf);
 		db->db_state = DB_CACHED;
-	} else if (zio == NULL || zio->io_error == 0) {
+	} else if (buf != NULL) {
 		dbuf_set_data(db, buf);
 		db->db_state = DB_CACHED;
 	} else {
 		ASSERT(db->db_blkid != DMU_BONUS_BLKID);
 		ASSERT3P(db->db_buf, ==, NULL);
-		arc_buf_destroy(buf, db);
 		db->db_state = DB_UNCACHED;
 	}
 	cv_broadcast(&db->db_changed);
@@ -2330,7 +2330,8 @@ dbuf_issue_final_prefetch(dbuf_prefetch_arg_t *dpa, blkptr_t *bp)
  * prefetch if the next block down is our target.
  */
 static void
-dbuf_prefetch_indirect_done(zio_t *zio, arc_buf_t *abuf, void *private)
+dbuf_prefetch_indirect_done(zio_t *zio, const zbookmark_phys_t *zb,
+    const blkptr_t *iobp, arc_buf_t *abuf, void *private)
 {
 	dbuf_prefetch_arg_t *dpa = private;
 
@@ -2369,13 +2370,18 @@ dbuf_prefetch_indirect_done(zio_t *zio, arc_buf_t *abuf, void *private)
 		dbuf_rele(db, FTAG);
 	}
 
+	if (abuf == NULL) {
+		kmem_free(dpa, sizeof(*dpa));
+		return;
+	}
+	
 	dpa->dpa_curlevel--;
 
 	uint64_t nextblkid = dpa->dpa_zb.zb_blkid >>
 	    (dpa->dpa_epbs * (dpa->dpa_curlevel - dpa->dpa_zb.zb_level));
 	blkptr_t *bp = ((blkptr_t *)abuf->b_data) +
 	    P2PHASE(nextblkid, 1ULL << dpa->dpa_epbs);
-	if (BP_IS_HOLE(bp) || (zio != NULL && zio->io_error != 0)) {
+	if (BP_IS_HOLE(bp)) {
 		kmem_free(dpa, sizeof (*dpa));
 	} else if (dpa->dpa_curlevel == dpa->dpa_zb.zb_level) {
 		ASSERT3U(nextblkid, ==, dpa->dpa_zb.zb_blkid);
@@ -2583,8 +2589,10 @@ top:
 		return (SET_ERROR(ENOENT));
 	}
 
-	if (db->db_buf != NULL)
+	if (db->db_buf != NULL) {
+		arc_buf_access(db->db_buf);
 		ASSERT3P(db->db.db_data, ==, db->db_buf->b_data);
+	}
 
 	ASSERT(db->db_buf == NULL || arc_referenced(db->db_buf));
 
@@ -3748,7 +3756,7 @@ dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, dmu_tx_t *tx)
 		 * ready callback so that we can properly handle an indirect
 		 * block that only contains holes.
 		 */
-		arc_done_func_t *children_ready_cb = NULL;
+		arc_write_done_func_t *children_ready_cb = NULL;
 		if (db->db_level != 0)
 			children_ready_cb = dbuf_write_children_ready;
 

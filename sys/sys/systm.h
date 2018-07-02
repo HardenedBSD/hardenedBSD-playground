@@ -259,17 +259,21 @@ void	hexdump(const void *ptr, int length, const char *hdr, int flags);
 
 #define ovbcopy(f, t, l) bcopy((f), (t), (l))
 void	bcopy(const void * _Nonnull from, void * _Nonnull to, size_t len);
+#define bcopy(from, to, len) __builtin_memmove((to), (from), (len))
 void	bzero(void * _Nonnull buf, size_t len);
-#define bzero(buf, len) ({				\
-	if (__builtin_constant_p(len) && (len) <= 64)	\
-		__builtin_memset((buf), 0, (len));	\
-	else						\
-		bzero((buf), (len));			\
-})
+#define bzero(buf, len) __builtin_memset((buf), 0, (len))
 void	explicit_bzero(void * _Nonnull, size_t);
+int	bcmp(const void *b1, const void *b2, size_t len);
+#define bcmp(b1, b2, len) __builtin_memcmp((b1), (b2), (len))
 
+void	*memset(void * _Nonnull buf, int c, size_t len);
+#define memset(buf, c, len) __builtin_memset((buf), (c), (len))
 void	*memcpy(void * _Nonnull to, const void * _Nonnull from, size_t len);
+#define memcpy(to, from, len) __builtin_memcpy((to), (from), (len))
 void	*memmove(void * _Nonnull dest, const void * _Nonnull src, size_t n);
+#define memmove(dest, src, n) __builtin_memmove((dest), (src), (n))
+int	memcmp(const void *b1, const void *b2, size_t len);
+#define memcmp(b1, b2, len) __builtin_memcmp((b1), (b2), (len))
 
 int	copystr(const void * _Nonnull __restrict kfaddr,
 	    void * _Nonnull __restrict kdaddr, size_t len,
@@ -326,6 +330,8 @@ void	startprofclock(struct proc *);
 void	stopprofclock(struct proc *);
 void	cpu_startprofclock(void);
 void	cpu_stopprofclock(void);
+void	suspendclock(void);
+void	resumeclock(void);
 sbintime_t 	cpu_idleclock(void);
 void	cpu_activeclock(void);
 void	cpu_new_callout(int cpu, sbintime_t bt, sbintime_t bt_opt);
@@ -346,6 +352,11 @@ int	getenv_quad(const char *name, quad_t *data);
 int	kern_setenv(const char *name, const char *value);
 int	kern_unsetenv(const char *name);
 int	testenv(const char *name);
+
+int	getenv_array(const char *name, void *data, int size, int *psize,
+    int type_size, bool allow_signed);
+#define	GETENV_UNSIGNED	false	/* negative numbers not allowed */
+#define	GETENV_SIGNED	true	/* negative numbers allowed */
 
 typedef uint64_t (cpu_tick_f)(void);
 void set_cputicker(cpu_tick_f *func, uint64_t freq, unsigned var);

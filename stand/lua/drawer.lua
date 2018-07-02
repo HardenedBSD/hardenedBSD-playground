@@ -36,12 +36,7 @@ local screen = require("screen")
 
 local drawer = {}
 
-local fbsd_logo
-local beastie_color
-local beastie
-local fbsd_logo_v
-local orb_color
-local orb
+local fbsd_brand
 local none
 
 local function menuEntryName(drawing_menu, entry)
@@ -56,7 +51,39 @@ local function menuEntryName(drawing_menu, entry)
 	return entry.name
 end
 
-fbsd_logo = {
+local function getBranddef(brand)
+	if brand == nil then
+		return nil
+	end
+	-- Look it up
+	local branddef = drawer.branddefs[brand]
+
+	-- Try to pull it in
+	if branddef == nil then
+		try_include('brand-' .. brand)
+		branddef = drawer.branddefs[brand]
+	end
+
+	return branddef
+end
+
+local function getLogodef(logo)
+	if logo == nil then
+		return nil
+	end
+	-- Look it up
+	local logodef = drawer.logodefs[logo]
+
+	-- Try to pull it in
+	if logodef == nil then
+		try_include('logo-' .. logo)
+		logodef = drawer.logodefs[logo]
+	end
+
+	return logodef
+end
+
+fbsd_brand = {
 "  ______               ____   _____ _____  ",
 " |  ____|             |  _ \\ / ____|  __ \\ ",
 " | |___ _ __ ___  ___ | |_) | (___ | |  | |",
@@ -65,106 +92,11 @@ fbsd_logo = {
 " | |   | | |    |    ||     |      |      |",
 " |_|   |_|  \\___|\\___||____/|_____/|_____/ "
 }
-
-beastie_color = {
-"               \027[31m,        ,",
-"              /(        )`",
-"              \\ \\___   / |",
-"              /- \027[37m_\027[31m  `-/  '",
-"             (\027[37m/\\/ \\\027[31m \\   /\\",
-"             \027[37m/ /   |\027[31m `    \\",
-"             \027[34mO O   \027[37m) \027[31m/    |",
-"             \027[37m`-^--'\027[31m`<     '",
-"            (_.)  _  )   /",
-"             `.___/`    /",
-"               `-----' /",
-"  \027[33m<----.\027[31m     __ / __   \\",
-"  \027[33m<----|====\027[31mO)))\027[33m==\027[31m) \\) /\027[33m====|",
-"  \027[33m<----'\027[31m    `--' `.__,' \\",
-"               |        |",
-"                \\       /       /\\",
-"           \027[36m______\027[31m( (_  / \\______/",
-"         \027[36m,'  ,-----'   |",
-"         `--{__________)\027[37m"
-}
-
-beastie = {
-"               ,        ,",
-"              /(        )`",
-"              \\ \\___   / |",
-"              /- _  `-/  '",
-"             (/\\/ \\ \\   /\\",
-"             / /   | `    \\",
-"             O O   ) /    |",
-"             `-^--'`<     '",
-"            (_.)  _  )   /",
-"             `.___/`    /",
-"               `-----' /",
-"  <----.     __ / __   \\",
-"  <----|====O)))==) \\) /====|",
-"  <----'    `--' `.__,' \\",
-"               |        |",
-"                \\       /       /\\",
-"           ______( (_  / \\______/",
-"         ,'  ,-----'   |",
-"         `--{__________)"
-}
-
-fbsd_logo_v = {
-"  ______",
-" |  ____| __ ___  ___ ",
-" | |__ | '__/ _ \\/ _ \\",
-" |  __|| | |  __/  __/",
-" | |   | | |    |    |",
-" |_|   |_|  \\___|\\___|",
-"  ____   _____ _____",
-" |  _ \\ / ____|  __ \\",
-" | |_) | (___ | |  | |",
-" |  _ < \\___ \\| |  | |",
-" | |_) |____) | |__| |",
-" |     |      |      |",
-" |____/|_____/|_____/"
-}
-
-orb_color = {
-"  \027[31m```                        \027[31;1m`\027[31m",
-" s` `.....---...\027[31;1m....--.```   -/\027[31m",
-" +o   .--`         \027[31;1m/y:`      +.\027[31m",
-"  yo`:.            \027[31;1m:o      `+-\027[31m",
-"   y/               \027[31;1m-/`   -o/\027[31m",
-"  .-                  \027[31;1m::/sy+:.\027[31m",
-"  /                     \027[31;1m`--  /\027[31m",
-" `:                          \027[31;1m:`\027[31m",
-" `:                          \027[31;1m:`\027[31m",
-"  /                          \027[31;1m/\027[31m",
-"  .-                        \027[31;1m-.\027[31m",
-"   --                      \027[31;1m-.\027[31m",
-"    `:`                  \027[31;1m`:`",
-"      \027[31;1m.--             `--.",
-"         .---.....----.\027[37m"
-}
-
-orb = {
-"  ```                        `",
-" s` `.....---.......--.```   -/",
-" +o   .--`         /y:`      +.",
-"  yo`:.            :o      `+-",
-"   y/               -/`   -o/",
-"  .-                  ::/sy+:.",
-"  /                     `--  /",
-" `:                          :`",
-" `:                          :`",
-"  /                          /",
-"  .-                        -.",
-"   --                      -.",
-"    `:`                  `:`",
-"      .--             `--.",
-"         .---.....----."
-}
-
 none = {""}
 
 -- Module exports
+drawer.default_brand = 'fbsd'
+
 drawer.menu_name_handlers = {
 	-- Menu name handlers should take the menu being drawn and entry being
 	-- drawn as parameters, and return the name of the item.
@@ -205,42 +137,30 @@ drawer.branddefs = {
 	-- Indexed by valid values for loader_brand in loader.conf(5). Valid
 	-- keys are: graphic (table depicting graphic)
 	["fbsd"] = {
-		graphic = fbsd_logo,
+		graphic = fbsd_brand,
 	},
 	["none"] = {
 		graphic = none,
 	},
 }
 
+function drawer.addBrand(name, def)
+	drawer.branddefs[name] = def
+end
+
+function drawer.addLogo(name, def)
+	drawer.logodefs[name] = def
+end
+
 drawer.logodefs = {
 	-- Indexed by valid values for loader_logo in loader.conf(5). Valid keys
 	-- are: requires_color (boolean), graphic (table depicting graphic), and
 	-- shift (table containing x and y).
-	["beastie"] = {
-		requires_color = true,
-		graphic = beastie_color,
-	},
-	["beastiebw"] = {
-		graphic = beastie,
-	},
-	["fbsdbw"] = {
-		graphic = fbsd_logo_v,
-		shift = {x = 5, y = 4},
-	},
-	["orb"] = {
-		requires_color = true,
-		graphic = orb_color,
-		shift = {x = 2, y = 4},
-	},
-	["orbbw"] = {
-		graphic = orb,
-		shift = {x = 2, y = 4},
-	},
 	["tribute"] = {
-		graphic = fbsd_logo,
+		graphic = fbsd_brand,
 	},
 	["tributebw"] = {
-		graphic = fbsd_logo,
+		graphic = fbsd_brand,
 	},
 	["none"] = {
 		graphic = none,
@@ -313,7 +233,7 @@ function drawer.drawmenu(menudef)
 			entry_num = entry_num + 1
 			screen.setcursor(x, y + effective_line_num)
 
-			print(entry_num .. ". " .. menuEntryName(menudef, e))
+			printc(entry_num .. ". " .. menuEntryName(menudef, e))
 
 			-- fill the alias table
 			alias_table[tostring(entry_num)] = e
@@ -324,7 +244,7 @@ function drawer.drawmenu(menudef)
 			end
 		else
 			screen.setcursor(x, y + effective_line_num)
-			print(menuEntryName(menudef, e))
+			printc(menuEntryName(menudef, e))
 		end
 		::continue::
 	end
@@ -413,10 +333,13 @@ function drawer.drawbrand()
 	local y = tonumber(loader.getenv("loader_brand_y")) or
 	    drawer.brand_position.y
 
-	local graphic = drawer.branddefs[loader.getenv("loader_brand")]
-	if graphic == nil then
-		graphic = fbsd_logo
+	local branddef = getBranddef(loader.getenv("loader_brand"))
+
+	if branddef == nil then
+		branddef = getBranddef(drawer.default_brand)
 	end
+
+	local graphic = branddef.graphic
 
 	x = x + drawer.shift.x
 	y = y + drawer.shift.y
@@ -432,16 +355,15 @@ function drawer.drawlogo()
 	local logo = loader.getenv("loader_logo")
 	local colored = color.isEnabled()
 
-	-- Lookup
-	local logodef = drawer.logodefs[logo]
+	local logodef = getLogodef(logo)
 
 	if logodef == nil or logodef.graphic == nil or
 	    (not colored and logodef.requires_color) then
 		-- Choose a sensible default
 		if colored then
-			logodef = drawer.logodefs["orb"]
+			logodef = getLogodef("orb")
 		else
-			logodef = drawer.logodefs["orbbw"]
+			logodef = getLogodef("orbbw")
 		end
 	end
 

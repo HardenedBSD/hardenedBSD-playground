@@ -2241,7 +2241,7 @@ vm_map_madvise(
 	int behav)
 {
 	vm_map_entry_t current, entry;
-	int modify_map = 0;
+	bool modify_map;
 
 	/*
 	 * Some madvise calls directly modify the vm_map_entry, in which case
@@ -2258,19 +2258,20 @@ vm_map_madvise(
 	case MADV_NOCORE:
 	case MADV_CORE:
 		if (start == end)
-			return (KERN_SUCCESS);
-		modify_map = 1;
+			return (0);
+		modify_map = true;
 		vm_map_lock(map);
 		break;
 	case MADV_WILLNEED:
 	case MADV_DONTNEED:
 	case MADV_FREE:
 		if (start == end)
-			return (KERN_SUCCESS);
+			return (0);
+		modify_map = false;
 		vm_map_lock_read(map);
 		break;
 	default:
-		return (KERN_INVALID_ARGUMENT);
+		return (EINVAL);
 	}
 
 	/*
@@ -4386,6 +4387,27 @@ vm_map_lookup_done(vm_map_t map, vm_map_entry_t entry)
 	 * Unlock the main-level map
 	 */
 	vm_map_unlock_read(map);
+}
+
+vm_offset_t
+vm_map_max_KBI(const struct vm_map *map)
+{
+
+	return (map->max_offset);
+}
+
+vm_offset_t
+vm_map_min_KBI(const struct vm_map *map)
+{
+
+	return (map->min_offset);
+}
+
+pmap_t
+vm_map_pmap_KBI(vm_map_t map)
+{
+
+	return (map->pmap);
 }
 
 #include "opt_ddb.h"

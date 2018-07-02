@@ -87,6 +87,7 @@ enum {
 };
 
 struct sockopt;
+struct offload_settings;
 
 struct ofld_tx_sdesc {
 	uint32_t plen;		/* payload length */
@@ -321,18 +322,6 @@ mbuf_ulp_submode(struct mbuf *m)
 	return (m->m_pkthdr.PH_per.eight[0]);
 }
 
-static inline int
-is_tls_offload(struct toepcb *toep)
-{
-	return (toep->ulp_mode == ULP_MODE_TLS);
-}
-
-static inline int
-can_tls_offload(struct adapter *sc)
-{
-	return (sc->tt.tls && sc->cryptocaps & FW_CAPS_CONFIG_TLSKEYS);
-}
-
 /* t4_tom.c */
 struct toepcb *alloc_toepcb(struct vi_info *, int, int, int);
 struct toepcb *hold_toepcb(struct toepcb *);
@@ -344,14 +333,15 @@ void insert_tid(struct adapter *, int, void *, int);
 void *lookup_tid(struct adapter *, int);
 void update_tid(struct adapter *, int, void *);
 void remove_tid(struct adapter *, int, int);
-void release_tid(struct adapter *, int, struct sge_wrq *);
-int find_best_mtu_idx(struct adapter *, struct in_conninfo *, int);
+int find_best_mtu_idx(struct adapter *, struct in_conninfo *,
+    struct offload_settings *);
 u_long select_rcv_wnd(struct socket *);
 int select_rcv_wscale(void);
 uint64_t calc_opt0(struct socket *, struct vi_info *, struct l2t_entry *,
-    int, int, int, int);
+    int, int, int, int, struct offload_settings *);
 uint64_t select_ntuple(struct vi_info *, struct l2t_entry *);
-int select_ulp_mode(struct socket *, struct adapter *);
+int select_ulp_mode(struct socket *, struct adapter *,
+    struct offload_settings *);
 void set_ulp_mode(struct toepcb *, int);
 int negative_advice(int);
 struct clip_entry *hold_lip(struct tom_data *, struct in6_addr *,
@@ -396,11 +386,10 @@ void t4_rcvd_locked(struct toedev *, struct tcpcb *);
 int t4_tod_output(struct toedev *, struct tcpcb *);
 int t4_send_fin(struct toedev *, struct tcpcb *);
 int t4_send_rst(struct toedev *, struct tcpcb *);
-void t4_set_tcb_field(struct adapter *, struct sge_wrq *, int, uint16_t,
-    uint64_t, uint64_t, int, int, int);
+void t4_set_tcb_field(struct adapter *, struct sge_wrq *, struct toepcb *,
+    uint16_t, uint64_t, uint64_t, int, int);
 void t4_push_frames(struct adapter *sc, struct toepcb *toep, int drop);
 void t4_push_pdus(struct adapter *sc, struct toepcb *toep, int drop);
-int do_set_tcb_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
 
 /* t4_ddp.c */
 int t4_init_ppod_region(struct ppod_region *, struct t4_range *, u_int,
@@ -426,10 +415,12 @@ void ddp_queue_toep(struct toepcb *);
 void release_ddp_resources(struct toepcb *toep);
 void handle_ddp_close(struct toepcb *, struct tcpcb *, uint32_t);
 void handle_ddp_indicate(struct toepcb *);
-void handle_ddp_tcb_rpl(struct toepcb *, const struct cpl_set_tcb_rpl *);
 void insert_ddp_data(struct toepcb *, uint32_t);
+const struct offload_settings *lookup_offload_policy(struct adapter *, int,
+    struct mbuf *, uint16_t, struct inpcb *);
 
 /* t4_tls.c */
+bool can_tls_offload(struct adapter *);
 int t4_ctloutput_tls(struct socket *, struct sockopt *);
 void t4_push_tls_records(struct adapter *, struct toepcb *, int);
 void t4_tls_mod_load(void);

@@ -349,6 +349,7 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 
 	ASSERT(ds == NULL || MUTEX_HELD(&ds->ds_opening_lock));
 
+#if 0
 	/*
 	 * The $ORIGIN dataset (if it exists) doesn't have an associated
 	 * objset, so there's no reason to open it. The $ORIGIN dataset
@@ -359,6 +360,7 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 		ASSERT3P(ds->ds_dir, !=,
 		    spa_get_dsl(spa)->dp_origin_snap->ds_dir);
 	}
+#endif
 
 	os = kmem_zalloc(sizeof (objset_t), KM_SLEEP);
 	os->os_dsl_dataset = ds;
@@ -670,23 +672,21 @@ dmu_objset_rele(objset_t *os, void *tag)
  * same name so that it can be partially torn down and reconstructed.
  */
 void
-dmu_objset_refresh_ownership(objset_t *os, void *tag)
+dmu_objset_refresh_ownership(dsl_dataset_t *ds, dsl_dataset_t **newds,
+    void *tag)
 {
 	dsl_pool_t *dp;
-	dsl_dataset_t *ds, *newds;
 	char name[ZFS_MAX_DATASET_NAME_LEN];
 
-	ds = os->os_dsl_dataset;
 	VERIFY3P(ds, !=, NULL);
 	VERIFY3P(ds->ds_owner, ==, tag);
 	VERIFY(dsl_dataset_long_held(ds));
 
 	dsl_dataset_name(ds, name);
-	dp = dmu_objset_pool(os);
+	dp = ds->ds_dir->dd_pool;
 	dsl_pool_config_enter(dp, FTAG);
-	dmu_objset_disown(os, tag);
-	VERIFY0(dsl_dataset_own(dp, name, tag, &newds));
-	VERIFY3P(newds, ==, os->os_dsl_dataset);
+	dsl_dataset_disown(ds, tag);
+	VERIFY0(dsl_dataset_own(dp, name, tag, newds));
 	dsl_pool_config_exit(dp, FTAG);
 }
 

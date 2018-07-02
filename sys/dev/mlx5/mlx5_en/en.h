@@ -49,6 +49,7 @@
 #include <netinet/udp.h>
 #include <net/ethernet.h>
 #include <sys/buf_ring.h>
+#include <sys/kthread.h>
 
 #include "opt_rss.h"
 
@@ -711,6 +712,10 @@ struct mlx5e_flow_tables {
 	struct mlx5e_flow_table inner_rss;
 };
 
+#ifdef RATELIMIT
+#include "en_rl.h"
+#endif
+
 #define	MLX5E_TSTMP_PREC 10
 
 struct mlx5e_clbr_point {
@@ -769,6 +774,8 @@ struct mlx5e_priv {
 	struct mlx5e_stats stats;
 	int	counter_set_id;
 
+	struct workqueue_struct *wq;
+
 	eventhandler_tag vlan_detach;
 	eventhandler_tag vlan_attach;
 	struct ifmedia media;
@@ -776,6 +783,9 @@ struct mlx5e_priv {
 	int	media_active_last;
 
 	struct callout watchdog;
+#ifdef RATELIMIT
+	struct mlx5e_rl_priv_data rl;
+#endif
 
 	struct callout tstmp_clbr;
 	int	clbr_done;

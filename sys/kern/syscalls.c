@@ -78,7 +78,7 @@ const char *syscallnames[] = {
 	"sbrk",			/* 69 = sbrk */
 	"sstk",			/* 70 = sstk */
 	"compat.mmap",		/* 71 = old mmap */
-	"vadvise",			/* 72 = vadvise */
+	"compat11.vadvise",		/* 72 = freebsd11 vadvise */
 	"munmap",			/* 73 = munmap */
 	"mprotect",			/* 74 = mprotect */
 	"madvise",			/* 75 = madvise */
@@ -569,4 +569,5 @@ const char *syscallnames[] = {
 	"kevent",			/* 560 = kevent */
 	"cpuset_getdomain",			/* 561 = cpuset_getdomain */
 	"cpuset_setdomain",			/* 562 = cpuset_setdomain */
+	"getrandom",			/* 563 = getrandom */
 };

@@ -278,7 +278,7 @@ SYSCTL_UINT(_net_inet_tcp_fastopen, OID_AUTO, ccache_buckets,
     CTLFLAG_VNET | CTLFLAG_RDTUN, &VNET_NAME(tcp_fastopen_ccache_buckets), 0,
     "Client cookie cache number of buckets (power of 2)");
 
-VNET_DEFINE(unsigned int, tcp_fastopen_client_enable) = 0;
+VNET_DEFINE(unsigned int, tcp_fastopen_client_enable) = 1;
 static int sysctl_net_inet_tcp_fastopen_client_enable(SYSCTL_HANDLER_ARGS);
 SYSCTL_PROC(_net_inet_tcp_fastopen, OID_AUTO, client_enable,
     CTLFLAG_VNET | CTLTYPE_UINT | CTLFLAG_RW, NULL, 0,
@@ -856,6 +856,7 @@ tcp_fastopen_connect(struct tcpcb *tp)
 	uint16_t server_mss;
 	uint64_t psk_cookie;
 	
+	psk_cookie = 0;
 	inp = tp->t_inpcb;
 	cce = tcp_fastopen_ccache_lookup(&inp->inp_inc, &ccb);
 	if (cce) {
@@ -875,7 +876,7 @@ tcp_fastopen_connect(struct tcpcb *tp)
 			server_mss = cce->server_mss;
 			CCB_UNLOCK(ccb);
 			if (tp->t_tfo_client_cookie_len ==
-			    TCP_FASTOPEN_PSK_LEN) {
+			    TCP_FASTOPEN_PSK_LEN && psk_cookie) {
 				tp->t_tfo_client_cookie_len =
 				    TCP_FASTOPEN_COOKIE_LEN;
 				memcpy(tp->t_tfo_cookie.client, &psk_cookie,

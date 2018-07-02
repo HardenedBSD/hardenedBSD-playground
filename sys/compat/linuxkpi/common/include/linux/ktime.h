@@ -40,8 +40,8 @@
 /* time values in nanoseconds */
 typedef s64 ktime_t;
 
-#define	KTIME_MAX                       ((s64)~((u64)1 << 63))
-#define	KTIME_SEC_MAX                   (KTIME_MAX / NSEC_PER_SEC)
+#define	KTIME_MAX			((s64)~((u64)1 << 63))
+#define	KTIME_SEC_MAX			(KTIME_MAX / NSEC_PER_SEC)
 
 static inline int64_t
 ktime_to_ns(ktime_t kt)
@@ -127,6 +127,25 @@ ktime_add(ktime_t lhs, ktime_t rhs)
 	return (lhs + rhs);
 }
 
+static inline int
+ktime_compare(const ktime_t cmp1, const ktime_t cmp2)
+{
+
+	if (cmp1 > cmp2)
+		return (1);
+	else if (cmp1 < cmp2)
+		return (-1);
+	else
+		return (0);
+}
+
+static inline bool
+ktime_after(const ktime_t cmp1, const ktime_t cmp2)
+{
+
+	return (ktime_compare(cmp1, cmp2) > 0);
+}
+
 static inline ktime_t
 timespec_to_ktime(struct timespec ts)
 {
@@ -140,6 +159,7 @@ timeval_to_ktime(struct timeval tv)
 }
 
 #define	ktime_to_timespec(kt)		ns_to_timespec(kt)
+#define	ktime_to_timespec64(kt)		ns_to_timespec(kt)
 #define	ktime_to_timeval(kt)		ns_to_timeval(kt)
 #define	ktime_to_ns(kt)			(kt)
 

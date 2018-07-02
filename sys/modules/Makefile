@@ -41,7 +41,7 @@ SUBDIR=	\
 	${_an} \
 	${_apm} \
 	${_arcmsr} \
-	${_arcnet} \
+	${_allwinner} \
 	${_armv8crypto} \
 	${_asmc} \
 	ata \
@@ -67,6 +67,7 @@ SUBDIR=	\
 	${_bxe} \
 	${_bios} \
 	${_bktr} \
+	${_blake2} \
 	${_bm} \
 	bnxt \
 	bridgestp \
@@ -85,13 +86,11 @@ SUBDIR=	\
 	cd9660_iconv \
 	${_ce} \
 	${_cfi} \
-	chacha20 \
 	${_chromebook_platform} \
 	${_ciss} \
 	cloudabi \
 	${_cloudabi32} \
 	${_cloudabi64} \
-	${_cm} \
 	${_cmx} \
 	${_coretemp} \
 	${_cp} \
@@ -202,9 +201,7 @@ SUBDIR=	\
 	${_iwnfw} \
 	${_ix} \
 	${_ixv} \
-	${_ixgb} \
 	${_ixl} \
-	${_ixlv} \
 	jme \
 	joy \
 	kbdmux \
@@ -218,14 +215,11 @@ SUBDIR=	\
 	libalias \
 	libiconv \
 	libmchain \
-	${_linprocfs} \
-	${_linsysfs} \
 	${_linux} \
 	${_linux_common} \
 	${_linux64} \
 	linuxkpi \
 	${_lio} \
-	lmc \
 	lpt \
 	mac_biba \
 	mac_bsdextended \
@@ -291,8 +285,8 @@ SUBDIR=	\
 	${_nvd} \
 	${_nvme} \
 	${_nvram} \
-	${_nxge} \
 	oce \
+	${_ocs_fc} \
 	otus \
 	${_otusfw} \
 	ow \
@@ -330,6 +324,7 @@ SUBDIR=	\
 	${_rdrand_rng} \
 	re \
 	rl \
+	${_rockchip} \
 	rtwn \
 	rtwn_pci \
 	rtwn_usb \
@@ -353,6 +348,7 @@ SUBDIR=	\
 	siis \
 	sis \
 	sk \
+	${_smartpqi} \
 	smbfs \
 	sn \
 	snp \
@@ -399,7 +395,6 @@ SUBDIR=	\
 	vr \
 	vte \
 	vx \
-	${_vxge} \
 	wb \
 	${_wbwd} \
 	${_wi} \
@@ -486,6 +481,12 @@ SUBDIR+=	iscsi
 SUBDIR+=	iscsi_initiator
 .endif
 
+.if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64" || \
+    ${MACHINE_CPUARCH} == "i386"
+SUBDIR+=	linprocfs
+SUBDIR+=	linsysfs
+.endif
+
 .if ${MK_NAND} != "no" || defined(ALL_MODULES)
 _nandfs=	nandfs
 _nandsim=	nandsim
@@ -558,9 +559,11 @@ _cxgb=		cxgb
 .endif
 
 .if ${MACHINE_CPUARCH} == "aarch64"
+_allwinner=	allwinner
 _armv8crypto=	armv8crypto
 _efirt=		efirt
 _em=		em
+_rockchip=	rockchip
 .endif
 
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_CPUARCH} == "amd64"
@@ -597,14 +600,13 @@ _iser=		iser
 .endif
 _ix=		ix
 _ixv=		ixv
-_linprocfs=	linprocfs
-_linsysfs=	linsysfs
 _linux=		linux
 .if ${MK_SOURCELESS_UCODE} != "no"
 _lio=		lio
 .endif
 _nctgpio=	nctgpio
 _ndis=		ndis
+_ocs_fc=	ocs_fc
 _pccard=	pccard
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
 _rdma=		rdma
@@ -615,7 +617,6 @@ _speaker=	speaker
 _splash=	splash
 _sppp=		sppp
 _vmware=	vmware
-_vxge=  	vxge
 _wbwd=		wbwd
 _wi=		wi
 _xe=		xe
@@ -624,7 +625,9 @@ _aac=		aac
 _aacraid=	aacraid
 _acpi=		acpi
 .if ${MK_CRYPT} != "no" || defined(ALL_MODULES)
+.if ${COMPILER_TYPE} != "gcc" || ${COMPILER_VERSION} > 40201
 _aesni=		aesni
+.endif
 .endif
 _amd_ecc_inject=amd_ecc_inject
 _amdsbwd=	amdsbwd
@@ -632,6 +635,9 @@ _amdsmn=	amdsmn
 _amdtemp=	amdtemp
 _arcmsr=	arcmsr
 _asmc=		asmc
+.if ${MK_CRYPT} != "no" || defined(ALL_MODULES)
+_blake2=	blake2
+.endif
 _bytgpio=	bytgpio
 _chvgpio=	chvgpio
 _ciss=		ciss
@@ -659,7 +665,6 @@ _ipw=		ipw
 _iwi=		iwi
 _iwm=		iwm
 _iwn=		iwn
-_ixgb=		ixgb
 .if ${MK_SOURCELESS_UCODE} != "no"
 _ipwfw=		ipwfw
 _iwifw=		iwifw
@@ -683,7 +688,6 @@ _nfe=		nfe
 _nvd=		nvd
 _nvme=		nvme
 _nvram=		nvram
-_nxge=		nxge
 .if ${MK_CRYPT} != "no" || defined(ALL_MODULES)
 _padlock=	padlock
 _padlock_rng=	padlock_rng
@@ -722,6 +726,7 @@ _qlnx=		qlnx
 _sfxge=		sfxge
 _sgx=		sgx
 _sgx_linux=	sgx_linux
+_smartpqi=	smartpqi
 
 .if ${MK_BHYVE} != "no" || defined(ALL_MODULES)
 _vmm=		vmm
@@ -735,7 +740,6 @@ _3dfx=		3dfx
 _3dfx_linux=	3dfx_linux
 _aic=		aic
 _apm=		apm
-_arcnet=	arcnet
 .if ${MK_SOURCELESS_UCODE} != "no"
 _ce=		ce
 .endif
@@ -752,7 +756,6 @@ _pcfclock=	pcfclock
 _pst=		pst
 _sbni=		sbni
 _stg=		stg
-_cm=		cm
 .if ${MK_SOURCELESS_UCODE} != "no"
 _ctau=		ctau
 .endif
@@ -776,6 +779,8 @@ _cpufreq=	cpufreq
 _drm=		drm
 _exca=		exca
 _ffec=		ffec
+_nvd=		nvd
+_nvme=		nvme
 _pccard=	pccard
 _wi=		wi
 .endif
