@@ -1,8 +1,7 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
- * Copyright (c) 1999 Peter Jeremy
- * All rights reserved.
+ * Copyright (c) 2018, Matthew Macy <mmacy@freebsd.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,28 +23,33 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $FreeBSD$
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#ifndef _SYS_KPILITE_H_
+#define _SYS_KPILITE_H_
+#if !defined(GENOFFSET) && (!defined(KLD_MODULE) || defined(KLD_TIED)) && defined(_KERNEL)
+#include "offset.inc"
 
-/* This file creates publically callable functions to perform various
- * simple arithmetic on memory which is atomic in the presence of
- * interrupts and multiple processors.
- */
-#include <sys/types.h>
+static __inline void
+sched_pin_lite(struct thread_lite *td)
+{
 
-/* Firstly make atomic.h generate prototypes as it will for kernel modules */
-#define KLD_MODULE
-#include <machine/atomic.h>
-#undef _MACHINE_ATOMIC_H_	/* forget we included it */
-#undef KLD_MODULE
-#undef ATOMIC_ASM
+	KASSERT((struct thread *)td == curthread, ("sched_pin called on non curthread"));
+	td->td_pinned++;
+	__compiler_membar();
+}
 
-/* Make atomic.h generate public functions */
-#define WANT_FUNCTIONS
-#define static
-#undef __inline
-#define __inline
+static __inline void
+sched_unpin_lite(struct thread_lite *td)
+{
 
-#include <machine/atomic.h>
+	KASSERT((struct thread *)td == curthread, ("sched_unpin called on non curthread"));
+	KASSERT(td->td_pinned > 0, ("sched_unpin called on non pinned thread"));
+	__compiler_membar();
+	td->td_pinned--;
+	__compiler_membar();
+}
+#endif
+#endif

@@ -1,8 +1,7 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
- * Copyright (c) 1999 Peter Jeremy
- * All rights reserved.
+ * Copyright (c) 2018, Matthew Macy <mmacy@freebsd.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,29 +23,22 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $FreeBSD$
  */
 
+#ifndef OFFSET_TEST
+#define GENOFFSET
+#endif
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
+#include <sys/param.h>
+#include <sys/assym.h>
+#include <sys/proc.h>
 
-/* This file creates publicly callable functions to perform various
- * simple arithmetic on memory which is atomic in the presence of
- * interrupts and multiple processors.
- */
-#include <sys/types.h>
-
-/* Firstly make atomic.h generate prototypes as it will for kernel modules */
-#define KLD_MODULE
-#include <machine/atomic.h>
-#undef _MACHINE_ATOMIC_H_	/* forget we included it */
-#undef KLD_MODULE
-#undef ATOMIC_ASM
-
-/* Make atomic.h generate public functions */
-static __inline void __storeload_barrier(void);
-#define WANT_FUNCTIONS
-#define static
-#undef __inline
-#define __inline
-
-#include <machine/atomic.h>
+OFFSYM(td_pre_epoch_prio, thread, u_char);
+OFFSYM(td_priority, thread, u_char);
+OFFSYM(td_epochnest, thread, u_char);
+OFFSYM(td_critnest, thread, u_int);
+OFFSYM(td_pinned, thread, int);
+OFFSYM(td_owepreempt, thread, u_char);

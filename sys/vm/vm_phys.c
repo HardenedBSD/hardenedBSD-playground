@@ -157,7 +157,7 @@ static vm_page_t vm_phys_alloc_seg_contig(struct vm_phys_seg *seg,
 static void _vm_phys_create_seg(vm_paddr_t start, vm_paddr_t end, int domain);
 static void vm_phys_create_seg(vm_paddr_t start, vm_paddr_t end);
 static void vm_phys_split_pages(vm_page_t m, int oind, struct vm_freelist *fl,
-    int order);
+    int order, int tail);
 
 /*
  * Red-black tree helpers for vm fictitious range management.
@@ -589,9 +589,16 @@ vm_phys_init(void)
 
 /*
  * Split a contiguous, power of two-sized set of physical pages.
+ *
+ * When this function is called by a page allocation function, the caller
+ * should request insertion at the head unless the order [order, oind) queues
+ * are known to be empty.  The objective being to reduce the likelihood of
+ * long-term fragmentation by promoting contemporaneous allocation and
+ * (hopefully) deallocation.
  */
 static __inline void
-vm_phys_split_pages(vm_page_t m, int oind, struct vm_freelist *fl, int order)
+vm_phys_split_pages(vm_page_t m, int oind, struct vm_freelist *fl, int order,
+    int tail)
 {
 	vm_page_t m_buddy;
 
@@ -601,8 +608,45 @@ vm_phys_split_pages(vm_page_t m, int oind, struct vm_freelist *fl, int order)
 		KASSERT(m_buddy->order == VM_NFREEORDER,
 		    ("vm_phys_split_pages: page %p has unexpected order %d",
 		    m_buddy, m_buddy->order));
-		vm_freelist_add(fl, m_buddy, oind, 0);
+		vm_freelist_add(fl, m_buddy, oind, tail);
         }
+}
+
+/*
+ * Add the physical pages [m, m + npages) at the end of a power-of-two aligned
+ * and sized set to the specified free list.
+ *
+ * When this function is called by a page allocation function, the caller
+ * should request insertion at the head unless the lower-order queues are
+ * known to be empty.  The objective being to reduce the likelihood of long-
+ * term fragmentation by promoting contemporaneous allocation and (hopefully)
+ * deallocation.
+ *
+ * The physical page m's buddy must not be free.
+ */
+static void
+vm_phys_enq_range(vm_page_t m, u_int npages, struct vm_freelist *fl, int tail)
+{
+	u_int n;
+	int order;
+
+	KASSERT(npages > 0, ("vm_phys_enq_range: npages is 0"));
+	KASSERT(((VM_PAGE_TO_PHYS(m) + npages * PAGE_SIZE) &
+	    ((PAGE_SIZE << (fls(npages) - 1)) - 1)) == 0,
+	    ("vm_phys_enq_range: page %p and npages %u are misaligned",
+	    m, npages));
+	do {
+		KASSERT(m->order == VM_NFREEORDER,
+		    ("vm_phys_enq_range: page %p has unexpected order %d",
+		    m, m->order));
+		order = ffs(npages) - 1;
+		KASSERT(order < VM_NFREEORDER,
+		    ("vm_phys_enq_range: order %d is out of range", order));
+		vm_freelist_add(fl, m, order, tail);
+		n = 1 << order;
+		m += n;
+		npages -= n;
+	} while (npages > 0);
 }
 
 /*
@@ -645,7 +689,12 @@ vm_phys_alloc_npages(int domain, int pool, int npages, vm_page_t ma[])
 				for (end = i + need; i < end;)
 					ma[i++] = m++;
 				if (need < avail) {
-					vm_phys_free_contig(m, avail - need);
+					/*
+					 * Return excess pages to fl.  Its
+					 * order [0, oind) queues are empty.
+					 */
+					vm_phys_enq_range(m, avail - need, fl,
+					    1);
 					return (npages);
 				} else if (i == npages)
 					return (npages);
@@ -663,8 +712,13 @@ vm_phys_alloc_npages(int domain, int pool, int npages, vm_page_t ma[])
 					for (end = i + need; i < end;)
 						ma[i++] = m++;
 					if (need < avail) {
-						vm_phys_free_contig(m, avail -
-						    need);
+						/*
+						 * Return excess pages to fl.
+						 * Its order [0, oind) queues
+						 * are empty.
+						 */
+						vm_phys_enq_range(m, avail -
+						    need, fl, 1);
 						return (npages);
 					} else if (i == npages)
 						return (npages);
@@ -731,7 +785,8 @@ vm_phys_alloc_freelist_pages(int domain, int freelist, int pool, int order)
 		m = TAILQ_FIRST(&fl[oind].pl);
 		if (m != NULL) {
 			vm_freelist_rem(fl, m, oind);
-			vm_phys_split_pages(m, oind, fl, order);
+			/* The order [order, oind) queues are empty. */
+			vm_phys_split_pages(m, oind, fl, order, 1);
 			return (m);
 		}
 	}
@@ -749,7 +804,8 @@ vm_phys_alloc_freelist_pages(int domain, int freelist, int pool, int order)
 			if (m != NULL) {
 				vm_freelist_rem(alt, m, oind);
 				vm_phys_set_pool(pool, m, oind);
-				vm_phys_split_pages(m, oind, fl, order);
+				/* The order [order, oind) queues are empty. */
+				vm_phys_split_pages(m, oind, fl, order, 1);
 				return (m);
 			}
 		}
@@ -1304,8 +1360,10 @@ done:
 	}
 	/* Return excess pages to the free lists. */
 	npages_end = roundup2(npages, 1 << oind);
-	if (npages < npages_end)
-		vm_phys_free_contig(&m_ret[npages], npages_end - npages);
+	if (npages < npages_end) {
+		fl = (*seg->free_queues)[VM_FREEPOOL_DEFAULT];
+		vm_phys_enq_range(&m_ret[npages], npages_end - npages, fl, 0);
+	}
 	return (m_ret);
 }
 
