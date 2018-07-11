@@ -59,6 +59,9 @@ SUBDIR=	adduser \
 	nologin \
 	pciconf \
 	periodic \
+	pnfsdscopymr \
+	pnfsdsfile \
+	pnfsdskill \
 	powerd \
 	prometheus_sysctl_exporter \
 	pstat \
@@ -81,6 +84,7 @@ SUBDIR=	adduser \
 	setpmac \
 	smbmsg \
 	snapinfo \
+	spi \
 	spray \
 	syslogd \
 	sysrc \
@@ -89,7 +93,6 @@ SUBDIR=	adduser \
 	traceroute \
 	trpt \
 	tzsetup \
-	uefisign \
 	ugidfw \
 	vigr \
 	vipw \
@@ -123,6 +126,9 @@ SUBDIR.${MK_CTM}+=	ctm
 SUBDIR.${MK_CXGBETOOL}+=	cxgbetool
 SUBDIR.${MK_DIALOG}+=	bsdconfig
 SUBDIR.${MK_EFI}+=	efivar efidp efibootmgr
+.if ${MK_OPENSSL} != "no"
+SUBDIR.${MK_EFI}+=	uefisign
+.endif
 SUBDIR.${MK_FLOPPY}+=	fdcontrol
 SUBDIR.${MK_FLOPPY}+=	fdformat
 SUBDIR.${MK_FLOPPY}+=	fdread

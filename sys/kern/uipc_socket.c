@@ -2162,7 +2162,6 @@ release:
 
 /*
  * Optimized version of soreceive() for stream (TCP) sockets.
- * XXXAO: (MSG_WAITALL | MSG_PEEK) isn't properly handled.
  */
 int
 soreceive_stream(struct socket *so, struct sockaddr **psa, struct uio *uio,
@@ -2177,12 +2176,12 @@ soreceive_stream(struct socket *so, struct sockaddr **psa, struct uio *uio,
 		return (EINVAL);
 	if (psa != NULL)
 		*psa = NULL;
-	if (controlp != NULL)
-		return (EINVAL);
 	if (flagsp != NULL)
 		flags = *flagsp &~ MSG_EOR;
 	else
 		flags = 0;
+	if (controlp != NULL)
+		*controlp = NULL;
 	if (flags & MSG_OOB)
 		return (soreceive_rcvoob(so, uio, flags));
 	if (mp0 != NULL)
@@ -3986,12 +3985,12 @@ sotoxsocket(struct socket *so, struct xsocket *xso)
 {
 
 	xso->xso_len = sizeof *xso;
-	xso->xso_so = so;
+	xso->xso_so = (uintptr_t)so;
 	xso->so_type = so->so_type;
 	xso->so_options = so->so_options;
 	xso->so_linger = so->so_linger;
 	xso->so_state = so->so_state;
-	xso->so_pcb = so->so_pcb;
+	xso->so_pcb = (uintptr_t)so->so_pcb;
 	xso->xso_protocol = so->so_proto->pr_protocol;
 	xso->xso_family = so->so_proto->pr_domain->dom_family;
 	xso->so_timeo = so->so_timeo;

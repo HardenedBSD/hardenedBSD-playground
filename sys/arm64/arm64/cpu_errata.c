@@ -41,7 +41,7 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/cpu.h>
 
-#include <dev/psci/psci.h>
+#include <dev/psci/smccc.h>
 
 typedef void (cpu_quirk_install)(void);
 struct cpu_quirks {
@@ -73,13 +73,22 @@ static struct cpu_quirks cpu_quirks[] = {
 		.midr_value = CPU_ID_RAW(CPU_IMPL_ARM, CPU_PART_CORTEX_A75,0,0),
 		.quirk_install = install_psci_bp_hardening,
 	},
+	{
+		.midr_mask = CPU_IMPL_MASK | CPU_PART_MASK,
+		.midr_value =
+		    CPU_ID_RAW(CPU_IMPL_CAVIUM, CPU_PART_THUNDERX2, 0,0),
+		.quirk_install = install_psci_bp_hardening,
+	},
 };
 
 static void
 install_psci_bp_hardening(void)
 {
 
-	PCPU_SET(bp_harden, psci_get_version);
+	if (smccc_arch_features(SMCCC_ARCH_WORKAROUND_1) != SMCCC_RET_SUCCESS)
+		return;
+
+	PCPU_SET(bp_harden, smccc_arch_workaround_1);
 }
 
 void

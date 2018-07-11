@@ -239,6 +239,63 @@ static void fw_asrt(struct adapter *adap, struct fw_debug_cmd *asrt)
 		  be32_to_cpu(asrt->u.assert.y));
 }
 
+struct port_tx_state {
+	uint64_t rx_pause;
+	uint64_t tx_frames;
+};
+
+static void
+read_tx_state_one(struct adapter *sc, int i, struct port_tx_state *tx_state)
+{
+	uint32_t rx_pause_reg, tx_frames_reg;
+
+	if (is_t4(sc)) {
+		tx_frames_reg = PORT_REG(i, A_MPS_PORT_STAT_TX_PORT_FRAMES_L);
+		rx_pause_reg = PORT_REG(i, A_MPS_PORT_STAT_RX_PORT_PAUSE_L);
+	} else {
+		tx_frames_reg = T5_PORT_REG(i, A_MPS_PORT_STAT_TX_PORT_FRAMES_L);
+		rx_pause_reg = T5_PORT_REG(i, A_MPS_PORT_STAT_RX_PORT_PAUSE_L);
+	}
+
+	tx_state->rx_pause = t4_read_reg64(sc, rx_pause_reg);
+	tx_state->tx_frames = t4_read_reg64(sc, tx_frames_reg);
+}
+
+static void
+read_tx_state(struct adapter *sc, struct port_tx_state *tx_state)
+{
+	int i;
+
+	for_each_port(sc, i)
+		read_tx_state_one(sc, i, &tx_state[i]);
+}
+
+static void
+check_tx_state(struct adapter *sc, struct port_tx_state *tx_state)
+{
+	uint32_t port_ctl_reg;
+	uint64_t tx_frames, rx_pause;
+	int i;
+
+	for_each_port(sc, i) {
+		rx_pause = tx_state[i].rx_pause;
+		tx_frames = tx_state[i].tx_frames;
+		read_tx_state_one(sc, i, &tx_state[i]);	/* update */
+
+		if (is_t4(sc))
+			port_ctl_reg = PORT_REG(i, A_MPS_PORT_CTL);
+		else
+			port_ctl_reg = T5_PORT_REG(i, A_MPS_PORT_CTL);
+		if (t4_read_reg(sc, port_ctl_reg) & F_PORTTXEN &&
+		    rx_pause != tx_state[i].rx_pause &&
+		    tx_frames == tx_state[i].tx_frames) {
+			t4_set_reg_field(sc, port_ctl_reg, F_PORTTXEN, 0);
+			mdelay(1);
+			t4_set_reg_field(sc, port_ctl_reg, F_PORTTXEN, F_PORTTXEN);
+		}
+	}
+}
+
 #define X_CIM_PF_NOACCESS 0xeeeeeeee
 /**
  *	t4_wr_mbox_meat_timeout - send a command to FW through the given mailbox
@@ -280,13 +337,14 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
 	};
 	u32 v;
 	u64 res;
-	int i, ms, delay_idx, ret;
+	int i, ms, delay_idx, ret, next_tx_check;
 	const __be64 *p = cmd;
 	u32 data_reg = PF_REG(mbox, A_CIM_PF_MAILBOX_DATA);
 	u32 ctl_reg = PF_REG(mbox, A_CIM_PF_MAILBOX_CTRL);
 	u32 ctl;
 	__be64 cmd_rpl[MBOX_LEN/8];
 	u32 pcie_fw;
+	struct port_tx_state tx_state[MAX_NPORTS];
 
 	if (adap->flags & CHK_MBOX_ACCESS)
 		ASSERT_SYNCHRONIZED_OP(adap);
@@ -375,8 +433,8 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
 	CH_DUMP_MBOX(adap, mbox, data_reg);
 
 	t4_write_reg(adap, ctl_reg, F_MBMSGVALID | V_MBOWNER(X_MBOWNER_FW));
-	t4_read_reg(adap, ctl_reg);	/* flush write */
-
+	read_tx_state(adap, &tx_state[0]);	/* also flushes the write_reg */
+	next_tx_check = 1000;
 	delay_idx = 0;
 	ms = delay[0];
 
@@ -391,6 +449,12 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
 			if (pcie_fw & F_PCIE_FW_ERR)
 				break;
 		}
+
+		if (i >= next_tx_check) {
+			check_tx_state(adap, &tx_state[0]);
+			next_tx_check = i + 1000;
+		}
+
 		if (sleep_ok) {
 			ms = delay[delay_idx];  /* last element may repeat */
 			if (delay_idx < ARRAY_SIZE(delay) - 1)
@@ -7846,7 +7910,7 @@ int t4_get_flash_params(struct adapter *adapter)
 	int ret;
 	u32 flashid = 0;
 	unsigned int part, manufacturer;
-	unsigned int density, size;
+	unsigned int density, size = 0;
 
 
 	/*
@@ -7885,7 +7949,7 @@ int t4_get_flash_params(struct adapter *adapter)
 	 */
 	manufacturer = flashid & 0xff;
 	switch (manufacturer) {
-	case 0x20: { /* Micron/Numonix */
+	case 0x20: /* Micron/Numonix */
 		/*
 		 * This Density -> Size decoding table is taken from Micron
 		 * Data Sheets.
@@ -7901,17 +7965,10 @@ int t4_get_flash_params(struct adapter *adapter)
 		case 0x20: size = 1 << 26; break; /*  64MB */
 		case 0x21: size = 1 << 27; break; /* 128MB */
 		case 0x22: size = 1 << 28; break; /* 256MB */
-
-		default:
-			CH_ERR(adapter, "Micron Flash Part has bad size, "
-			       "ID = %#x, Density code = %#x\n",
-			       flashid, density);
-			return -EINVAL;
 		}
 		break;
-	}
 
-	case 0x9d: { /* ISSI -- Integrated Silicon Solution, Inc. */
+	case 0x9d: /* ISSI -- Integrated Silicon Solution, Inc. */
 		/*
 		 * This Density -> Size decoding table is taken from ISSI
 		 * Data Sheets.
@@ -7920,17 +7977,10 @@ int t4_get_flash_params(struct adapter *adapter)
 		switch (density) {
 		case 0x16: size = 1 << 25; break; /*  32MB */
 		case 0x17: size = 1 << 26; break; /*  64MB */
-
-		default:
-			CH_ERR(adapter, "ISSI Flash Part has bad size, "
-			       "ID = %#x, Density code = %#x\n",
-			       flashid, density);
-			return -EINVAL;
 		}
 		break;
-	}
 
-	case 0xc2: { /* Macronix */
+	case 0xc2: /* Macronix */
 		/*
 		 * This Density -> Size decoding table is taken from Macronix
 		 * Data Sheets.
@@ -7939,17 +7989,10 @@ int t4_get_flash_params(struct adapter *adapter)
 		switch (density) {
 		case 0x17: size = 1 << 23; break; /*   8MB */
 		case 0x18: size = 1 << 24; break; /*  16MB */
-
-		default:
-			CH_ERR(adapter, "Macronix Flash Part has bad size, "
-			       "ID = %#x, Density code = %#x\n",
-			       flashid, density);
-			return -EINVAL;
 		}
 		break;
-	}
 
-	case 0xef: { /* Winbond */
+	case 0xef: /* Winbond */
 		/*
 		 * This Density -> Size decoding table is taken from Winbond
 		 * Data Sheets.
@@ -7958,19 +8001,19 @@ int t4_get_flash_params(struct adapter *adapter)
 		switch (density) {
 		case 0x17: size = 1 << 23; break; /*   8MB */
 		case 0x18: size = 1 << 24; break; /*  16MB */
-
-		default:
-			CH_ERR(adapter, "Winbond Flash Part has bad size, "
-			       "ID = %#x, Density code = %#x\n",
-			       flashid, density);
-			return -EINVAL;
 		}
 		break;
 	}
 
-	default:
-		CH_ERR(adapter, "Unsupported Flash Part, ID = %#x\n", flashid);
-		return -EINVAL;
+	/* If we didn't recognize the FLASH part, that's no real issue: the
+	 * Hardware/Software contract says that Hardware will _*ALWAYS*_
+	 * use a FLASH part which is at least 4MB in size and has 64KB
+	 * sectors.  The unrecognized FLASH part is likely to be much larger
+	 * than 4MB, but that's all we really need.
+	 */
+	if (size == 0) {
+		CH_WARN(adapter, "Unknown Flash Part, ID = %#x, assuming 4MB\n", flashid);
+		size = 1 << 22;
 	}
 
 	/*

@@ -226,9 +226,6 @@ local function loadModule(mod, silent)
 	for k, v in pairs(mod) do
 		if v.load ~= nil and v.load:lower() == "yes" then
 			local str = "load "
-			if v.flags ~= nil then
-				str = str .. v.flags .. " "
-			end
 			if v.type ~= nil then
 				str = str .. "-t " .. v.type .. " "
 			end
@@ -236,6 +233,9 @@ local function loadModule(mod, silent)
 				str = str .. v.name
 			else
 				str = str .. k
+			end
+			if v.flags ~= nil then
+				str = str .. " " .. v.flags
 			end
 			if v.before ~= nil then
 				pstatus = cli_execute_unparsed(v.before) == 0
@@ -425,8 +425,8 @@ function config.loadKernel(other_kernel)
 
 	local function tryLoad(names)
 		for name in names:gmatch("([^;]+)%s*;?") do
-			local r = loader.perform("load " .. flags ..
-			    " " .. name)
+			local r = loader.perform("load " .. name ..
+			     " " .. flags)
 			if r == 0 then
 				return name
 			end

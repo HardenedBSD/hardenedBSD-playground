@@ -682,6 +682,7 @@ struct sge_nm_rxq {
 	uint32_t fl_db_val;
 	u_int fl_hwidx:4;
 
+	u_int fl_db_saved;
 	u_int nid;		/* netmap ring # for this queue */
 
 	/* infrequently used items after this */
@@ -1259,6 +1260,7 @@ int t4_filter_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
 int t4_hashfilter_ao_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
 int t4_hashfilter_tcb_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
 int t4_del_hashfilter_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
+void free_hftid_tab(struct tid_info *);
 
 static inline struct wrqe *
 alloc_wrqe(int wr_len, struct sge_wrq *wrq)

@@ -7,6 +7,7 @@ SRCS=	libpmc.c pmclog.c libpmc_pmu_util.c libpmc_json.cc
 INCS=	pmc.h pmclog.h pmcformat.h
 
 CFLAGS+= -I${.CURDIR}
+CWARNFLAGS.gcc+= -Wno-shadow
 
 .if ${MACHINE_ARCH} == "amd64" || ${MACHINE_ARCH} == "i386"
 
@@ -19,9 +20,11 @@ EVENT_ARCH="powerpc"
 .endif
 
 JEVENTS= ${BTOOLSPATH:U.}/pmu-events/jevents
-# This file is built in a subdirectory so never try to rebuild
-# it here due to missing meta file.
-${JEVENTS}: .NOMETA
+# This file is built in a subdirectory so never try to rebuild it here.
+${JEVENTS}: .PHONY
+.if make(*clean*)
+SUBDIR+= pmu-events
+.endif
 
 libpmc_events.c: ${JEVENTS}
 	${JEVENTS} ${EVENT_ARCH} ${.CURDIR}/pmu-events/arch libpmc_events.c

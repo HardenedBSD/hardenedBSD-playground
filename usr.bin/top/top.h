@@ -1,7 +1,6 @@
 /*-
  * Top - a top users display for Berkeley Unix
  *
- * General (global) definitions
  * $FreeBSD$
  */
 
@@ -11,10 +10,7 @@
 #include <unistd.h>
 
 /* Number of lines of header information on the standard screen */
-extern int Header_lines;	/* 7 */
-
-/* Maximum number of columns allowed for display */
-#define MAX_COLS	512
+extern int Header_lines;
 
 /* Special atoi routine returns either a non-negative number or one of: */
 #define Infinity	-1
@@ -61,7 +57,7 @@ void quit(int);
 #define LoadMax  5.0
 
 /*
- *  "Nominal_TOPN" is used as the default TOPN when 
+ *  "Nominal_TOPN" is used as the default TOPN when
  *  the output is a dumb terminal.  If we didn't do this, then
  *  we will get every
  *  process in the system when running top on a dumb terminal (or redirected
