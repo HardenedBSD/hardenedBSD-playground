@@ -146,6 +146,7 @@ typedef struct iflib_fl *iflib_fl_t;
 struct iflib_ctx;
 
 static void iru_init(if_rxd_update_t iru, iflib_rxq_t rxq, uint8_t flid);
+static void iflib_timer(void *arg);
 
 typedef struct iflib_filter_info {
 	driver_filter_t *ifi_filter;
@@ -196,6 +197,7 @@ struct iflib_ctx {
 	uint16_t ifc_sysctl_nrxqs;
 	uint16_t ifc_sysctl_qs_eq_override;
 	uint16_t ifc_sysctl_rx_budget;
+	uint16_t ifc_sysctl_tx_abdicate;
 
 	qidx_t ifc_sysctl_ntxds[8];
 	qidx_t ifc_sysctl_nrxds[8];
@@ -356,6 +358,7 @@ struct iflib_txq {
 	uint64_t	ift_map_failed;
 	uint64_t	ift_txd_encap_efbig;
 	uint64_t	ift_pullups;
+	uint64_t	ift_last_timer_tick;
 
 	struct mtx	ift_mtx;
 	struct mtx	ift_db_mtx;
@@ -916,7 +919,7 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 	struct netmap_adapter *na = kring->na;
 	struct ifnet *ifp = na->ifp;
 	struct netmap_ring *ring = kring->ring;
-	u_int nm_i;	/* index into the netmap ring */
+	u_int nm_i;	/* index into the netmap kring */
 	u_int nic_i;	/* index into the NIC ring */
 	u_int n;
 	u_int const lim = kring->nkr_num_slots - 1;
@@ -939,7 +942,7 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 
 	/*
 	 * First part: process new packets to send.
-	 * nm_i is the current index in the netmap ring,
+	 * nm_i is the current index in the netmap kring,
 	 * nic_i is the corresponding index in the NIC ring.
 	 *
 	 * If we have packets to send (nm_i != head)
@@ -959,7 +962,7 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 	 * to prefetch the next slot and txr entry.
 	 */
 
-	nm_i = netmap_idx_n2k(kring, kring->nr_hwcur);
+	nm_i = kring->nr_hwcur;
 	if (nm_i != head) {	/* we have new packets to send */
 		pkt_info_zero(&pi);
 		pi.ipi_segs = txq->ift_segs;
@@ -1012,7 +1015,7 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 			nm_i = nm_next(nm_i, lim);
 			nic_i = nm_next(nic_i, lim);
 		}
-		kring->nr_hwcur = head;
+		kring->nr_hwcur = nm_i;
 
 		/* synchronize the NIC ring */
 		if (txq->ift_sds.ifsd_map)
@@ -1031,18 +1034,17 @@ iflib_netmap_txsync(struct netmap_kring *kring, int flags)
 	 * minimal delay, then trigger the tx handler which will spin in the
 	 * group task queue.
 	 */
-	if (kring->nr_hwtail != nm_prev(head, lim)) {
+	if (kring->nr_hwtail != nm_prev(kring->nr_hwcur, lim)) {
 		if (iflib_tx_credits_update(ctx, txq)) {
 			/* some tx completed, increment avail */
 			nic_i = txq->ift_cidx_processed;
 			kring->nr_hwtail = nm_prev(netmap_idx_n2k(kring, nic_i), lim);
 		}
-		else {
-			if (!(ctx->ifc_flags & IFC_NETMAP_TX_IRQ)) {
-				DELAY(1);
-				GROUPTASK_ENQUEUE(&ctx->ifc_txqs[txq->ift_id].ift_task);
-			}
-		}
+	}
+	if (!(ctx->ifc_flags & IFC_NETMAP_TX_IRQ))
+		if (kring->nr_hwtail != nm_prev(kring->nr_hwcur, lim)) {
+			callout_reset_on(&txq->ift_timer, hz < 2000 ? 1 : hz / 1000,
+			    iflib_timer, txq, txq->ift_timer.c_cpu);
 	}
 	return (0);
 }
@@ -1069,7 +1071,7 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 	uint32_t nic_i;	/* index into the NIC ring */
 	u_int i, n;
 	u_int const lim = kring->nkr_num_slots - 1;
-	u_int const head = netmap_idx_n2k(kring, kring->rhead);
+	u_int const head = kring->rhead;
 	int force_update = (flags & NAF_FORCE_READ) || kring->nr_kflags & NKR_PENDINTR;
 	struct if_rxd_info ri;
 
@@ -1134,7 +1136,7 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 					iflib_rx_miss_bufs += n;
 				}
 				fl->ifl_cidx = nic_i;
-				kring->nr_hwtail = netmap_idx_k2n(kring, nm_i);
+				kring->nr_hwtail = nm_i;
 			}
 			kring->nr_kflags &= ~NKR_PENDINTR;
 		}
@@ -1148,7 +1150,7 @@ iflib_netmap_rxsync(struct netmap_kring *kring, int flags)
 	 * nm_i == (nic_i + kring->nkr_hwofs) % ring_size
 	 */
 	/* XXX not sure how this will work with multiple free lists */
-	nm_i = netmap_idx_n2k(kring, kring->nr_hwcur);
+	nm_i = kring->nr_hwcur;
 
 	return (netmap_fl_refill(rxq, kring, nm_i, false));
 }
@@ -1234,6 +1236,25 @@ iflib_netmap_rxq_init(if_ctx_t ctx, iflib_rxq_t rxq)
 	netmap_fl_refill(rxq, kring, nm_i, true);
 }
 
+static void
+iflib_netmap_timer_adjust(if_ctx_t ctx, uint16_t txqid, uint32_t *reset_on)
+{
+	struct netmap_kring *kring;
+
+	kring = NA(ctx->ifc_ifp)->tx_rings[txqid];
+
+	if (kring->nr_hwcur != nm_next(kring->nr_hwtail, kring->nkr_num_slots - 1)) {
+		if (ctx->isc_txd_credits_update(ctx->ifc_softc, txqid, false))
+			netmap_tx_irq(ctx->ifc_ifp, txqid);
+		if (!(ctx->ifc_flags & IFC_NETMAP_TX_IRQ)) {
+			if (hz < 2000)
+				*reset_on = 1;
+			else
+				*reset_on = hz / 1000;
+		}
+	}
+}
+
 #define iflib_netmap_detach(ifp) netmap_detach(ifp)
 
 #else
@@ -1244,6 +1265,7 @@ iflib_netmap_rxq_init(if_ctx_t ctx, iflib_rxq_t rxq)
 #define iflib_netmap_attach(ctx) (0)
 #define netmap_rx_irq(ifp, qid, budget) (0)
 #define netmap_tx_irq(ifp, qid) do {} while (0)
+#define iflib_netmap_timer_adjust(ctx, txqid, reset_on)
 
 #endif
 
@@ -1574,14 +1596,22 @@ iflib_txsd_alloc(iflib_txq_t txq)
 	if_shared_ctx_t sctx = ctx->ifc_sctx;
 	if_softc_ctx_t scctx = &ctx->ifc_softc_ctx;
 	device_t dev = ctx->ifc_dev;
+	bus_size_t tsomaxsize;
 	int err, nsegments, ntsosegments;
 
 	nsegments = scctx->isc_tx_nsegments;
 	ntsosegments = scctx->isc_tx_tso_segments_max;
+	tsomaxsize = scctx->isc_tx_tso_size_max;
+	if (if_getcapabilities(ctx->ifc_ifp) & IFCAP_VLAN_MTU)
+		tsomaxsize += sizeof(struct ether_vlan_header);
 	MPASS(scctx->isc_ntxd[0] > 0);
 	MPASS(scctx->isc_ntxd[txq->ift_br_offset] > 0);
 	MPASS(nsegments > 0);
-	MPASS(ntsosegments > 0);
+	if (if_getcapabilities(ctx->ifc_ifp) & IFCAP_TSO) {
+		MPASS(ntsosegments > 0);
+		MPASS(sctx->isc_tso_maxsize >= tsomaxsize);
+	}
+
 	/*
 	 * Setup DMA descriptor areas.
 	 */
@@ -1602,14 +1632,15 @@ iflib_txsd_alloc(iflib_txq_t txq)
 		    (uintmax_t)sctx->isc_tx_maxsize, nsegments, (uintmax_t)sctx->isc_tx_maxsegsize);
 		goto fail;
 	}
-	if ((err = bus_dma_tag_create(bus_get_dma_tag(dev),
+	if ((if_getcapabilities(ctx->ifc_ifp) & IFCAP_TSO) &
+	    (err = bus_dma_tag_create(bus_get_dma_tag(dev),
 			       1, 0,			/* alignment, bounds */
 			       BUS_SPACE_MAXADDR,	/* lowaddr */
 			       BUS_SPACE_MAXADDR,	/* highaddr */
 			       NULL, NULL,		/* filter, filterarg */
-			       scctx->isc_tx_tso_size_max,		/* maxsize */
+			       tsomaxsize,		/* maxsize */
 			       ntsosegments,	/* nsegments */
-			       scctx->isc_tx_tso_segsize_max,	/* maxsegsize */
+			       sctx->isc_tso_maxsegsize,/* maxsegsize */
 			       0,			/* flags */
 			       NULL,			/* lockfunc */
 			       NULL,			/* lockfuncarg */
@@ -2187,6 +2218,8 @@ iflib_timer(void *arg)
 	iflib_txq_t txq = arg;
 	if_ctx_t ctx = txq->ift_ctx;
 	if_softc_ctx_t sctx = &ctx->ifc_softc_ctx;
+	uint64_t this_tick = ticks;
+	uint32_t reset_on = hz / 2;
 
 	if (!(if_getdrvflags(ctx->ifc_ifp) & IFF_DRV_RUNNING))
 		return;
@@ -2195,22 +2228,29 @@ iflib_timer(void *arg)
 	** can be done without the lock because its RO
 	** and the HUNG state will be static if set.
 	*/
-	IFDI_TIMER(ctx, txq->ift_id);
-	if ((txq->ift_qstatus == IFLIB_QUEUE_HUNG) &&
-	    ((txq->ift_cleaned_prev == txq->ift_cleaned) ||
-	     (sctx->isc_pause_frames == 0)))
-		goto hung;
+	if (this_tick - txq->ift_last_timer_tick >= hz / 2) {
+		txq->ift_last_timer_tick = this_tick;
+		IFDI_TIMER(ctx, txq->ift_id);
+		if ((txq->ift_qstatus == IFLIB_QUEUE_HUNG) &&
+		    ((txq->ift_cleaned_prev == txq->ift_cleaned) ||
+		     (sctx->isc_pause_frames == 0)))
+			goto hung;
 
-	if (ifmp_ring_is_stalled(txq->ift_br))
-		txq->ift_qstatus = IFLIB_QUEUE_HUNG;
-	txq->ift_cleaned_prev = txq->ift_cleaned;
+		if (ifmp_ring_is_stalled(txq->ift_br))
+			txq->ift_qstatus = IFLIB_QUEUE_HUNG;
+		txq->ift_cleaned_prev = txq->ift_cleaned;
+	}
+#ifdef DEV_NETMAP
+	if (if_getcapenable(ctx->ifc_ifp) & IFCAP_NETMAP)
+		iflib_netmap_timer_adjust(ctx, txq->ift_id, &reset_on);
+#endif
 	/* handle any laggards */
 	if (txq->ift_db_pending)
 		GROUPTASK_ENQUEUE(&txq->ift_task);
 
 	sctx->isc_pause_frames = 0;
 	if (if_getdrvflags(ctx->ifc_ifp) & IFF_DRV_RUNNING) 
-		callout_reset_on(&txq->ift_timer, hz/2, iflib_timer, txq, txq->ift_timer.c_cpu);
+		callout_reset_on(&txq->ift_timer, reset_on, iflib_timer, txq, txq->ift_timer.c_cpu);
 	return;
  hung:
 	device_printf(ctx->ifc_dev,  "TX(%d) desc avail = %d, pidx = %d\n",
@@ -3279,6 +3319,8 @@ iflib_encap(iflib_txq_t txq, struct mbuf **m_headp)
 	if (m_head->m_pkthdr.csum_flags & CSUM_TSO) {
 		desc_tag = txq->ift_tso_desc_tag;
 		max_segs = scctx->isc_tx_tso_segments_max;
+		MPASS(desc_tag != NULL);
+		MPASS(max_segs > 0);
 	} else {
 		desc_tag = txq->ift_desc_tag;
 		max_segs = scctx->isc_tx_nsegments;
@@ -3715,6 +3757,7 @@ _task_fn_tx(void *context)
 	iflib_txq_t txq = context;
 	if_ctx_t ctx = txq->ift_ctx;
 	struct ifnet *ifp = ctx->ifc_ifp;
+	int abdicate = ctx->ifc_sysctl_tx_abdicate;
 
 #ifdef IFLIB_DIAGNOSTICS
 	txq->ift_cpu_exec_count[curcpu]++;
@@ -3722,17 +3765,20 @@ _task_fn_tx(void *context)
 	if (!(if_getdrvflags(ctx->ifc_ifp) & IFF_DRV_RUNNING))
 		return;
 	if (if_getcapenable(ifp) & IFCAP_NETMAP) {
-		/*
-		 * If there are no available credits, and TX IRQs are not in use,
-		 * re-schedule the task immediately.
-		 */
 		if (ctx->isc_txd_credits_update(ctx->ifc_softc, txq->ift_id, false))
 			netmap_tx_irq(ifp, txq->ift_id);
 		IFDI_TX_QUEUE_INTR_ENABLE(ctx, txq->ift_id);
 		return;
 	}
 	if (txq->ift_db_pending)
-		ifmp_ring_enqueue(txq->ift_br, (void **)&txq, 1, TX_BATCH_SIZE);
+		ifmp_ring_enqueue(txq->ift_br, (void **)&txq, 1, TX_BATCH_SIZE, abdicate);
+	else if (!abdicate)
+		ifmp_ring_check_drainage(txq->ift_br, TX_BATCH_SIZE);
+	/*
+	 * When abdicating, we always need to check drainage, not just when we don't enqueue
+	 */
+	if (abdicate)
+		ifmp_ring_check_drainage(txq->ift_br, TX_BATCH_SIZE);
 	ifmp_ring_check_drainage(txq->ift_br, TX_BATCH_SIZE);
 	if (ctx->ifc_flags & IFC_LEGACY)
 		IFDI_INTR_ENABLE(ctx);
@@ -3797,6 +3843,7 @@ _task_fn_admin(void *context)
 	iflib_txq_t txq;
 	int i;
 	bool oactive, running, do_reset, do_watchdog;
+	uint32_t reset_on = hz / 2;
 
 	STATE_LOCK(ctx);
 	running = (if_getdrvflags(ctx->ifc_ifp) & IFF_DRV_RUNNING);
@@ -3821,8 +3868,14 @@ _task_fn_admin(void *context)
 		IFDI_WATCHDOG_RESET(ctx);
 	}
 	IFDI_UPDATE_ADMIN_STATUS(ctx);
-	for (txq = ctx->ifc_txqs, i = 0; i < sctx->isc_ntxqsets; i++, txq++)
-		callout_reset_on(&txq->ift_timer, hz/2, iflib_timer, txq, txq->ift_timer.c_cpu);
+	for (txq = ctx->ifc_txqs, i = 0; i < sctx->isc_ntxqsets; i++, txq++) {
+#ifdef DEV_NETMAP
+		reset_on = hz / 2;
+		if (if_getcapenable(ctx->ifc_ifp) & IFCAP_NETMAP)
+			iflib_netmap_timer_adjust(ctx, txq->ift_id, &reset_on);
+#endif
+		callout_reset_on(&txq->ift_timer, reset_on, iflib_timer, txq, txq->ift_timer.c_cpu);
+	}
 	IFDI_LINK_INTR_ENABLE(ctx);
 	if (do_reset)
 		iflib_if_init_locked(ctx);
@@ -3896,6 +3949,7 @@ iflib_if_transmit(if_t ifp, struct mbuf *m)
 
 	iflib_txq_t txq;
 	int err, qidx;
+	int abdicate = ctx->ifc_sysctl_tx_abdicate;
 
 	if (__predict_false((ifp->if_drv_flags & IFF_DRV_RUNNING) == 0 || !LINK_ACTIVE(ctx))) {
 		DBG_COUNTER_INC(tx_frees);
@@ -3947,10 +4001,13 @@ iflib_if_transmit(if_t ifp, struct mbuf *m)
 	}
 #endif
 	DBG_COUNTER_INC(tx_seen);
-	err = ifmp_ring_enqueue(txq->ift_br, (void **)&m, 1, TX_BATCH_SIZE);
+	err = ifmp_ring_enqueue(txq->ift_br, (void **)&m, 1, TX_BATCH_SIZE, abdicate);
 
-	GROUPTASK_ENQUEUE(&txq->ift_task);
-	if (err) {
+	if (abdicate)
+		GROUPTASK_ENQUEUE(&txq->ift_task);
+ 	if (err) {
+		if (!abdicate)
+			GROUPTASK_ENQUEUE(&txq->ift_task);
 		/* support forthcoming later */
 #ifdef DRIVER_BACKPRESSURE
 		txq->ift_closed = TRUE;
@@ -4379,12 +4436,12 @@ iflib_device_register(device_t dev, void *sc, if_shared_ctx_t sctx, if_ctx_t *ct
 	ctx->ifc_txrx = *scctx->isc_txrx;
 
 #ifdef INVARIANTS
-	MPASS(scctx->isc_capenable);
-	if (scctx->isc_capenable & IFCAP_TXCSUM)
+	MPASS(scctx->isc_capabilities);
+	if (scctx->isc_capabilities & IFCAP_TXCSUM)
 		MPASS(scctx->isc_tx_csum_flags);
 #endif
 
-	if_setcapabilities(ifp, scctx->isc_capenable | IFCAP_HWSTATS);
+	if_setcapabilities(ifp, scctx->isc_capabilities | IFCAP_HWSTATS);
 	if_setcapenable(ifp, scctx->isc_capenable | IFCAP_HWSTATS);
 
 	if (scctx->isc_ntxqsets == 0 || (scctx->isc_ntxqsets_max && scctx->isc_ntxqsets_max < scctx->isc_ntxqsets))
@@ -4432,16 +4489,25 @@ iflib_device_register(device_t dev, void *sc, if_shared_ctx_t sctx, if_ctx_t *ct
 		scctx->isc_tx_tso_segments_max = max(1,
 		    scctx->isc_ntxd[main_txq] / MAX_SINGLE_PACKET_FRACTION);
 
-	/*
-	 * Protect the stack against modern hardware
-	 */
-	if (scctx->isc_tx_tso_size_max > FREEBSD_TSO_SIZE_MAX)
-		scctx->isc_tx_tso_size_max = FREEBSD_TSO_SIZE_MAX;
-
 	/* TSO parameters - dig these out of the data sheet - simply correspond to tag setup */
-	ifp->if_hw_tsomaxsegcount = scctx->isc_tx_tso_segments_max;
-	ifp->if_hw_tsomax = scctx->isc_tx_tso_size_max;
-	ifp->if_hw_tsomaxsegsize = scctx->isc_tx_tso_segsize_max;
+	if (if_getcapabilities(ifp) & IFCAP_TSO) {
+		/*
+		 * The stack can't handle a TSO size larger than IP_MAXPACKET,
+		 * but some MACs do.
+		 */
+		if_sethwtsomax(ifp, min(scctx->isc_tx_tso_size_max,
+		    IP_MAXPACKET));
+		/*
+		 * Take maximum number of m_pullup(9)'s in iflib_parse_header()
+		 * into account.  In the worst case, each of these calls will
+		 * add another mbuf and, thus, the requirement for another DMA
+		 * segment.  So for best performance, it doesn't make sense to
+		 * advertize a maximum of TSO segments that typically will
+		 * require defragmentation in iflib_encap().
+		 */
+		if_sethwtsomaxsegcount(ifp, scctx->isc_tx_tso_segments_max - 3);
+		if_sethwtsomaxsegsize(ifp, scctx->isc_tx_tso_segsize_max);
+	}
 	if (scctx->isc_rss_table_size == 0)
 		scctx->isc_rss_table_size = 64;
 	scctx->isc_rss_table_mask = scctx->isc_rss_table_size-1;
@@ -4512,11 +4578,22 @@ iflib_device_register(device_t dev, void *sc, if_shared_ctx_t sctx, if_ctx_t *ct
 			goto fail_intr_free;
 		}
 	}
+
 	ether_ifattach(ctx->ifc_ifp, ctx->ifc_mac);
+
 	if ((err = IFDI_ATTACH_POST(ctx)) != 0) {
 		device_printf(dev, "IFDI_ATTACH_POST failed %d\n", err);
 		goto fail_detach;
 	}
+
+	/*
+	 * Tell the upper layer(s) if IFCAP_VLAN_MTU is supported.
+	 * This must appear after the call to ether_ifattach() because
+	 * ether_ifattach() sets if_hdrlen to the default value.
+	 */
+	if (if_getcapabilities(ifp) & IFCAP_VLAN_MTU)
+		if_setifheaderlen(ifp, sizeof(struct ether_vlan_header));
+
 	if ((err = iflib_netmap_attach(ctx))) {
 		device_printf(ctx->ifc_dev, "netmap attach failed: %d\n", err);
 		goto fail_detach;
@@ -4599,12 +4676,12 @@ iflib_pseudo_register(device_t dev, if_shared_ctx_t sctx, if_ctx_t *ctxp,
 	ifmedia_set(&ctx->ifc_media, IFM_ETHER | IFM_AUTO);
 
 #ifdef INVARIANTS
-	MPASS(scctx->isc_capenable);
-	if (scctx->isc_capenable & IFCAP_TXCSUM)
+	MPASS(scctx->isc_capabilities);
+	if (scctx->isc_capabilities & IFCAP_TXCSUM)
 		MPASS(scctx->isc_tx_csum_flags);
 #endif
 
-	if_setcapabilities(ifp, scctx->isc_capenable | IFCAP_HWSTATS | IFCAP_LINKSTATE);
+	if_setcapabilities(ifp, scctx->isc_capabilities | IFCAP_HWSTATS | IFCAP_LINKSTATE);
 	if_setcapenable(ifp, scctx->isc_capenable | IFCAP_HWSTATS | IFCAP_LINKSTATE);
 
 	ifp->if_flags |= IFF_NOGROUP;
@@ -4616,6 +4693,15 @@ iflib_pseudo_register(device_t dev, if_shared_ctx_t sctx, if_ctx_t *ctxp,
 			goto fail_detach;
 		}
 		*ctxp = ctx;
+
+		/*
+		 * Tell the upper layer(s) if IFCAP_VLAN_MTU is supported.
+		 * This must appear after the call to ether_ifattach() because
+		 * ether_ifattach() sets if_hdrlen to the default value.
+		 */
+		if (if_getcapabilities(ifp) & IFCAP_VLAN_MTU)
+			if_setifheaderlen(ifp,
+			    sizeof(struct ether_vlan_header));
 
 		if_setgetcounterfn(ctx->ifc_ifp, iflib_if_get_counter);
 		iflib_add_device_sysctl_post(ctx);
@@ -4662,16 +4748,25 @@ iflib_pseudo_register(device_t dev, if_shared_ctx_t sctx, if_ctx_t *ctxp,
 		scctx->isc_tx_tso_segments_max = max(1,
 		    scctx->isc_ntxd[main_txq] / MAX_SINGLE_PACKET_FRACTION);
 
-	/*
-	 * Protect the stack against modern hardware
-	 */
-	if (scctx->isc_tx_tso_size_max > FREEBSD_TSO_SIZE_MAX)
-		scctx->isc_tx_tso_size_max = FREEBSD_TSO_SIZE_MAX;
-
 	/* TSO parameters - dig these out of the data sheet - simply correspond to tag setup */
-	ifp->if_hw_tsomaxsegcount = scctx->isc_tx_tso_segments_max;
-	ifp->if_hw_tsomax = scctx->isc_tx_tso_size_max;
-	ifp->if_hw_tsomaxsegsize = scctx->isc_tx_tso_segsize_max;
+	if (if_getcapabilities(ifp) & IFCAP_TSO) {
+		/*
+		 * The stack can't handle a TSO size larger than IP_MAXPACKET,
+		 * but some MACs do.
+		 */
+		if_sethwtsomax(ifp, min(scctx->isc_tx_tso_size_max,
+		    IP_MAXPACKET));
+		/*
+		 * Take maximum number of m_pullup(9)'s in iflib_parse_header()
+		 * into account.  In the worst case, each of these calls will
+		 * add another mbuf and, thus, the requirement for another DMA
+		 * segment.  So for best performance, it doesn't make sense to
+		 * advertize a maximum of TSO segments that typically will
+		 * require defragmentation in iflib_encap().
+		 */
+		if_sethwtsomaxsegcount(ifp, scctx->isc_tx_tso_segments_max - 3);
+		if_sethwtsomaxsegsize(ifp, scctx->isc_tx_tso_segsize_max);
+	}
 	if (scctx->isc_rss_table_size == 0)
 		scctx->isc_rss_table_size = 64;
 	scctx->isc_rss_table_mask = scctx->isc_rss_table_size-1;
@@ -4693,6 +4788,7 @@ iflib_pseudo_register(device_t dev, if_shared_ctx_t sctx, if_ctx_t *ctxp,
 		device_printf(dev, "qset structure setup failed %d\n", err);
 		goto fail_queues;
 	}
+
 	/*
 	 * XXX What if anything do we want to do about interrupts?
 	 */
@@ -4701,6 +4797,15 @@ iflib_pseudo_register(device_t dev, if_shared_ctx_t sctx, if_ctx_t *ctxp,
 		device_printf(dev, "IFDI_ATTACH_POST failed %d\n", err);
 		goto fail_detach;
 	}
+
+	/*
+	 * Tell the upper layer(s) if IFCAP_VLAN_MTU is supported.
+	 * This must appear after the call to ether_ifattach() because
+	 * ether_ifattach() sets if_hdrlen to the default value.
+	 */
+	if (if_getcapabilities(ifp) & IFCAP_VLAN_MTU)
+		if_setifheaderlen(ifp, sizeof(struct ether_vlan_header));
+
 	/* XXX handle more than one queue */
 	for (i = 0; i < scctx->isc_nrxqsets; i++)
 		IFDI_RX_CLSET(ctx, 0, i, ctx->ifc_rxqs[i].ifr_fl[0].ifl_sds.ifsd_cl);
@@ -6108,6 +6213,9 @@ iflib_add_device_sysctl_pre(if_ctx_t ctx)
 	SYSCTL_ADD_U16(ctx_list, oid_list, OID_AUTO, "rx_budget",
 		       CTLFLAG_RWTUN, &ctx->ifc_sysctl_rx_budget, 0,
                        "set the rx budget");
+	SYSCTL_ADD_U16(ctx_list, oid_list, OID_AUTO, "tx_abdicate",
+		       CTLFLAG_RWTUN, &ctx->ifc_sysctl_tx_abdicate, 0,
+		       "cause tx to abdicate instead of running to completion");
 
 	/* XXX change for per-queue sizes */
 	SYSCTL_ADD_PROC(ctx_list, oid_list, OID_AUTO, "override_ntxds",

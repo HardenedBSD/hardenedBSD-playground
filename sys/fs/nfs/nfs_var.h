@@ -603,11 +603,12 @@ struct nfscllayout *nfscl_getlayout(struct nfsclclient *, uint8_t *, int,
     uint64_t, struct nfsclflayout **, int *);
 void nfscl_dserr(uint32_t, uint32_t, struct nfscldevinfo *,
     struct nfscllayout *, struct nfsclds *);
+void nfscl_cancelreqs(struct nfsclds *);
 void nfscl_rellayout(struct nfscllayout *, int);
 struct nfscldevinfo *nfscl_getdevinfo(struct nfsclclient *, uint8_t *,
     struct nfscldevinfo *);
 void nfscl_reldevinfo(struct nfscldevinfo *);
-int nfscl_adddevinfo(struct nfsmount *, struct nfscldevinfo *,
+int nfscl_adddevinfo(struct nfsmount *, struct nfscldevinfo *, int,
     struct nfsclflayout *);
 void nfscl_freelayout(struct nfscllayout *);
 void nfscl_freeflayout(struct nfsclflayout *);
