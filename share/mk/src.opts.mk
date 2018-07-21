@@ -205,7 +205,6 @@ __DEFAULT_NO_OPTIONS = \
     LOADER_LUA \
     NAND \
     OFED \
-    OFED_EXTRA \
     OPENLDAP \
     OPENNTPD \
     PORTSNAP \
@@ -512,10 +511,6 @@ MK_KERBEROS:=	no
 
 .if ${MK_PF} == "no"
 MK_AUTHPF:=	no
-.endif
-
-.if ${MK_OFED} == "no"
-MK_OFED_EXTRA:=	no
 .endif
 
 .if ${MK_PORTSNAP} == "no"
