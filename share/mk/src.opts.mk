@@ -205,10 +205,7 @@ __DEFAULT_NO_OPTIONS = \
     LOADER_LUA \
     NAND \
     OFED \
-<<<<<<< HEAD
-=======
     OFED_EXTRA \
->>>>>>> upstream.gitea-01.home/hardened/current/master
     OPENLDAP \
     OPENNTPD \
     PORTSNAP \
