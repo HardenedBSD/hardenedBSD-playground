@@ -350,6 +350,8 @@
             atf-sh
             ..
         ..
+        tftpd
+        ..
     ..
     sbin
         dhclient
@@ -679,6 +681,8 @@
         newsyslog
         ..
         nmtree
+        ..
+        praudit
         ..
         pw
         ..
