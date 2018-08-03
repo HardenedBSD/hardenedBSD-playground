@@ -739,6 +739,10 @@ static int iflib_msix_init(if_ctx_t ctx);
 static int iflib_legacy_setup(if_ctx_t ctx, driver_filter_t filter, void *filterarg, int *rid, const char *str);
 static void iflib_txq_check_drain(iflib_txq_t txq, int budget);
 static uint32_t iflib_txq_can_drain(struct ifmp_ring *);
+#ifdef ALTQ
+static void iflib_altq_if_start(if_t ifp);
+static int iflib_altq_if_transmit(if_t ifp, struct mbuf *m);
+#endif
 static int iflib_register(if_ctx_t);
 static void iflib_init_locked(if_ctx_t ctx);
 static void iflib_add_device_sysctl_pre(if_ctx_t ctx);
@@ -2663,7 +2667,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 		return (false);
 	}
 
-	for (budget_left = budget; (budget_left > 0) && (avail > 0); budget_left--, avail--) {
+	for (budget_left = budget; budget_left > 0 && avail > 0;) {
 		if (__predict_false(!CTX_ACTIVE(ctx))) {
 			DBG_COUNTER_INC(rx_ctx_inactive);
 			break;
@@ -2697,6 +2701,8 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 
 		/* will advance the cidx on the corresponding free lists */
 		m = iflib_rxd_pkt_get(rxq, &ri);
+		avail--;
+		budget_left--;
 		if (avail == 0 && budget_left)
 			avail = iflib_rxd_avail(ctx, rxq, *cidxp, budget_left);
 
@@ -2829,7 +2835,8 @@ txq_max_rs_deferred(iflib_txq_t txq)
 
 /* XXX we should be setting this to something other than zero */
 #define RECLAIM_THRESH(ctx) ((ctx)->ifc_sctx->isc_tx_reclaim_thresh)
-#define MAX_TX_DESC(ctx) ((ctx)->ifc_softc_ctx.isc_tx_tso_segments_max)
+#define	MAX_TX_DESC(ctx) max((ctx)->ifc_softc_ctx.isc_tx_tso_segments_max, \
+    (ctx)->ifc_softc_ctx.isc_tx_nsegments)
 
 static inline bool
 iflib_txd_db_check(if_ctx_t ctx, iflib_txq_t txq, int ring, qidx_t in_use)
@@ -2871,16 +2878,16 @@ iflib_parse_header(iflib_txq_t txq, if_pkt_info_t pi, struct mbuf **mp)
 {
 	if_shared_ctx_t sctx = txq->ift_ctx->ifc_sctx;
 	struct ether_vlan_header *eh;
-	struct mbuf *m, *n;
+	struct mbuf *m;
 
-	n = m = *mp;
+	m = *mp;
 	if ((sctx->isc_flags & IFLIB_NEED_SCRATCH) &&
 	    M_WRITABLE(m) == 0) {
 		if ((m = m_dup(m, M_NOWAIT)) == NULL) {
 			return (ENOMEM);
 		} else {
 			m_freem(*mp);
-			n = *mp = m;
+			*mp = m;
 		}
 	}
 
@@ -2907,6 +2914,7 @@ iflib_parse_header(iflib_txq_t txq, if_pkt_info_t pi, struct mbuf **mp)
 #ifdef INET
 	case ETHERTYPE_IP:
 	{
+		struct mbuf *n;
 		struct ip *ip = NULL;
 		struct tcphdr *th = NULL;
 		int minthlen;
@@ -3048,6 +3056,8 @@ collapse_pkthdr(struct mbuf *m0)
 	}
 	m = m0;
 	m->m_next = m_next;
+	if (m_next == NULL)
+		return (m);
 	if ((m_next->m_flags & M_EXT) == 0) {
 		m = m_defrag(m, M_NOWAIT);
 	} else {
@@ -3108,7 +3118,7 @@ iflib_busdma_load_mbuf_sg(iflib_txq_t txq, bus_dma_tag_t tag, bus_dmamap_t map,
 	 * Please don't ever do this
 	 */
 	if (__predict_false(m->m_len == 0))
-		*m0 = m = collapse_pkthdr(m);
+		*m0 = collapse_pkthdr(m);
 
 	ctx = txq->ift_ctx;
 	sctx = ctx->ifc_sctx;
@@ -3285,7 +3295,6 @@ iflib_encap(iflib_txq_t txq, struct mbuf **m_headp)
 	int err, nsegs, ndesc, max_segs, pidx, cidx, next, ntxd;
 	bus_dma_tag_t desc_tag;
 
-	segs = txq->ift_segs;
 	ctx = txq->ift_ctx;
 	sctx = ctx->ifc_sctx;
 	scctx = &ctx->ifc_softc_ctx;
@@ -3770,6 +3779,10 @@ _task_fn_tx(void *context)
 		IFDI_TX_QUEUE_INTR_ENABLE(ctx, txq->ift_id);
 		return;
 	}
+#ifdef ALTQ
+	if (ALTQ_IS_ENABLED(&ifp->if_snd))
+		iflib_altq_if_start(ifp);
+#endif
 	if (txq->ift_db_pending)
 		ifmp_ring_enqueue(txq->ift_br, (void **)&txq, 1, TX_BATCH_SIZE, abdicate);
 	else if (!abdicate)
@@ -3958,8 +3971,9 @@ iflib_if_transmit(if_t ifp, struct mbuf *m)
 	}
 
 	MPASS(m->m_nextpkt == NULL);
+	/* ALTQ-enabled interfaces always use queue 0. */
 	qidx = 0;
-	if ((NTXQSETS(ctx) > 1) && M_HASHTYPE_GET(m))
+	if ((NTXQSETS(ctx) > 1) && M_HASHTYPE_GET(m) && !ALTQ_IS_ENABLED(&ifp->if_snd))
 		qidx = QIDX(ctx, m);
 	/*
 	 * XXX calculate buf_ring based on flowid (divvy up bits?)
@@ -4019,6 +4033,59 @@ iflib_if_transmit(if_t ifp, struct mbuf *m)
 	return (err);
 }
 
+#ifdef ALTQ
+/*
+ * The overall approach to integrating iflib with ALTQ is to continue to use
+ * the iflib mp_ring machinery between the ALTQ queue(s) and the hardware
+ * ring.  Technically, when using ALTQ, queueing to an intermediate mp_ring
+ * is redundant/unnecessary, but doing so minimizes the amount of
+ * ALTQ-specific code required in iflib.  It is assumed that the overhead of
+ * redundantly queueing to an intermediate mp_ring is swamped by the
+ * performance limitations inherent in using ALTQ.
+ *
+ * When ALTQ support is compiled in, all iflib drivers will use a transmit
+ * routine, iflib_altq_if_transmit(), that checks if ALTQ is enabled for the
+ * given interface.  If ALTQ is enabled for an interface, then all
+ * transmitted packets for that interface will be submitted to the ALTQ
+ * subsystem via IFQ_ENQUEUE().  We don't use the legacy if_transmit()
+ * implementation because it uses IFQ_HANDOFF(), which will duplicatively
+ * update stats that the iflib machinery handles, and which is sensitve to
+ * the disused IFF_DRV_OACTIVE flag.  Additionally, iflib_altq_if_start()
+ * will be installed as the start routine for use by ALTQ facilities that
+ * need to trigger queue drains on a scheduled basis.
+ *
+ */
+static void
+iflib_altq_if_start(if_t ifp)
+{
+	struct ifaltq *ifq = &ifp->if_snd;
+	struct mbuf *m;
+	
+	IFQ_LOCK(ifq);
+	IFQ_DEQUEUE_NOLOCK(ifq, m);
+	while (m != NULL) {
+		iflib_if_transmit(ifp, m);
+		IFQ_DEQUEUE_NOLOCK(ifq, m);
+	}
+	IFQ_UNLOCK(ifq);
+}
+
+static int
+iflib_altq_if_transmit(if_t ifp, struct mbuf *m)
+{
+	int err;
+
+	if (ALTQ_IS_ENABLED(&ifp->if_snd)) {
+		IFQ_ENQUEUE(&ifp->if_snd, m, err);
+		if (err == 0)
+			iflib_altq_if_start(ifp);
+	} else
+		err = iflib_if_transmit(ifp, m);
+
+	return (err);
+}
+#endif /* ALTQ */
+
 static void
 iflib_if_qflush(if_t ifp)
 {
@@ -4036,6 +4103,10 @@ iflib_if_qflush(if_t ifp)
 	ctx->ifc_flags &= ~IFC_QFLUSH;
 	STATE_UNLOCK(ctx);
 
+	/*
+	 * When ALTQ is enabled, this will also take care of purging the
+	 * ALTQ queue(s).
+	 */
 	if_qflush(ifp);
 }
 
@@ -5160,7 +5231,12 @@ iflib_register(if_ctx_t ctx)
 	if_setdev(ifp, dev);
 	if_setinitfn(ifp, iflib_if_init);
 	if_setioctlfn(ifp, iflib_if_ioctl);
+#ifdef ALTQ
+	if_setstartfn(ifp, iflib_altq_if_start);
+	if_settransmitfn(ifp, iflib_altq_if_transmit);
+#else
 	if_settransmitfn(ifp, iflib_if_transmit);
+#endif
 	if_setqflushfn(ifp, iflib_if_qflush);
 	if_setflags(ifp, IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST);
 
