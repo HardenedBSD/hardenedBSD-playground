@@ -7,7 +7,7 @@
 .PATH: ${SRCTOP}/cddl/contrib/opensolaris/lib/libcmdutils/common
 
 LIB=	zfs
-LIBADD=	md pthread umem util uutil m avl bsdxml geom nvpair z zfs_core
+LIBADD=	md pthread umem util uutil m avl bsdxml geom nvpair z zfs_core crypto
 SRCS=	deviceid.c \
 	fsshare.c \
 	mkdirp.c \
@@ -21,6 +21,7 @@ SRCS+=	nicenum.c
 SRCS+=	libzfs_changelist.c \
 	libzfs_compat.c \
 	libzfs_config.c \
+	libzfs_crypto.c \
 	libzfs_dataset.c \
 	libzfs_diff.c \
 	libzfs_import.c \

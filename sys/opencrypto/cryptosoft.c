@@ -505,6 +505,7 @@ swcr_authenc(struct cryptop *crp)
 	caddr_t buf = (caddr_t)crp->crp_buf;
 	uint32_t *blkp;
 	int aadlen, blksz, i, ivlen, len, iskip, oskip, r;
+	int isccm = 0;
 
 	ivlen = blksz = iskip = oskip = 0;
 
@@ -519,6 +520,8 @@ swcr_authenc(struct cryptop *crp)
 
 		sw = &ses->swcr_algorithms[i];
 		switch (sw->sw_alg) {
+		case CRYPTO_AES_CCM_16:
+			isccm = 1;
 		case CRYPTO_AES_NIST_GCM_16:
 		case CRYPTO_AES_NIST_GMAC:
 			swe = sw;
@@ -526,6 +529,10 @@ swcr_authenc(struct cryptop *crp)
 			exf = swe->sw_exf;
 			ivlen = 12;
 			break;
+		case CRYPTO_AES_128_CCM_CBC_MAC:
+		case CRYPTO_AES_192_CCM_CBC_MAC:
+		case CRYPTO_AES_256_CCM_CBC_MAC:
+			isccm = 1;
 		case CRYPTO_AES_128_NIST_GMAC:
 		case CRYPTO_AES_192_NIST_GMAC:
 		case CRYPTO_AES_256_NIST_GMAC:
@@ -544,7 +551,8 @@ swcr_authenc(struct cryptop *crp)
 	if (crde == NULL || crda == NULL)
 		return (EINVAL);
 
-	if (crde->crd_alg == CRYPTO_AES_NIST_GCM_16 &&
+	if ((crde->crd_alg == CRYPTO_AES_NIST_GCM_16 ||
+	     crde->crd_alg == CRYPTO_AES_CCM_16) &&
 	    (crde->crd_flags & CRD_F_IV_EXPLICIT) == 0)
 		return (EINVAL);
 
@@ -575,6 +583,21 @@ swcr_authenc(struct cryptop *crp)
 		}
 	}
 
+	if (swa) {
+		switch (swa->sw_alg) {
+		case CRYPTO_AES_128_CCM_CBC_MAC:
+		case CRYPTO_AES_192_CCM_CBC_MAC:
+		case CRYPTO_AES_256_CCM_CBC_MAC:
+			/*
+			 * AES CCM-CBC needs to know the length of
+			 * both the auth data, and payload data, before
+			 * doing the auth computation.
+			 */
+			ctx.aes_cbc_mac_ctx.authDataLength = crda->crd_len;
+			ctx.aes_cbc_mac_ctx.cryptDataLength = crde->crd_len;
+			break;
+		}
+	}
 	/* Supply MAC with IV */
 	if (axf->Reinit)
 		axf->Reinit(&ctx, iv, ivlen);
@@ -610,15 +633,20 @@ swcr_authenc(struct cryptop *crp)
 		crypto_copydata(crp->crp_flags, buf, crde->crd_skip + i, len,
 		    blk);
 		if (crde->crd_flags & CRD_F_ENCRYPT) {
+			if (isccm)
+				axf->Update(&ctx, blk, len);
 			if (exf->encrypt_multi != NULL)
 				exf->encrypt_multi(swe->sw_kschedule, blk,
 				    len);
 			else
 				exf->encrypt(swe->sw_kschedule, blk);
-			axf->Update(&ctx, blk, len);
+			if (!isccm)
+				axf->Update(&ctx, blk, len);
 			crypto_copyback(crp->crp_flags, buf,
 			    crde->crd_skip + i, len, blk);
 		} else {
+			if (isccm)
+				exf->decrypt(swe->sw_kschedule, blk);
 			axf->Update(&ctx, blk, len);
 		}
 	}
@@ -649,6 +677,8 @@ swcr_authenc(struct cryptop *crp)
 		r = timingsafe_bcmp(aalg, uaalg, axf->hashsize);
 		if (r == 0) {
 			/* tag matches, decrypt data */
+			if (isccm && exf->reinit)
+				exf->reinit(swe->sw_kschedule, iv);
 			for (i = 0; i < crde->crd_len; i += blksz) {
 				len = MIN(crde->crd_len - i, blksz);
 				if (len < blksz)
@@ -797,6 +827,9 @@ swcr_newsession(device_t dev, crypto_session_t cses, struct cryptoini *cri)
 		case CRYPTO_AES_NIST_GCM_16:
 			txf = &enc_xform_aes_nist_gcm;
 			goto enccommon;
+		case CRYPTO_AES_CCM_16:
+			txf = &enc_xform_ccm;
+			goto enccommon;
 		case CRYPTO_AES_NIST_GMAC:
 			txf = &enc_xform_aes_nist_gmac;
 			swd->sw_exf = txf;
@@ -941,6 +974,15 @@ swcr_newsession(device_t dev, crypto_session_t cses, struct cryptoini *cri)
 			swd->sw_axf = axf;
 			break;
 
+		case CRYPTO_AES_128_CCM_CBC_MAC:
+			axf = &auth_hash_ccm_cbc_mac_128;
+			goto auth4common;
+		case CRYPTO_AES_192_CCM_CBC_MAC:
+			axf = &auth_hash_ccm_cbc_mac_192;
+			goto auth4common;
+		case CRYPTO_AES_256_CCM_CBC_MAC:
+			axf = &auth_hash_ccm_cbc_mac_256;
+			goto auth4common;
 		case CRYPTO_AES_128_NIST_GMAC:
 			axf = &auth_hash_nist_gmac_aes_128;
 			goto auth4common;
@@ -1189,11 +1231,15 @@ swcr_process(device_t dev, struct cryptop *crp, int hint)
 				goto done;
 			break;
 
+		case CRYPTO_AES_CCM_16:
 		case CRYPTO_AES_NIST_GCM_16:
 		case CRYPTO_AES_NIST_GMAC:
 		case CRYPTO_AES_128_NIST_GMAC:
 		case CRYPTO_AES_192_NIST_GMAC:
 		case CRYPTO_AES_256_NIST_GMAC:
+		case CRYPTO_AES_128_CCM_CBC_MAC:
+		case CRYPTO_AES_192_CCM_CBC_MAC:
+		case CRYPTO_AES_256_CCM_CBC_MAC:
 			crp->crp_etype = swcr_authenc(crp);
 			goto done;
 
@@ -1282,6 +1328,10 @@ swcr_attach(device_t dev)
 	REGISTER(CRYPTO_BLAKE2B);
 	REGISTER(CRYPTO_BLAKE2S);
 	REGISTER(CRYPTO_CHACHA20);
+	REGISTER(CRYPTO_AES_CCM_16);
+	REGISTER(CRYPTO_AES_128_CCM_CBC_MAC);
+	REGISTER(CRYPTO_AES_192_CCM_CBC_MAC);
+	REGISTER(CRYPTO_AES_256_CCM_CBC_MAC);
 	REGISTER(CRYPTO_POLY1305);
 #undef REGISTER
 

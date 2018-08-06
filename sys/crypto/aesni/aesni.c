@@ -131,9 +131,9 @@ aesni_probe(device_t dev)
 		return (EINVAL);
 	} else if (has_aes && has_sha)
 		device_set_desc(dev,
-		    "AES-CBC,AES-XTS,AES-GCM,AES-ICM,SHA1,SHA256");
+		    "AES-CBC,AES-XTS,AES-GCM,AES-ICM,AES-CCM,SHA1,SHA256");
 	else if (has_aes)
-		device_set_desc(dev, "AES-CBC,AES-XTS,AES-GCM,AES-ICM");
+		device_set_desc(dev, "AES-CBC,AES-XTS,AES-GCM,AES-ICM,AES-CCM");
 	else
 		device_set_desc(dev, "SHA1,SHA256");
 
@@ -193,6 +193,10 @@ aesni_attach(device_t dev)
 		crypto_register(sc->cid, CRYPTO_AES_192_NIST_GMAC, 0, 0);
 		crypto_register(sc->cid, CRYPTO_AES_256_NIST_GMAC, 0, 0);
 		crypto_register(sc->cid, CRYPTO_AES_XTS, 0, 0);
+		crypto_register(sc->cid, CRYPTO_AES_CCM_16, 0, 0);
+		crypto_register(sc->cid, CRYPTO_AES_128_CCM_CBC_MAC, 0, 0);
+		crypto_register(sc->cid, CRYPTO_AES_192_CCM_CBC_MAC, 0, 0);
+		crypto_register(sc->cid, CRYPTO_AES_256_CCM_CBC_MAC, 0, 0);
 	}
 	if (sc->has_sha) {
 		crypto_register(sc->cid, CRYPTO_SHA1, 0, 0);
@@ -226,6 +230,7 @@ aesni_newsession(device_t dev, crypto_session_t cses, struct cryptoini *cri)
 	struct aesni_session *ses;
 	struct cryptoini *encini, *authini;
 	bool gcm_hash, gcm;
+	bool cbc_hash, ccm;
 	int error;
 
 	KASSERT(cses != NULL, ("EDOOFUS"));
@@ -242,10 +247,17 @@ aesni_newsession(device_t dev, crypto_session_t cses, struct cryptoini *cri)
 	encini = NULL;
 	gcm = false;
 	gcm_hash = false;
+	ccm = cbc_hash = false;
+
 	for (; cri != NULL; cri = cri->cri_next) {
 		switch (cri->cri_alg) {
 		case CRYPTO_AES_NIST_GCM_16:
-			gcm = true;
+		case CRYPTO_AES_CCM_16:
+			if (cri->cri_alg == CRYPTO_AES_NIST_GCM_16) {
+				gcm = true;
+			} else if (cri->cri_alg == CRYPTO_AES_CCM_16) {
+				ccm = true;
+			}
 			/* FALLTHROUGH */
 		case CRYPTO_AES_CBC:
 		case CRYPTO_AES_ICM:
@@ -258,6 +270,12 @@ aesni_newsession(device_t dev, crypto_session_t cses, struct cryptoini *cri)
 			}
 			encini = cri;
 			break;
+		case CRYPTO_AES_128_CCM_CBC_MAC:
+		case CRYPTO_AES_192_CCM_CBC_MAC:
+		case CRYPTO_AES_256_CCM_CBC_MAC:
+			cbc_hash = true;
+			authini = cri;
+			break;
 		case CRYPTO_AES_128_NIST_GMAC:
 		case CRYPTO_AES_192_NIST_GMAC:
 		case CRYPTO_AES_256_NIST_GMAC:
@@ -266,6 +284,7 @@ aesni_newsession(device_t dev, crypto_session_t cses, struct cryptoini *cri)
 			 * values for GHASH
 			 */
 			gcm_hash = true;
+			authini = cri;
 			break;
 		case CRYPTO_SHA1:
 		case CRYPTO_SHA1_HMAC:
@@ -295,8 +314,15 @@ unhandled:
 	 * GMAC algorithms are only supported with simultaneous GCM.  Likewise
 	 * GCM is not supported without GMAC.
 	 */
-	if (gcm_hash != gcm)
+	if (gcm_hash != gcm) {
+		CRYPTDEB("gcm_hash != gcm");
 		return (EINVAL);
+	}
+
+	if (cbc_hash != ccm) {
+		CRYPTDEB("cbc_hash != ccm");
+		return (EINVAL);
+	}
 
 	if (encini != NULL)
 		ses->algo = encini->cri_alg;
@@ -338,6 +364,7 @@ aesni_process(device_t dev, struct cryptop *crp, int hint __unused)
 	for (crd = crp->crp_desc; crd != NULL; crd = crd->crd_next) {
 		switch (crd->crd_alg) {
 		case CRYPTO_AES_NIST_GCM_16:
+		case CRYPTO_AES_CCM_16:
 			needauth = 1;
 			/* FALLTHROUGH */
 		case CRYPTO_AES_CBC:
@@ -353,6 +380,9 @@ aesni_process(device_t dev, struct cryptop *crp, int hint __unused)
 		case CRYPTO_AES_128_NIST_GMAC:
 		case CRYPTO_AES_192_NIST_GMAC:
 		case CRYPTO_AES_256_NIST_GMAC:
+		case CRYPTO_AES_128_CCM_CBC_MAC:
+		case CRYPTO_AES_192_CCM_CBC_MAC:
+		case CRYPTO_AES_256_CCM_CBC_MAC:
 		case CRYPTO_SHA1:
 		case CRYPTO_SHA1_HMAC:
 		case CRYPTO_SHA2_224:
@@ -399,13 +429,45 @@ out:
 	return (error);
 }
 
+/*
+ * Find an iovec in the given uio that contains a
+ * <offset, length> vector.  To qualify, the vector
+ * must be entirely contained with a single iovec.
+ * If it is found, return the address; otherwise,
+ * return NULL.
+ */
+static void *
+find_vector(struct uio *uio, size_t start, size_t length)
+{
+	int indx;
+	size_t curr_offset = 0, end = start + length;
+
+	for (indx = 0;
+	     indx < uio->uio_iovcnt && curr_offset <= start;
+	     indx++) {
+		/*
+		 * See if <start, length> is in the range
+		 * of <curr_offset, uio->iov[indx].iov_len>
+		 */
+		struct iovec *iov = &uio->uio_iov[indx];
+		if (curr_offset <= start &&
+		    ((curr_offset + iov->iov_len) >= end)) {
+			size_t offset = start - curr_offset;
+			uint8_t *retval = iov->iov_base;
+			return (void*)(retval + offset);
+		}
+		curr_offset += iov->iov_len;
+	}
+	return NULL;
+			
+}
+
 static uint8_t *
 aesni_cipher_alloc(struct cryptodesc *enccrd, struct cryptop *crp,
     bool *allocated)
 {
 	struct mbuf *m;
 	struct uio *uio;
-	struct iovec *iov;
 	uint8_t *addr;
 
 	if (crp->crp_flags & CRYPTO_F_IMBUF) {
@@ -415,10 +477,18 @@ aesni_cipher_alloc(struct cryptodesc *enccrd, struct cryptop *crp,
 		addr = mtod(m, uint8_t *);
 	} else if (crp->crp_flags & CRYPTO_F_IOV) {
 		uio = (struct uio *)crp->crp_buf;
-		if (uio->uio_iovcnt != 1)
-			goto alloc;
-		iov = uio->uio_iov;
-		addr = (uint8_t *)iov->iov_base;
+		/*
+		 * If the data range we need is entirely
+		 * contained within one iovec, we should
+		 * use that, instead of trying to allocate
+		 * memory.
+		 */
+		addr = find_vector(uio, enccrd->crd_skip, enccrd->crd_len);
+		if (addr != NULL) {
+			*allocated = 0;
+			return (addr);
+		}
+		goto alloc;	
 	} else
 		addr = (uint8_t *)crp->crp_buf;
 	*allocated = false;
@@ -662,6 +732,7 @@ aesni_cipher_process(struct aesni_session *ses, struct cryptodesc *enccrd,
 
 	if (enccrd != NULL) {
 		if ((enccrd->crd_alg == CRYPTO_AES_ICM ||
+		    enccrd->crd_alg == CRYPTO_AES_CCM_16 ||
 		    enccrd->crd_alg == CRYPTO_AES_NIST_GCM_16) &&
 		    (enccrd->crd_flags & CRD_F_IV_EXPLICIT) == 0)
 			return (EINVAL);
@@ -715,8 +786,9 @@ aesni_cipher_crypt(struct aesni_session *ses, struct cryptodesc *enccrd,
 	int error, ivlen;
 	bool encflag, allocated, authallocated;
 
-	KASSERT(ses->algo != CRYPTO_AES_NIST_GCM_16 || authcrd != NULL,
-	    ("AES_NIST_GCM_16 must include MAC descriptor"));
+	KASSERT((ses->algo != CRYPTO_AES_NIST_GCM_16 &&
+		ses->algo != CRYPTO_AES_CCM_16) || authcrd != NULL,
+	    ("AES_NIST_GCM_16/AES_CCM_16  must include MAC descriptor"));
 
 	ivlen = 0;
 	authbuf = NULL;
@@ -726,7 +798,8 @@ aesni_cipher_crypt(struct aesni_session *ses, struct cryptodesc *enccrd,
 		return (ENOMEM);
 
 	authallocated = false;
-	if (ses->algo == CRYPTO_AES_NIST_GCM_16) {
+	if (ses->algo == CRYPTO_AES_NIST_GCM_16 ||
+	    ses->algo == CRYPTO_AES_CCM_16) {
 		authbuf = aesni_cipher_alloc(authcrd, crp, &authallocated);
 		if (authbuf == NULL) {
 			error = ENOMEM;
@@ -752,6 +825,7 @@ aesni_cipher_crypt(struct aesni_session *ses, struct cryptodesc *enccrd,
 		ivlen = 8;
 		break;
 	case CRYPTO_AES_NIST_GCM_16:
+	case CRYPTO_AES_CCM_16:
 		ivlen = 12;	/* should support arbitarily larger */
 		break;
 	}
@@ -820,9 +894,28 @@ aesni_cipher_crypt(struct aesni_session *ses, struct cryptodesc *enccrd,
 				error = EBADMSG;
 		}
 		break;
+	case CRYPTO_AES_CCM_16:
+		if (!encflag)
+			crypto_copydata(crp->crp_flags, crp->crp_buf,
+			    authcrd->crd_inject, GMAC_DIGEST_LEN, tag);
+		else
+			bzero(tag, sizeof tag);
+		if (encflag) {
+			AES_CCM_encrypt(buf, buf, authbuf, iv, tag,
+			    enccrd->crd_len, authcrd->crd_len, ivlen,
+			    ses->enc_schedule, ses->rounds);
+			if (authcrd != NULL)
+				crypto_copyback(crp->crp_flags, crp->crp_buf,
+				    authcrd->crd_inject, GMAC_DIGEST_LEN, tag);
+		} else {
+			if (!AES_CCM_decrypt(buf, buf, authbuf, iv, tag,
+			    enccrd->crd_len, authcrd->crd_len, ivlen,
+			    ses->enc_schedule, ses->rounds))
+				error = EBADMSG;
+		}
+		break;
 	}
-
-	if (allocated)
+	if (allocated && error == 0)
 		crypto_copyback(crp->crp_flags, crp->crp_buf, enccrd->crd_skip,
 		    enccrd->crd_len, buf);
 

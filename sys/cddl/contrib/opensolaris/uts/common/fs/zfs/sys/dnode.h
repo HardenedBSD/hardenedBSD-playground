@@ -117,10 +117,10 @@ extern "C" {
 #define	DN_BONUS(dnp)	((void*)((dnp)->dn_bonus + \
 	(((dnp)->dn_nblkptr - 1) * sizeof (blkptr_t))))
 #define	DN_MAX_BONUS_LEN(dnp) \
-	((dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR) ? \
+	((dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR) ?	\
 	(uint8_t *)DN_SPILL_BLKPTR(dnp) - (uint8_t *)DN_BONUS(dnp) : \
 	(uint8_t *)(dnp + (dnp->dn_extra_slots + 1)) - (uint8_t *)DN_BONUS(dnp))
-	
+
 #define	DN_USED_BYTES(dnp) (((dnp)->dn_flags & DNODE_FLAG_USED_BYTES) ? \
 	(dnp)->dn_used : (dnp)->dn_used << SPA_MINBLOCKSHIFT)
 
@@ -137,11 +137,73 @@ enum dnode_dirtycontext {
 };
 
 /* Is dn_used in bytes?  if not, it's in multiples of SPA_MINBLOCKSIZE */
-#define	DNODE_FLAG_USED_BYTES		(1<<0)
-#define	DNODE_FLAG_USERUSED_ACCOUNTED	(1<<1)
+#define	DNODE_FLAG_USED_BYTES			(1 << 0)
+#define	DNODE_FLAG_USERUSED_ACCOUNTED		(1 << 1)
 
 /* Does dnode have a SA spill blkptr in bonus? */
-#define	DNODE_FLAG_SPILL_BLKPTR	(1<<2)
+#define	DNODE_FLAG_SPILL_BLKPTR			(1 << 2)
+
+/* User/Group/Project dnode accounting */
+#define	DNODE_FLAG_USEROBJUSED_ACCOUNTED	(1 << 3)
+
+/*
+ * This mask defines the set of flags which are "portable", meaning
+ * that they can be preserved when doing a raw encrypted zfs send.
+ * Flags included in this mask will be protected by AAD when the block
+ * of dnodes is encrypted.
+ */
+#define	DNODE_CRYPT_PORTABLE_FLAGS_MASK		(DNODE_FLAG_SPILL_BLKPTR)
+
+/*
+ * VARIABLE-LENGTH (LARGE) DNODES
+ *
+ * The motivation for variable-length dnodes is to eliminate the overhead
+ * associated with using spill blocks.  Spill blocks are used to store
+ * system attribute data (i.e. file metadata) that does not fit in the
+ * dnode's bonus buffer. By allowing a larger bonus buffer area the use of
+ * a spill block can be avoided.  Spill blocks potentially incur an
+ * additional read I/O for every dnode in a dnode block. As a worst case
+ * example, reading 32 dnodes from a 16k dnode block and all of the spill
+ * blocks could issue 33 separate reads. Now suppose those dnodes have size
+ * 1024 and therefore don't need spill blocks. Then the worst case number
+ * of blocks read is reduced to from 33 to two--one per dnode block.
+ *
+ * ZFS-on-Linux systems that make heavy use of extended attributes benefit
+ * from this feature. In particular, ZFS-on-Linux supports the xattr=sa
+ * dataset property which allows file extended attribute data to be stored
+ * in the dnode bonus buffer as an alternative to the traditional
+ * directory-based format. Workloads such as SELinux and the Lustre
+ * distributed filesystem often store enough xattr data to force spill
+ * blocks when xattr=sa is in effect. Large dnodes may therefore provide a
+ * performance benefit to such systems. Other use cases that benefit from
+ * this feature include files with large ACLs and symbolic links with long
+ * target names.
+ *
+ * The size of a dnode may be a multiple of 512 bytes up to the size of a
+ * dnode block (currently 16384 bytes). The dn_extra_slots field of the
+ * on-disk dnode_phys_t structure describes the size of the physical dnode
+ * on disk. The field represents how many "extra" dnode_phys_t slots a
+ * dnode consumes in its dnode block. This convention results in a value of
+ * 0 for 512 byte dnodes which preserves on-disk format compatibility with
+ * older software which doesn't support large dnodes.
+ *
+ * Similarly, the in-memory dnode_t structure has a dn_num_slots field
+ * to represent the total number of dnode_phys_t slots consumed on disk.
+ * Thus dn->dn_num_slots is 1 greater than the corresponding
+ * dnp->dn_extra_slots. This difference in convention was adopted
+ * because, unlike on-disk structures, backward compatibility is not a
+ * concern for in-memory objects, so we used a more natural way to
+ * represent size for a dnode_t.
+ *
+ * The default size for newly created dnodes is determined by the value of
+ * the "dnodesize" dataset property. By default the property is set to
+ * "legacy" which is compatible with older software. Setting the property
+ * to "auto" will allow the filesystem to choose the most suitable dnode
+ * size. Currently this just sets the default dnode size to 1k, but future
+ * code improvements could dynamically choose a size based on observed
+ * workload patterns. Dnodes of varying sizes can coexist within the same
+ * dataset and even within the same dnode block.
+ */
 
 typedef struct dnode_phys {
 	uint8_t dn_type;		/* dmu_object_type_t */
@@ -247,6 +309,7 @@ struct dnode {
 	uint8_t dn_rm_spillblk[TXG_SIZE];	/* for removing spill blk */
 	uint16_t dn_next_bonuslen[TXG_SIZE];
 	uint32_t dn_next_blksz[TXG_SIZE];	/* next block size in bytes */
+	uint64_t dn_next_maxblkid[TXG_SIZE];	/* next maxblkid in bytes */
 
 	/* protected by dn_dbufs_mtx; declared here to fill 32-bit hole */
 	uint32_t dn_dbufs_count;	/* count of dn_dbufs */
@@ -261,6 +324,7 @@ struct dnode {
 	uint64_t dn_allocated_txg;
 	uint64_t dn_free_txg;
 	uint64_t dn_assigned_txg;
+	uint64_t dn_dirty_txg;			/* txg dnode was last dirtied */
 	kcondvar_t dn_notxholds;
 	enum dnode_dirtycontext dn_dirtyctx;
 	uint8_t *dn_dirtyctx_firstset;		/* dbg: contents meaningless */
@@ -350,6 +414,7 @@ void dnode_free(dnode_t *dn, dmu_tx_t *tx);
 void dnode_byteswap(dnode_phys_t *dnp);
 void dnode_buf_byteswap(void *buf, size_t size);
 void dnode_verify(dnode_t *dn);
+int dnode_set_nlevels(dnode_t *dn, int nlevels, dmu_tx_t *tx);
 int dnode_set_blksz(dnode_t *dn, uint64_t size, int ibs, dmu_tx_t *tx);
 void dnode_free_range(dnode_t *dn, uint64_t off, uint64_t len, dmu_tx_t *tx);
 void dnode_diduse_space(dnode_t *dn, int64_t space);
@@ -362,6 +427,27 @@ int dnode_next_offset(dnode_t *dn, int flags, uint64_t *off,
 void dnode_evict_dbufs(dnode_t *dn);
 void dnode_evict_bonus(dnode_t *dn);
 boolean_t dnode_needs_remap(const dnode_t *dn);
+
+#define	DNODE_IS_DIRTY(_dn)						\
+	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))
+
+#define	DNODE_IS_DIRTY(_dn)						\
+	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))
+
+#define	DNODE_IS_DIRTY(_dn)						\
+	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))
+
+#define	DNODE_IS_DIRTY(_dn)						\
+	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))
+
+#define	DNODE_IS_DIRTY(_dn)						\
+	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))
+
+#define	DNODE_IS_DIRTY(_dn)						\
+	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))
+
+#define	DNODE_IS_DIRTY(_dn)						\
+	((_dn)->dn_dirty_txg >= spa_syncing_txg((_dn)->dn_objset->os_spa))
 
 #define	DNODE_IS_CACHEABLE(_dn)						\
 	((_dn)->dn_objset->os_primary_cache == ZFS_CACHE_ALL ||		\

@@ -4178,7 +4178,8 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 				class = FM_EREPORT_ZFS_DEVICE_UNKNOWN;
 			}
 
-			zfs_ereport_post(class, spa, vd, NULL, save_state, 0);
+			zfs_ereport_post(class, spa, vd, NULL,
+			    save_state, 0);
 		}
 
 		/* Erase any notion of persistent removed state */
