@@ -152,7 +152,7 @@ CFLAGS+=	-fPIC
 
 .if defined(MK_RETPOLINE) && ${MK_RETPOLINE} != "no"
 CFLAGS+=	-mretpoline
-LDFLAGS+=	-Wl,-z,retpoline
+LDFLAGS+=	-Wl,-zretpolineplt
 .endif
 
 # Temporary workaround for PR 196407, which contains the fascinating details.
