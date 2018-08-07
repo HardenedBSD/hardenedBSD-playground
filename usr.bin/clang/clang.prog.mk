@@ -19,5 +19,6 @@ PACKAGE=	clang
 
 LIBADD+=	ncursesw
 LIBADD+=	pthread
+LIBADD+=	z
 
 .include <bsd.prog.mk>
