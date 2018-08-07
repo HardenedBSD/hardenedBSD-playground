@@ -209,13 +209,11 @@ out:
 int
 sys_pdgetpid(struct thread *td, struct pdgetpid_args *uap)
 {
-	cap_rights_t rights;
 	pid_t pid;
 	int error;
 
 	AUDIT_ARG_FD(uap->fd);
-	error = kern_pdgetpid(td, uap->fd,
-	    cap_rights_init(&rights, CAP_PDGETPID), &pid);
+	error = kern_pdgetpid(td, uap->fd, &cap_pdgetpid_rights, &pid);
 	if (error == 0)
 		error = copyout(&pid, uap->pidp, sizeof(pid));
 	return (error);
@@ -398,7 +396,6 @@ procdesc_close(struct file *fp, struct thread *td)
 			 * process's reference to the process descriptor when it
 			 * calls back into procdesc_reap().
 			 */
-			PROC_SLOCK(p);
 			proc_reap(curthread, p, NULL, 0);
 		} else {
 			/*

@@ -77,9 +77,9 @@ g_label_ufs_taste_common(struct g_consumer *cp, char *label, size_t size, int wh
 
 	fs = NULL;
 	if (SBLOCKSIZE % pp->sectorsize != 0 ||
-	    ffs_sbget(cp, &fs, -1, NULL, g_use_g_read_data) != 0) {
-		if (fs != NULL)
-			g_free(fs);
+	    ffs_sbget(cp, &fs, -1, M_GEOM, g_use_g_read_data) != 0) {
+		KASSERT(fs == NULL,
+		    ("g_label_ufs_taste_common: non-NULL fs %p\n", fs));
 		return;
 	}
 
@@ -103,8 +103,7 @@ g_label_ufs_taste_common(struct g_consumer *cp, char *label, size_t size, int wh
 		|| G_LABEL_UFS_CMP(pp, fs, fs_providersize))) {
 		/* Valid UFS2. */
 	} else {
-		g_free(fs);
-		return;
+		goto out;
 	}
 	G_LABEL_DEBUG(1, "%s file system detected on %s.",
 	    fs->fs_magic == FS_UFS1_MAGIC ? "UFS1" : "UFS2", pp->name);
@@ -120,6 +119,8 @@ g_label_ufs_taste_common(struct g_consumer *cp, char *label, size_t size, int wh
 			    fs->fs_id[1]);
 		break;
 	}
+out:
+	g_free(fs->fs_csp);
 	g_free(fs);
 }
 

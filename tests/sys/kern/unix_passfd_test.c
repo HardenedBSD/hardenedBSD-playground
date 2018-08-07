@@ -23,9 +23,10 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
+
+#include <sys/cdefs.h>
+__FBSDID("$FreeBSD$");
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -100,6 +101,23 @@ dofstat(int fd, struct stat *sb)
 	    "fstat failed: %s", strerror(errno));
 }
 
+static int
+getnfds(void)
+{
+	size_t len;
+	int mib[4], n, rc;
+
+	len = sizeof(n);
+	mib[0] = CTL_KERN;
+	mib[1] = KERN_PROC;
+	mib[2] = KERN_PROC_NFDS;
+	mib[3] = 0;
+
+	rc = sysctl(mib, 4, &n, &len, NULL, 0);
+	ATF_REQUIRE_MSG(rc != -1, "sysctl(KERN_PROC_NFDS) failed");
+	return (n);
+}
+
 static void
 samefile(struct stat *sb1, struct stat *sb2)
 {
@@ -108,7 +126,7 @@ samefile(struct stat *sb1, struct stat *sb2)
 	ATF_REQUIRE_MSG(sb1->st_ino == sb2->st_ino, "different inode");
 }
 
-static void
+static size_t
 sendfd_payload(int sockfd, int send_fd, void *payload, size_t paylen)
 {
 	struct iovec iovec;
@@ -129,35 +147,53 @@ sendfd_payload(int sockfd, int send_fd, void *payload, size_t paylen)
 	msghdr.msg_iov = &iovec;
 	msghdr.msg_iovlen = 1;
 
-	cmsghdr = (struct cmsghdr *)(void*)message;
+	cmsghdr = (struct cmsghdr *)(void *)message;
 	cmsghdr->cmsg_len = CMSG_LEN(sizeof(int));
 	cmsghdr->cmsg_level = SOL_SOCKET;
 	cmsghdr->cmsg_type = SCM_RIGHTS;
 	memcpy(CMSG_DATA(cmsghdr), &send_fd, sizeof(int));
 
-	len = sendmsg(sockfd, &msghdr, 0);
+	len = sendmsg(sockfd, &msghdr, MSG_DONTWAIT);
 	ATF_REQUIRE_MSG(len != -1, "sendmsg failed: %s", strerror(errno));
-	ATF_REQUIRE_MSG((size_t)len == paylen,
-	    "sendmsg: %zd messages sent; expected: %zu; %s", len, paylen,
-	    strerror(errno));
+	return ((size_t)len);
 }
 
 static void
 sendfd(int sockfd, int send_fd)
 {
-	char ch = 0;
+	size_t len;
+	char ch;
 
-	return (sendfd_payload(sockfd, send_fd, &ch, sizeof(ch)));
+	ch = 0;
+	len = sendfd_payload(sockfd, send_fd, &ch, sizeof(ch));
+	ATF_REQUIRE_MSG(len == sizeof(ch),
+	    "sendmsg: %zu bytes sent; expected %zu; %s", len, sizeof(ch),
+	    strerror(errno));
+}
+
+static bool
+localcreds(int sockfd)
+{
+	socklen_t sz;
+	int rc, val;
+
+	sz = sizeof(val);
+	rc = getsockopt(sockfd, 0, LOCAL_CREDS, &val, &sz);
+	ATF_REQUIRE_MSG(rc != -1, "getsockopt(LOCAL_CREDS) failed: %s",
+	    strerror(errno));
+	return (val != 0);
 }
 
 static void
 recvfd_payload(int sockfd, int *recv_fd, void *buf, size_t buflen)
 {
 	struct cmsghdr *cmsghdr;
-	char message[CMSG_SPACE(SOCKCREDSIZE(CMGROUP_MAX)) + sizeof(int)];
+	char message[CMSG_SPACE(SOCKCREDSIZE(CMGROUP_MAX)) +
+	    CMSG_SPACE(sizeof(int))];
 	struct msghdr msghdr;
 	struct iovec iovec;
 	ssize_t len;
+	bool foundcreds;
 
 	bzero(&msghdr, sizeof(msghdr));
 
@@ -178,6 +214,7 @@ recvfd_payload(int sockfd, int *recv_fd, void *buf, size_t buflen)
 	cmsghdr = CMSG_FIRSTHDR(&msghdr);
 	ATF_REQUIRE_MSG(cmsghdr != NULL,
 	    "recvmsg: did not receive control message");
+	foundcreds = false;
 	*recv_fd = -1;
 	for (; cmsghdr != NULL; cmsghdr = CMSG_NXTHDR(&msghdr, cmsghdr)) {
 		if (cmsghdr->cmsg_level == SOL_SOCKET &&
@@ -185,10 +222,14 @@ recvfd_payload(int sockfd, int *recv_fd, void *buf, size_t buflen)
 		    cmsghdr->cmsg_len == CMSG_LEN(sizeof(int))) {
 			memcpy(recv_fd, CMSG_DATA(cmsghdr), sizeof(int));
 			ATF_REQUIRE(*recv_fd != -1);
-		}
+		} else if (cmsghdr->cmsg_level == SOL_SOCKET &&
+		    cmsghdr->cmsg_type == SCM_CREDS)
+			foundcreds = true;
 	}
 	ATF_REQUIRE_MSG(*recv_fd != -1,
 	    "recvmsg: did not receive single-fd message");
+	ATF_REQUIRE_MSG(!localcreds(sockfd) || foundcreds,
+	    "recvmsg: expected credentials were not received");
 }
 
 static void
@@ -196,7 +237,7 @@ recvfd(int sockfd, int *recv_fd)
 {
 	char ch = 0;
 
-	return (recvfd_payload(sockfd, recv_fd, &ch, sizeof(ch)));
+	recvfd_payload(sockfd, recv_fd, &ch, sizeof(ch));
 }
 
 /*
@@ -343,9 +384,9 @@ ATF_TC_BODY(devfs_orphan, tc)
 
 /*
  * Test for PR 181741. Receiver sets LOCAL_CREDS, and kernel prepends a
- * control message to the data. Sender sends large payload.
- * Payload + SCM_RIGHTS + LOCAL_CREDS hit socket buffer limit, and receiver
- * receives truncated data.
+ * control message to the data. Sender sends large payload using a non-blocking
+ * socket. Payload + SCM_RIGHTS + LOCAL_CREDS hit socket buffer limit, and
+ * receiver receives truncated data.
  */
 ATF_TC_WITHOUT_HEAD(rights_creds_payload);
 ATF_TC_BODY(rights_creds_payload, tc)
@@ -355,9 +396,6 @@ ATF_TC_BODY(rights_creds_payload, tc)
 	size_t len;
 	void *buf;
 	int fd[2], getfd, putfd, rc;
-
-	atf_tc_expect_fail("PR 181741: Packet loss when 'control' messages "
-	    "are present with large data");
 
 	len = sizeof(sendspace);
 	rc = sysctlbyname(LOCAL_SENDSPACE_SYSCTL, &sendspace,
@@ -369,14 +407,114 @@ ATF_TC_BODY(rights_creds_payload, tc)
 	ATF_REQUIRE(buf != NULL);
 
 	domainsocketpair(fd);
+	tempfile(&putfd);
+
+	rc = fcntl(fd[0], F_SETFL, O_NONBLOCK);
+	ATF_REQUIRE_MSG(rc != -1, "fcntl(O_NONBLOCK) failed: %s",
+	    strerror(errno));
 	rc = setsockopt(fd[1], 0, LOCAL_CREDS, &on, sizeof(on));
 	ATF_REQUIRE_MSG(rc != -1, "setsockopt(LOCAL_CREDS) failed: %s",
 	    strerror(errno));
-	tempfile(&putfd);
-	sendfd_payload(fd[0], putfd, buf, sendspace);
-	recvfd_payload(fd[1], &getfd, buf, sendspace);
+
+	len = sendfd_payload(fd[0], putfd, buf, sendspace);
+	ATF_REQUIRE_MSG(len < sendspace, "sendmsg: %zu bytes sent", len);
+	recvfd_payload(fd[1], &getfd, buf, len);
+
 	close(putfd);
 	close(getfd);
+	closesocketpair(fd);
+}
+
+/*
+ * Test for PR 131876. Receiver uses a control message buffer that is too
+ * small for the incoming SCM_RIGHTS message, so the message is truncated.
+ * The kernel must not leak the copied right into the receiver's namespace.
+ */
+ATF_TC_WITHOUT_HEAD(truncated_rights);
+ATF_TC_BODY(truncated_rights, tc)
+{
+	struct iovec iovec;
+	struct msghdr msghdr;
+	char buf[16], message[CMSG_SPACE(0)];
+	ssize_t len;
+	int fd[2], nfds, putfd;
+
+	atf_tc_expect_fail("PR 131876: "
+	    "FD leak when 'control' message is truncated");
+
+	memset(buf, 42, sizeof(buf));
+	domainsocketpair(fd);
+	devnull(&putfd);
+	nfds = getnfds();
+
+	len = sendfd_payload(fd[0], putfd, buf, sizeof(buf));
+	ATF_REQUIRE_MSG(len == sizeof(buf),
+	    "sendmsg: %zd bytes sent; expected %zu; %s", len, sizeof(buf),
+	    strerror(errno));
+
+	bzero(&msghdr, sizeof(msghdr));
+	bzero(message, sizeof(message));
+
+	iovec.iov_base = buf;
+	iovec.iov_len = sizeof(buf);
+	msghdr.msg_control = message;
+	msghdr.msg_controllen = sizeof(message);
+	msghdr.msg_iov = &iovec;
+	msghdr.msg_iovlen = 1;
+
+	len = recvmsg(fd[1], &msghdr, 0);
+	ATF_REQUIRE_MSG(len != -1, "recvmsg failed: %s", strerror(errno));
+	ATF_REQUIRE_MSG((size_t)len == sizeof(buf),
+	    "recvmsg: %zd bytes received; expected %zd", len, sizeof(buf));
+	for (size_t i = 0; i < sizeof(buf); i++)
+		ATF_REQUIRE_MSG(buf[i] == 42, "unexpected buffer contents");
+
+	ATF_REQUIRE_MSG((msghdr.msg_flags & MSG_CTRUNC) != 0,
+	    "MSG_CTRUNC not set after truncation");
+	ATF_REQUIRE(getnfds() == nfds);
+
+	close(putfd);
+	closesocketpair(fd);
+}
+
+ATF_TC_WITHOUT_HEAD(copyout_rights_error);
+ATF_TC_BODY(copyout_rights_error, tc)
+{
+	struct iovec iovec;
+	struct msghdr msghdr;
+	char buf[16];
+	ssize_t len;
+	int fd[2], error, nfds, putfd;
+
+	atf_tc_expect_fail("PR 131876: "
+	    "FD leak when copyout of rights returns an error");
+
+	memset(buf, 0, sizeof(buf));
+	domainsocketpair(fd);
+	devnull(&putfd);
+	nfds = getnfds();
+
+	sendfd_payload(fd[0], putfd, buf, sizeof(buf));
+
+	bzero(&msghdr, sizeof(msghdr));
+
+	iovec.iov_base = buf;
+	iovec.iov_len = sizeof(buf);
+	msghdr.msg_control = (char *)-1; /* trigger EFAULT */
+	msghdr.msg_controllen = CMSG_SPACE(sizeof(int));
+	msghdr.msg_iov = &iovec;
+	msghdr.msg_iovlen = 1;
+
+	len = recvmsg(fd[1], &msghdr, 0);
+	error = errno;
+	ATF_REQUIRE_MSG(len == -1, "recvmsg succeeded: %zd", len);
+	ATF_REQUIRE_MSG(errno == EFAULT, "expected EFAULT, got %d (%s)",
+	    error, strerror(errno));
+
+	/* Verify that no FDs were leaked. */
+	ATF_REQUIRE(getnfds() == nfds);
+
+	close(putfd);
 	closesocketpair(fd);
 }
 
@@ -391,6 +529,8 @@ ATF_TP_ADD_TCS(tp)
 	ATF_TP_ADD_TC(tp, bundle_cancel);
 	ATF_TP_ADD_TC(tp, devfs_orphan);
 	ATF_TP_ADD_TC(tp, rights_creds_payload);
+	ATF_TP_ADD_TC(tp, truncated_rights);
+	ATF_TP_ADD_TC(tp, copyout_rights_error);
 
 	return (atf_no_error());
 }

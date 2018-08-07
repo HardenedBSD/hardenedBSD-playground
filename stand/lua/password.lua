@@ -1,5 +1,8 @@
 --
+-- SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+--
 -- Copyright (c) 2015 Pedro Souza <pedrosouza@freebsd.org>
+-- Copyright (C) 2018 Kyle Evans <kevans@FreeBSD.org>
 -- All rights reserved.
 --
 -- Redistribution and use in source and binary forms, with or without
@@ -26,75 +29,106 @@
 -- $FreeBSD$
 --
 
-local password = {};
+local core = require("core")
+local screen = require("screen")
 
-local core = require("core");
-local screen = require("screen");
+local password = {}
 
-function password.read()
-	local str = "";
-	local n = 0;
+local INCORRECT_PASSWORD = "loader: incorrect password!"
+-- Asterisks as a password mask
+local show_password_mask = false
+local twiddle_chars = {"/", "-", "\\", "|"}
 
-	repeat
-		ch = io.getchar();
-		if (ch == core.KEY_ENTER) then
-			break;
+-- Module exports
+function password.read(prompt_length)
+	local str = ""
+	local twiddle_pos = 1
+
+	local function draw_twiddle()
+		printc("  " .. twiddle_chars[twiddle_pos])
+		-- Reset cursor to just after the password prompt
+		screen.setcursor(prompt_length + 2, screen.default_y)
+		twiddle_pos = (twiddle_pos % #twiddle_chars) + 1
+	end
+
+	-- Space between the prompt and any on-screen feedback
+	printc(" ")
+	while true do
+		local ch = io.getchar()
+		if ch == core.KEY_ENTER then
+			break
 		end
-		-- XXX TODO: Evaluate if we really want this or not, as a
-		-- security consideration of sorts
-		if (ch == core.KEY_BACKSPACE) or (ch == core.KEY_DELETE) then
-			if (n > 0) then
-				n = n - 1;
-				-- loader.printc("\008 \008");
-				str = str:sub(1, n);
+		if ch == core.KEY_BACKSPACE or ch == core.KEY_DELETE then
+			if #str > 0 then
+				if show_password_mask then
+					printc("\008 \008")
+				else
+					draw_twiddle()
+				end
+				str = str:sub(1, #str - 1)
 			end
 		else
-			-- loader.printc("*");
-			str = str .. string.char(ch);
-			n = n + 1;
+			if show_password_mask then
+				printc("*")
+			else
+				draw_twiddle()
+			end
+			str = str .. string.char(ch)
 		end
-	until (n == 16);
-	return str;
+	end
+	return str
 end
 
 function password.check()
-	screen.clear();
-	screen.defcursor();
+	screen.clear()
+	screen.defcursor()
 	-- pwd is optionally supplied if we want to check it
-	local function do_prompt(prompt, pwd)
-		while (true) do
-			loader.printc(prompt);
-			local read_pwd = password.read();
-			if (not pwd) or (pwd == read_pwd) then
-				-- Throw an extra newline after password prompt
-				print("");
-				return read_pwd;
+	local function doPrompt(prompt, pwd)
+		local attempts = 1
+
+		local function clear_incorrect_text_prompt()
+			printc("\n")
+			printc(string.rep(" ", #INCORRECT_PASSWORD))
+		end
+
+		while true do
+			screen.defcursor()
+			printc(prompt)
+			local read_pwd = password.read(#prompt)
+			if pwd == nil or pwd == read_pwd then
+				-- Clear the prompt + twiddle
+				printc(string.rep(" ", #prompt + 5))
+				if attempts > 1 then
+					clear_incorrect_text_prompt()
+				end
+				return read_pwd
 			end
-			print("\n\nloader: incorrect password!\n");
-			loader.delay(3*1000*1000);
+			printc("\n" .. INCORRECT_PASSWORD)
+			attempts = attempts + 1
+			loader.delay(3*1000*1000)
 		end
 	end
 	local function compare(prompt, pwd)
-		if (pwd == nil) then
-			return;
+		if pwd == nil then
+			return
 		end
-		do_prompt(prompt, pwd);
+		doPrompt(prompt, pwd)
 	end
 
-	local boot_pwd = loader.getenv("bootlock_password");
-	compare("Boot password: ", boot_pwd);
+	local boot_pwd = loader.getenv("bootlock_password")
+	compare("Boot password: ", boot_pwd)
 
-	local geli_prompt = loader.getenv("geom_eli_passphrase_prompt");
-	if (geli_prompt ~= nil) and (geli_prompt:lower() == "yes") then
-		local passphrase = do_prompt("GELI Passphrase: ");
-		loader.setenv("kern.geom.eli.passphrase", passphrase);
+	local geli_prompt = loader.getenv("geom_eli_passphrase_prompt")
+	if geli_prompt ~= nil and geli_prompt:lower() == "yes" then
+		local passphrase = doPrompt("GELI Passphrase: ")
+		loader.setenv("kern.geom.eli.passphrase", passphrase)
 	end
 
-	local pwd = loader.getenv("password");
-	if (pwd ~= nil) then
-		core.autoboot();
+	local pwd = loader.getenv("password")
+	if pwd ~= nil then
+		core.autoboot()
 	end
-	compare("Password: ", pwd);
+	compare("Password: ", pwd)
 end
 
-return password;
+return password

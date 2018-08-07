@@ -1,5 +1,8 @@
 --
+-- SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+--
 -- Copyright (c) 2015 Pedro Souza <pedrosouza@freebsd.org>
+-- Copyright (c) 2018 Kyle Evans <kevans@FreeBSD.org>
 -- All rights reserved.
 --
 -- Redistribution and use in source and binary forms, with or without
@@ -26,10 +29,39 @@
 -- $FreeBSD$
 --
 
-config = require("config");
-menu = require("menu");
-password = require("password");
+-- The cli module should be included first here. Some of the functions that it
+-- defines are necessary for the Lua-based loader to operate in general.
+-- Other modules will also need some of the functions it defines to safely
+-- execute loader commands.
+require("cli")
+local color = require("color")
+local core = require("core")
+local config = require("config")
+local password = require("password")
+-- The menu module will be brought in after config has loaded if we actually
+-- need it.
+local menu
 
-config.load();
-password.check();
-menu.run();
+-- Our console may have been setup for a different color scheme before we get
+-- here, so make sure we set the default.
+if color.isEnabled() then
+	printc(color.default())
+end
+
+try_include("local")
+
+config.load()
+if not core.isMenuSkipped() then
+	menu = require("menu")
+end
+if core.isUEFIBoot() then
+	loader.perform("efi-autoresizecons")
+end
+password.check()
+-- menu might be disabled
+if menu ~= nil then
+	menu.run()
+else
+	-- Load kernel/modules before we go
+	config.loadelf()
+end

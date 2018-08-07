@@ -15,6 +15,7 @@ SUBDIR+=	asan_dynamic
 SUBDIR+=	stats
 SUBDIR+=	stats_client
 .if ${MACHINE_CPUARCH} == "amd64"
+SUBDIR+=	cfi
 SUBDIR+=	tsan
 SUBDIR+=	tsan_cxx
 .endif
@@ -29,7 +30,7 @@ SUBDIR+=	safestack
 .endif
 
 .if ${MACHINE_CPUARCH} == "i386" || ${MACHINE_CPUARCH} == "amd64" || \
-    (${MACHINE_CPUARCH} == "arm" && ${MACHINE_ARCH} != "armeb")
+    ${MACHINE_CPUARCH} == "arm"
 SUBDIR+=	profile
 .endif
 

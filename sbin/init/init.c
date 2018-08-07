@@ -156,6 +156,8 @@ typedef struct init_session {
 	int	se_flags;		/* status of session */
 #define	SE_SHUTDOWN	0x1		/* session won't be restarted */
 #define	SE_PRESENT	0x2		/* session is in /etc/ttys */
+#define	SE_IFEXISTS	0x4		/* session defined as "onifexists" */
+#define	SE_IFCONSOLE	0x8		/* session defined as "onifconsole" */
 	int	se_nspace;		/* spacing count */
 	char	*se_device;		/* filename of port */
 	char	*se_getty;		/* what to run on that port */
@@ -1055,7 +1057,7 @@ static state_func_t
 run_script(const char *script)
 {
 	pid_t pid, wpid;
-	int status;
+	int error, status;
 	char *argv[4];
 	const char *shell;
 	struct sigaction sa;
@@ -1084,6 +1086,21 @@ run_script(const char *script)
 #ifdef LOGIN_CAP
 		setprocresources(RESOURCE_RC);
 #endif
+
+		/*
+		 * Try to directly execute the script first.  If it
+		 * fails, try the old method of passing the script path
+		 * to sh(1).  Don't complain if it fails because of
+		 * the missing execute bit.
+		 */
+		error = access(script, X_OK);
+		if (error == 0) {
+			execv(script, argv + 1);
+			warning("can't exec %s: %m", script);
+		} else if (errno != EACCES) {
+			warning("can't access %s: %m", script);
+		}
+
 		execv(shell, argv);
 		stall("can't exec %s for %s: %m", shell, script);
 		_exit(1);	/* force single user mode */
@@ -1262,7 +1279,6 @@ static session_t *
 new_session(session_t *sprev, struct ttyent *typ)
 {
 	session_t *sp;
-	int fd;
 
 	if ((typ->ty_status & TTY_ON) == 0 ||
 	    typ->ty_name == 0 ||
@@ -1273,20 +1289,14 @@ new_session(session_t *sprev, struct ttyent *typ)
 
 	sp->se_flags |= SE_PRESENT;
 
+	if ((typ->ty_status & TTY_IFEXISTS) != 0)
+		sp->se_flags |= SE_IFEXISTS;
+
+	if ((typ->ty_status & TTY_IFCONSOLE) != 0)
+		sp->se_flags |= SE_IFCONSOLE;
+
 	if (asprintf(&sp->se_device, "%s%s", _PATH_DEV, typ->ty_name) < 0)
 		err(1, "asprintf");
-
-	/*
-	 * Attempt to open the device, if we get "device not configured"
-	 * then don't add the device to the session list.
-	 */
-	if ((fd = open(sp->se_device, O_RDONLY | O_NONBLOCK, 0)) < 0) {
-		if (errno == ENXIO) {
-			free_session(sp);
-			return (0);
-		}
-	} else
-		close(fd);
 
 	if (setupargv(sp, typ) == 0) {
 		free_session(sp);
@@ -1507,6 +1517,30 @@ start_getty(session_t *sp)
 }
 
 /*
+ * Return 1 if the session is defined as "onifexists"
+ * or "onifconsole" and the device node does not exist.
+ */
+static int
+session_has_no_tty(session_t *sp)
+{
+	int fd;
+
+	if ((sp->se_flags & SE_IFEXISTS) == 0 &&
+	    (sp->se_flags & SE_IFCONSOLE) == 0)
+		return (0);
+
+	fd = open(sp->se_device, O_RDONLY | O_NONBLOCK, 0);
+	if (fd < 0) {
+		if (errno == ENOENT)
+			return (1);
+		return (0);
+	}
+
+	close(fd);
+	return (0);
+}
+
+/*
  * Collect exit status for a child.
  * If an exiting login, start a new login running.
  */
@@ -1524,7 +1558,8 @@ collect_child(pid_t pid)
 	del_session(sp);
 	sp->se_process = 0;
 
-	if (sp->se_flags & SE_SHUTDOWN) {
+	if (sp->se_flags & SE_SHUTDOWN ||
+	    session_has_no_tty(sp)) {
 		if ((sprev = sp->se_prev) != NULL)
 			sprev->se_next = sp->se_next;
 		else
@@ -1610,6 +1645,8 @@ multi_user(void)
 
 	for (sp = sessions; sp; sp = sp->se_next) {
 		if (sp->se_process)
+			continue;
+		if (session_has_no_tty(sp))
 			continue;
 		if ((pid = start_getty(sp)) == -1) {
 			/* serious trouble */
@@ -1832,7 +1869,7 @@ static int
 runshutdown(void)
 {
 	pid_t pid, wpid;
-	int status;
+	int error, status;
 	int shutdowntimeout;
 	size_t len;
 	char *argv[4];
@@ -1875,6 +1912,21 @@ runshutdown(void)
 #ifdef LOGIN_CAP
 		setprocresources(RESOURCE_RC);
 #endif
+
+		/*
+		 * Try to directly execute the script first.  If it
+		 * fails, try the old method of passing the script path
+		 * to sh(1).  Don't complain if it fails because of
+		 * the missing execute bit.
+		 */
+		error = access(_path_rundown, X_OK);
+		if (error == 0) {
+			execv(_path_rundown, argv + 1);
+			warning("can't exec %s: %m", _path_rundown);
+		} else if (errno != EACCES) {
+			warning("can't access %s: %m", _path_rundown);
+		}
+
 		execv(shell, argv);
 		warning("can't exec %s for %s: %m", shell, _PATH_RUNDOWN);
 		_exit(1);	/* force single user mode */

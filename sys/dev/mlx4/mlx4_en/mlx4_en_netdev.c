@@ -623,7 +623,7 @@ static void mlx4_en_cache_uclist(struct net_device *dev)
 	mlx4_en_clear_uclist(dev);
 
 	if_addr_rlock(dev);
-	TAILQ_FOREACH(ifa, &dev->if_addrhead, ifa_link) {
+	CK_STAILQ_FOREACH(ifa, &dev->if_addrhead, ifa_link) {
 		if (ifa->ifa_addr->sa_family != AF_LINK)
 			continue;
 		if (((struct sockaddr_dl *)ifa->ifa_addr)->sdl_alen !=
@@ -661,7 +661,7 @@ static void mlx4_en_cache_mclist(struct net_device *dev)
 	mlx4_en_clear_mclist(dev);
 
 	if_maddr_rlock(dev);
-	TAILQ_FOREACH(ifma, &dev->if_multiaddrs, ifma_link) {
+	CK_STAILQ_FOREACH(ifma, &dev->if_multiaddrs, ifma_link) {
 		if (ifma->ifma_addr->sa_family != AF_LINK)
 			continue;
 		if (((struct sockaddr_dl *)ifma->ifma_addr)->sdl_alen !=
@@ -2058,7 +2058,7 @@ out:
 	case SIOCGI2C: {
 		struct ifi2creq i2c;
 
-		error = copyin(ifr->ifr_data, &i2c, sizeof(i2c));
+		error = copyin(ifr_data_get_ptr(ifr), &i2c, sizeof(i2c));
 		if (error)
 			break;
 		if (i2c.len > sizeof(i2c.data)) {
@@ -2075,7 +2075,7 @@ out:
 			error = -error;
 			break;
 		}
-		error = copyout(&i2c, ifr->ifr_data, sizeof(i2c));
+		error = copyout(&i2c, ifr_data_get_ptr(ifr), sizeof(i2c));
 		break;
 	}
 #endif

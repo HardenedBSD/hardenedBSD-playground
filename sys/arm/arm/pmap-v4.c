@@ -168,6 +168,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_page.h>
 #include <vm/vm_pageout.h>
 #include <vm/vm_phys.h>
+#include <vm/vm_pagequeue.h>
 #include <vm/vm_extern.h>
 
 #include <machine/md_var.h>
@@ -1725,6 +1726,8 @@ pmap_page_init(vm_page_t m)
 
 	TAILQ_INIT(&m->md.pv_list);
 	m->md.pv_memattr = VM_MEMATTR_DEFAULT;
+	m->md.pvh_attrs = 0;
+	m->md.pv_kva = 0;
 }
 
 /*
@@ -3248,7 +3251,7 @@ do_l2b_alloc:
 			if ((flags & PMAP_ENTER_NOSLEEP) == 0) {
 				PMAP_UNLOCK(pmap);
 				rw_wunlock(&pvh_global_lock);
-				VM_WAIT;
+				vm_wait(NULL);
 				rw_wlock(&pvh_global_lock);
 				PMAP_LOCK(pmap);
 				goto do_l2b_alloc;
@@ -4856,4 +4859,9 @@ pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma)
 		panic("Can't change memattr on page with existing mappings");
 }
 
+boolean_t
+pmap_is_valid_memattr(pmap_t pmap __unused, vm_memattr_t mode)
+{
 
+	return (mode == VM_MEMATTR_DEFAULT || mode == VM_MEMATTR_UNCACHEABLE);
+}

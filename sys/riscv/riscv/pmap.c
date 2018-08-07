@@ -389,6 +389,13 @@ pmap_l3_valid_cacheable(pt_entry_t l3)
 
 #define	PTE_SYNC(pte)	cpu_dcache_wb_range((vm_offset_t)pte, sizeof(*pte))
 
+static inline int
+pmap_page_accessed(pt_entry_t pte)
+{
+
+	return (pte & PTE_A);
+}
+
 /* Checks if the page is dirty. */
 static inline int
 pmap_page_dirty(pt_entry_t pte)
@@ -1069,18 +1076,6 @@ pmap_qremove(vm_offset_t sva, int count)
 /***************************************************
  * Page table page management routines.....
  ***************************************************/
-static __inline void
-pmap_free_zero_pages(struct spglist *free)
-{
-	vm_page_t m;
-
-	while ((m = SLIST_FIRST(free)) != NULL) {
-		SLIST_REMOVE_HEAD(free, plinks.s.ss);
-		/* Preserve the page's PG_ZERO setting. */
-		vm_page_free_toq(m);
-	}
-}
-
 /*
  * Schedule the specified unused page table page to be freed.  Specifically,
  * add the page to the specified list of pages that will be released to the
@@ -1203,7 +1198,7 @@ pmap_pinit(pmap_t pmap)
 	 */
 	while ((l1pt = vm_page_alloc(NULL, 0xdeadbeef, VM_ALLOC_NORMAL |
 	    VM_ALLOC_NOOBJ | VM_ALLOC_WIRED | VM_ALLOC_ZERO)) == NULL)
-		VM_WAIT;
+		vm_wait(NULL);
 
 	l1phys = VM_PAGE_TO_PHYS(l1pt);
 	pmap->pm_l1 = (pd_entry_t *)PHYS_TO_DMAP(l1phys);
@@ -1252,7 +1247,7 @@ _pmap_alloc_l3(pmap_t pmap, vm_pindex_t ptepindex, struct rwlock **lockp)
 			RELEASE_PV_LIST_LOCK(lockp);
 			PMAP_UNLOCK(pmap);
 			rw_runlock(&pvh_global_lock);
-			VM_WAIT;
+			vm_wait(NULL);
 			rw_rlock(&pvh_global_lock);
 			PMAP_LOCK(pmap);
 		}
@@ -1876,7 +1871,7 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		rw_wunlock(lock);
 	rw_runlock(&pvh_global_lock);	
 	PMAP_UNLOCK(pmap);
-	pmap_free_zero_pages(&free);
+	vm_page_free_pages_toq(&free, false);
 }
 
 /*
@@ -1942,7 +1937,7 @@ pmap_remove_all(vm_page_t m)
 	}
 	vm_page_aflag_clear(m, PGA_WRITEABLE);
 	rw_wunlock(&pvh_global_lock);
-	pmap_free_zero_pages(&free);
+	vm_page_free_pages_toq(&free, false);
 }
 
 /*
@@ -2052,6 +2047,8 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	new_l3 |= (pn << PTE_PPN0_S);
 	if ((flags & PMAP_ENTER_WIRED) != 0)
 		new_l3 |= PTE_SW_WIRED;
+	if ((m->oflags & VPO_UNMANAGED) == 0)
+		new_l3 |= PTE_SW_MANAGED;
 
 	CTR2(KTR_PMAP, "pmap_enter: %.16lx -> %.16lx", va, pa);
 
@@ -2121,9 +2118,9 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 		pmap_invalidate_page(pmap, va);
 	}
 
-	om = NULL;
 	orig_l3 = pmap_load(l3);
 	opa = PTE_TO_PHYS(orig_l3);
+	pv = NULL;
 
 	/*
 	 * Is the specified virtual address already mapped?
@@ -2160,7 +2157,6 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 			 * No, might be a protection or wiring change.
 			 */
 			if ((orig_l3 & PTE_SW_MANAGED) != 0) {
-				new_l3 |= PTE_SW_MANAGED;
 				if (pmap_is_write(new_l3))
 					vm_page_aflag_set(m, PGA_WRITEABLE);
 			}
@@ -2170,6 +2166,42 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 		/* Flush the cache, there might be uncommitted data in it */
 		if (pmap_is_current(pmap) && pmap_l3_valid_cacheable(orig_l3))
 			cpu_dcache_wb_range(va, L3_SIZE);
+
+		/*
+		 * The physical page has changed.  Temporarily invalidate
+		 * the mapping.  This ensures that all threads sharing the
+		 * pmap keep a consistent view of the mapping, which is
+		 * necessary for the correct handling of COW faults.  It
+		 * also permits reuse of the old mapping's PV entry,
+		 * avoiding an allocation.
+		 *
+		 * For consistency, handle unmanaged mappings the same way.
+		 */
+		orig_l3 = pmap_load_clear(l3);
+		KASSERT(PTE_TO_PHYS(orig_l3) == opa,
+		    ("pmap_enter: unexpected pa update for %#lx", va));
+		if ((orig_l3 & PTE_SW_MANAGED) != 0) {
+			om = PHYS_TO_VM_PAGE(opa);
+
+			/*
+			 * The pmap lock is sufficient to synchronize with
+			 * concurrent calls to pmap_page_test_mappings() and
+			 * pmap_ts_referenced().
+			 */
+			if (pmap_page_dirty(orig_l3))
+				vm_page_dirty(om);
+			if ((orig_l3 & PTE_A) != 0)
+				vm_page_aflag_set(om, PGA_REFERENCED);
+			CHANGE_PV_LIST_LOCK_TO_PHYS(&lock, opa);
+			pv = pmap_pvh_remove(&om->md, pmap, va);
+			if ((new_l3 & PTE_SW_MANAGED) == 0)
+				free_pv_entry(pmap, pv);
+			if ((om->aflags & PGA_WRITEABLE) != 0 &&
+			    TAILQ_EMPTY(&om->md.pv_list))
+				vm_page_aflag_clear(om, PGA_WRITEABLE);
+		}
+		pmap_invalidate_page(pmap, va);
+		orig_l3 = 0;
 	} else {
 		/*
 		 * Increment the counters.
@@ -2181,10 +2213,11 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	/*
 	 * Enter on the PV list if part of our managed memory.
 	 */
-	if ((m->oflags & VPO_UNMANAGED) == 0) {
-		new_l3 |= PTE_SW_MANAGED;
-		pv = get_pv_entry(pmap, &lock);
-		pv->pv_va = va;
+	if ((new_l3 & PTE_SW_MANAGED) != 0) {
+		if (pv == NULL) {
+			pv = get_pv_entry(pmap, &lock);
+			pv->pv_va = va;
+		}
 		CHANGE_PV_LIST_LOCK_TO_PHYS(&lock, pa);
 		TAILQ_INSERT_TAIL(&m->md.pv_list, pv, pv_next);
 		m->md.pv_gen++;
@@ -2199,22 +2232,11 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 validate:
 		orig_l3 = pmap_load_store(l3, new_l3);
 		PTE_SYNC(l3);
-		opa = PTE_TO_PHYS(orig_l3);
-
-		if (opa != pa) {
-			if ((orig_l3 & PTE_SW_MANAGED) != 0) {
-				om = PHYS_TO_VM_PAGE(opa);
-				if (pmap_page_dirty(orig_l3))
-					vm_page_dirty(om);
-				if ((orig_l3 & PTE_A) != 0)
-					vm_page_aflag_set(om, PGA_REFERENCED);
-				CHANGE_PV_LIST_LOCK_TO_PHYS(&lock, opa);
-				pmap_pvh_free(&om->md, pmap, va);
-			}
-		} else if (pmap_page_dirty(orig_l3)) {
-			if ((orig_l3 & PTE_SW_MANAGED) != 0)
-				vm_page_dirty(m);
-		}
+		KASSERT(PTE_TO_PHYS(orig_l3) == pa,
+		    ("pmap_enter: invalid update"));
+		if (pmap_page_dirty(orig_l3) &&
+		    (orig_l3 & PTE_SW_MANAGED) != 0)
+			vm_page_dirty(m);
 	} else {
 		pmap_load_store(l3, new_l3);
 		PTE_SYNC(l3);
@@ -2377,7 +2399,7 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 			SLIST_INIT(&free);
 			if (pmap_unwire_l3(pmap, va, mpte, &free)) {
 				pmap_invalidate_page(pmap, va);
-				pmap_free_zero_pages(&free);
+				vm_page_free_pages_toq(&free, false);
 			}
 			mpte = NULL;
 		}
@@ -2783,7 +2805,7 @@ pmap_remove_pages(pmap_t pmap)
 		rw_wunlock(lock);
 	rw_runlock(&pvh_global_lock);
 	PMAP_UNLOCK(pmap);
-	pmap_free_zero_pages(&free);
+	vm_page_free_pages_toq(&free, false);
 }
 
 /*
@@ -3085,7 +3107,7 @@ retry:
 out:
 	rw_wunlock(lock);
 	rw_runlock(&pvh_global_lock);
-	pmap_free_zero_pages(&free);
+	vm_page_free_pages_toq(&free, false);
 	return (cleared + not_cleared);
 }
 
@@ -3161,8 +3183,47 @@ pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma)
 int
 pmap_mincore(pmap_t pmap, vm_offset_t addr, vm_paddr_t *locked_pa)
 {
+	pt_entry_t *l2, *l3, tpte;
+	vm_paddr_t pa;
+	int val;
+	bool managed;
 
-	panic("RISCVTODO: pmap_mincore");
+	PMAP_LOCK(pmap);
+retry:
+	managed = false;
+	val = 0;
+
+	l2 = pmap_l2(pmap, addr);
+	if (l2 != NULL && ((tpte = pmap_load(l2)) & PTE_V) != 0) {
+		if ((tpte & (PTE_R | PTE_W | PTE_X)) != 0) {
+			pa = PTE_TO_PHYS(tpte) | (addr & L2_OFFSET);
+			val = MINCORE_INCORE | MINCORE_SUPER;
+		} else {
+			l3 = pmap_l2_to_l3(l2, addr);
+			tpte = pmap_load(l3);
+			if ((tpte & PTE_V) == 0)
+				goto done;
+			pa = PTE_TO_PHYS(tpte) | (addr & L3_OFFSET);
+			val = MINCORE_INCORE;
+		}
+
+		if (pmap_page_dirty(tpte))
+			val |= MINCORE_MODIFIED | MINCORE_MODIFIED_OTHER;
+		if (pmap_page_accessed(tpte))
+			val |= MINCORE_REFERENCED | MINCORE_REFERENCED_OTHER;
+		managed = (tpte & PTE_SW_MANAGED) == PTE_SW_MANAGED;
+	}
+
+done:
+	if ((val & (MINCORE_MODIFIED_OTHER | MINCORE_REFERENCED_OTHER)) !=
+	    (MINCORE_MODIFIED_OTHER | MINCORE_REFERENCED_OTHER) && managed) {
+		/* Ensure that "PHYS_TO_VM_PAGE(pa)->object" doesn't change. */
+		if (vm_page_pa_tryrelock(pmap, pa, locked_pa))
+			goto retry;
+	} else
+		PA_UNLOCK_COND(*locked_pa);
+	PMAP_UNLOCK(pmap);
+	return (val);
 }
 
 void
@@ -3274,4 +3335,11 @@ pmap_unmap_io_transient(vm_page_t page[], vm_offset_t vaddr[], int count,
 			panic("RISCVTODO: pmap_unmap_io_transient: Unmap data");
 		}
 	}
+}
+
+boolean_t
+pmap_is_valid_memattr(pmap_t pmap __unused, vm_memattr_t mode)
+{
+
+	return (mode >= VM_MEMATTR_DEVICE && mode <= VM_MEMATTR_WRITE_BACK);
 }

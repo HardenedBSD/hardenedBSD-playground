@@ -30,6 +30,7 @@ __DEFAULT_YES_OPTIONS = \
     CDDL \
     CRYPT \
     CUSE \
+    EFI \
     FORMAT_EXTENSIONS \
     INET \
     INET6 \
@@ -47,6 +48,7 @@ __DEFAULT_YES_OPTIONS = \
 
 __DEFAULT_NO_OPTIONS = \
     EXTRA_TCP_STACKS \
+    KERNEL_RETPOLINE \
     NAND \
     OFED \
     RATELIMIT \
@@ -89,6 +91,11 @@ BROKEN_OPTIONS+= OFED
 __DEFAULT_YES_OPTIONS+=	RETPOLINE
 .else
 __DEFAULT_NO_OPTIONS+=	RETPOLINE
+.endif
+
+# EFI doesn't exist on mips, powerpc, sparc or riscv.
+.if ${MACHINE:Mmips} || ${MACHINE:Mpowerpc} || ${MACHINE:Msparc64} || ${MACHINE:Mriscv}
+BROKEN_OPTIONS+=EFI
 .endif
 
 # expanded inline from bsd.mkopt.mk to avoid share/mk dependency

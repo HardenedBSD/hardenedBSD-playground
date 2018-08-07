@@ -213,7 +213,7 @@
  * IORT - IO Remapping Table
  *
  * Conforms to "IO Remapping Table System Software on ARM Platforms",
- * Document number: ARM DEN 0049C, May 2017
+ * Document number: ARM DEN 0049D, March 2018
  *
  ******************************************************************************/
 
@@ -250,7 +250,8 @@ enum AcpiIortNodeType
     ACPI_IORT_NODE_NAMED_COMPONENT      = 0x01,
     ACPI_IORT_NODE_PCI_ROOT_COMPLEX     = 0x02,
     ACPI_IORT_NODE_SMMU                 = 0x03,
-    ACPI_IORT_NODE_SMMU_V3              = 0x04
+    ACPI_IORT_NODE_SMMU_V3              = 0x04,
+    ACPI_IORT_NODE_PMCG                 = 0x05
 };
 
 
@@ -316,12 +317,18 @@ typedef struct acpi_iort_named_component
 
 } ACPI_IORT_NAMED_COMPONENT;
 
+/* Masks for Flags field above */
+
+#define ACPI_IORT_NC_STALL_SUPPORTED    (1)
+#define ACPI_IORT_NC_PASID_BITS         (31<<1)
 
 typedef struct acpi_iort_root_complex
 {
     UINT64                  MemoryProperties;       /* Memory access properties */
     UINT32                  AtsAttribute;
     UINT32                  PciSegmentNumber;
+    UINT8                   MemoryAddressLimit;     /* Memory address size limit */
+    UINT8                   Reserved[3];            /* Reserved, must be zero */
 
 } ACPI_IORT_ROOT_COMPLEX;
 
@@ -383,9 +390,7 @@ typedef struct acpi_iort_smmu_v3
     UINT32                  PriGsiv;
     UINT32                  GerrGsiv;
     UINT32                  SyncGsiv;
-    UINT8                   Pxm;
-    UINT8                   Reserved1;
-    UINT16                  Reserved2;
+    UINT32                  Pxm;
     UINT32                  IdMappingIndex;
 
 } ACPI_IORT_SMMU_V3;
@@ -399,8 +404,17 @@ typedef struct acpi_iort_smmu_v3
 /* Masks for Flags field above */
 
 #define ACPI_IORT_SMMU_V3_COHACC_OVERRIDE   (1)
-#define ACPI_IORT_SMMU_V3_HTTU_OVERRIDE     (1<<1)
+#define ACPI_IORT_SMMU_V3_HTTU_OVERRIDE     (3<<1)
 #define ACPI_IORT_SMMU_V3_PXM_VALID         (1<<3)
+
+typedef struct acpi_iort_pmcg
+{
+    UINT64                  Page0BaseAddress;
+    UINT32                  OverflowGsiv;
+    UINT32                  NodeReference;
+    UINT64                  Page1BaseAddress;
+
+} ACPI_IORT_PMCG;
 
 
 /*******************************************************************************
@@ -444,8 +458,6 @@ typedef struct acpi_ivrs_header
 enum AcpiIvrsType
 {
     ACPI_IVRS_TYPE_HARDWARE         = 0x10,
-    ACPI_IVRS_TYPE_HARDWARE_EXT1    = 0x11,
-    ACPI_IVRS_TYPE_HARDWARE_EXT2    = 0x40,
     ACPI_IVRS_TYPE_MEMORY1          = 0x20,
     ACPI_IVRS_TYPE_MEMORY2          = 0x21,
     ACPI_IVRS_TYPE_MEMORY3          = 0x22
@@ -483,21 +495,6 @@ typedef struct acpi_ivrs_hardware
     UINT32                  Reserved;
 
 } ACPI_IVRS_HARDWARE;
-
-/* 0x11 and 0x40: I/O Virtualization Hardware Definition Block (IVHD) */
-
-typedef struct acpi_ivrs_hardware_new
-{
-    ACPI_IVRS_HEADER        Header;
-    UINT16                  CapabilityOffset;	/* Offset for IOMMU control fields */
-    UINT64                  BaseAddress;	/* IOMMU control registers */
-    UINT16                  PciSegmentGroup;
-    UINT16                  Info;		/* MSI number and unit ID */
-    UINT32                  Attr;		/* IOMMU Feature */
-    UINT64                  ExtFR;		/* IOMMU Extended Feature */
-    UINT64                  Reserved;		/* v1 feature or v2 attribute */
-
-} ACPI_IVRS_HARDWARE_NEW;
 
 /* Masks for Info field above */
 

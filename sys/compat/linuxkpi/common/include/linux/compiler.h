@@ -52,6 +52,7 @@
 #define __devinitdata
 #define	__deprecated
 #define __init
+#define	__initconst
 #define	__devinit
 #define	__devexit
 #define __exit
@@ -64,6 +65,7 @@
 #define	__attribute_const__		__attribute__((__const__))
 #undef __always_inline
 #define	__always_inline			inline
+#define	noinline			__noinline
 #define	____cacheline_aligned		__aligned(CACHE_LINE_SIZE)
 
 #define	likely(x)			__builtin_expect(!!(x), 1)
@@ -71,6 +73,7 @@
 #define typeof(x)			__typeof(x)
 
 #define	uninitialized_var(x)		x = x
+#define	__maybe_unused			__unused
 #define	__always_unused			__unused
 #define	__must_check			__result_use_check
 
@@ -82,7 +85,7 @@
 #define	__PASTE(a,b) ___PASTE(a,b)
 
 #define	ACCESS_ONCE(x)			(*(volatile __typeof(x) *)&(x))
-  
+
 #define	WRITE_ONCE(x,v) do {		\
 	barrier();			\
 	ACCESS_ONCE(x) = (v);		\

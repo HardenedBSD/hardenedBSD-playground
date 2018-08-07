@@ -332,8 +332,8 @@ device		ipw		# Intel 2100 wireless NICs.
 device		iwi		# Intel 2200BG/2225BG/2915ABG wireless NICs.
 device		iwn		# Intel 4965/1000/5000/6000 wireless NICs.
 device		ixl		# Intel XL710 40Gbe PCIE Ethernet
-options		IXL_IW		# Enable iWARP Client Interface in ixl(4)
-device		ixlv		# Intel XL710 40Gbe VF PCIE Ethernet
+#options		IXL_IW		# Enable iWARP Client Interface in ixl(4)
+#device		ixlv		# Intel XL710 40Gbe VF PCIE Ethernet
 device  	mthca		# Mellanox HCA InfiniBand
 device  	mlx4		# Shared code module between IB and Ethernet
 device  	mlx4ib		# Mellanox ConnectX HCA InfiniBand
@@ -414,6 +414,13 @@ device		ntb_hw_plx	# PLX NTB hardware driver
 device		arcmsr		# Areca SATA II RAID
 
 #
+# Microsemi smartpqi controllers.
+# These controllers have a SCSI-like interface, and require the
+# CAM infrastructure.
+#
+device		smartpqi
+
+#
 # 3ware 9000 series PATA/SATA RAID controller driver and options.
 # The driver is implemented as a SIM, and so, needs the CAM infrastructure.
 #
@@ -465,6 +472,11 @@ device		hptiop
 #
 # IBM (now Adaptec) ServeRAID controllers
 device		ips
+
+#
+# Intel integrated Memory Controller (iMC) SMBus controller
+#	Sandybridge-Xeon, Ivybridge-Xeon, Haswell-Xeon, Broadwell-Xeon
+device		imcsmb
 
 #
 # Intel C600 (Patsburg) integrated SAS controller
@@ -600,7 +612,7 @@ device		amdsmn
 #
 options 	NKPT=31
 
-# EFI Runtime Services support (not functional yet).
+# EFI Runtime Services support
 options 	EFIRT
 
 
@@ -622,7 +634,7 @@ options 	COMPAT_CLOUDABI64
 # Enable Linux ABI emulation
 #XXX#options 	COMPAT_LINUX
 
-# Enable 32-bit Linux ABI emulation (requires COMPAT_43 and COMPAT_FREEBSD32)
+# Enable 32-bit Linux ABI emulation (requires COMPAT_FREEBSD32).
 options 	COMPAT_LINUX32
 
 # Enable the linux-like proc filesystem support (requires COMPAT_LINUX32

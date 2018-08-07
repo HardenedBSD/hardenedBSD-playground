@@ -190,7 +190,7 @@ bootp(int sock)
 
 #ifdef SUPPORT_DHCP
 	if(dhcp_ok) {
-		u_int32_t leasetime;
+		uint32_t leasetime;
 		bp->bp_vend[6] = DHCPREQUEST;
 		bp->bp_vend[7] = TAG_REQ_ADDR;
 		bp->bp_vend[8] = 4;
@@ -735,7 +735,7 @@ setenv_(u_char *cp,  u_char *ep, struct dhcp_opt *opts)
 	    bcopy(cp, buf, size);	/* cannot overflow */
 	    buf[size] = '\0';
 	    for (endv = buf; endv; endv = vp) {
-		u_char *s = NULL;	/* semicolon ? */
+		char *s = NULL;	/* semicolon ? */
 
 		/* skip leading whitespace */
 		while (*endv && strchr(" \t\n\r", *endv))

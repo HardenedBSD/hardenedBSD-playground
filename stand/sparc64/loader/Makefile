@@ -1,5 +1,7 @@
 # $FreeBSD$
 
+HAVE_ZFS=		${MK_ZFS}
+
 LOADER_DISK_SUPPORT?=	yes
 LOADER_UFS_SUPPORT?=	yes
 LOADER_CD9660_SUPPORT?=	yes
@@ -19,6 +21,10 @@ NEWVERSWHAT?=	"bootstrap loader" sparc64
 VERSION_FILE=	${.CURDIR}/../loader/version
 INSTALLFLAGS=	-b
 
+.if ${MK_ZFS} != "no"
+HAVE_ZFS=	yes
+.endif
+
 # Architecture-specific loader code
 .PATH:		${BOOTSRC}/sparc64/loader
 SRCS=		locore.S main.c vers.c
@@ -36,11 +42,15 @@ HELP_FILES=	${.CURDIR}/help.sparc64
 
 LDFLAGS+=	-static
 
+.if ${MK_ZFS} == "yes"
+LINKS=		${BINDIR}/loader ${BINDIR}/zfsloader
+.endif
+
 # Open Firmware standalone support library
 LIBOFW=		${BOOTOBJ}/ofw/libofw/libofw.a
 CFLAGS+=	-I${BOOTSRC}/ofw/libofw/
 
-DPADD=		${LDR_INTERP} ${LIBZFSBOOT} ${LIBOFW} ${LIBSA}
-LDADD=		${LDR_INTERP} ${LIBZFSBOOT} ${LIBOFW} ${LIBSA}
+DPADD=		${LDR_INTERP} ${LIBOFW} ${LIBSA}
+LDADD=		${LDR_INTERP} ${LIBOFW} ${LIBSA}
 
 .include <bsd.prog.mk>

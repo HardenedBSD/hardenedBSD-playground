@@ -212,7 +212,7 @@ uiomove_faultflag(void *cp, int n, struct uio *uio, int nofault)
 	size_t cnt;
 	int error, newflags, save;
 
-	error = 0;
+	save = error = 0;
 
 	KASSERT(uio->uio_rw == UIO_READ || uio->uio_rw == UIO_WRITE,
 	    ("uiomove: mode"));
@@ -275,7 +275,7 @@ uiomove_faultflag(void *cp, int n, struct uio *uio, int nofault)
 		n -= cnt;
 	}
 out:
-	if (uio->uio_segflg == UIO_USERSPACE) 
+	if (save)
 		curthread_pflags_restore(save);
 	return (error);
 }
@@ -505,8 +505,8 @@ copyout_unmap(struct thread *td, vm_offset_t addr, size_t sz)
 /*
  * XXXKIB The temporal implementation of fue*() functions which do not
  * handle usermode -1 properly, mixing it with the fault code.  Keep
- * this until MD code is written.  Currently sparc64 and mips do not
- * have proper implementation.
+ * this until MD code is written.  Currently sparc64 does not have a
+ * proper implementation.
  */
 
 int

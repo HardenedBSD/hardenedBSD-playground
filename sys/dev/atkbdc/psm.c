@@ -785,9 +785,12 @@ get_mouse_status(KBDC kbdc, int *status, int flag, int len)
 		if (status[i] < 0)
 			break;
 	}
-
-	VLOG(1, (LOG_DEBUG, "psm: %s %02x %02x %02x\n",
-	    (flag == 1) ? "data" : "status", status[0], status[1], status[2]));
+	if (len >= 3) {
+		for (; i < 3; ++i)
+			status[i] = 0;
+		VLOG(1, (LOG_DEBUG, "psm: %s %02x %02x %02x\n",
+		    (flag == 1) ? "data" : "status", status[0], status[1], status[2]));
+	}
 
 	return (i);
 }
@@ -2557,9 +2560,6 @@ psmioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
 	struct psm_softc *sc = dev->si_drv1;
 	mousemode_t mode;
 	mousestatus_t status;
-#if (defined(MOUSE_GETVARS))
-	mousevar_t *var;
-#endif
 	mousedata_t *data;
 	int stat[3];
 	int command_byte;
@@ -2755,21 +2755,6 @@ psmioctl(struct cdev *dev, u_long cmd, caddr_t addr, int flag,
 		splx(s);
 		*(mousestatus_t *)addr = status;
 		break;
-
-#if (defined(MOUSE_GETVARS))
-	case MOUSE_GETVARS:
-		var = (mousevar_t *)addr;
-		bzero(var, sizeof(*var));
-		s = spltty();
-		var->var[0] = MOUSE_VARS_PS2_SIG;
-		var->var[1] = sc->config;
-		var->var[2] = sc->flags;
-		splx(s);
-		break;
-
-	case MOUSE_SETVARS:
-		return (ENODEV);
-#endif /* MOUSE_GETVARS */
 
 	case MOUSE_READSTATE:
 	case MOUSE_READDATA:
@@ -3777,6 +3762,9 @@ psmgestures(struct psm_softc *sc, finger_t *fingers, int nfingers,
 		/* Do we have enough packets to consider this a gesture? */
 		if (queue_len < gest->window_min)
 			return;
+
+		dyp = -1;
+		dxp = -1;
 
 		/* Is a scrolling action occurring? */
 		if (!gest->in_taphold && !ms->button &&
@@ -4960,8 +4948,8 @@ psmsoftintr(void *arg)
 	if (evdev_rcpt_mask & EVDEV_RCPT_HW_MOUSE &&
 	    sc->hw.model != MOUSE_MODEL_ELANTECH &&
 	    sc->hw.model != MOUSE_MODEL_SYNAPTICS) {
-		evdev_push_rel(sc->evdev_r, EV_REL, x);
-		evdev_push_rel(sc->evdev_r, EV_REL, -y);
+		evdev_push_rel(sc->evdev_r, REL_X, x);
+		evdev_push_rel(sc->evdev_r, REL_Y, -y);
 
 		switch (sc->hw.model) {
 		case MOUSE_MODEL_EXPLORER:

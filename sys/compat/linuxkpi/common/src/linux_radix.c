@@ -162,6 +162,13 @@ out:
 	return (item);
 }
 
+void
+radix_tree_iter_delete(struct radix_tree_root *root,
+    struct radix_tree_iter *iter, void **slot)
+{
+	radix_tree_delete(root, iter->index);
+}
+
 int
 radix_tree_insert(struct radix_tree_root *root, unsigned long index, void *item)
 {
@@ -252,6 +259,6 @@ radix_tree_insert(struct radix_tree_root *root, unsigned long index, void *item)
 		return (-EEXIST);
 	node->slots[idx] = item;
 	node->count++;
-	
+
 	return (0);
 }

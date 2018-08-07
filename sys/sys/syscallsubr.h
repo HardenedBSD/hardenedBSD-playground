@@ -31,13 +31,14 @@
 #define _SYS_SYSCALLSUBR_H_
 
 #include <sys/signal.h>
-#include <sys/uio.h>
 #include <sys/socket.h>
 #include <sys/mac.h>
 #include <sys/mount.h>
 #include <sys/_cpuset.h>
 #include <sys/_domainset.h>
+#include <sys/_uio.h>
 
+struct __wrusage;
 struct file;
 struct filecaps;
 enum idtype;
@@ -55,12 +56,12 @@ struct pollfd;
 struct ogetdirentries_args;
 struct rlimit;
 struct rusage;
+struct sched_param;
 union semun;
 struct sockaddr;
 struct stat;
 struct thr_param;
-struct sched_param;
-struct __wrusage;
+struct uio;
 
 int	kern___getcwd(struct thread *td, char *buf, enum uio_seg bufseg,
 	    size_t buflen, size_t path_max);
@@ -75,6 +76,7 @@ int	kern_adjtime(struct thread *td, struct timeval *delta,
 int	kern_alternate_path(struct thread *td, const char *prefix, const char *path,
 	    enum uio_seg pathseg, char **pathbuf, int create, int dirfd);
 int	kern_bindat(struct thread *td, int dirfd, int fd, struct sockaddr *sa);
+int	kern_break(struct thread *td, uintptr_t *addr);
 int	kern_cap_ioctls_limit(struct thread *td, int fd, u_long *cmds,
 	    size_t ncmds);
 int	kern_cap_rights_limit(struct thread *td, int fd, cap_rights_t *rights);

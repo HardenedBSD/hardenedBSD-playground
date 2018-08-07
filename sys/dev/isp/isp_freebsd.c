@@ -444,7 +444,7 @@ ispioctl(struct cdev *dev, u_long c, caddr_t addr, int flags, struct thread *td)
 
 	case ISP_RESCAN:
 		if (IS_FC(isp)) {
-			chan = *(int *)addr;
+			chan = *(intptr_t *)addr;
 			if (chan < 0 || chan >= isp->isp_nchan) {
 				retval = -ENXIO;
 				break;
@@ -461,7 +461,7 @@ ispioctl(struct cdev *dev, u_long c, caddr_t addr, int flags, struct thread *td)
 
 	case ISP_FC_LIP:
 		if (IS_FC(isp)) {
-			chan = *(int *)addr;
+			chan = *(intptr_t *)addr;
 			if (chan < 0 || chan >= isp->isp_nchan) {
 				retval = -ENXIO;
 				break;
@@ -4083,8 +4083,9 @@ uint64_t
 isp_nanotime_sub(struct timespec *b, struct timespec *a)
 {
 	uint64_t elapsed;
-	struct timespec x = *b;
-	timespecsub(&x, a);
+	struct timespec x;
+
+	timespecsub(b, a, &x);
 	elapsed = GET_NANOSEC(&x);
 	if (elapsed == 0)
 		elapsed++;

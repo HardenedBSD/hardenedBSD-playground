@@ -189,7 +189,7 @@ frame_is_trap_inst(struct trapframe *frame)
 #ifdef AIM
 	return (frame->exc == EXC_PGM && frame->srr1 & EXC_PGM_TRAP);
 #else
-	return (frame->exc == EXC_DEBUG || frame->cpu.booke.esr & ESR_PTR);
+	return ((frame->cpu.booke.esr & ESR_PTR) != 0);
 #endif
 }
 
@@ -204,8 +204,16 @@ trap(struct trapframe *frame)
 	int		sig, type, user;
 	u_int		ucode;
 	ksiginfo_t	ksi;
+	register_t 	fscr;
 
 	VM_CNT_INC(v_trap);
+
+#ifdef KDB
+	if (kdb_active) {
+		kdb_reenter();
+		return;
+	}
+#endif
 
 	td = curthread;
 	p = td->td_proc;
@@ -294,6 +302,14 @@ trap(struct trapframe *frame)
 			break;
 
 		case EXC_FAC:
+			fscr = mfspr(SPR_FSCR);
+			if ((fscr & FSCR_IC_MASK) == FSCR_IC_HTM) {
+				CTR0(KTR_TRAP, "Hardware Transactional Memory subsystem disabled");
+			}
+			sig = SIGILL;
+			ucode =	ILL_ILLOPC;
+			break;
+		case EXC_HEA:
 			sig = SIGILL;
 			ucode =	ILL_ILLOPC;
 			break;
@@ -433,23 +449,62 @@ trap(struct trapframe *frame)
 static void
 trap_fatal(struct trapframe *frame)
 {
+#ifdef KDB
+	bool handled;
+#endif
 
 	printtrap(frame->exc, frame, 1, (frame->srr1 & PSL_PR));
 #ifdef KDB
-	if ((debugger_on_panic || kdb_active) &&
-	    kdb_trap(frame->exc, 0, frame))
-		return;
+	if (debugger_on_panic) {
+		kdb_why = KDB_WHY_TRAP;
+		handled = kdb_trap(frame->exc, 0, frame);
+		kdb_why = KDB_WHY_UNSET;
+		if (handled)
+			return;
+	}
 #endif
 	panic("%s trap", trapname(frame->exc));
 }
 
 static void
+cpu_printtrap(u_int vector, struct trapframe *frame, int isfatal, int user)
+{
+#ifdef AIM
+	uint16_t ver;
+
+	switch (vector) {
+	case EXC_DSE:
+	case EXC_DSI:
+	case EXC_DTMISS:
+		printf("   dsisr           = 0x%lx\n",
+		    (u_long)frame->cpu.aim.dsisr);
+		break;
+	case EXC_MCHK:
+		ver = mfpvr() >> 16;
+		if (MPC745X_P(ver))
+			printf("    msssr0         = 0x%b\n",
+			    (int)mfspr(SPR_MSSSR0), MSSSR_BITMASK);
+		break;
+	}
+#elif defined(BOOKE)
+	vm_paddr_t pa;
+
+	switch (vector) {
+	case EXC_MCHK:
+		pa = mfspr(SPR_MCARU);
+		pa = (pa << 32) | (u_register_t)mfspr(SPR_MCAR);
+		printf("   mcsr            = 0x%b\n",
+		    (int)mfspr(SPR_MCSR), MCSR_BITMASK);
+		printf("   mcar            = 0x%jx\n", (uintmax_t)pa);
+	}
+	printf("   esr             = 0x%b\n",
+	    (int)frame->cpu.booke.esr, ESR_BITMASK);
+#endif
+}
+
+static void
 printtrap(u_int vector, struct trapframe *frame, int isfatal, int user)
 {
-	uint16_t ver;
-#ifdef BOOKE
-	vm_paddr_t pa;
-#endif
 
 	printf("\n");
 	printf("%s %s trap:\n", isfatal ? "fatal" : "handled",
@@ -461,10 +516,6 @@ printtrap(u_int vector, struct trapframe *frame, int isfatal, int user)
 	case EXC_DSI:
 	case EXC_DTMISS:
 		printf("   virtual address = 0x%" PRIxPTR "\n", frame->dar);
-#ifdef AIM
-		printf("   dsisr           = 0x%lx\n",
-		    (u_long)frame->cpu.aim.dsisr);
-#endif
 		break;
 	case EXC_ISE:
 	case EXC_ISI:
@@ -472,27 +523,13 @@ printtrap(u_int vector, struct trapframe *frame, int isfatal, int user)
 		printf("   virtual address = 0x%" PRIxPTR "\n", frame->srr0);
 		break;
 	case EXC_MCHK:
-		ver = mfpvr() >> 16;
-#if defined(AIM)
-		if (MPC745X_P(ver))
-			printf("    msssr0         = 0x%b\n",
-			    (int)mfspr(SPR_MSSSR0), MSSSR_BITMASK);
-#elif defined(BOOKE)
-		pa = mfspr(SPR_MCARU);
-		pa = (pa << 32) | (u_register_t)mfspr(SPR_MCAR);
-		printf("   mcsr            = 0x%b\n",
-		    (int)mfspr(SPR_MCSR), MCSR_BITMASK);
-		printf("   mcar            = 0x%jx\n", (uintmax_t)pa);
-#endif
 		break;
 	}
-#ifdef BOOKE
-	printf("   esr             = 0x%b\n",
-	    (int)frame->cpu.booke.esr, ESR_BITMASK);
-#endif
+	cpu_printtrap(vector, frame, isfatal, user);
 	printf("   srr0            = 0x%" PRIxPTR " (0x%" PRIxPTR ")\n",
 	    frame->srr0, frame->srr0 - (register_t)(__startkernel - KERNBASE));
 	printf("   srr1            = 0x%lx\n", (u_long)frame->srr1);
+	printf("   current msr     = 0x%" PRIxPTR "\n", mfmsr());
 	printf("   lr              = 0x%" PRIxPTR " (0x%" PRIxPTR ")\n",
 	    frame->lr, frame->lr - (register_t)(__startkernel - KERNBASE));
 	printf("   curthread       = %p\n", curthread);
@@ -881,6 +918,7 @@ db_trap_glue(struct trapframe *frame)
 	    && (frame->exc == EXC_TRC || frame->exc == EXC_RUNMODETRC
 	    	|| frame_is_trap_inst(frame)
 		|| frame->exc == EXC_BPT
+		|| frame->exc == EXC_DEBUG
 		|| frame->exc == EXC_DSI)) {
 		int type = frame->exc;
 

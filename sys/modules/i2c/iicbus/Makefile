@@ -13,5 +13,10 @@ SRCS=	\
 	iicbus_if.h \
 	iiconf.c \
 	iiconf.h \
+	opt_platform.h \
+
+.if !empty(OPT_FDT)
+SRCS+=	ofw_iicbus.c ofw_bus_if.h
+.endif
 
 .include <bsd.kmod.mk>

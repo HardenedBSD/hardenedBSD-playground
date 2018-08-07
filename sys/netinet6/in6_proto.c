@@ -172,7 +172,7 @@ struct protosw inet6sw[] = {
 	.pr_type =		SOCK_STREAM,
 	.pr_domain =		&inet6domain,
 	.pr_protocol =		IPPROTO_TCP,
-	.pr_flags =		PR_CONNREQUIRED|PR_WANTRCVD|PR_LISTEN,
+	.pr_flags =		PR_CONNREQUIRED|PR_IMPLOPCL|PR_WANTRCVD|PR_LISTEN,
 	.pr_input =		tcp6_input,
 	.pr_ctlinput =		tcp6_ctlinput,
 	.pr_ctloutput =		tcp_ctloutput,
@@ -283,7 +283,6 @@ struct protosw inet6sw[] = {
 	.pr_input =		encap6_input,
 	.pr_output =		rip6_output,
 	.pr_ctloutput =		rip6_ctloutput,
-	.pr_init =		encap_init,
 	.pr_usrreqs =		&rip6_usrreqs
 },
 #endif /* INET */
@@ -295,7 +294,6 @@ struct protosw inet6sw[] = {
 	.pr_input =		encap6_input,
 	.pr_output =		rip6_output,
 	.pr_ctloutput =		rip6_ctloutput,
-	.pr_init =		encap_init,
 	.pr_usrreqs =		&rip6_usrreqs
 },
 {
@@ -306,7 +304,6 @@ struct protosw inet6sw[] = {
 	.pr_input =		encap6_input,
 	.pr_output =		rip6_output,
 	.pr_ctloutput =		rip6_ctloutput,
-	.pr_init =		encap_init,
 	.pr_usrreqs =		&rip6_usrreqs
 },
 {

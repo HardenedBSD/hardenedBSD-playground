@@ -81,7 +81,6 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#include "opt_compat.h"
 #include "opt_ddb.h"
 #include "opt_hwpmc_hooks.h"
 #include "opt_kstack_pages.h"
@@ -216,7 +215,7 @@ booke_cpu_init(void)
 #endif
 	psl_userset = psl_kernset | PSL_PR;
 #ifdef __powerpc64__
-	psl_userset32 = psl_kernset & ~PSL_CM;
+	psl_userset32 = psl_userset & ~PSL_CM;
 #endif
 	psl_userstatic = ~(PSL_VEC | PSL_FP | PSL_FE0 | PSL_FE1);
 
@@ -372,7 +371,7 @@ booke_init(u_long arg1, u_long arg2)
 	return (ret);
 }
 
-#define RES_GRANULE 32
+#define RES_GRANULE cacheline_size
 extern uintptr_t tlb0_miss_locks[];
 
 /* Initialise a struct pcpu. */

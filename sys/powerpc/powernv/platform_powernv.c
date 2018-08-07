@@ -59,6 +59,7 @@ __FBSDID("$FreeBSD$");
 extern void *ap_pcpu;
 #endif
 
+extern void xicp_smp_cpu_startup(void);
 static int powernv_probe(platform_t);
 static int powernv_attach(platform_t);
 void powernv_mem_regions(platform_t, struct mem_region *phys, int *physsz,
@@ -127,7 +128,7 @@ powernv_attach(platform_t plat)
 	char buf[255];
 	pcell_t prop;
 	phandle_t cpu;
-	int res, len, node, idx;
+	int res, len, idx;
 	register_t msr;
 
 	/* Ping OPAL again just to make sure */
@@ -139,7 +140,9 @@ powernv_attach(platform_t plat)
 	opal_call(OPAL_REINIT_CPUS, 1 /* Big endian */);
 #endif
 
-	cpu_idle_hook = powernv_cpu_idle;
+       if (cpu_idle_hook == NULL)
+                cpu_idle_hook = powernv_cpu_idle;
+
 	powernv_boot_pir = mfspr(SPR_PIR);
 
 	/* LPID must not be altered when PSL_DR or PSL_IR is set */
@@ -150,13 +153,13 @@ powernv_attach(platform_t plat)
 	mtspr(SPR_LPID, 0);
 	isync();
 
-	mtmsr(msr);
+	if (cpu_features2 & PPC_FEATURE2_ARCH_3_00)
+		lpcr |= LPCR_HVICE;
 
-	mtspr(SPR_LPCR, LPCR_LPES);
+	mtspr(SPR_LPCR, lpcr);
 	isync();
 
-	/* Init CPU bits */
-	powernv_smp_ap_init(plat);
+	mtmsr(msr);
 
 	powernv_cpuref_init();
 
@@ -192,7 +195,7 @@ powernv_attach(platform_t plat)
 	 * for the encoding of the property.
 	 */
 
-	len = OF_getproplen(node, "ibm,segment-page-sizes");
+	len = OF_getproplen(cpu, "ibm,segment-page-sizes");
 	if (len > 0) {
 		/*
 		 * We have to use a variable length array on the stack
@@ -458,6 +461,8 @@ powernv_reset(platform_t platform)
 static void
 powernv_smp_ap_init(platform_t platform)
 {
+
+	xicp_smp_cpu_startup();
 }
 
 static void

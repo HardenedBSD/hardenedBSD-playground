@@ -17,8 +17,7 @@
 # While historically machine dependent, all architectures have the following
 # declarations in common:
 #
-NOASM=	break.o \
-	exit.o \
+NOASM=	exit.o \
 	getlogin.o \
 	sstk.o \
 	yield.o
@@ -45,7 +44,11 @@ SRCS+= getdirentries.c
 NOASM+= getdirentries.o
 PSEUDO+= _getdirentries.o
 
+SRCS+= brk.c
 SRCS+= pipe.c
+SRCS+= vadvise.c
+
+SRCS+=	compat-stub.c
 
 INTERPOSED = \
 	accept \
@@ -174,6 +177,7 @@ MAN+=	abort2.2 \
 	connectat.2 \
 	cpuset.2 \
 	cpuset_getaffinity.2 \
+	cpuset_getdomain.2 \
 	dup.2 \
 	execve.2 \
 	_exit.2 \
@@ -197,6 +201,7 @@ MAN+=	abort2.2 \
 	getpgrp.2 \
 	getpid.2 \
 	getpriority.2 \
+	getrandom.2 \
 	getrlimit.2 \
 	getrusage.2 \
 	getsid.2 \
@@ -253,7 +258,6 @@ MAN+=	abort2.2 \
 	nanosleep.2 \
 	nfssvc.2 \
 	ntp_adjtime.2 \
-	numa_getaffinity.2 \
 	open.2 \
 	pathconf.2 \
 	pdfork.2 \
@@ -370,6 +374,7 @@ MLINKS+=nanosleep.2 clock_nanosleep.2
 MLINKS+=cpuset.2 cpuset_getid.2 \
 	cpuset.2 cpuset_setid.2
 MLINKS+=cpuset_getaffinity.2 cpuset_setaffinity.2
+MLINKS+=cpuset_getdomain.2 cpuset_setdomain.2
 MLINKS+=dup.2 dup2.2
 MLINKS+=execve.2 fexecve.2
 MLINKS+=extattr_get_file.2 extattr.2 \
@@ -424,7 +429,6 @@ MLINKS+=mount.2 nmount.2 \
 MLINKS+=mq_receive.2 mq_timedreceive.2
 MLINKS+=mq_send.2 mq_timedsend.2
 MLINKS+=ntp_adjtime.2 ntp_gettime.2
-MLINKS+=numa_getaffinity.2 numa_setaffinity.2
 MLINKS+=open.2 openat.2
 MLINKS+=pathconf.2 fpathconf.2
 MLINKS+=pathconf.2 lpathconf.2
