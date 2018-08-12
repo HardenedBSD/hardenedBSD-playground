@@ -708,7 +708,7 @@ be_import(libbe_handle_t *lbh, const char *bootenv, int fd)
 	len = strlen(buf);
 	strftime(buf + len, sizeof(buf) - len, "@%F-%T", localtime(&rawtime));
 
-	if ((err = lzc_receive(buf, NULL, NULL, false, fd)) != 0) {
+	if ((err = lzc_receive(buf, NULL, NULL, false, false, fd)) != 0) {
 		switch (err) {
 		case EINVAL:
 			return (set_error(lbh, BE_ERR_NOORIGIN));
