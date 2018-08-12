@@ -511,12 +511,12 @@ _NOTE(CONSTCOND) } while (0)
 
 #define	BP_IS_ENCRYPTED(bp)			\
 	(BP_USES_CRYPT(bp) &&			\
-	BP_GET_LEVEL(bp) == 0 &&		\
+	BP_GET_LEVEL(bp) <= 0 &&		\
 	DMU_OT_IS_ENCRYPTED(BP_GET_TYPE(bp)))
 
 #define	BP_IS_AUTHENTICATED(bp)			\
 	(BP_USES_CRYPT(bp) &&			\
-	BP_GET_LEVEL(bp) == 0 &&		\
+	BP_GET_LEVEL(bp) <= 0 &&		\
 	!DMU_OT_IS_ENCRYPTED(BP_GET_TYPE(bp)))
 
 #define	BP_HAS_INDIRECT_MAC_CKSUM(bp)		\

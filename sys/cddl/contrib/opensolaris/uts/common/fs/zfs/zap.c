@@ -493,6 +493,16 @@ zap_get_leaf_byblk(zap_t *zap, uint64_t blkid, dmu_tx_t *tx, krw_t lt,
 
 	ASSERT(RW_LOCK_HELD(&zap->zap_rwlock));
 
+	/*
+	 * If system crashed just after dmu_free_long_range in zfs_rmnode, we
+	 * would be left with an empty xattr dir in delete queue. blkid=0
+	 * would be passed in when doing zfs_purgedir. If that's the case we
+	 * should just return immediately. The underlying objects should
+	 * already be freed, so this should be perfectly fine.
+	 */
+	if (blkid == 0)
+		return (SET_ERROR(ENOENT));
+
 	int bs = FZAP_BLOCK_SHIFT(zap);
 	dnode_t *dn = dmu_buf_dnode_enter(zap->zap_dbuf);
 	int err = dmu_buf_hold_by_dnode(dn,
@@ -660,6 +670,8 @@ zap_expand_leaf(zap_name_t *zn, zap_leaf_t *l,
 		ASSERT0(err); /* we checked for i/o errors above */
 	}
 
+	ASSERT3U(zap_leaf_phys(l)->l_hdr.lh_prefix_len, >, 0);
+
 	if (hash & (1ULL << (64 - zap_leaf_phys(l)->l_hdr.lh_prefix_len))) {
 		/* we want the sibling */
 		zap_put_leaf(l);
@@ -814,8 +826,16 @@ retry:
 	} else if (err == EAGAIN) {
 		err = zap_expand_leaf(zn, l, tag, tx, &l);
 		zap = zn->zn_zap;	/* zap_expand_leaf() may change zap */
-		if (err == 0)
+		if (err == 0) {
 			goto retry;
+		} else if (err == ENOSPC) {
+			/*
+			 * If we failed to expand the leaf, then bailout
+			 * as there is no point trying
+			 * zap_put_leaf_maybe_grow_ptrtbl().
+			 */
+			return (err);
+		}
 	}
 
 out:
@@ -955,10 +975,10 @@ uint64_t
 zap_create_link_dnsize(objset_t *os, dmu_object_type_t ot, uint64_t parent_obj,
     const char *name, int dnodesize, dmu_tx_t *tx)
 {
- 	uint64_t new_obj;
- 
-	VERIFY((new_obj = zap_create_dnsize(os, ot, DMU_OT_NONE, 0,
-	    dnodesize, tx)) > 0);
+	uint64_t new_obj;
+
+	new_obj = zap_create_dnsize(os, ot, DMU_OT_NONE, 0, dnodesize, tx);
+	VERIFY(new_obj != 0);
 	VERIFY0(zap_add(os, parent_obj, name, sizeof (uint64_t), 1, &new_obj,
 	    tx));
 
@@ -1192,17 +1212,23 @@ again:
 	err = zap_leaf_lookup_closest(l, zc->zc_hash, zc->zc_cd, &zeh);
 
 	if (err == ENOENT) {
-		uint64_t nocare =
-		    (1ULL << (64 - zap_leaf_phys(l)->l_hdr.lh_prefix_len)) - 1;
-		zc->zc_hash = (zc->zc_hash & ~nocare) + nocare + 1;
-		zc->zc_cd = 0;
-		if (zap_leaf_phys(l)->l_hdr.lh_prefix_len == 0 ||
-		    zc->zc_hash == 0) {
+		if (zap_leaf_phys(l)->l_hdr.lh_prefix_len == 0) {
 			zc->zc_hash = -1ULL;
+			zc->zc_cd = 0;
 		} else {
-			zap_put_leaf(zc->zc_leaf);
-			zc->zc_leaf = NULL;
-			goto again;
+			uint64_t nocare = (1ULL <<
+			    (64 - zap_leaf_phys(l)->l_hdr.lh_prefix_len)) - 1;
+
+			zc->zc_hash = (zc->zc_hash & ~nocare) + nocare + 1;
+			zc->zc_cd = 0;
+
+			if (zc->zc_hash == 0) {
+				zc->zc_hash = -1ULL;
+			} else {
+				zap_put_leaf(zc->zc_leaf);
+				zc->zc_leaf = NULL;
+				goto again;
+			}
 		}
 	}
 

@@ -2207,11 +2207,14 @@ zfs_ioc_objset_stats_impl(zfs_cmd_t *zc, objset_t *os)
 		if (!zc->zc_objset_stats.dds_inconsistent &&
 		    dmu_objset_type(os) == DMU_OST_ZVOL) {
 			error = zvol_get_stats(os, nv);
-			if (error == EIO)
+			if (error == EIO) {
+				nvlist_free(nv);
 				return (error);
+			}
 			VERIFY0(error);
 		}
-		error = put_nvlist(zc, nv);
+		if (error == 0)
+			error = put_nvlist(zc, nv);
 		nvlist_free(nv);
 	}
 
@@ -2767,6 +2770,9 @@ retry:
 				strval = fnvpair_value_string(propval);
 				err = dsl_prop_set_string(dsname, propname,
 				    source, strval);
+			} else if (nvpair_type(propval) == DATA_TYPE_BOOLEAN) {
+				err = dsl_prop_inherit(dsname, propname,
+				    source);
 			} else {
 				intval = fnvpair_value_uint64(propval);
 				err = dsl_prop_set_int(dsname, propname, source,
@@ -3405,8 +3411,25 @@ zfs_ioc_create(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 	if (error == 0) {
 		error = zfs_set_prop_nvlist(fsname, ZPROP_SRC_LOCAL,
 		    nvprops, outnvl);
-		if (error != 0)
-			(void) dsl_destroy_head(fsname);
+		if (error != 0) {
+			spa_t *spa;
+			int error2;
+
+			/*
+			 * Volumes will return EBUSY and cannot be destroyed
+			 * until all asynchronous minor handling has completed.
+			 * Wait for the spa_zvol_taskq to drain then retry.
+			 */
+			error2 = dsl_destroy_head(fsname);
+			while ((error2 == EBUSY) && (type == DMU_OST_ZVOL)) {
+				error2 = spa_open(fsname, &spa, FTAG);
+				if (error2 == 0) {
+					taskq_wait(spa->spa_zvol_taskq);
+					spa_close(spa, FTAG);
+				}
+				error2 = dsl_destroy_head(fsname);
+			}
+		}
 	}
 #ifdef __FreeBSD__
 	if (error == 0 && type == DMU_OST_ZVOL)
@@ -3553,6 +3576,8 @@ zfs_ioc_log_history(const char *unused, nvlist_t *innvl, nvlist_t *outnvl)
 	 * we clear the TSD here.
 	 */
 	poolname = tsd_get(zfs_allow_log_key);
+	if (poolname == NULL)
+		return (SET_ERROR(EINVAL));
 	(void) tsd_set(zfs_allow_log_key, NULL);
 	error = spa_open(poolname, &spa, FTAG);
 	strfree(poolname);
@@ -5083,6 +5108,7 @@ zfs_ioc_pool_reopen(zfs_cmd_t *zc)
 	spa_close(spa, FTAG);
 	return (0);
 }
+
 /*
  * inputs:
  * zc_name	name of filesystem

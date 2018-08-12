@@ -568,6 +568,7 @@ boolean_t dmu_buf_try_add_ref(dmu_buf_t *, objset_t *os, uint64_t object,
 
 void dmu_buf_rele(dmu_buf_t *db, void *tag);
 uint64_t dmu_buf_refcount(dmu_buf_t *db);
+uint64_t dmu_buf_user_refcount(dmu_buf_t *db);
 
 /*
  * dmu_buf_hold_array holds the DMU buffers which contain all bytes in a
@@ -846,10 +847,11 @@ int dmu_read_pages(objset_t *os, uint64_t object, vm_page_t *ma, int count,
 #endif
 struct arc_buf *dmu_request_arcbuf(dmu_buf_t *handle, int size);
 void dmu_return_arcbuf(struct arc_buf *buf);
-void dmu_assign_arcbuf_dnode(dnode_t *handle, uint64_t offset,
+void dmu_assign_arcbuf_by_dnode(dnode_t *dn, uint64_t offset,
     struct arc_buf *buf, dmu_tx_t *tx);
-void dmu_assign_arcbuf(dmu_buf_t *handle, uint64_t offset, struct arc_buf *buf,
-    dmu_tx_t *tx);
+void dmu_assign_arcbuf_by_dbuf(dmu_buf_t *handle, uint64_t offset,
+    struct arc_buf *buf, dmu_tx_t *tx);
+#define	dmu_assign_arcbuf	dmu_assign_arcbuf_by_dbuf
 void dmu_copy_from_buf(objset_t *os, uint64_t object, uint64_t offset,
     dmu_buf_t *handle, dmu_tx_t *tx);
 int dmu_xuio_init(struct xuio *uio, int niov);

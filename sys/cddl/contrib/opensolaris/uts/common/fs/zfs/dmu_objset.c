@@ -64,7 +64,7 @@
 krwlock_t os_lock;
 
 /*
- * Tunable to overwrite the maximum number of threads for the parallization
+ * Tunable to overwrite the maximum number of threads for the parallelization
  * of dmu_objset_find_dp, needed to speed up the import of pools with many
  * datasets.
  * Default is 4 times the number of leaf vdevs.
@@ -574,10 +574,15 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	list_create(&os->os_downgraded_dbufs, sizeof (dmu_buf_impl_t),
 	    offsetof(dmu_buf_impl_t, db_link));
 
+	list_link_init(&os->os_evicting_node);
+
 	mutex_init(&os->os_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&os->os_userused_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&os->os_obj_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&os->os_user_ptr_lock, NULL, MUTEX_DEFAULT, NULL);
+	os->os_obj_next_percpu_len = mp_ncpus;
+	os->os_obj_next_percpu = kmem_zalloc(os->os_obj_next_percpu_len *
+	    sizeof (os->os_obj_next_percpu[0]), KM_SLEEP);
 
 	dnode_special_open(os, &os->os_phys->os_meta_dnode,
 	    DMU_META_DNODE_OBJECT, &os->os_meta_dnode);

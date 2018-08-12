@@ -267,7 +267,7 @@ struct spa {
 	uint64_t	spa_last_io;		/* lbolt of last non-scan I/O */
 	kmutex_t	spa_scrub_lock;		/* resilver/scrub lock */
 	uint64_t	spa_scrub_inflight;	/* in-flight scrub bytes */
-	uint64_t	spa_load_verify_ios;	/* in-flight verifications IOs */
+	uint64_t	spa_load_verify_ios;	/* in-flight verification IOs */
 	kcondvar_t	spa_scrub_io_cv;	/* scrub I/O completion */
 	uint8_t		spa_scrub_active;	/* active or suspended? */
 	uint8_t		spa_scrub_type;		/* type of scrub we're doing */
@@ -397,6 +397,8 @@ struct spa {
 	uint64_t	spa_lowmem_last_txg;	/* txg window start */
 
 	hrtime_t	spa_ccw_fail_time;	/* Conf cache write fail time */
+	taskq_t		*spa_zvol_taskq;	/* Taskq for minor management */
+	taskq_t		*spa_prefetch_taskq;	/* Taskq for prefetch threads */
 
 	/*
 	 * spa_refcount & spa_config_lock must be the last elements
@@ -406,15 +408,18 @@ struct spa {
 	 */
 	spa_config_lock_t spa_config_lock[SCL_LOCKS]; /* config changes */
 	refcount_t	spa_refcount;		/* number of opens */
-#ifndef illumos
+#ifdef __FreeBSD__
 	boolean_t	spa_splitting_newspa;	/* creating new spa in split */
 #endif
+	taskq_t		*spa_upgrade_taskq;	/* taskq for upgrade jobs */
 };
 
-extern const char *spa_config_path;
+extern char *spa_config_path;
 
 extern void spa_taskq_dispatch_ent(spa_t *spa, zio_type_t t, zio_taskq_type_t q,
     task_func_t *func, void *arg, uint_t flags, taskq_ent_t *ent);
+extern void spa_taskq_dispatch_sync(spa_t *, zio_type_t t, zio_taskq_type_t q,
+    task_func_t *func, void *arg, uint_t flags);
 extern void spa_load_spares(spa_t *spa);
 extern void spa_load_l2cache(spa_t *spa);
 

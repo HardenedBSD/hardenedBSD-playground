@@ -352,9 +352,12 @@ dmu_buf_impl_t *
 dbuf_find(objset_t *os, uint64_t obj, uint8_t level, uint64_t blkid)
 {
 	dbuf_hash_table_t *h = &dbuf_hash_table;
-	uint64_t hv = dbuf_hash(os, obj, level, blkid);
-	uint64_t idx = hv & h->hash_table_mask;
+	uint64_t hv;
+	uint64_t idx;
 	dmu_buf_impl_t *db;
+
+	hv = dbuf_hash(os, obj, level, blkid);
+	idx = hv & h->hash_table_mask;
 
 	mutex_enter(DBUF_HASH_MUTEX(h, idx));
 	for (db = h->hash_table[idx]; db != NULL; db = db->db_hash_next) {
@@ -402,13 +405,17 @@ dbuf_hash_insert(dmu_buf_impl_t *db)
 	objset_t *os = db->db_objset;
 	uint64_t obj = db->db.db_object;
 	int level = db->db_level;
-	uint64_t blkid = db->db_blkid;
-	uint64_t hv = dbuf_hash(os, obj, level, blkid);
-	uint64_t idx = hv & h->hash_table_mask;
+	uint64_t blkid, hv, idx;
 	dmu_buf_impl_t *dbf;
+	uint32_t i;
+
+	blkid = db->db_blkid;
+	hv = dbuf_hash(os, obj, level, blkid);
+	idx = hv & h->hash_table_mask;
 
 	mutex_enter(DBUF_HASH_MUTEX(h, idx));
-	for (dbf = h->hash_table[idx]; dbf != NULL; dbf = dbf->db_hash_next) {
+	for (dbf = h->hash_table[idx], i = 0; dbf != NULL;
+	    dbf = dbf->db_hash_next, i++) {
 		if (DBUF_EQUAL(dbf, os, obj, level, blkid)) {
 			mutex_enter(&dbf->db_mtx);
 			if (dbf->db_state != DB_EVICTING) {
@@ -419,13 +426,55 @@ dbuf_hash_insert(dmu_buf_impl_t *db)
 		}
 	}
 
+	if (i > 0) {
+		DBUF_STAT_BUMP(hash_collisions);
+		if (i == 1)
+			DBUF_STAT_BUMP(hash_chains);
+
+		DBUF_STAT_MAX(hash_chain_max, i);
+	}
+
 	mutex_enter(&db->db_mtx);
 	db->db_hash_next = h->hash_table[idx];
 	h->hash_table[idx] = db;
 	mutex_exit(DBUF_HASH_MUTEX(h, idx));
 	atomic_inc_64(&dbuf_hash_count);
+	DBUF_STAT_MAX(hash_elements_max, dbuf_hash_count);
 
 	return (NULL);
+}
+
+/*
+ * This returns whether this dbuf should be stored in the metadata cache, which
+ * is based on whether it's from one of the dnode types that store data related
+ * to traversing dataset hierarchies.
+ */
+static boolean_t
+dbuf_include_in_metadata_cache(dmu_buf_impl_t *db)
+{
+	DB_DNODE_ENTER(db);
+	dmu_object_type_t type = DB_DNODE(db)->dn_type;
+	DB_DNODE_EXIT(db);
+
+	/* Check if this dbuf is one of the types we care about */
+	if (DMU_OT_IS_METADATA_CACHED(type)) {
+		/* If we hit this, then we set something up wrong in dmu_ot */
+		ASSERT(DMU_OT_IS_METADATA(type));
+
+		/*
+		 * Sanity check for small-memory systems: don't allocate too
+		 * much memory for this purpose.
+		 */
+		if (refcount_count(&dbuf_caches[DB_DBUF_METADATA_CACHE].size) >
+		    dbuf_metadata_cache_max_bytes) {
+			DBUF_STAT_BUMP(metadata_cache_overflow);
+			return (B_FALSE);
+		}
+
+		return (B_TRUE);
+	}
+
+	return (B_FALSE);
 }
 
 /*
@@ -435,9 +484,7 @@ static void
 dbuf_hash_remove(dmu_buf_impl_t *db)
 {
 	dbuf_hash_table_t *h = &dbuf_hash_table;
-	uint64_t hv = dbuf_hash(db->db_objset, db->db.db_object,
-	    db->db_level, db->db_blkid);
-	uint64_t idx = hv & h->hash_table_mask;
+	uint64_t hv, idx;
 	dmu_buf_impl_t *dbf, **dbp;
 
 	hv = dbuf_hash(db->db_objset, db->db.db_object,
@@ -564,40 +611,6 @@ dbuf_is_metadata(dmu_buf_impl_t *db)
 	}
 }
 
-/*
- * This returns whether this dbuf should be stored in the metadata cache, which
- * is based on whether it's from one of the dnode types that store data related
- * to traversing dataset hierarchies.
- */
-static boolean_t
-dbuf_include_in_metadata_cache(dmu_buf_impl_t *db)
-{
-	DB_DNODE_ENTER(db);
-	dmu_object_type_t type = DB_DNODE(db)->dn_type;
-	DB_DNODE_EXIT(db);
-
-	/* Check if this dbuf is one of the types we care about */
-	if (DMU_OT_IS_METADATA_CACHED(type)) {
-		/* If we hit this, then we set something up wrong in dmu_ot */
-		ASSERT(DMU_OT_IS_METADATA(type));
-
-		/*
-		 * Sanity check for small-memory systems: don't allocate too
-		 * much memory for this purpose.
-		 */
-		if (refcount_count(&dbuf_caches[DB_DBUF_METADATA_CACHE].size) >
-		    dbuf_metadata_cache_max_bytes) {
-			dbuf_metadata_cache_overflow++;
-			DTRACE_PROBE1(dbuf__metadata__cache__overflow,
-			    dmu_buf_impl_t *, db);
-			return (B_FALSE);
-		}
-
-		return (B_TRUE);
-	}
-
-	return (B_FALSE);
-}
 
 /*
  * This function *must* return indices evenly distributed between all
@@ -1926,6 +1939,9 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 			    FTAG);
 		}
 	}
+
+	if (tx->tx_txg > dn->dn_dirty_txg)
+		dn->dn_dirty_txg = tx->tx_txg;
 	mutex_exit(&dn->dn_mtx);
 
 	if (db->db_blkid == DMU_SPILL_BLKID)
@@ -1987,6 +2003,7 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	 * transaction group won't leak out when we sync the older txg.
 	 */
 	dr = kmem_zalloc(sizeof (dbuf_dirty_record_t), KM_SLEEP);
+	list_link_init(&dr->dr_dirty_node);
 	if (db->db_level == 0) {
 		void *data_old = db->db_buf;
 
@@ -2090,6 +2107,8 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	ddt_prefetch(os->os_spa, db->db_blkptr);
 
 	if (db->db_level == 0) {
+		ASSERT(!db->db_objset->os_raw_receive ||
+		    dn->dn_maxblkid >= db->db_blkid);
 		dnode_new_blkid(dn, db->db_blkid, tx, drop_struct_lock);
 		ASSERT(dn->dn_maxblkid >= db->db_blkid);
 	}
@@ -2510,7 +2529,6 @@ dbuf_destroy(dmu_buf_impl_t *db)
 	if (db->db_blkid == DMU_BONUS_BLKID) {
 		int slots = DB_DNODE(db)->dn_num_slots;
 		int bonuslen = DN_SLOTS_TO_BONUSLEN(slots);
-
 		if (db->db.db_data != NULL) {
 			zio_buf_free(db->db.db_data, bonuslen);
 			arc_space_return(bonuslen, ARC_SPACE_BONUS);
@@ -2529,6 +2547,14 @@ dbuf_destroy(dmu_buf_impl_t *db)
 		    &dbuf_caches[db->db_caching_status].size,
 		    db->db.db_size, db);
 
+		if (db->db_caching_status == DB_DBUF_METADATA_CACHE) {
+			DBUF_STAT_BUMPDOWN(metadata_cache_count);
+		} else {
+			DBUF_STAT_BUMPDOWN(cache_levels[db->db_level]);
+			DBUF_STAT_BUMPDOWN(cache_count);
+			DBUF_STAT_DECR(cache_levels_bytes[db->db_level],
+			    db->db.db_size);
+		}
 		db->db_caching_status = DB_NO_CACHE;
 	}
 
@@ -2856,7 +2882,7 @@ dbuf_prefetch_indirect_done(zio_t *zio, const zbookmark_phys_t *zb, int err,
 	 */
 	if (zio != NULL) {
 		ASSERT3S(BP_GET_LEVEL(zio->io_bp), ==, dpa->dpa_curlevel);
-		if (zio->io_flags & ZIO_FLAG_RAW) {
+		if (zio->io_flags & ZIO_FLAG_RAW_COMPRESS) {
 			ASSERT3U(BP_GET_PSIZE(zio->io_bp), ==, zio->io_size);
 		} else {
 			ASSERT3U(BP_GET_LSIZE(zio->io_bp), ==, zio->io_size);
@@ -2876,12 +2902,11 @@ dbuf_prefetch_indirect_done(zio_t *zio, const zbookmark_phys_t *zb, int err,
 	}
 
 	if (abuf == NULL) {
-		kmem_free(dpa, sizeof(*dpa));
+		kmem_free(dpa, sizeof (*dpa));
 		return;
 	}
-	
-	dpa->dpa_curlevel--;
 
+	dpa->dpa_curlevel--;
 	uint64_t nextblkid = dpa->dpa_zb.zb_blkid >>
 	    (dpa->dpa_epbs * (dpa->dpa_curlevel - dpa->dpa_zb.zb_level));
 	blkptr_t *bp = ((blkptr_t *)abuf->b_data) +
@@ -3320,7 +3345,7 @@ dbuf_try_add_ref(dmu_buf_t *db_fake, objset_t *os, uint64_t obj, uint64_t blkid,
 	dmu_buf_impl_t *found_db;
 	boolean_t result = B_FALSE;
 
-	if (db->db_blkid == DMU_BONUS_BLKID)
+	if (blkid == DMU_BONUS_BLKID)
 		found_db = dbuf_find_bonus(os, obj);
 	else
 		found_db = dbuf_find(os, obj, 0, blkid);
@@ -3510,6 +3535,20 @@ uint64_t
 dbuf_refcount(dmu_buf_impl_t *db)
 {
 	return (refcount_count(&db->db_holds));
+}
+
+uint64_t
+dmu_buf_user_refcount(dmu_buf_t *db_fake)
+{
+	uint64_t holds;
+	dmu_buf_impl_t *db = (dmu_buf_impl_t *)db_fake;
+
+	mutex_enter(&db->db_mtx);
+	ASSERT3U(refcount_count(&db->db_holds), >=, db->db_dirtycnt);
+	holds = refcount_count(&db->db_holds) - db->db_dirtycnt;
+	mutex_exit(&db->db_mtx);
+
+	return (holds);
 }
 
 void *
@@ -3896,7 +3935,6 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 			    dn->dn_type, psize, lsize, compress_type);
 		} else if (compress_type != ZIO_COMPRESS_OFF) {
 			ASSERT3U(type, ==, ARC_BUFC_DATA);
-			int lsize = arc_buf_lsize(*datap);
 			*datap = arc_alloc_compressed_buf(os->os_spa, db,
 			    psize, lsize, compress_type);
 		} else {
@@ -3932,7 +3970,7 @@ dbuf_sync_list(list_t *list, int level, dmu_tx_t *tx)
 {
 	dbuf_dirty_record_t *dr;
 
-	while (dr = list_head(list)) {
+	while ((dr = list_head(list))) {
 		if (dr->dr_zio != NULL) {
 			/*
 			 * If we find an already initialized zio then we
@@ -4010,7 +4048,8 @@ dbuf_write_ready(zio_t *zio, arc_buf_t *buf, void *vdb)
 		if (dn->dn_type == DMU_OT_DNODE) {
 			i = 0;
 			while (i < db->db.db_size) {
-				dnode_phys_t *dnp = db->db.db_data + i;
+				dnode_phys_t *dnp =
+				    (void *)(((char *)db->db.db_data) + i);
 
 				i += DNODE_MIN_SIZE;
 				if (dnp->dn_type != DMU_OT_NONE) {
@@ -4070,7 +4109,7 @@ dbuf_write_children_ready(zio_t *zio, arc_buf_t *buf, void *vdb)
 	ASSERT3U(epbs, <, 31);
 
 	/* Determine if all our children are holes */
-	for (i = 0, bp = db->db.db_data; i < 1 << epbs; i++, bp++) {
+	for (i = 0, bp = db->db.db_data; i < 1ULL << epbs; i++, bp++) {
 		if (!BP_IS_HOLE(bp))
 			break;
 	}
@@ -4079,7 +4118,7 @@ dbuf_write_children_ready(zio_t *zio, arc_buf_t *buf, void *vdb)
 	 * If all the children are holes, then zero them all out so that
 	 * we may get compressed away.
 	 */
-	if (i == 1 << epbs) {
+	if (i == 1ULL << epbs) {
 		/*
 		 * We only found holes. Grab the rwlock to prevent
 		 * anybody from reading the blocks we're about to
@@ -4377,7 +4416,8 @@ dbuf_remap(dnode_t *dn, dmu_buf_impl_t *db, dmu_tx_t *tx)
 		dnode_phys_t *dnp = db->db.db_data;
 		ASSERT3U(db->db_dnode_handle->dnh_dnode->dn_type, ==,
 		    DMU_OT_DNODE);
-		for (int i = 0; i < db->db.db_size >> DNODE_SHIFT; i++) {
+		for (int i = 0; i < db->db.db_size >> DNODE_SHIFT;
+		    i += dnp[i].dn_extra_slots + 1) {
 			for (int j = 0; j < dnp[i].dn_nblkptr; j++) {
 				dbuf_remap_impl(dn, &dnp[i].dn_blkptr[j], tx);
 			}

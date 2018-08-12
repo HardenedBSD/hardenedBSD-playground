@@ -100,6 +100,13 @@ extern "C" {
 #define	DN_ZERO_BONUSLEN	(DN_BONUS_SIZE(DNODE_MAX_SIZE) + 1)
 #define	DN_KILL_SPILLBLK (1)
 
+#define	DN_SLOT_UNINIT		((void *)NULL)	/* Uninitialized */
+#define	DN_SLOT_FREE		((void *)1UL)	/* Free slot */
+#define	DN_SLOT_ALLOCATED	((void *)2UL)	/* Allocated slot */
+#define	DN_SLOT_INTERIOR	((void *)3UL)	/* Interior allocated slot */
+#define	DN_SLOT_IS_PTR(dn)	((void *)dn > DN_SLOT_INTERIOR)
+#define	DN_SLOT_IS_VALID(dn)	((void *)dn != NULL)
+
 #define	DNODES_PER_BLOCK_SHIFT	(DNODE_BLOCK_SHIFT - DNODE_SHIFT)
 #define	DNODES_PER_BLOCK	(1ULL << DNODES_PER_BLOCK_SHIFT)
 
@@ -110,14 +117,13 @@ extern "C" {
 #define	DNODES_PER_LEVEL_SHIFT	(DN_MAX_INDBLKSHIFT - SPA_BLKPTRSHIFT)
 #define	DNODES_PER_LEVEL	(1ULL << DNODES_PER_LEVEL_SHIFT)
 
-/* The +2 here is a cheesy way to round up */
-#define	DN_MAX_LEVELS	(2 + ((DN_MAX_OFFSET_SHIFT - SPA_MINBLOCKSHIFT) / \
-	(DN_MIN_INDBLKSHIFT - SPA_BLKPTRSHIFT)))
+#define	DN_MAX_LEVELS	(DIV_ROUND_UP(DN_MAX_OFFSET_SHIFT - SPA_MINBLOCKSHIFT, \
+	DN_MIN_INDBLKSHIFT - SPA_BLKPTRSHIFT) + 1)
 
 #define	DN_BONUS(dnp)	((void*)((dnp)->dn_bonus + \
 	(((dnp)->dn_nblkptr - 1) * sizeof (blkptr_t))))
 #define	DN_MAX_BONUS_LEN(dnp) \
-	((dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR) ?	\
+	((dnp->dn_flags & DNODE_FLAG_SPILL_BLKPTR) ? \
 	(uint8_t *)DN_SPILL_BLKPTR(dnp) - (uint8_t *)DN_BONUS(dnp) : \
 	(uint8_t *)(dnp + (dnp->dn_extra_slots + 1)) - (uint8_t *)DN_BONUS(dnp))
 
@@ -231,6 +237,7 @@ typedef struct dnode_phys {
 	 * protected properly.
 	 */
 	uint64_t dn_pad3[4];
+
 	/*
 	 * The tail region is 448 bytes for a 512 byte dnode, and
 	 * correspondingly larger for larger dnode sizes. The spill
@@ -342,7 +349,7 @@ struct dnode {
 	 * duplicate entries, we order the dbufs by an arbitrary value -
 	 * their address in memory. This means that dn_dbufs cannot be used to
 	 * directly look up a dbuf. Instead, callers must use avl_walk, have
-	 * a reference to the dbuf, or look up a non-existant node with
+	 * a reference to the dbuf, or look up a non-existent node with
 	 * db_state = DB_SEARCH (see dbuf_free_range for an example).
 	 */
 	avl_tree_t dn_dbufs;
@@ -358,8 +365,8 @@ struct dnode {
 	/* used in syncing context */
 	uint64_t dn_oldused;	/* old phys used bytes */
 	uint64_t dn_oldflags;	/* old phys dn_flags */
-	uint64_t dn_olduid, dn_oldgid;
-	uint64_t dn_newuid, dn_newgid;
+	uint64_t dn_olduid, dn_oldgid, dn_oldprojid;
+	uint64_t dn_newuid, dn_newgid, dn_newprojid;
 	int dn_id_flags;
 
 	/* holds prefetch structure */

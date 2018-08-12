@@ -125,7 +125,7 @@ zap_hash(zap_name_t *zn)
 	 * Don't use all 64 bits, since we need some in the cookie for
 	 * the collision differentiator.  We MUST use the high bits,
 	 * since those are the ones that we first pay attention to when
-	 * chosing the bucket.
+	 * choosing the bucket.
 	 */
 	h &= ~((1ULL << (64 - zap_hashbits(zap))) - 1);
 
@@ -288,11 +288,9 @@ mze_compare(const void *arg1, const void *arg2)
 	return (AVL_CMP(mze1->mze_cd, mze2->mze_cd));
 }
 
-static int
+static void
 mze_insert(zap_t *zap, int chunkid, uint64_t hash)
 {
-	avl_index_t idx;
-
 	ASSERT(zap->zap_ismicro);
 	ASSERT(RW_WRITE_HELD(&zap->zap_rwlock));
 
@@ -301,12 +299,7 @@ mze_insert(zap_t *zap, int chunkid, uint64_t hash)
 	mze->mze_hash = hash;
 	mze->mze_cd = MZE_PHYS(zap, mze)->mze_cd;
 	ASSERT(MZE_PHYS(zap, mze)->mze_name[0] != 0);
-	if (avl_find(&zap->zap_m.zap_avl, mze, &idx) != NULL) {
-		kmem_free(mze, sizeof (mzap_ent_t));
-		return (EEXIST);
-	}
-	avl_insert(&zap->zap_m.zap_avl, mze, idx);
-	return (0);
+	avl_add(&zap->zap_m.zap_avl, mze);
 }
 
 static mzap_ent_t *
@@ -359,6 +352,41 @@ mze_find_unused_cd(zap_t *zap, uint64_t hash)
 	return (cd);
 }
 
+/*
+ * Each mzap entry requires at max : 4 chunks
+ * 3 chunks for names + 1 chunk for value.
+ */
+#define	MZAP_ENT_CHUNKS	(1 + ZAP_LEAF_ARRAY_NCHUNKS(MZAP_NAME_LEN) + \
+	ZAP_LEAF_ARRAY_NCHUNKS(sizeof (uint64_t)))
+
+/*
+ * Check if the current entry keeps the colliding entries under the fatzap leaf
+ * size.
+ */
+static boolean_t
+mze_canfit_fzap_leaf(zap_name_t *zn, uint64_t hash)
+{
+	zap_t *zap = zn->zn_zap;
+	mzap_ent_t mze_tofind;
+	mzap_ent_t *mze;
+	avl_index_t idx;
+	avl_tree_t *avl = &zap->zap_m.zap_avl;
+	uint32_t mzap_ents = 0;
+
+	mze_tofind.mze_hash = hash;
+	mze_tofind.mze_cd = 0;
+
+	for (mze = avl_find(avl, &mze_tofind, &idx);
+	    mze && mze->mze_hash == hash; mze = AVL_NEXT(avl, mze)) {
+		mzap_ents++;
+	}
+
+	/* Include the new entry being added */
+	mzap_ents++;
+
+	return (ZAP_LEAF_NUMCHUNKS_DEF > (mzap_ents * MZAP_ENT_CHUNKS));
+}
+
 static void
 mze_remove(zap_t *zap, mzap_ent_t *mze)
 {
@@ -375,7 +403,7 @@ mze_destroy(zap_t *zap)
 	mzap_ent_t *mze;
 	void *avlcookie = NULL;
 
-	while (mze = avl_destroy_nodes(&zap->zap_m.zap_avl, &avlcookie))
+	while ((mze = avl_destroy_nodes(&zap->zap_m.zap_avl, &avlcookie)))
 		kmem_free(mze, sizeof (mzap_ent_t));
 	avl_destroy(&zap->zap_m.zap_avl);
 }
@@ -432,14 +460,9 @@ mzap_open(objset_t *os, uint64_t obj, dmu_buf_t *db)
 			if (mze->mze_name[0]) {
 				zap_name_t *zn;
 
+				zap->zap_m.zap_num_entries++;
 				zn = zap_name_alloc(zap, mze->mze_name, 0);
-				if (mze_insert(zap, i, zn->zn_hash) == 0)
-					zap->zap_m.zap_num_entries++;
-				else {
-					printf("ZFS WARNING: Duplicated ZAP "
-					    "entry detected (%s).\n",
-					    mze->mze_name);
-				}
+				mze_insert(zap, i, zn->zn_hash);
 				zap_name_free(zn);
 			}
 		}
@@ -489,8 +512,13 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 	ASSERT0(db->db_offset);
 	objset_t *os = dmu_buf_get_objset(db);
 	uint64_t obj = db->db_object;
+	dmu_object_info_t doi;
 
 	*zapp = NULL;
+
+	dmu_object_info_from_db(db, &doi);
+	if (DMU_OT_BYTESWAP(doi.doi_type) != DMU_BSWAP_ZAP)
+		return (SET_ERROR(EINVAL));
 
 	zap_t *zap = dmu_buf_get_user(db);
 	if (zap == NULL) {
@@ -517,7 +545,7 @@ zap_lockdir_impl(dmu_buf_t *db, void *tag, dmu_tx_t *tx,
 		/* it was upgraded, now we only need reader */
 		ASSERT(lt == RW_WRITER);
 		ASSERT(RW_READER ==
-		    (!zap->zap_ismicro && fatreader) ? RW_READER : lti);
+		    ((!zap->zap_ismicro && fatreader) ? RW_READER : lti));
 		rw_downgrade(&zap->zap_rwlock);
 		lt = RW_READER;
 	}
@@ -642,16 +670,15 @@ mzap_upgrade(zap_t **zapp, void *tag, dmu_tx_t *tx, zap_flags_t flags)
 		dprintf("adding %s=%llu\n",
 		    mze->mze_name, mze->mze_value);
 		zap_name_t *zn = zap_name_alloc(zap, mze->mze_name, 0);
-		err = fzap_add_cd(zn, 8, 1, &mze->mze_value, mze->mze_cd,
-		    tag, tx);
+		/* If we fail here, we would end up losing entries */
+		VERIFY0(fzap_add_cd(zn, 8, 1, &mze->mze_value, mze->mze_cd,
+		    tag, tx));
 		zap = zn->zn_zap;	/* fzap_add_cd() may change zap */
 		zap_name_free(zn);
-		if (err != 0)
-			break;
 	}
 	zio_buf_free(mzp, sz);
 	*zapp = zap;
-	return (err);
+	return (0);
 }
 
 /*
@@ -726,10 +753,9 @@ int
 zap_create_claim_norm_dnsize(objset_t *os, uint64_t obj, int normflags,
     dmu_object_type_t ot, dmu_object_type_t bonustype, int bonuslen,
     int dnodesize, dmu_tx_t *tx)
- {
- 	int err;
- 
-	err = dmu_object_claim_dnsize(os, obj, ot, 0, bonustype, bonuslen,
+{
+	ASSERT3U(DMU_OT_BYTESWAP(ot), ==, DMU_BSWAP_ZAP);
+	int err = dmu_object_claim_dnsize(os, obj, ot, 0, bonustype, bonuslen,
 	    dnodesize, tx);
 	if (err != 0)
 		return (err);
@@ -756,7 +782,6 @@ uint64_t
 zap_create_norm(objset_t *os, int normflags, dmu_object_type_t ot,
     dmu_object_type_t bonustype, int bonuslen, dmu_tx_t *tx)
 {
-	ASSERT3U(DMU_OT_BYTESWAP(ot), ==, DMU_BSWAP_ZAP);
 	return (zap_create_norm_dnsize(os, normflags, ot, bonustype, bonuslen,
 	    0, tx));
 }
@@ -765,6 +790,7 @@ uint64_t
 zap_create_norm_dnsize(objset_t *os, int normflags, dmu_object_type_t ot,
     dmu_object_type_t bonustype, int bonuslen, int dnodesize, dmu_tx_t *tx)
 {
+	ASSERT3U(DMU_OT_BYTESWAP(ot), ==, DMU_BSWAP_ZAP);
 	uint64_t obj = dmu_object_alloc_dnsize(os, ot, 0, bonustype, bonuslen,
 	    dnodesize, tx);
 
@@ -777,7 +803,6 @@ zap_create_flags(objset_t *os, int normflags, zap_flags_t flags,
     dmu_object_type_t ot, int leaf_blockshift, int indirect_blockshift,
     dmu_object_type_t bonustype, int bonuslen, dmu_tx_t *tx)
 {
-	ASSERT3U(DMU_OT_BYTESWAP(ot), ==, DMU_BSWAP_ZAP);
 	return (zap_create_flags_dnsize(os, normflags, flags, ot,
 	    leaf_blockshift, indirect_blockshift, bonustype, bonuslen, 0, tx));
 }
@@ -787,6 +812,7 @@ zap_create_flags_dnsize(objset_t *os, int normflags, zap_flags_t flags,
     dmu_object_type_t ot, int leaf_blockshift, int indirect_blockshift,
     dmu_object_type_t bonustype, int bonuslen, int dnodesize, dmu_tx_t *tx)
 {
+	ASSERT3U(DMU_OT_BYTESWAP(ot), ==, DMU_BSWAP_ZAP);
 	uint64_t obj = dmu_object_alloc_dnsize(os, ot, 0, bonustype, bonuslen,
 	    dnodesize, tx);
 
@@ -1117,13 +1143,14 @@ again:
 		if (mze->mze_name[0] == 0) {
 			mze->mze_value = value;
 			mze->mze_cd = cd;
-			(void) strcpy(mze->mze_name, zn->zn_key_orig);
+			(void) strlcpy(mze->mze_name, zn->zn_key_orig,
+			    sizeof (mze->mze_name));
 			zap->zap_m.zap_num_entries++;
 			zap->zap_m.zap_alloc_next = i+1;
 			if (zap->zap_m.zap_alloc_next ==
 			    zap->zap_m.zap_num_chunks)
 				zap->zap_m.zap_alloc_next = 0;
-			VERIFY(0 == mze_insert(zap, i, zn->zn_hash));
+			mze_insert(zap, i, zn->zn_hash);
 			return;
 		}
 	}
@@ -1151,7 +1178,8 @@ zap_add_impl(zap_t *zap, const char *key,
 		err = fzap_add(zn, integer_size, num_integers, val, tag, tx);
 		zap = zn->zn_zap;	/* fzap_add() may change zap */
 	} else if (integer_size != 8 || num_integers != 1 ||
-	    strlen(key) >= MZAP_NAME_LEN) {
+	    strlen(key) >= MZAP_NAME_LEN ||
+	    !mze_canfit_fzap_leaf(zn, zn->zn_hash)) {
 		err = mzap_upgrade(&zn->zn_zap, tag, tx, 0);
 		if (err == 0) {
 			err = fzap_add(zn, integer_size, num_integers, val,

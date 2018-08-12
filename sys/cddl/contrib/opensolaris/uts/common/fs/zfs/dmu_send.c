@@ -2723,7 +2723,6 @@ receive_write(struct receive_writer_arg *rwa, struct drr_write *drrw,
 		return (SET_ERROR(EINVAL));
 
 	tx = dmu_tx_create(rwa->os);
-
 	dmu_tx_hold_write(tx, drrw->drr_object,
 	    drrw->drr_offset, drrw->drr_logical_size);
 	err = dmu_tx_assign(tx, TXG_WAIT);
@@ -2742,7 +2741,7 @@ receive_write(struct receive_writer_arg *rwa, struct drr_write *drrw,
 
 	/* use the bonus buf to look up the dnode in dmu_assign_arcbuf */
 	VERIFY0(dnode_hold(rwa->os, drrw->drr_object, FTAG, &dn));
-	dmu_assign_arcbuf_dnode(dn, drrw->drr_offset, abuf, tx);
+	dmu_assign_arcbuf_by_dnode(dn, drrw->drr_offset, abuf, tx);
 	dnode_rele(dn, FTAG);
 
 	/*

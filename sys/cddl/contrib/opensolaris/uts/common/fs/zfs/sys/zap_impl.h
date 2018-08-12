@@ -170,13 +170,13 @@ typedef struct zap {
 	} zap_u;
 } zap_t;
 
-inline zap_phys_t *
+static inline zap_phys_t *
 zap_f_phys(zap_t *zap)
 {
 	return (zap->zap_dbuf->db_data);
 }
 
-inline mzap_phys_t *
+static inline mzap_phys_t *
 zap_m_phys(zap_t *zap)
 {
 	return (zap->zap_dbuf->db_data);

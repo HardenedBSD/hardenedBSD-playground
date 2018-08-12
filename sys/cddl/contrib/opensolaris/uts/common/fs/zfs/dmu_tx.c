@@ -365,6 +365,7 @@ dmu_tx_hold_free_impl(dmu_tx_hold_t *txh, uint64_t off, uint64_t len)
 	if (len == DMU_OBJECT_END)
 		len = (dn->dn_maxblkid + 1) * dn->dn_datablksz - off;
 
+	dmu_tx_count_dnode(txh);
 
 	/*
 	 * For i/o error checking, we read the first and last level-0
@@ -463,12 +464,10 @@ static void
 dmu_tx_hold_zap_impl(dmu_tx_hold_t *txh, const char *name)
 {
 	dmu_tx_t *tx = txh->txh_tx;
-	dnode_t *dn;
+	dnode_t *dn = txh->txh_dnode;
 	int err;
 
 	ASSERT(tx->tx_txg == 0);
-
-	dn = txh->txh_dnode;
 
 	dmu_tx_count_dnode(txh);
 
@@ -566,12 +565,13 @@ void
 dmu_tx_hold_space(dmu_tx_t *tx, uint64_t space)
 {
 	dmu_tx_hold_t *txh;
+
 	ASSERT(tx->tx_txg == 0);
 
 	txh = dmu_tx_hold_object_impl(tx, tx->tx_objset,
 	    DMU_NEW_OBJECT, THT_SPACE, space, 0);
-
-	(void) refcount_add_many(&txh->txh_space_towrite, space, FTAG);
+	if (txh)
+		(void) refcount_add_many(&txh->txh_space_towrite, space, FTAG);
 }
 
 #ifdef ZFS_DEBUG
@@ -800,10 +800,9 @@ dmu_tx_delay(dmu_tx_t *tx, uint64_t dirty)
 	now = gethrtime();
 	min_tx_time = zfs_delay_scale *
 	    (dirty - delay_min_bytes) / (zfs_dirty_data_max - dirty);
+	min_tx_time = MIN(min_tx_time, zfs_delay_max_ns);
 	if (now > tx->tx_start + min_tx_time)
 		return;
-
-	min_tx_time = MIN(min_tx_time, zfs_delay_max_ns);
 
 	DTRACE_PROBE3(delay__mintime, dmu_tx_t *, tx, uint64_t, dirty,
 	    uint64_t, min_tx_time);
@@ -966,7 +965,7 @@ dmu_tx_unassign(dmu_tx_t *tx)
 	 * associated dnode, and notifying waiters if the refcount drops to 0.
 	 */
 	for (dmu_tx_hold_t *txh = list_head(&tx->tx_holds);
-	    txh != tx->tx_needassign_txh;
+	    txh && txh != tx->tx_needassign_txh;
 	    txh = list_next(&tx->tx_holds, txh)) {
 		dnode_t *dn = txh->txh_dnode;
 
@@ -1210,7 +1209,7 @@ dmu_tx_do_callbacks(list_t *cb_list, int error)
 {
 	dmu_tx_callback_t *dcb;
 
-	while ((dcb = list_head(cb_list)) != NULL) {
+	while ((dcb = list_tail(cb_list)) != NULL) {
 		list_remove(cb_list, dcb);
 		dcb->dcb_func(dcb->dcb_data, error);
 		kmem_free(dcb, sizeof (dmu_tx_callback_t));
@@ -1252,11 +1251,13 @@ dmu_tx_sa_registration_hold(sa_os_t *sa, dmu_tx_t *tx)
 void
 dmu_tx_hold_spill(dmu_tx_t *tx, uint64_t object)
 {
-	dmu_tx_hold_t *txh = dmu_tx_hold_object_impl(tx,
-	    tx->tx_objset, object, THT_SPILL, 0, 0);
+	dmu_tx_hold_t *txh;
 
-	(void) refcount_add_many(&txh->txh_space_towrite,
-	    SPA_OLD_MAXBLOCKSIZE, FTAG);
+	txh = dmu_tx_hold_object_impl(tx, tx->tx_objset, object,
+	    THT_SPILL, 0, 0);
+	if (txh != NULL)
+		(void) refcount_add_many(&txh->txh_space_towrite,
+		    SPA_OLD_MAXBLOCKSIZE, FTAG);
 }
 
 void

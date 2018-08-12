@@ -83,6 +83,10 @@ typedef struct sa_bulk_attr {
 	uint16_t		sa_size;
 } sa_bulk_attr_t;
 
+/*
+ * The on-disk format of sa_hdr_phys_t limits SA lengths to 16-bit values.
+ */
+#define SA_ATTR_MAX_LEN UINT16_MAX
 
 /*
  * special macro for adding entries for bulk attr support

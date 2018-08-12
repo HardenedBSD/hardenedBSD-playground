@@ -66,7 +66,8 @@ static uint64_t spa_config_generation = 1;
  * This can be overridden in userland to preserve an alternate namespace for
  * userland pools when doing testing.
  */
-const char *spa_config_path = ZPOOL_CACHE;
+char *spa_config_path = ZPOOL_CACHE;
+int zfs_autoimport_disable = 1;
 
 /*
  * Called when the module is first loaded, this routine loads the configuration
@@ -82,6 +83,11 @@ spa_config_load(void)
 	char *pathname;
 	struct _buf *file;
 	uint64_t fsize;
+
+#ifdef _KERNEL
+	if (zfs_autoimport_disable)
+		return;
+#endif
 
 	/*
 	 * Open the configuration file.
@@ -588,7 +594,10 @@ spa_config_update(spa_t *spa, int what)
 	/*
 	 * Update the global config cache to reflect the new mosconfig.
 	 */
-	spa_write_cachefile(spa, B_FALSE, what != SPA_CONFIG_UPDATE_POOL);
+	if (!spa->spa_is_root) {
+		spa_write_cachefile(spa, B_FALSE,
+		    what != SPA_CONFIG_UPDATE_POOL);
+	}
 
 	if (what == SPA_CONFIG_UPDATE_POOL)
 		spa_config_update(spa, SPA_CONFIG_UPDATE_VDEVS);
