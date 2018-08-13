@@ -173,6 +173,7 @@ dsl_crypto_params_create_nvlist(dcp_cmd_t cmd, nvlist_t *props,
 		    zfs_prop_to_name(ZFS_PROP_PBKDF2_SALT), &salt);
 		(void) nvlist_lookup_uint64(props,
 		    zfs_prop_to_name(ZFS_PROP_PBKDF2_ITERS), &iters);
+
 		dcp->cp_crypt = crypt;
 	}
 
@@ -469,8 +470,10 @@ dsl_crypto_can_set_keylocation(const char *dsname, const char *keylocation)
 		goto out;
 
 	ret = dsl_dir_hold(dp, dsname, FTAG, &dd, NULL);
-	if (ret != 0)
+	if (ret != 0) {
+		dd = NULL;
 		goto out;
+	}
 
 	/* if dd is not encrypted, the value may only be "none" */
 	if (dd->dd_crypto_obj == 0) {
@@ -554,7 +557,6 @@ dsl_crypto_key_open(objset_t *mos, dsl_wrapping_key_t *wkey,
 	if (!dck)
 		return (SET_ERROR(ENOMEM));
 
-	bzero(dck, sizeof(dsl_crypto_key_t));
 	/* fetch all of the values we need from the ZAP */
 	ret = zap_lookup(mos, dckobj, DSL_CRYPTO_KEY_CRYPTO_SUITE, 8, 1,
 	    &crypt);
@@ -604,7 +606,7 @@ dsl_crypto_key_open(objset_t *mos, dsl_wrapping_key_t *wkey,
 	dsl_wrapping_key_hold(wkey, dck);
 	dck->dck_wkey = wkey;
 	dck->dck_obj = dckobj;
-	(void) refcount_add(&dck->dck_holds, tag);
+	refcount_add(&dck->dck_holds, tag);
 
 	*dck_out = dck;
 	return (0);
@@ -640,7 +642,7 @@ spa_keystore_dsl_key_hold_impl(spa_t *spa, uint64_t dckobj, void *tag,
 	}
 
 	/* increment the refcount */
-	(void) refcount_add(&found_dck->dck_holds, tag);
+	refcount_add(&found_dck->dck_holds, tag);
 
 	*dck_out = found_dck;
 	return (0);
@@ -656,55 +658,56 @@ spa_keystore_dsl_key_hold_dd(spa_t *spa, dsl_dir_t *dd, void *tag,
 {
 	int ret;
 	avl_index_t where;
-	dsl_crypto_key_t *dck = NULL;
+	dsl_crypto_key_t *dck_io = NULL, *dck_ks = NULL;
 	dsl_wrapping_key_t *wkey = NULL;
 	uint64_t dckobj = dd->dd_crypto_obj;
 
-	rw_enter(&spa->spa_keystore.sk_dk_lock, RW_WRITER);
-
-	/* lookup the key in the tree of currently loaded keys */
-	ret = spa_keystore_dsl_key_hold_impl(spa, dckobj, tag, &dck);
-	if (!ret) {
-		rw_exit(&spa->spa_keystore.sk_dk_lock);
-		*dck_out = dck;
+	/* Lookup the key in the tree of currently loaded keys */
+	rw_enter(&spa->spa_keystore.sk_dk_lock, RW_READER);
+	ret = spa_keystore_dsl_key_hold_impl(spa, dckobj, tag, &dck_ks);
+	rw_exit(&spa->spa_keystore.sk_dk_lock);
+	if (ret == 0) {
+		*dck_out = dck_ks;
 		return (0);
 	}
 
-	/* lookup the wrapping key from the keystore */
+	/* Lookup the wrapping key from the keystore */
 	ret = spa_keystore_wkey_hold_dd(spa, dd, FTAG, &wkey);
 	if (ret != 0) {
-		ret = SET_ERROR(EACCES);
-		goto error_unlock;
+		*dck_out = NULL;
+		return (SET_ERROR(EACCES));
 	}
 
-	/* read the key from disk */
+	/* Read the key from disk */
 	ret = dsl_crypto_key_open(spa->spa_meta_objset, wkey, dckobj,
-	    tag, &dck);
-	if (ret != 0)
-		goto error_unlock;
+	    tag, &dck_io);
+	if (ret != 0) {
+		dsl_wrapping_key_rele(wkey, FTAG);
+		*dck_out = NULL;
+		return (ret);
+	}
 
 	/*
-	 * add the key to the keystore (this should always succeed
-	 * since we made sure it didn't exist before)
+	 * Add the key to the keystore.  It may already exist if it was
+	 * added while performing the read from disk.  In this case discard
+	 * it and return the key from the keystore.
 	 */
-	(void) avl_find(&spa->spa_keystore.sk_dsl_keys, dck, &where);
-	avl_insert(&spa->spa_keystore.sk_dsl_keys, dck, where);
+	rw_enter(&spa->spa_keystore.sk_dk_lock, RW_WRITER);
+	ret = spa_keystore_dsl_key_hold_impl(spa, dckobj, tag, &dck_ks);
+	if (ret != 0) {
+		avl_find(&spa->spa_keystore.sk_dsl_keys, dck_io, &where);
+		avl_insert(&spa->spa_keystore.sk_dsl_keys, dck_io, where);
+		*dck_out = dck_io;
+	} else {
+		dsl_crypto_key_free(dck_io);
+		*dck_out = dck_ks;
+	}
 
-	/* release the wrapping key (the dsl key now has a reference to it) */
+	/* Release the wrapping key (the dsl key now has a reference to it) */
 	dsl_wrapping_key_rele(wkey, FTAG);
-
 	rw_exit(&spa->spa_keystore.sk_dk_lock);
 
-	*dck_out = dck;
 	return (0);
-
-error_unlock:
-	rw_exit(&spa->spa_keystore.sk_dk_lock);
-	if (wkey != NULL)
-		dsl_wrapping_key_rele(wkey, FTAG);
-
-	*dck_out = NULL;
-	return (ret);
 }
 
 void
@@ -778,8 +781,10 @@ spa_keystore_load_wkey(const char *dsname, dsl_crypto_params_t *dcp,
 
 	/* hold the dsl dir */
 	ret = dsl_dir_hold(dp, dsname, FTAG, &dd, NULL);
-	if (ret != 0)
+	if (ret != 0) {
+		dd = NULL;
 		goto error;
+	}
 
 	/* initialize the wkey's ddobj */
 	wkey->wk_ddobj = dd->dd_object;
@@ -863,7 +868,7 @@ spa_keystore_unload_wkey_impl(spa_t *spa, uint64_t ddobj)
 	found_wkey = avl_find(&spa->spa_keystore.sk_wkeys,
 	    &search_wkey, NULL);
 	if (!found_wkey) {
-		ret = SET_ERROR(ENOENT);
+		ret = SET_ERROR(EACCES);
 		goto error_unlock;
 	} else if (refcount_count(&found_wkey->wk_refcnt) != 0) {
 		ret = SET_ERROR(EBUSY);
@@ -901,8 +906,10 @@ spa_keystore_unload_wkey(const char *dsname)
 	}
 
 	ret = dsl_dir_hold(dp, dsname, FTAG, &dd, NULL);
-	if (ret != 0)
+	if (ret != 0) {
+		dd = NULL;
 		goto error;
+	}
 
 	/* unload the wkey */
 	ret = spa_keystore_unload_wkey_impl(dp->dp_spa, dd->dd_object);
@@ -929,20 +936,19 @@ spa_keystore_create_mapping_impl(spa_t *spa, uint64_t dsobj,
 {
 	int ret;
 	avl_index_t where;
-	dsl_key_mapping_t *km = NULL, *found_km;
+	dsl_key_mapping_t *km, *found_km;
 	boolean_t should_free = B_FALSE;
 
-	/* allocate the mapping */
-	km = kmem_alloc(sizeof (dsl_key_mapping_t), KM_SLEEP);
-	if (!km)
-		return (SET_ERROR(ENOMEM));
-
-	/* initialize the mapping */
+	/* Allocate and initialize the mapping */
+	km = kmem_zalloc(sizeof (dsl_key_mapping_t), KM_SLEEP);
 	refcount_create(&km->km_refcnt);
 
 	ret = spa_keystore_dsl_key_hold_dd(spa, dd, km, &km->km_key);
-	if (ret != 0)
-		goto error;
+	if (ret != 0) {
+		refcount_destroy(&km->km_refcnt);
+		kmem_free(km, sizeof (dsl_key_mapping_t));
+		return (ret);
+	}
 
 	km->km_dsobj = dsobj;
 
@@ -959,9 +965,9 @@ spa_keystore_create_mapping_impl(spa_t *spa, uint64_t dsobj,
 	found_km = avl_find(&spa->spa_keystore.sk_key_mappings, km, &where);
 	if (found_km != NULL) {
 		should_free = B_TRUE;
-		(void) refcount_add(&found_km->km_refcnt, tag);
+		refcount_add(&found_km->km_refcnt, tag);
 	} else {
-		(void) refcount_add(&km->km_refcnt, tag);
+		refcount_add(&km->km_refcnt, tag);
 		avl_insert(&spa->spa_keystore.sk_key_mappings, km, where);
 	}
 
@@ -974,15 +980,6 @@ spa_keystore_create_mapping_impl(spa_t *spa, uint64_t dsobj,
 	}
 
 	return (0);
-
-error:
-	if (km->km_key)
-		spa_keystore_dsl_key_rele(spa, km->km_key, km);
-
-	refcount_destroy(&km->km_refcnt);
-	kmem_free(km, sizeof (dsl_key_mapping_t));
-
-	return (ret);
 }
 
 int
@@ -1070,7 +1067,7 @@ spa_keystore_lookup_key(spa_t *spa, uint64_t dsobj, void *tag,
 	}
 
 	if (found_km && tag)
-		(void) refcount_add(&found_km->km_key->dck_holds, tag);
+		refcount_add(&found_km->km_key->dck_holds, tag);
 
 	rw_exit(&spa->spa_keystore.sk_km_lock);
 
@@ -1209,8 +1206,10 @@ spa_keystore_change_key_check(void *arg, dmu_tx_t *tx)
 
 	/* hold the dd */
 	ret = dsl_dir_hold(dp, skcka->skcka_dsname, FTAG, &dd, NULL);
-	if (ret != 0)
+	if (ret != 0) {
+		dd = NULL;
 		goto error;
+	}
 
 	/* verify that the dataset is encrypted */
 	if (dd->dd_crypto_obj == 0) {
@@ -1229,7 +1228,7 @@ spa_keystore_change_key_check(void *arg, dmu_tx_t *tx)
 	if (ret != 0)
 		goto error;
 
-	/* Handle inheritence */
+	/* Handle inheritance */
 	if (dcp->cp_cmd == DCP_CMD_INHERIT ||
 	    dcp->cp_cmd == DCP_CMD_FORCE_INHERIT) {
 		/* no other encryption params should be given */
@@ -1508,7 +1507,7 @@ spa_keystore_change_key_sync(void *arg, dmu_tx_t *tx)
 	}
 
 	if (dcp->cp_cmd == DCP_CMD_NEW_KEY) {
-		(void) avl_find(&spa->spa_keystore.sk_wkeys, wkey, &where);
+		avl_find(&spa->spa_keystore.sk_wkeys, wkey, &where);
 		avl_insert(&spa->spa_keystore.sk_wkeys, wkey, where);
 	} else if (wkey != NULL) {
 		dsl_wrapping_key_rele(wkey, FTAG);
@@ -1761,7 +1760,7 @@ dmu_objset_create_crypt_check(dsl_dir_t *parentdd, dsl_crypto_params_t *dcp)
 		return (SET_ERROR(EOPNOTSUPP));
 	}
 
-	/* handle inheritence */
+	/* handle inheritance */
 	if (dcp->cp_wkey == NULL) {
 		ASSERT3P(parentdd, !=, NULL);
 
@@ -1788,23 +1787,22 @@ dmu_objset_create_crypt_check(dsl_dir_t *parentdd, dsl_crypto_params_t *dcp)
 
 	/* Must have fully specified keyformat */
 	switch (dcp->cp_wkey->wk_keyformat) {
-		case ZFS_KEYFORMAT_HEX:
-		case ZFS_KEYFORMAT_RAW:
-			/* requires no pbkdf2 iters and salt */
-			if (dcp->cp_wkey->wk_salt != 0 ||
-			    dcp->cp_wkey->wk_iters != 0)
-				return (SET_ERROR(EINVAL));
-			break;
-		case ZFS_KEYFORMAT_PASSPHRASE:
-			/* requires pbkdf2 iters and salt */
-			if (dcp->cp_wkey->wk_salt == 0 ||
-			    dcp->cp_wkey->wk_iters < MIN_PBKDF2_ITERATIONS)
-				return (SET_ERROR(EINVAL));
-			break;
-		case ZFS_KEYFORMAT_NONE:
-		default:
-			/* keyformat must be specified and valid */
+	case ZFS_KEYFORMAT_HEX:
+	case ZFS_KEYFORMAT_RAW:
+		/* requires no pbkdf2 iters and salt */
+		if (dcp->cp_wkey->wk_salt != 0 || dcp->cp_wkey->wk_iters != 0)
 			return (SET_ERROR(EINVAL));
+		break;
+	case ZFS_KEYFORMAT_PASSPHRASE:
+		/* requires pbkdf2 iters and salt */
+		if (dcp->cp_wkey->wk_salt == 0 ||
+		    dcp->cp_wkey->wk_iters < MIN_PBKDF2_ITERATIONS)
+			return (SET_ERROR(EINVAL));
+		break;
+	case ZFS_KEYFORMAT_NONE:
+	default:
+		/* keyformat must be specified and valid */
+		return (SET_ERROR(EINVAL));
 	}
 
 	return (0);

@@ -798,8 +798,7 @@ dmu_objset_refresh_ownership(dsl_dataset_t *ds, dsl_dataset_t **newds,
 	dsl_dataset_name(ds, name);
 	dp = ds->ds_dir->dd_pool;
 	dsl_pool_config_enter(dp, FTAG);
-
-	dsl_dataset_disown(ds, 0, tag);
+	dsl_dataset_disown(ds, decrypt, tag);
 	VERIFY0(dsl_dataset_own(dp, name,
 	    (decrypt) ? DS_HOLD_FLAG_DECRYPT : 0, tag, newds));
 	dsl_pool_config_exit(dp, FTAG);
@@ -912,6 +911,9 @@ dmu_objset_evict_done(objset_t *os)
 	 */
 	rw_enter(&os_lock, RW_READER);
 	rw_exit(&os_lock);
+
+	kmem_free(os->os_obj_next_percpu,
+	    os->os_obj_next_percpu_len * sizeof (os->os_obj_next_percpu[0]));
 
 	mutex_destroy(&os->os_lock);
 	mutex_destroy(&os->os_userused_lock);
@@ -1126,6 +1128,7 @@ dmu_objset_create_sync(void *arg, dmu_tx_t *tx)
 			need_sync_done = B_TRUE;
 		}
 		VERIFY0(zio_wait(rzio));
+
 		dmu_objset_do_userquota_updates(os, tx);
 		taskq_wait(dp->dp_sync_taskq);
 
@@ -1171,7 +1174,7 @@ dmu_objset_create(const char *name, dmu_objset_type_t type, uint64_t flags,
 	 * allocated. Rather than adding NULL checks throughout this code
 	 * or adding dummy dcp's to all of the callers we simply create a
 	 * dummy one here and use that. This zero dcp will have the same
-	 * effect as asking for inheritence of all encryption params.
+	 * effect as asking for inheritance of all encryption params.
 	 */
 	doca.doca_dcp = (dcp != NULL) ? dcp : &tmp_dcp;
 

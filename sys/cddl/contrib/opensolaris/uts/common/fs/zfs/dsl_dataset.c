@@ -2381,20 +2381,10 @@ dsl_dataset_stats(dsl_dataset_t *ds, nvlist_t *nv)
 	dsl_dataset_crypt_stats(ds, nv);
 
 	if (dsl_dataset_phys(ds)->ds_prev_snap_obj != 0) {
-		uint64_t written, comp, uncomp;
-		dsl_pool_t *dp = ds->ds_dir->dd_pool;
-		dsl_dataset_t *prev;
-
-		err = dsl_dataset_hold_obj(dp,
-		    dsl_dataset_phys(ds)->ds_prev_snap_obj, FTAG, &prev);
-		if (err == 0) {
-			err = dsl_dataset_space_written(prev, ds, &written,
-			    &comp, &uncomp);
-			dsl_dataset_rele(prev, FTAG);
-			if (err == 0) {
-				dsl_prop_nvlist_add_uint64(nv, ZFS_PROP_WRITTEN,
-				    written);
-			}
+		uint64_t written;
+		if (dsl_get_written(ds, &written) == 0) {
+			dsl_prop_nvlist_add_uint64(nv, ZFS_PROP_WRITTEN,
+			    written);
 		}
 	}
 

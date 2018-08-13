@@ -228,7 +228,8 @@ dsl_dir_hold_obj(dsl_pool_t *dp, uint64_t ddobj,
 				    sizeof (foundobj), 1, &foundobj);
 				ASSERT(err || foundobj == ddobj);
 #endif
-				(void) strcpy(dd->dd_myname, tail);
+				(void) strlcpy(dd->dd_myname, tail,
+				    sizeof (dd->dd_myname));
 			} else {
 				err = zap_value_search(dp->dp_meta_objset,
 				    dsl_dir_phys(dd->dd_parent)->
@@ -435,26 +436,29 @@ int
 dsl_dir_hold(dsl_pool_t *dp, const char *name, void *tag,
     dsl_dir_t **ddp, const char **tailp)
 {
-	char buf[ZFS_MAX_DATASET_NAME_LEN];
+	char *buf;
 	const char *spaname, *next, *nextnext = NULL;
 	int err;
 	dsl_dir_t *dd;
 	uint64_t ddobj;
 
+	buf = kmem_alloc(ZFS_MAX_DATASET_NAME_LEN, KM_SLEEP);
 	err = getcomponent(name, buf, &next);
 	if (err != 0)
-		return (err);
+		goto error;
 
 	/* Make sure the name is in the specified pool. */
 	spaname = spa_name(dp->dp_spa);
-	if (strcmp(buf, spaname) != 0)
-		return (SET_ERROR(EXDEV));
+	if (strcmp(buf, spaname) != 0) {
+		err = SET_ERROR(EXDEV);
+		goto error;
+	}
 
 	ASSERT(dsl_pool_config_held(dp));
 
 	err = dsl_dir_hold_obj(dp, dp->dp_root_dir_obj, NULL, tag, &dd);
 	if (err != 0) {
-		return (err);
+		goto error;
 	}
 
 	while (next != NULL) {
@@ -487,7 +491,7 @@ dsl_dir_hold(dsl_pool_t *dp, const char *name, void *tag,
 
 	if (err != 0) {
 		dsl_dir_rele(dd, tag);
-		return (err);
+		goto error;
 	}
 
 	/*
@@ -503,7 +507,10 @@ dsl_dir_hold(dsl_pool_t *dp, const char *name, void *tag,
 	}
 	if (tailp != NULL)
 		*tailp = next;
-	*ddp = dd;
+	if (err == 0)
+		*ddp = dd;
+error:
+	kmem_free(buf, ZFS_MAX_DATASET_NAME_LEN);
 	return (err);
 }
 
@@ -984,7 +991,6 @@ dsl_dir_is_clone(dsl_dir_t *dd)
 	    dsl_dir_phys(dd)->dd_origin_obj !=
 	    dd->dd_pool->dp_origin_snap->ds_object));
 }
-
 
 uint64_t
 dsl_dir_get_used(dsl_dir_t *dd)
@@ -1557,7 +1563,7 @@ dsl_dir_diduse_space(dsl_dir_t *dd, dd_used_t type,
 		    accounted_delta, compressed, uncompressed, tx);
 		dsl_dir_transfer_space(dd->dd_parent,
 		    used - accounted_delta,
-		    DD_USED_CHILD_RSRV, DD_USED_CHILD, NULL);
+		    DD_USED_CHILD_RSRV, DD_USED_CHILD, tx);
 	}
 }
 
@@ -2079,7 +2085,8 @@ dsl_dir_rename_sync(void *arg, dmu_tx_t *tx)
 	    dd->dd_myname, tx);
 	ASSERT0(error);
 
-	(void) strcpy(dd->dd_myname, mynewname);
+	(void) strlcpy(dd->dd_myname, mynewname,
+	    sizeof (dd->dd_myname));
 	dsl_dir_rele(dd->dd_parent, dd);
 	dsl_dir_phys(dd)->dd_parent_obj = newparent->dd_object;
 	VERIFY0(dsl_dir_hold_obj(dp,

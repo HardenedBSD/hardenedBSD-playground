@@ -327,12 +327,20 @@ dsl_pool_init(spa_t *spa, uint64_t txg, dsl_pool_t **dpp)
 	int err;
 	dsl_pool_t *dp = dsl_pool_open_impl(spa, txg);
 
+	/*
+	 * Initialize the caller's dsl_pool_t structure before we actually open
+	 * the meta objset.  This is done because a self-healing write zio may
+	 * be issued as part of dmu_objset_open_impl() and the spa needs its
+	 * dsl_pool_t initialized in order to handle the write.
+	 */
+	*dpp = dp;
+
 	err = dmu_objset_open_impl(spa, NULL, &dp->dp_meta_rootbp,
 	    &dp->dp_meta_objset);
-	if (err != 0)
+	if (err != 0) {
 		dsl_pool_close(dp);
-	else
-		*dpp = dp;
+		*dpp = NULL;
+	}
 
 	return (err);
 }
@@ -788,6 +796,7 @@ dsl_pool_sync(dsl_pool_t *dp, uint64_t txg)
 	while ((ds = list_remove_head(&synced_datasets)) != NULL) {
 		dsl_dataset_sync_done(ds, tx);
 	}
+
 	while ((dd = txg_list_remove(&dp->dp_dirty_dirs, txg)) != NULL) {
 		dsl_dir_sync(dd, tx);
 	}
@@ -842,7 +851,7 @@ dsl_pool_sync_done(dsl_pool_t *dp, uint64_t txg)
 {
 	zilog_t *zilog;
 
-	while (zilog = txg_list_head(&dp->dp_dirty_zilogs, txg)) {
+	while ((zilog = txg_list_head(&dp->dp_dirty_zilogs, txg))) {
 		dsl_dataset_t *ds = dmu_objset_ds(zilog->zl_os);
 		/*
 		 * We don't remove the zilog from the dp_dirty_zilogs
@@ -964,6 +973,7 @@ dsl_pool_undirty_space(dsl_pool_t *dp, int64_t space, uint64_t txg)
 	ASSERT3S(space, >=, 0);
 	if (space == 0)
 		return;
+
 	mutex_enter(&dp->dp_lock);
 	if (dp->dp_dirty_pertxg[txg & TXG_MASK] < space) {
 		/* XXX writing something we didn't dirty? */

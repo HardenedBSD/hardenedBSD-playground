@@ -49,7 +49,7 @@
  * The history log is stored as a dmu object containing
  * <packed record length, record nvlist> tuples.
  *
- * Where "record nvlist" is a nvlist containing uint64_ts and strings, and
+ * Where "record nvlist" is an nvlist containing uint64_ts and strings, and
  * "packed record length" is the packed length of the "record nvlist" stored
  * as a little endian uint64_t.
  *
@@ -90,17 +90,17 @@ spa_history_create_obj(spa_t *spa, dmu_tx_t *tx)
 	spa_history_phys_t *shpp;
 	objset_t *mos = spa->spa_meta_objset;
 
-	ASSERT(spa->spa_history == 0);
+	ASSERT0(spa->spa_history);
 	spa->spa_history = dmu_object_alloc(mos, DMU_OT_SPA_HISTORY,
 	    SPA_OLD_MAXBLOCKSIZE, DMU_OT_SPA_HISTORY_OFFSETS,
 	    sizeof (spa_history_phys_t), tx);
 
-	VERIFY(zap_add(mos, DMU_POOL_DIRECTORY_OBJECT,
+	VERIFY0(zap_add(mos, DMU_POOL_DIRECTORY_OBJECT,
 	    DMU_POOL_HISTORY, sizeof (uint64_t), 1,
-	    &spa->spa_history, tx) == 0);
+	    &spa->spa_history, tx));
 
-	VERIFY(0 == dmu_bonus_hold(mos, spa->spa_history, FTAG, &dbp));
-	ASSERT(dbp->db_size >= sizeof (spa_history_phys_t));
+	VERIFY0(dmu_bonus_hold(mos, spa->spa_history, FTAG, &dbp));
+	ASSERT3U(dbp->db_size, >=, sizeof (spa_history_phys_t));
 
 	shpp = dbp->db_data;
 	dmu_buf_will_dirty(dbp, tx);

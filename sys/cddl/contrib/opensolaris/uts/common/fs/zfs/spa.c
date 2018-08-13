@@ -1666,7 +1666,7 @@ spa_load_spares(spa_t *spa)
 void
 spa_load_l2cache(spa_t *spa)
 {
-	nvlist_t **l2cache;
+	nvlist_t **l2cache = NULL;
 	uint_t nl2cache;
 	int i, j, oldnvdevs;
 	uint64_t guid;

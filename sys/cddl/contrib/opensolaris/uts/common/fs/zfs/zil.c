@@ -342,6 +342,8 @@ zil_parse(zilog_t *zilog, zil_parse_blk_func_t *parse_blk_func,
 	char *lrbuf, *lrp;
 	int error = 0;
 
+	bzero(&next_blk, sizeof (blkptr_t));
+
 	/*
 	 * Old logs didn't record the maximum zh_claim_lr_seq.
 	 */
@@ -363,7 +365,7 @@ zil_parse(zilog_t *zilog, zil_parse_blk_func_t *parse_blk_func,
 	for (blk = zh->zh_log; !BP_IS_HOLE(&blk); blk = next_blk) {
 		uint64_t blk_seq = blk.blk_cksum.zc_word[ZIL_ZC_SEQ];
 		int reclen;
-		char *end;
+		char *end = NULL;
 
 		if (blk_seq > claim_blk_seq)
 			break;
@@ -1340,7 +1342,7 @@ zil_lwb_write_issue(zilog_t *zilog, lwb_t *lwb)
 	 *   close.
 	 * - next find the maximum from the new suggested size and an array of
 	 *   previous sizes. This lessens a picket fence effect of wrongly
-	 *   guesssing the size if we have a stream of say 2k, 64k, 2k, 64k
+	 *   guessing the size if we have a stream of say 2k, 64k, 2k, 64k
 	 *   requests.
 	 *
 	 * Note we only write what is used, but we can't just allocate
@@ -2139,17 +2141,17 @@ zil_process_commit_list(zilog_t *zilog)
 		 * variable is in one of the following states: "closed"
 		 * or "open".
 		 *
-		 * If its "closed", then no itxs have been committed to
-		 * it, so there's no point in issuing its zio (i.e.
-		 * it's "empty").
+		 * If it's "closed", then no itxs have been committed to
+		 * it, so there's no point in issuing its zio (i.e. it's
+		 * "empty").
 		 *
-		 * If its "open" state, then it contains one or more
-		 * itxs that eventually need to be committed to stable
-		 * storage. In this case we intentionally do not issue
-		 * the lwb's zio to disk yet, and instead rely on one of
-		 * the following two mechanisms for issuing the zio:
+		 * If it's "open", then it contains one or more itxs that
+		 * eventually need to be committed to stable storage. In
+		 * this case we intentionally do not issue the lwb's zio
+		 * to disk yet, and instead rely on one of the following
+		 * two mechanisms for issuing the zio:
 		 *
-		 * 1. Ideally, there will be more ZIL activity occuring
+		 * 1. Ideally, there will be more ZIL activity occurring
 		 * on the system, such that this function will be
 		 * immediately called again (not necessarily by the same
 		 * thread) and this lwb's zio will be issued via
@@ -2157,19 +2159,19 @@ zil_process_commit_list(zilog_t *zilog)
 		 * be "full" when it is issued to disk, and we'll make
 		 * use of the lwb's size the best we can.
 		 *
-		 * 2. If there isn't sufficient ZIL activity occuring on
+		 * 2. If there isn't sufficient ZIL activity occurring on
 		 * the system, such that this lwb's zio isn't issued via
 		 * zil_lwb_commit(), zil_commit_waiter() will issue the
 		 * lwb's zio. If this occurs, the lwb is not guaranteed
 		 * to be "full" by the time its zio is issued, and means
 		 * the size of the lwb was "too large" given the amount
-		 * of ZIL activity occuring on the system at that time.
+		 * of ZIL activity occurring on the system at that time.
 		 *
 		 * We do this for a couple of reasons:
 		 *
 		 * 1. To try and reduce the number of IOPs needed to
 		 * write the same number of itxs. If an lwb has space
-		 * available in it's buffer for more itxs, and more itxs
+		 * available in its buffer for more itxs, and more itxs
 		 * will be committed relatively soon (relative to the
 		 * latency of performing a write), then it's beneficial
 		 * to wait for these "next" itxs. This way, more itxs
@@ -2191,7 +2193,7 @@ zil_process_commit_list(zilog_t *zilog)
  * itxs will be processed. The assumption is the passed in waiter's
  * commit itx will found in the queue just like the other non-commit
  * itxs, such that when the entire queue is processed, the waiter will
- * have been commited to an lwb.
+ * have been committed to an lwb.
  *
  * The lwb associated with the passed in waiter is not guaranteed to
  * have been issued by the time this function completes. If the lwb is
@@ -2260,7 +2262,7 @@ zil_commit_waiter_timeout(zilog_t *zilog, zil_commit_waiter_t *zcw)
 	 * In order to call zil_lwb_write_issue() we must hold the
 	 * zilog's "zl_issuer_lock". We can't simply acquire that lock,
 	 * since we're already holding the commit waiter's "zcw_lock",
-	 * and those two locks are aquired in the opposite order
+	 * and those two locks are acquired in the opposite order
 	 * elsewhere.
 	 */
 	mutex_exit(&zcw->zcw_lock);
@@ -2324,7 +2326,7 @@ zil_commit_waiter_timeout(zilog_t *zilog, zil_commit_waiter_t *zcw)
 	 * By having to issue the lwb's zio here, it means the size of the
 	 * lwb was too large, given the incoming throughput of itxs.  By
 	 * setting "zl_cur_used" to zero, we communicate this fact to the
-	 * block size selection algorithm, so it can take this informaiton
+	 * block size selection algorithm, so it can take this information
 	 * into account, and potentially select a smaller size for the
 	 * next lwb block that is allocated.
 	 */
