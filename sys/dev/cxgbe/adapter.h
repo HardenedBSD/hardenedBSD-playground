@@ -100,7 +100,7 @@ enum {
 	EQ_ESIZE = 64,
 
 	/* Default queue sizes for all kinds of egress queues */
-	CTRL_EQ_QSIZE = 128,
+	CTRL_EQ_QSIZE = 1024,
 	TX_EQ_QSIZE = 1024,
 
 #if MJUMPAGESIZE != MCLBYTES
@@ -249,6 +249,7 @@ struct tx_cl_rl_params {
 	enum fw_sched_params_mode mode;		/* aggr or per-flow */
 	uint32_t maxrate;
 	uint16_t pktsize;
+	uint16_t burstsize;
 };
 
 /* Tx scheduler parameters for a channel/port */
@@ -259,7 +260,9 @@ struct tx_sched_params {
 	/* Class WRR */
 	/* XXX */
 
-	/* Class Rate Limiter */
+	/* Class Rate Limiter (including the default pktsize and burstsize). */
+	int pktsize;
+	int burstsize;
 	struct tx_cl_rl_params cl_rl[];
 };
 
@@ -667,6 +670,7 @@ struct sge_wrq {
 
 #define INVALID_NM_RXQ_CNTXT_ID ((uint16_t)(-1))
 struct sge_nm_rxq {
+	volatile int nm_state;	/* NM_OFF, NM_ON, or NM_BUSY */
 	struct vi_info *vi;
 
 	struct iq_desc *iq_desc;
@@ -734,7 +738,6 @@ struct sge {
 	int neq;	/* total # of egress queues */
 
 	struct sge_iq fwq;	/* Firmware event queue */
-	struct sge_wrq mgmtq;	/* Management queue (control queue) */
 	struct sge_wrq *ctrlq;	/* Control queues */
 	struct sge_txq *txq;	/* NIC tx queues */
 	struct sge_rxq *rxq;	/* NIC rx queues */
@@ -794,7 +797,6 @@ struct adapter {
 	struct irq {
 		struct resource *res;
 		int rid;
-		volatile int nm_state;	/* NM_OFF, NM_ON, or NM_BUSY */
 		void *tag;
 		struct sge_rxq *rxq;
 		struct sge_nm_rxq *nm_rxq;
@@ -1183,9 +1185,10 @@ void release_tid(struct adapter *, int, struct sge_wrq *);
 
 #ifdef DEV_NETMAP
 /* t4_netmap.c */
+struct sge_nm_rxq;
 void cxgbe_nm_attach(struct vi_info *);
 void cxgbe_nm_detach(struct vi_info *);
-void t4_nm_intr(void *);
+void service_nm_rxq(struct sge_nm_rxq *);
 #endif
 
 /* t4_sge.c */
@@ -1204,7 +1207,10 @@ int t4_setup_vi_queues(struct vi_info *);
 int t4_teardown_vi_queues(struct vi_info *);
 void t4_intr_all(void *);
 void t4_intr(void *);
+#ifdef DEV_NETMAP
+void t4_nm_intr(void *);
 void t4_vi_intr(void *);
+#endif
 void t4_intr_err(void *);
 void t4_intr_evt(void *);
 void t4_wrq_tx_locked(struct adapter *, struct sge_wrq *, struct wrqe *);
