@@ -83,8 +83,19 @@
 #define	MLX5E_PARAMS_DEFAULT_LOG_RQ_SIZE                0xa
 #define	MLX5E_PARAMS_MAXIMUM_LOG_RQ_SIZE                0xe
 
-/* freeBSD HW LRO is limited by 16KB - the size of max mbuf */
+#define	MLX5E_MAX_RX_SEGS 7
+
+#ifndef MLX5E_MAX_RX_BYTES
+#define	MLX5E_MAX_RX_BYTES MCLBYTES
+#endif
+
+#if (MLX5E_MAX_RX_SEGS == 1)
+/* FreeBSD HW LRO is limited by 16KB - the size of max mbuf */
 #define	MLX5E_PARAMS_DEFAULT_LRO_WQE_SZ                 MJUM16BYTES
+#else
+#define	MLX5E_PARAMS_DEFAULT_LRO_WQE_SZ \
+    MIN(65535, MLX5E_MAX_RX_SEGS * MLX5E_MAX_RX_BYTES)
+#endif
 #define	MLX5E_PARAMS_DEFAULT_RX_CQ_MODERATION_USEC      0x10
 #define	MLX5E_PARAMS_DEFAULT_RX_CQ_MODERATION_USEC_FROM_CQE	0x3
 #define	MLX5E_PARAMS_DEFAULT_RX_CQ_MODERATION_PKTS      0x20
@@ -393,6 +404,8 @@ struct mlx5e_params {
 	u16	rx_hash_log_tbl_sz;
 	u32	tx_pauseframe_control;
 	u32	rx_pauseframe_control;
+	u16	tx_max_inline;
+	u8	tx_min_inline_mode;
 };
 
 #define	MLX5E_PARAMS(m)							\
@@ -415,7 +428,8 @@ struct mlx5e_params {
   m(+1, u64 hw_lro, "hw_lro", "set to enable hw_lro") \
   m(+1, u64 cqe_zipping, "cqe_zipping", "0 : CQE zipping disabled") \
   m(+1, u64 diag_pci_enable, "diag_pci_enable", "0: Disabled 1: Enabled") \
-  m(+1, u64 diag_general_enable, "diag_general_enable", "0: Disabled 1: Enabled")
+  m(+1, u64 diag_general_enable, "diag_general_enable", "0: Disabled 1: Enabled") \
+  m(+1, u64 hw_mtu, "hw_mtu", "Current hardware MTU value")
 
 #define	MLX5E_PARAMS_NUM (0 MLX5E_PARAMS(MLX5E_STATS_COUNT))
 
@@ -476,6 +490,7 @@ struct mlx5e_rq {
 	struct mtx mtx;
 	bus_dma_tag_t dma_tag;
 	u32	wqe_sz;
+	u32	nsegs;
 	struct mlx5e_rq_mbuf *mbuf;
 	struct ifnet *ifp;
 	struct mlx5e_rq_stats stats;
@@ -548,6 +563,9 @@ struct mlx5e_sq {
 	u32	sqn;
 	u32	bf_buf_size;
 	u32	mkey_be;
+	u16	max_inline;
+	u8	min_inline_mode;
+	u8	vlan_inline_cap;
 
 	/* control path */
 	struct	mlx5_wq_ctrl wq_ctrl;
@@ -709,8 +727,11 @@ struct mlx5e_tx_wqe {
 
 struct mlx5e_rx_wqe {
 	struct mlx5_wqe_srq_next_seg next;
-	struct mlx5_wqe_data_seg data;
+	struct mlx5_wqe_data_seg data[];
 };
+
+/* the size of the structure above must be power of two */
+CTASSERT(powerof2(sizeof(struct mlx5e_rx_wqe)));
 
 struct mlx5e_eeprom {
 	int	lock_bit;
@@ -836,5 +857,6 @@ int	mlx5e_enable_sq(struct mlx5e_sq *, struct mlx5e_sq_param *, int tis_num);
 int	mlx5e_modify_sq(struct mlx5e_sq *, int curr_state, int next_state);
 void	mlx5e_disable_sq(struct mlx5e_sq *);
 void	mlx5e_drain_sq(struct mlx5e_sq *);
+u8	mlx5e_params_calculate_tx_min_inline(struct mlx5_core_dev *mdev);
 
 #endif					/* _MLX5_EN_H_ */
