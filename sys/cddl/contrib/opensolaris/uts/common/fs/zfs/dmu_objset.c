@@ -580,7 +580,11 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	mutex_init(&os->os_userused_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&os->os_obj_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&os->os_user_ptr_lock, NULL, MUTEX_DEFAULT, NULL);
+#ifdef _KERNEL
 	os->os_obj_next_percpu_len = mp_ncpus;
+#else
+	os->os_obj_next_percpu_len = 1;
+#endif
 	os->os_obj_next_percpu = kmem_zalloc(os->os_obj_next_percpu_len *
 	    sizeof (os->os_obj_next_percpu[0]), KM_SLEEP);
 

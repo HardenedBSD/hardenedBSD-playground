@@ -665,7 +665,7 @@ traverse_impl(spa_t *spa, dsl_dataset_t *ds, uint64_t objset, blkptr_t *rootbp,
 	pd->pd_cancel = B_TRUE;
 	cv_broadcast(&pd->pd_cv);
 	while (!pd->pd_exited)
-		cv_wait_sig(&pd->pd_cv, &pd->pd_mtx);
+		cv_wait(&pd->pd_cv, &pd->pd_mtx);
 	mutex_exit(&pd->pd_mtx);
 
 	mutex_destroy(&pd->pd_mtx);

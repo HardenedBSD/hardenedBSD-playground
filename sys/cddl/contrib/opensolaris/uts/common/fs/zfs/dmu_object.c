@@ -32,6 +32,18 @@
 #include <sys/zfeature.h>
 #include <sys/dsl_dataset.h>
 
+
+/*
+ * XXX move this
+ */
+#ifdef _KERNEL
+#define kpreempt_enable() critical_enter();
+#define kpreempt_disable() critical_exit();
+#else
+#define kpreempt_enable()
+#define kpreempt_disable()
+#endif
+
 /*
  * Each of the concurrent object allocators will grab
  * 2^dmu_object_alloc_chunk_shift dnode slots at a time.  The default is to
@@ -56,10 +68,10 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 	int dnodes_per_chunk = 1 << dmu_object_alloc_chunk_shift;
 	int error;
 
-	critical_enter();
+	kpreempt_disable();
 	cpuobj = &os->os_obj_next_percpu[CPU_SEQID %
 	    os->os_obj_next_percpu_len];
-	critical_exit();
+	kpreempt_enable();
 
 	if (dn_slots == 0) {
 		dn_slots = DNODE_MIN_SLOTS;
