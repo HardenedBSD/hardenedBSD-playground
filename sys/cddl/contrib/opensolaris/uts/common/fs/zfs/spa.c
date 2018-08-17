@@ -28,8 +28,9 @@
  * Copyright 2013 Saso Kiselkov. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2016 Toomas Soome <tsoome@me.com>
- * Copyright 2017 Joyent, Inc.
+ * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  * Copyright (c) 2017 Datto Inc.
+ * Copyright 2017 Joyent, Inc.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
  */
 
@@ -1228,10 +1229,9 @@ spa_activate(spa_t *spa, int mode)
 	 */
 	trim_thread_create(spa);
 
-	for (size_t i = 0; i < TXG_SIZE; i++) {
+	for (size_t i = 0; i < TXG_SIZE; i++)
 		spa->spa_txg_zio[i] = zio_root(spa, NULL, NULL,
 		    ZIO_FLAG_CANFAIL);
-	}
 
 	list_create(&spa->spa_config_dirty_list, sizeof (vdev_t),
 	    offsetof(vdev_t, vdev_config_dirty_node));
@@ -1251,6 +1251,39 @@ spa_activate(spa_t *spa, int mode)
 	    offsetof(spa_error_entry_t, se_avl));
 
 	spa_keystore_init(&spa->spa_keystore);
+
+	/*
+	 * This taskq is used to perform zvol-minor-related tasks
+	 * asynchronously. This has several advantages, including easy
+	 * resolution of various deadlocks (zfsonlinux bug #3681).
+	 *
+	 * The taskq must be single threaded to ensure tasks are always
+	 * processed in the order in which they were dispatched.
+	 *
+	 * A taskq per pool allows one to keep the pools independent.
+	 * This way if one pool is suspended, it will not impact another.
+	 *
+	 * The preferred location to dispatch a zvol minor task is a sync
+	 * task. In this context, there is easy access to the spa_t and minimal
+	 * error handling is required because the sync task must succeed.
+	 */
+	spa->spa_zvol_taskq = taskq_create("z_zvol", 1, defclsyspri,
+	    1, INT_MAX, 0);
+
+	/*
+	 * Taskq dedicated to prefetcher threads: this is used to prevent the
+	 * pool traverse code from monopolizing the global (and limited)
+	 * system_taskq by inappropriately scheduling long running tasks on it.
+	 */
+	spa->spa_prefetch_taskq = taskq_create("z_prefetch", boot_ncpus,
+	    defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC);
+
+	/*
+	 * The taskq to upgrade datasets in this pool. Currently used by
+	 * feature SPA_FEATURE_USEROBJ_ACCOUNTING/SPA_FEATURE_PROJECT_QUOTA.
+	 */
+	spa->spa_upgrade_taskq = taskq_create("z_upgrade", boot_ncpus,
+	    defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC);
 }
 
 /*
