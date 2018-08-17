@@ -27,8 +27,10 @@
  * Copyright (c) 2012 Martin Matuska <mm@FreeBSD.org>. All rights reserved.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
+ * Copyright (c) 2016, Intel Corporation.
  * Copyright 2016 Nexenta Systems, Inc.
  * Copyright (c) 2017 Datto Inc.
+ * Copyright (c) 2017 Open-E, Inc. All Rights Reserved.
  */
 
 #ifndef	_LIBZFS_H
@@ -57,24 +59,24 @@ extern "C" {
 #define	MS_CRYPT	0x4000
 
 /*
- * MS_CRYPT indicates that encryption keys should be loaded if they are not
- * already available. This is not defined in glibc, but it is never seen by
- * the kernel so it will not cause any problems.
- */
-#define	MS_CRYPT	0x4000
-
-/*
- * MS_CRYPT indicates that encryption keys should be loaded if they are not
- * already available. This is not defined in glibc, but it is never seen by
- * the kernel so it will not cause any problems.
- */
-#define	MS_CRYPT	0x4000
-
-/*
  * Miscellaneous ZFS constants
  */
 #define	ZFS_MAXPROPLEN		MAXPATHLEN
 #define	ZPOOL_MAXPROPLEN	MAXPATHLEN
+
+/*
+ * Default device paths
+ */
+#define	DISK_ROOT		"/dev"
+#define	UDISK_ROOT		"/dev/disk"
+#define	ZVOL_ROOT		"/dev/zvol"
+
+#define	IMPORT_ORDER_PREFERRED_1	1
+#define	IMPORT_ORDER_PREFERRED_2	2
+#define	IMPORT_ORDER_SCAN_OFFSET	10
+#define	IMPORT_ORDER_DEFAULT		100
+#define	DEFAULT_IMPORT_PATH_SIZE	9
+extern char *zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE];
 
 /*
  * libzfs errors
@@ -315,6 +317,7 @@ extern nvlist_t *zpool_find_vdev_by_physpath(zpool_handle_t *, const char *,
     boolean_t *, boolean_t *, boolean_t *);
 extern int zpool_label_disk(libzfs_handle_t *, zpool_handle_t *, const char *,
     zpool_boot_label_t, uint64_t, int *);
+int zfs_dev_is_whole_disk(char *dev_name);
 
 /*
  * Functions to manage pool properties
@@ -427,6 +430,8 @@ typedef struct importargs {
 } importargs_t;
 
 extern nvlist_t *zpool_search_import(libzfs_handle_t *, importargs_t *);
+extern int zpool_tryimport(libzfs_handle_t *hdl, char *target,
+    nvlist_t **configp, importargs_t *args);
 
 /* legacy pool search routines */
 extern nvlist_t *zpool_find_import(libzfs_handle_t *, int, char **);
@@ -777,6 +782,10 @@ extern boolean_t zfs_dataset_exists(libzfs_handle_t *, const char *,
     zfs_type_t);
 extern int zfs_spa_version(zfs_handle_t *, int *);
 extern boolean_t zfs_bookmark_exists(const char *path);
+extern int zfs_append_partition(char *path, size_t max_len);
+extern int zfs_resolve_shortname(const char *name, char *path, size_t pathlen);
+extern int zfs_strcmp_pathname(char *name, char *cmp_name, int wholedisk);
+extern int zfs_path_order(char *path, int *order);
 
 /*
  * Mount support functions.
@@ -812,6 +821,23 @@ extern int zfs_deleg_share_nfs(libzfs_handle_t *, char *, char *, char *,
     void *, void *, int, zfs_share_op_t);
 
 /*
+ * Formats for iostat numbers.  Examples: "12K", "30ms", "4B", "2321234", "-".
+ *
+ * ZFS_NICENUM_1024:	Print kilo, mega, tera, peta, exa..
+ * ZFS_NICENUM_BYTES:	Print single bytes ("13B"), kilo, mega, tera...
+ * ZFS_NICENUM_TIME:	Print nanosecs, microsecs, millisecs, seconds...
+ * ZFS_NICENUM_RAW:	Print the raw number without any formatting
+ * ZFS_NICENUM_RAWTIME:	Same as RAW, but print dashes ('-') for zero.
+ */
+enum zfs_nicenum_format {
+	ZFS_NICENUM_1024 = 0,
+	ZFS_NICENUM_BYTES = 1,
+	ZFS_NICENUM_TIME = 2,
+	ZFS_NICENUM_RAW = 3,
+	ZFS_NICENUM_RAWTIME = 4
+};
+
+/*
  * FreeBSD-specific jail support function.
  */
 extern int zfs_jail(zfs_handle_t *, int, int);
@@ -831,6 +857,10 @@ extern int zfs_jail(zfs_handle_t *, int, int);
  * Utility function to convert a number to a human-readable form.
  */
 extern void zfs_nicenum(uint64_t, char *, size_t);
+
+
+extern void zfs_nicetime(uint64_t, char *, size_t);
+extern void zfs_nicebytes(uint64_t, char *, size_t);
 extern int zfs_nicestrtonum(libzfs_handle_t *, const char *, uint64_t *);
 
 /*

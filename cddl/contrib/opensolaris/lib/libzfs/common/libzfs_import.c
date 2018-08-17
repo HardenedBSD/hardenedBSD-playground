@@ -48,12 +48,14 @@
 #include <dirent.h>
 #include <errno.h>
 #include <libintl.h>
+#include <libgen.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/efi_partition.h>
 #include <thread_pool.h>
 #include <libgeom.h>
 
@@ -1005,12 +1007,17 @@ zpool_read_all_labels(int fd, nvlist_t **config)
 }
 
 typedef struct rdsk_node {
-	char *rn_name;
+	char *rn_name;			/* Full path to device */
+	int rn_order;			/* Preferred order (low to high) */
+	int rn_num_labels;		/* Number of valid labels */
 	int rn_dfd;
+	uint64_t rn_vdev_guid;		/* Expected vdev guid when set */
 	libzfs_handle_t *rn_hdl;
-	nvlist_t *rn_config;
+	nvlist_t *rn_config;		/* Label config */
 	avl_tree_t *rn_avl;
 	avl_node_t rn_node;
+	pthread_mutex_t *rn_lock;
+	boolean_t rn_labelpaths;
 	boolean_t rn_nozpool;
 } rdsk_node_t;
 
@@ -1019,34 +1026,15 @@ slice_cache_compare(const void *arg1, const void *arg2)
 {
 	const char  *nm1 = ((rdsk_node_t *)arg1)->rn_name;
 	const char  *nm2 = ((rdsk_node_t *)arg2)->rn_name;
-	char *nm1slice, *nm2slice;
+	uint64_t guid1 = ((rdsk_node_t *)arg1)->rn_vdev_guid;
+	uint64_t guid2 = ((rdsk_node_t *)arg2)->rn_vdev_guid;
 	int rv;
 
-	/*
-	 * slices zero and two are the most likely to provide results,
-	 * so put those first
-	 */
-	nm1slice = strstr(nm1, "s0");
-	nm2slice = strstr(nm2, "s0");
-	if (nm1slice && !nm2slice) {
-		return (-1);
-	}
-	if (!nm1slice && nm2slice) {
-		return (1);
-	}
-	nm1slice = strstr(nm1, "s2");
-	nm2slice = strstr(nm2, "s2");
-	if (nm1slice && !nm2slice) {
-		return (-1);
-	}
-	if (!nm1slice && nm2slice) {
-		return (1);
-	}
+	rv = AVL_CMP(guid1, guid2);
+	if (rv)
+		return (rv);
 
-	rv = strcmp(nm1, nm2);
-	if (rv == 0)
-		return (0);
-	return (rv > 0 ? 1 : -1);
+	return (AVL_ISIGN(strcmp(nm1, nm2)));
 }
 
 #ifdef illumos
@@ -1218,6 +1206,194 @@ zpool_clear_label(int fd)
 	free(label);
 	return (0);
 }
+
+static void
+zpool_find_import_scan_add_slice(libzfs_handle_t *hdl, pthread_mutex_t *lock,
+    avl_tree_t *cache, char *path, const char *name, int order)
+{
+	avl_index_t where;
+	rdsk_node_t *slice;
+
+	slice = zfs_alloc(hdl, sizeof (rdsk_node_t));
+	if (asprintf(&slice->rn_name, "%s/%s", path, name) == -1) {
+		free(slice);
+		return;
+	}
+	slice->rn_vdev_guid = 0;
+	slice->rn_lock = lock;
+	slice->rn_avl = cache;
+	slice->rn_hdl = hdl;
+	slice->rn_order = order + IMPORT_ORDER_SCAN_OFFSET;
+	slice->rn_labelpaths = B_FALSE;
+
+	pthread_mutex_lock(lock);
+	if (avl_find(cache, slice, &where)) {
+		free(slice->rn_name);
+		free(slice);
+	} else {
+		avl_insert(cache, slice, where);
+	}
+	pthread_mutex_unlock(lock);
+}
+
+static int
+zpool_find_import_scan_dir(libzfs_handle_t *hdl, pthread_mutex_t *lock,
+    avl_tree_t *cache, char *dir, int order)
+{
+	int error;
+	char path[MAXPATHLEN];
+	struct dirent64 *dp;
+	DIR *dirp;
+
+	if (realpath(dir, path) == NULL) {
+		error = errno;
+		if (error == ENOENT)
+			return (0);
+
+		zfs_error_aux(hdl, strerror(error));
+		(void) zfs_error_fmt(hdl, EZFS_BADPATH, dgettext(
+		    TEXT_DOMAIN, "cannot resolve path '%s'"), dir);
+		return (error);
+	}
+
+	dirp = opendir(path);
+	if (dirp == NULL) {
+		error = errno;
+		zfs_error_aux(hdl, strerror(error));
+		(void) zfs_error_fmt(hdl, EZFS_BADPATH,
+		    dgettext(TEXT_DOMAIN, "cannot open '%s'"), path);
+		return (error);
+	}
+
+	while ((dp = readdir64(dirp)) != NULL) {
+		const char *name = dp->d_name;
+		if (name[0] == '.' &&
+		    (name[1] == 0 || (name[1] == '.' && name[2] == 0)))
+			continue;
+
+		zpool_find_import_scan_add_slice(hdl, lock, cache, path, name,
+		    order);
+	}
+
+	(void) closedir(dirp);
+	return (0);
+}
+
+static int
+zpool_find_import_scan_path(libzfs_handle_t *hdl, pthread_mutex_t *lock,
+    avl_tree_t *cache, char *dir, int order)
+{
+	int error = 0;
+	char path[MAXPATHLEN];
+	char *d, *b;
+	char *dpath, *name;
+
+	/*
+	 * Seperate the directory part and last part of the
+	 * path. We do this so that we can get the realpath of
+	 * the directory. We don't get the realpath on the
+	 * whole path because if it's a symlink, we want the
+	 * path of the symlink not where it points to.
+	 */
+	d = zfs_strdup(hdl, dir);
+	b = zfs_strdup(hdl, dir);
+	dpath = dirname(d);
+	name = basename(b);
+
+	if (realpath(dpath, path) == NULL) {
+		error = errno;
+		if (error == ENOENT) {
+			error = 0;
+			goto out;
+		}
+
+		zfs_error_aux(hdl, strerror(error));
+		(void) zfs_error_fmt(hdl, EZFS_BADPATH, dgettext(
+		    TEXT_DOMAIN, "cannot resolve path '%s'"), dir);
+		goto out;
+	}
+
+	zpool_find_import_scan_add_slice(hdl, lock, cache, path, name, order);
+
+out:
+	free(b);
+	free(d);
+	return (error);
+}
+
+/*
+ * Scan a list of directories for zfs devices.
+ */
+static int
+zpool_find_import_scan(libzfs_handle_t *hdl, pthread_mutex_t *lock,
+    avl_tree_t **slice_cache, char **dir, int dirs)
+{
+	avl_tree_t *cache;
+	rdsk_node_t *slice;
+	void *cookie;
+	int i, error;
+
+	*slice_cache = NULL;
+	cache = zfs_alloc(hdl, sizeof (avl_tree_t));
+	avl_create(cache, slice_cache_compare, sizeof (rdsk_node_t),
+	    offsetof(rdsk_node_t, rn_node));
+
+	for (i = 0; i < dirs; i++) {
+		struct stat sbuf;
+
+		if (stat(dir[i], &sbuf) != 0) {
+			error = errno;
+			if (error == ENOENT)
+				continue;
+
+			zfs_error_aux(hdl, strerror(error));
+			(void) zfs_error_fmt(hdl, EZFS_BADPATH, dgettext(
+			    TEXT_DOMAIN, "cannot resolve path '%s'"), dir[i]);
+			goto error;
+		}
+
+		/*
+		 * If dir[i] is a directory, we walk through it and add all
+		 * the entry to the cache. If it's not a directory, we just
+		 * add it to the cache.
+		 */
+		if (S_ISDIR(sbuf.st_mode)) {
+			if ((error = zpool_find_import_scan_dir(hdl, lock,
+			    cache, dir[i], i)) != 0)
+				goto error;
+		} else {
+			if ((error = zpool_find_import_scan_path(hdl, lock,
+			    cache, dir[i], i)) != 0)
+				goto error;
+		}
+	}
+
+	*slice_cache = cache;
+	return (0);
+
+error:
+	cookie = NULL;
+	while ((slice = avl_destroy_nodes(cache, &cookie)) != NULL) {
+		free(slice->rn_name);
+		free(slice);
+	}
+	free(cache);
+
+	return (error);
+}
+
+char *
+zpool_default_import_path[DEFAULT_IMPORT_PATH_SIZE] = {
+	"/dev/disk/by-vdev",	/* Custom rules, use first if they exist */
+	"/dev/mapper",		/* Use multipath devices before components */
+	"/dev/disk/by-partlabel", /* Single unique entry set by user */
+	"/dev/disk/by-partuuid", /* Generated partition uuid */
+	"/dev/disk/by-label",	/* Custom persistent labels */
+	"/dev/disk/by-uuid",	/* Single unique entry and persistent */
+	"/dev/disk/by-id",	/* May be multiple entries and persistent */
+	"/dev/disk/by-path",	/* Encodes physical location and persistent */
+	"/dev"			/* UNSAFE device names will change */
+};
 
 /*
  * Given a list of directories to search, find all pools stored on disk.  This
@@ -1609,6 +1785,80 @@ zpool_search_import(libzfs_handle_t *hdl, importargs_t *import)
 		    import->poolname, import->guid));
 
 	return (zpool_find_import_impl(hdl, import));
+}
+
+static boolean_t
+pool_match(nvlist_t *cfg, char *tgt)
+{
+	uint64_t v, guid = strtoull(tgt, NULL, 0);
+	char *s;
+
+	if (guid != 0) {
+		if (nvlist_lookup_uint64(cfg, ZPOOL_CONFIG_POOL_GUID, &v) == 0)
+			return (v == guid);
+	} else {
+		if (nvlist_lookup_string(cfg, ZPOOL_CONFIG_POOL_NAME, &s) == 0)
+			return (strcmp(s, tgt) == 0);
+	}
+	return (B_FALSE);
+}
+
+int
+zpool_tryimport(libzfs_handle_t *hdl, char *target, nvlist_t **configp,
+    importargs_t *args)
+{
+	nvlist_t *pools;
+	nvlist_t *match = NULL;
+	nvlist_t *config = NULL;
+	char *name = NULL, *sepp = NULL;
+	char sep = '\0';
+	int count = 0;
+	char *targetdup = strdup(target);
+
+	*configp = NULL;
+
+	if ((sepp = strpbrk(targetdup, "/@")) != NULL) {
+		sep = *sepp;
+		*sepp = '\0';
+	}
+
+	pools = zpool_search_import(hdl, args);
+
+	if (pools != NULL) {
+		nvpair_t *elem = NULL;
+		while ((elem = nvlist_next_nvpair(pools, elem)) != NULL) {
+			VERIFY0(nvpair_value_nvlist(elem, &config));
+			if (pool_match(config, targetdup)) {
+				count++;
+				if (match != NULL) {
+					/* multiple matches found */
+					continue;
+				} else {
+					match = config;
+					name = nvpair_name(elem);
+				}
+			}
+		}
+	}
+
+	if (count == 0) {
+		(void) zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+		    "no pools found"));
+		free(targetdup);
+		return (ENOENT);
+	}
+
+	if (count > 1) {
+		(void) zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+		    "%d pools found, use pool GUID\n"), count);
+		free(targetdup);
+		return (EINVAL);
+	}
+
+	*configp = match;
+	free(targetdup);
+
+	return (0);
 }
 
 boolean_t

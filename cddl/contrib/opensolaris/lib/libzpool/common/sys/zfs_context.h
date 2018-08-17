@@ -564,6 +564,7 @@ extern void delay(clock_t ticks);
 #define	boot_ncpus	(sysconf(_SC_NPROCESSORS_ONLN))
 
 #define	minclsyspri	60
+#define defclsyspri minclsyspri	
 #define	maxclsyspri	99
 
 #define	CPU_SEQID	(thr_self() & (max_ncpus - 1))
