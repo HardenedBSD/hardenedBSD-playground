@@ -91,16 +91,17 @@ typedef enum { B_FALSE, B_TRUE }	boolean_t;
 typedef	longlong_t	offset_t;
 typedef	u_longlong_t	u_offset_t;
 typedef	u_longlong_t	len_t;
-typedef	longlong_t	diskaddr_t;
 
 typedef	uint64_t	upad64_t;
 typedef	short		pri_t;
-typedef	int32_t		daddr32_t;
-typedef	int32_t		time32_t;
-typedef	uint32_t	caddr32_t;
-typedef	uint32_t	size32_t;
 
 
 #endif	/* !_KERNEL */
+
+typedef	uint32_t	size32_t;
+typedef	int32_t		time32_t;
+typedef	longlong_t	diskaddr_t;
+typedef	int32_t		daddr32_t;
+typedef	uint32_t	caddr32_t;
 
 #endif	/* !_OPENSOLARIS_SYS_TYPES_H_ */

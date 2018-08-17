@@ -41,6 +41,11 @@ __FBSDID("$FreeBSD$");
 static uma_zone_t taskq_zone;
 
 taskq_t *system_taskq = NULL;
+taskq_t *system_delay_taskq = NULL;
+taskq_t *dynamic_taskq = NULL;
+
+#define TIMEOUT_TASK 1
+#define NORMAL_TASK 2
 
 static void
 system_taskq_init(void *arg)
@@ -49,6 +54,8 @@ system_taskq_init(void *arg)
 	taskq_zone = uma_zcreate("taskq_zone", sizeof(taskq_ent_t),
 	    NULL, NULL, NULL, NULL, 0, 0);
 	system_taskq = taskq_create("system_taskq", mp_ncpus, minclsyspri,
+	    0, 0, 0);
+	system_delay_taskq = taskq_create("system_delay_taskq", mp_ncpus, minclsyspri,
 	    0, 0, 0);
 }
 SYSINIT(system_taskq_init, SI_SUB_CONFIGURE, SI_ORDER_ANY, system_taskq_init, NULL);
@@ -102,6 +109,23 @@ taskq_member(taskq_t *tq, kthread_t *thread)
 	return (taskqueue_member(tq->tq_queue, thread));
 }
 
+int
+taskq_cancel_id(taskq_t *tq, taskqid_t id)
+{
+	u_int pend;
+	int rc;
+	struct taskq_ent *ent = (void*)id;
+
+	if (ent == NULL)
+		return (0);
+	if (ent->tqent_type == TIMEOUT_TASK) {
+		rc = taskqueue_cancel_timeout(tq->tq_queue, &ent->tqent_timeout_task, &pend);
+		uma_zfree(taskq_zone, ent);
+	} else
+		rc = taskqueue_cancel(tq->tq_queue, &ent->tqent_task, &pend);
+	return (rc);
+}
+
 static void
 taskq_run(void *arg, int pending __unused)
 {
@@ -109,7 +133,36 @@ taskq_run(void *arg, int pending __unused)
 
 	task->tqent_func(task->tqent_arg);
 
-	uma_zfree(taskq_zone, task);
+	if (task->tqent_type == NORMAL_TASK)
+		uma_zfree(taskq_zone, task);
+}
+
+taskqid_t
+taskq_dispatch_delay(taskq_t *tq, task_func_t func, void *arg,
+    uint_t flags, clock_t expire_time)
+{
+	struct taskq_ent *task;
+	int mflag;
+
+	if ((flags & (TQ_SLEEP | TQ_NOQUEUE)) == TQ_SLEEP)
+		mflag = M_WAITOK;
+	else
+		mflag = M_NOWAIT;
+	
+	task = uma_zalloc(taskq_zone, mflag);
+	if (task == NULL)
+		return (0);
+
+	task->tqent_func = func;
+	task->tqent_arg = arg;
+	task->tqent_type = TIMEOUT_TASK;
+	
+	TIMEOUT_TASK_INIT(tq->tq_queue, &task->tqent_timeout_task, 0,
+		taskq_run, task);
+	
+	taskqueue_enqueue_timeout(tq->tq_queue, &task->tqent_timeout_task,
+		expire_time);
+	return (taskqid_t)task;
 }
 
 taskqid_t
@@ -134,7 +187,7 @@ taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t flags)
 
 	task->tqent_func = func;
 	task->tqent_arg = arg;
-
+	task->tqent_type = NORMAL_TASK;
 	TASK_INIT(&task->tqent_task, prio, taskq_run, task);
 	taskqueue_enqueue(tq->tq_queue, &task->tqent_task);
 

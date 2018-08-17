@@ -301,12 +301,12 @@ boolean_t zfs_free_leak_on_eio = B_FALSE;
 /*
  * Expiration time in milliseconds. This value has two meanings. First it is
  * used to determine when the spa_deadman() logic should fire. By default the
- * spa_deadman() will fire if spa_sync() has not completed in 1000 seconds.
+ * spa_deadman() will fire if spa_sync() has not completed in 600 seconds.
  * Secondly, the value determines if an I/O is considered "hung". Any I/O that
  * has not completed in zfs_deadman_synctime_ms is considered "hung" resulting
- * in a system panic.
+ * in one of three behaviors controlled by zfs_deadman_failmode.
  */
-uint64_t zfs_deadman_synctime_ms = 300000ULL;
+uint64_t zfs_deadman_synctime_ms = 600000ULL;
 
 /*
  * This value controls the maximum amount of time zio_wait() will block for an
@@ -735,7 +735,6 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 #endif
 
 	spa->spa_deadman_synctime = MSEC2NSEC(zfs_deadman_synctime_ms);
-
 	spa->spa_deadman_ziotime = MSEC2NSEC(zfs_deadman_ziotime_ms);
 	spa_set_deadman_failmode(spa, zfs_deadman_failmode);
 
@@ -751,26 +750,6 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	mutex_enter(&cpu_lock);
 	spa->spa_deadman_cycid = cyclic_add(&hdlr, &when);
 	mutex_exit(&cpu_lock);
-#else	/* !illumos */
-#ifdef _KERNEL
-	/*
-	 * callout(9) does not provide a way to initialize a callout with
-	 * a function and an argument, so we use callout_reset() to schedule
-	 * the callout in the very distant future.  Even if that event ever
-	 * fires, it should be okayas we won't have any active zio-s.
-	 * But normally spa_sync() will reschedule the callout with a proper
-	 * timeout.
-	 * callout(9) does not allow the callback function to sleep but
-	 * vdev_deadman() needs to acquire vq_lock and illumos mutexes are
-	 * emulated using sx(9).  For this reason spa_deadman_timeout()
-	 * will schedule spa_deadman() as task on a taskqueue that allows
-	 * sleeping.
-	 */
-	TASK_INIT(&spa->spa_deadman_task, 0, spa_deadman, spa);
-	callout_init(&spa->spa_deadman_cycid, 1);
-	callout_reset_sbt(&spa->spa_deadman_cycid, SBT_MAX, 0,
-	    spa_deadman_timeout, spa, 0);
-#endif
 #endif
 	refcount_create(&spa->spa_refcount);
 	spa_config_lock_init(spa);
@@ -887,18 +866,12 @@ spa_remove(spa_t *spa)
 	nvlist_free(spa->spa_load_info);
 	nvlist_free(spa->spa_feat_stats);
 	spa_config_set(spa, NULL);
-
 #ifdef illumos
 	mutex_enter(&cpu_lock);
 	if (spa->spa_deadman_cycid != CYCLIC_NONE)
 		cyclic_remove(spa->spa_deadman_cycid);
 	mutex_exit(&cpu_lock);
 	spa->spa_deadman_cycid = CYCLIC_NONE;
-#else	/* !illumos */
-#ifdef _KERNEL
-	callout_drain(&spa->spa_deadman_cycid);
-	taskqueue_drain(taskqueue_thread, &spa->spa_deadman_task);
-#endif
 #endif
 
 	refcount_destroy(&spa->spa_refcount);
@@ -2344,15 +2317,6 @@ spa_maxblocksize(spa_t *spa)
 		return (SPA_OLD_MAXBLOCKSIZE);
 }
 
-int
-spa_maxdnodesize(spa_t *spa)
-{
-	if (spa_feature_is_enabled(spa, SPA_FEATURE_LARGE_DNODE))
-		return (DNODE_MAX_SIZE);
-	else
-		return (DNODE_MIN_SIZE);
-}
-
 
 /*
  * Returns the txg that the last device removal completed. No indirect mappings
@@ -2396,6 +2360,33 @@ spa_get_last_removal_txg(spa_t *spa)
 	return (ret);
 }
 
+int
+spa_maxdnodesize(spa_t *spa)
+{
+	if (spa_feature_is_enabled(spa, SPA_FEATURE_LARGE_DNODE))
+		return (DNODE_MAX_SIZE);
+	else
+		return (DNODE_MIN_SIZE);
+}
+
+unsigned long
+spa_get_hostid(void)
+{
+	unsigned long myhostid;
+
+#ifdef	_KERNEL
+	myhostid = zone_get_hostid(NULL);
+#else	/* _KERNEL */
+	/*
+	 * We're emulating the system's hostid in userland, so
+	 * we can't use zone_get_hostid().
+	 */
+	(void) ddi_strtoul(hw_serial, NULL, 10, &myhostid);
+#endif	/* _KERNEL */
+
+	return (myhostid);
+}
+
 boolean_t
 spa_trust_config(spa_t *spa)
 {
@@ -2412,6 +2403,45 @@ void
 spa_set_missing_tvds(spa_t *spa, uint64_t missing)
 {
 	spa->spa_missing_tvds = missing;
+}
+
+/*
+ * Return the pool state string ("ONLINE", "DEGRADED", "SUSPENDED", etc).
+ */
+const char *
+spa_state_to_name(spa_t *spa)
+{
+	vdev_state_t state = spa->spa_root_vdev->vdev_state;
+	vdev_aux_t aux = spa->spa_root_vdev->vdev_stat.vs_aux;
+
+	if (spa_suspended(spa) &&
+	    (spa_get_failmode(spa) != ZIO_FAILURE_MODE_CONTINUE))
+		return ("SUSPENDED");
+
+	switch (state) {
+	case VDEV_STATE_CLOSED:
+	case VDEV_STATE_OFFLINE:
+		return ("OFFLINE");
+	case VDEV_STATE_REMOVED:
+		return ("REMOVED");
+	case VDEV_STATE_CANT_OPEN:
+		if (aux == VDEV_AUX_CORRUPT_DATA || aux == VDEV_AUX_BAD_LOG)
+			return ("FAULTED");
+		else if (aux == VDEV_AUX_SPLIT_POOL)
+			return ("SPLIT");
+		else
+			return ("UNAVAIL");
+	case VDEV_STATE_FAULTED:
+		return ("FAULTED");
+	case VDEV_STATE_DEGRADED:
+		return ("DEGRADED");
+	case VDEV_STATE_HEALTHY:
+		return ("ONLINE");
+	default:
+		break;
+	}
+
+	return ("UNKNOWN");
 }
 
 boolean_t

@@ -8085,15 +8085,10 @@ spa_sync(spa_t *spa, uint64_t txg)
 	tx = dmu_tx_create_assigned(dp, txg);
 
 	spa->spa_sync_starttime = gethrtime();
-#ifdef illumos
-	VERIFY(cyclic_reprogram(spa->spa_deadman_cycid,
-	    spa->spa_sync_starttime + spa->spa_deadman_synctime));
-#else	/* !illumos */
-#ifdef _KERNEL
-	callout_schedule(&spa->spa_deadman_cycid,
-	    hz * spa->spa_deadman_synctime / NANOSEC);
-#endif
-#endif	/* illumos */
+	taskq_cancel_id(system_delay_taskq, spa->spa_deadman_tqid);
+	spa->spa_deadman_tqid = taskq_dispatch_delay(system_delay_taskq,
+	    spa_deadman, spa, TQ_SLEEP, ddi_get_lbolt() +
+	    NSEC_TO_TICK(spa->spa_deadman_synctime));
 
 	/*
 	 * If we are upgrading to SPA_VERSION_RAIDZ_DEFLATE this txg,
@@ -8309,13 +8304,8 @@ spa_sync(spa_t *spa, uint64_t txg)
 	}
 	dmu_tx_commit(tx);
 
-#ifdef illumos
-	VERIFY(cyclic_reprogram(spa->spa_deadman_cycid, CY_INFINITY));
-#else	/* !illumos */
-#ifdef _KERNEL
-	callout_drain(&spa->spa_deadman_cycid);
-#endif
-#endif	/* illumos */
+	taskq_cancel_id(system_delay_taskq, spa->spa_deadman_tqid);
+	spa->spa_deadman_tqid = 0;
 
 	/*
 	 * Clear the dirty config list.

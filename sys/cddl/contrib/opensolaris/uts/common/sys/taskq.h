@@ -49,6 +49,8 @@ typedef struct taskq_ent {
 	struct task	 tqent_task;
 	task_func_t	*tqent_func;
 	void		*tqent_arg;
+	struct timeout_task tqent_timeout_task;
+	int tqent_type;
 } taskq_ent_t;
 
 struct proc;
@@ -101,7 +103,7 @@ extern void taskq_wait_id(taskq_t *, taskqid_t);
 extern void taskq_wait_outstanding(taskq_t *, taskqid_t);
 extern void taskq_wait(taskq_t *);
 extern int taskq_cancel_id(taskq_t *, taskqid_t);
-extern int taskq_member(taskq_t *, kthread_t *)
+extern int taskq_member(taskq_t *, kthread_t *);
 void	taskq_suspend(taskq_t *);
 int	taskq_suspended(taskq_t *);
 void	taskq_resume(taskq_t *);

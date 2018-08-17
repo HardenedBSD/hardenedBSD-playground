@@ -37,8 +37,8 @@
  * XXX move this
  */
 #ifdef _KERNEL
-#define kpreempt_enable() critical_enter();
-#define kpreempt_disable() critical_exit();
+#define kpreempt_enable() critical_exit()
+#define kpreempt_disable() critical_enter()
 #else
 #define kpreempt_enable()
 #define kpreempt_disable()

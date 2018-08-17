@@ -357,6 +357,12 @@ taskq_member(taskq_t *tq, void *t)
 	return (0);
 }
 
+int
+taskq_cancel_id(taskq_t *tq, taskqid_t id)
+{
+	return (ENOENT);
+}
+
 void
 system_taskq_init(void)
 {
