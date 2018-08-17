@@ -86,9 +86,9 @@ thr_create(void *stack_base, size_t stack_size, void *(*start_func) (void*),
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
 
+	bzero(&attr, sizeof(attr));
 	if (flags & THR_DETACHED)
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
 	if (new_thread_ID == NULL)
 		new_thread_ID = &dummy;
 
