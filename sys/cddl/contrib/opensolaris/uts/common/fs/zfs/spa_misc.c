@@ -808,6 +808,9 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	spa->spa_min_ashift = INT_MAX;
 	spa->spa_max_ashift = 0;
 
+	/* Reset cached value */
+	spa->spa_dedup_dspace = ~0ULL;
+
 	/*
 	 * As a pool is being created, treat all features as disabled by
 	 * setting SPA_FEATURE_DISABLED for all entries in the feature
@@ -1826,11 +1829,19 @@ spa_freeze_txg(spa_t *spa)
 	return (spa->spa_freeze_txg);
 }
 
-/* ARGSUSED */
+/*
+ * Return the inflated asize for a logical write in bytes. This is used by the
+ * DMU to calculate the space a logical write will require on disk.
+ * If lsize is smaller than the largest physical block size allocatable on this
+ * pool we use its value instead, since the write will end up using the whole
+ * block anyway.
+ */
 uint64_t
 spa_get_worst_case_asize(spa_t *spa, uint64_t lsize)
 {
-	return (lsize * spa_asize_inflation);
+	if (lsize == 0)
+		return (0);	/* No inflation needed */
+	return (MAX(lsize, 1 << spa->spa_max_ashift) * spa_asize_inflation);
 }
 
 /*
@@ -2014,14 +2025,10 @@ dva_get_dsize_sync(spa_t *spa, const dva_t *dva)
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_READER) != 0);
 
 	if (asize != 0 && spa->spa_deflate) {
-		uint64_t vdev = DVA_GET_VDEV(dva);
-		vdev_t *vd = vdev_lookup_top(spa, vdev);
-		if (vd == NULL) {
-			panic(
-			    "dva_get_dsize_sync(): bad DVA %llu:%llu",
-			    (u_longlong_t)vdev, (u_longlong_t)asize);
-		}
-		dsize = (asize >> SPA_MINBLOCKSHIFT) * vd->vdev_deflate_ratio;
+		vdev_t *vd = vdev_lookup_top(spa, DVA_GET_VDEV(dva));
+		if (vd != NULL)
+			dsize = (asize >> SPA_MINBLOCKSHIFT) *
+			    vd->vdev_deflate_ratio;
 	}
 
 	return (dsize);
