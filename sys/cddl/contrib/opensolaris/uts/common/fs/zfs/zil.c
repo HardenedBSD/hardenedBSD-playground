@@ -56,7 +56,7 @@
  *
  * In the event of a crash or power loss, the itxs contained by each
  * dataset's on-disk ZIL will be replayed when that dataset is first
- * instantianted (e.g. if the dataset is a normal fileystem, when it is
+ * instantiated (e.g. if the dataset is a normal fileystem, when it is
  * first mounted).
  *
  * As hinted at above, there is one ZIL per dataset (both the in-memory
@@ -121,6 +121,8 @@ SYSCTL_QUAD(_vfs_zfs, OID_AUTO, zil_slog_bulk, CTLFLAG_RWTUN,
 
 static kmem_cache_t *zil_lwb_cache;
 static kmem_cache_t *zil_zcw_cache;
+
+static void zil_async_to_sync(zilog_t *zilog, uint64_t foid);
 
 #define	LWB_EMPTY(lwb) ((BP_GET_LSIZE(&lwb->lwb_blk) - \
     sizeof (zil_chain_t)) == (lwb->lwb_sz - lwb->lwb_nused))
@@ -697,7 +699,7 @@ zil_create(zilog_t *zilog)
 
 	/*
 	 * If we just allocated the first log block, commit our transaction
-	 * and wait for zil_sync() to stuff the block poiner into zh_log.
+	 * and wait for zil_sync() to stuff the block pointer into zh_log.
 	 * (zh is part of the MOS, so we cannot modify it in open context.)
 	 */
 	if (tx != NULL) {
@@ -1874,7 +1876,7 @@ zil_get_commit_list(zilog_t *zilog)
 /*
  * Move the async itxs for a specified object to commit into sync lists.
  */
-void
+static void
 zil_async_to_sync(zilog_t *zilog, uint64_t foid)
 {
 	uint64_t otxg, txg;
@@ -3006,8 +3008,10 @@ zil_close(zilog_t *zilog)
 	if (txg)
 		txg_wait_synced(zilog->zl_dmu_pool, txg);
 
+	if (zilog_is_dirty(zilog))
+		zfs_dbgmsg("zil (%p) is dirty, txg %llu", zilog, txg);
 	if (txg < spa_freeze_txg(zilog->zl_spa))
-		ASSERT(!zilog_is_dirty(zilog));
+		VERIFY(!zilog_is_dirty(zilog));
 
 	zilog->zl_get_data = NULL;
 
