@@ -250,7 +250,8 @@ freebsd_crypt_newsession(crypto_session_t *sessp,
 bad:
 	return (error);
 #else
-	return (ENOTSUP);
+	/* no-op */
+	return (0);
 #endif
 }
 
@@ -434,5 +435,6 @@ bad:
 #endif
 	return (error);
 #endif /* _KERNEL */
-	return (ENOTSUP);
+	/* no-op */
+	return (0);
 }
