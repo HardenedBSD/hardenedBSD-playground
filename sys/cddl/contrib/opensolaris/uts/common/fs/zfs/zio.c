@@ -2826,8 +2826,7 @@ zio_ddt_collision(zio_t *zio, ddt_t *ddt, ddt_entry_t *dde)
 
 		if (lio != NULL) {
 			return (lio->io_orig_size != zio->io_orig_size ||
-			    abd_cmp(zio->io_orig_abd, lio->io_orig_abd,
-			    zio->io_orig_size) != 0);
+			    abd_cmp(zio->io_orig_abd, lio->io_orig_abd) != 0);
 		}
 	}
 
@@ -2857,8 +2856,7 @@ zio_ddt_collision(zio_t *zio, ddt_t *ddt, ddt_entry_t *dde)
 			if (do_raw) {
 				zio_flags |= ZIO_FLAG_RAW;
 				ASSERT3U(zio->io_size, ==, zio->io_orig_size);
-				ASSERT0(abd_cmp(zio->io_abd, zio->io_orig_abd,
-				    zio->io_size));
+				ASSERT0(abd_cmp(zio->io_abd, zio->io_orig_abd));
 				ASSERT3P(zio->io_transform_stack, ==, NULL);
 			}
 

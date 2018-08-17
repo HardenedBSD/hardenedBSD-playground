@@ -880,6 +880,8 @@ highbit64(uint64_t i)
 }
 #endif
 
+char *random_path = "/dev/random";
+char *urandom_path = "/dev/urandom";
 #ifndef __FreeBSD__
 static int random_fd = -1, urandom_fd = -1;
 

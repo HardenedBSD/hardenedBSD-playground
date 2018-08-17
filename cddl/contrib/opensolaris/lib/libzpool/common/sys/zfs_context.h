@@ -97,6 +97,8 @@ extern "C" {
 #endif
 
 #define	ZFS_EXPORTS_PATH	"/etc/zfs/exports"
+extern char *random_path;
+extern char *urandom_path;
 
 /*
  * Debugging
@@ -223,10 +225,11 @@ typedef struct kthread kthread_t;
 #define	thread_create(stk, stksize, func, arg, len, pp, state, pri)	\
 	zk_thread_create(func, arg)
 #define	thread_exit() thr_exit(NULL)
-#define	thread_join(t)	panic("libzpool cannot join threads")
+#define thread_join(t)  pthread_join((pthread_t)(t), NULL)
 
 #define	newproc(f, a, cid, pri, ctp, pid)	(ENOSYS)
 
+	
 /* in libzpool, p0 exists only to have its address taken */
 struct proc {
 	uintptr_t	this_is_never_used_dont_dereference_it;
@@ -548,10 +551,12 @@ extern vnode_t *rootdir;
 #define	ddi_get_lbolt64()	(gethrtime() >> 23)
 #define	hz	119	/* frequency when using gethrtime() >> 23 for lbolt */
 
+extern taskq_t *system_delay_taskq;
 extern void delay(clock_t ticks);
 
 #define	SEC_TO_TICK(sec)	((sec) * hz)
 #define	NSEC_TO_TICK(nsec)	((nsec) / (NANOSEC / hz))
+#define	MSEC_TO_TICK(msec)	((msec) / (MILLISEC / hz))
 
 #define	gethrestime_sec() time(NULL)
 #define	gethrestime(t) \
@@ -585,6 +590,8 @@ extern int random_get_pseudo_bytes(uint8_t *ptr, size_t len);
 extern void kernel_init(int);
 extern void kernel_fini(void);
 
+extern taskqid_t taskq_dispatch_delay(taskq_t *, task_func_t, void *,
+    uint_t, clock_t);
 struct spa;
 extern void nicenum(uint64_t num, char *buf, size_t);
 extern void show_pool_stats(struct spa *);

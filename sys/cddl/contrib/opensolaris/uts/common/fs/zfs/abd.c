@@ -969,10 +969,12 @@ abd_cmp_cb(void *bufa, void *bufb, size_t size, void *private)
 }
 
 /*
- * Compares the first size bytes of two ABDs.
+ * Compares the contents of two ABDs.
  */
 int
-abd_cmp(abd_t *dabd, abd_t *sabd, size_t size)
+abd_cmp(abd_t *dabd, abd_t *sabd)
 {
-	return (abd_iterate_func2(dabd, sabd, 0, 0, size, abd_cmp_cb, NULL));
+	ASSERT3U(dabd->abd_size, ==, sabd->abd_size);
+	return (abd_iterate_func2(dabd, sabd, 0, 0, dabd->abd_size,
+	    abd_cmp_cb, NULL));
 }

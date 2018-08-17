@@ -2158,7 +2158,7 @@ raidz_parity_verify(zio_t *zio, raidz_map_t *rm)
 		rc = &rm->rm_col[c];
 		if (!rc->rc_tried || rc->rc_error != 0)
 			continue;
-		if (abd_cmp(orig[c], rc->rc_abd, rc->rc_abd->abd_size) != 0) {
+		if (abd_cmp(orig[c], rc->rc_abd) != 0) {
 			raidz_checksum_error(zio, rc, orig[c]);
 			rc->rc_error = SET_ERROR(ECKSUM);
 			ret++;

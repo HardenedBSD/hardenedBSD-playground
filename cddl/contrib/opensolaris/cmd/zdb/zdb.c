@@ -24,7 +24,8 @@
  * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2017 Nexenta Systems, Inc.
- * Copyright 2017 RackTop Systems.
+ * Copyright (c) 2017 Lawrence Livermore National Security, LLC.
+ * Copyright (c) 2015, 2017, Intel Corporation.
  */
 
 #include <stdio.h>
@@ -2403,7 +2404,7 @@ dump_uberblock(uberblock_t *ub, const char *header, const char *footer)
 	(void) printf("\tguid_sum = %llu\n", (u_longlong_t)ub->ub_guid_sum);
 	(void) printf("\ttimestamp = %llu UTC = %s",
 	    (u_longlong_t)ub->ub_timestamp, asctime(localtime(&timestamp)));
-	if (dump_opt['u'] >= 3) {
+	if (dump_opt['u'] >= 4) {
 		char blkbuf[BP_SPRINTF_LEN];
 		snprintf_blkptr(blkbuf, sizeof (blkbuf), &ub->ub_rootbp);
 		(void) printf("\trootbp = %s\n", blkbuf);
@@ -5251,7 +5252,7 @@ zdb_read_block(char *thing, spa_t *spa)
 	psize = size;
 	lsize = size;
 
-	pabd = abd_alloc_linear(SPA_MAXBLOCKSIZE, B_FALSE);
+	pabd = abd_alloc_for_io(SPA_MAXBLOCKSIZE, B_FALSE);
 	lbuf = umem_alloc(SPA_MAXBLOCKSIZE, UMEM_NOFAIL);
 
 	BP_ZERO(bp);
@@ -5683,6 +5684,7 @@ main(int argc, char **argv)
 	aok = (dump_opt['A'] == 1) || (dump_opt['A'] > 2);
 	zfs_recover = (dump_opt['A'] > 1);
 
+	printf("argc: %d optind: %d\n", argc, optind);
 	argc -= optind;
 	argv += optind;
 

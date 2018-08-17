@@ -206,17 +206,14 @@ uint64_t zfs_condense_min_mapping_bytes = 128 * 1024;
 int zfs_condense_indirect_commit_entry_delay_ticks = 0;
 
 /*
- * If a split block contains more than this many segments, consider it too
- * computationally expensive to check all (2^num_segments) possible
- * combinations. Instead, try at most 2^_segments_max randomly-selected
- * combinations.
- *
- * This is reasonable if only a few segment copies are damaged and the
- * majority of segment copies are good. This allows all the segment copies to
- * participate fairly in the reconstruction and prevents the repeated use of
- * one bad copy.
+ * If an indirect split block contains more than this many possible unique
+ * combinations when being reconstructed, consider it too computationally
+ * expensive to check them all. Instead, try at most 100 randomly-selected
+ * combinations each time the block is accessed.  This allows all segment
+ * copies to participate fairly in the reconstruction when all combinations
+ * cannot be checked and prevents repeated use of one bad copy.
  */
-int zfs_reconstruct_indirect_segments_max = 10;
+int zfs_reconstruct_indirect_combinations_max = 100;
 
 /*
  * The indirect_child_t represents the vdev that we will read from, when we
@@ -228,6 +225,12 @@ int zfs_reconstruct_indirect_segments_max = 10;
 typedef struct indirect_child {
 	abd_t *ic_data;
 	vdev_t *ic_vdev;
+
+	/*
+	 * ic_duplicate is -1 when the ic_data contents are unique, when it
+	 * is determined to be a duplicate it refers to the primary child.
+	 */
+	int ic_duplicate;
 } indirect_child_t;
 
 /*
@@ -1241,6 +1244,7 @@ vdev_indirect_read_all(zio_t *zio)
 
 			ic->ic_data = abd_alloc_sametype(zio->io_abd,
 			    is->is_size);
+			ic->ic_duplicate = -1;
 
 			zio_nowait(zio_vdev_child_io(zio, NULL,
 			    ic->ic_vdev, is->is_target_offset, ic->ic_data,
@@ -1350,14 +1354,11 @@ vdev_indirect_checksum_error(zio_t *zio,
 	vd->vdev_stat.vs_checksum_errors++;
 	mutex_exit(&vd->vdev_stat_lock);
 
-	zio_bad_cksum_t zbc = { 0 };
-	void *bad_buf = abd_borrow_buf_copy(ic->ic_data, is->is_size);
+	zio_bad_cksum_t zbc = {{{ 0 }}};
+	abd_t *bad_abd = ic->ic_data;
 	abd_t *good_abd = is->is_child[is->is_good_child].ic_data;
-	void *good_buf = abd_borrow_buf_copy(good_abd, is->is_size);
 	zfs_ereport_post_checksum(zio->io_spa, vd, zio,
-	    is->is_target_offset, is->is_size, good_buf, bad_buf, &zbc);
-	abd_return_buf(ic->ic_data, bad_buf, is->is_size);
-	abd_return_buf(good_abd, good_buf, is->is_size);
+	    is->is_target_offset, is->is_size, good_abd, bad_abd, &zbc);
 }
 
 /*
@@ -1393,8 +1394,7 @@ vdev_indirect_repair(zio_t *zio)
 				continue;
 			if (ic->ic_data == NULL)
 				continue;
-			if (abd_cmp(good_child->ic_data, ic->ic_data,
-			    is->is_size) == 0)
+			if (ic->ic_duplicate == is->is_good_child)
 				continue;
 
 			zio_nowait(zio_vdev_child_io(zio, NULL,
@@ -1447,15 +1447,16 @@ vdev_indirect_all_checksum_errors(zio_t *zio)
  *
  * If we pointed to any mirror vdevs, this effectively does the job of the
  * mirror.  The mirror vdev code can't do its own job because we don't know
- * the checksum of each split segment individually.  We have to try every
- * combination of copies of split segments, until we find one that checksums
- * correctly.  (Or until we have tried all combinations, or have tried
- * 2^zfs_reconstruct_indirect_segments_max combinations.  In these cases we
- * set io_error to ECKSUM to propagate the error up to the user.)
+ * the checksum of each split segment individually.
  *
- * For example, if we have 3 segments in the split,
- * and each points to a 2-way mirror, we will have the following pieces of
- * data:
+ * We have to try every unique combination of copies of split segments, until
+ * we find one that checksums correctly.  Duplicate segment copies are first
+ * discarded as an optimization to reduce the search space.  After pruning
+ * there will exist at most one valid combination.
+ *
+ * When the total number of combinations is small they can all be checked.
+ * For example, if we have 3 segments in the split, and each points to a
+ * 2-way mirror with unique copies, we will have the following pieces of data:
  *
  *       |     mirror child
  * split |     [0]        [1]
@@ -1494,12 +1495,48 @@ vdev_indirect_reconstruct_io_done(zio_t *zio)
 {
 	indirect_vsd_t *iv = zio->io_vsd;
 	uint64_t attempts = 0;
-	uint64_t attempts_max = 1ULL << zfs_reconstruct_indirect_segments_max;
-	int segments = 0;
+	uint64_t attempts_max = UINT64_MAX;
+	uint64_t combinations = 1;
 
+	if (zfs_reconstruct_indirect_combinations_max > 0)
+		attempts_max = zfs_reconstruct_indirect_combinations_max;
+
+	/*
+	 * Discard duplicate copies of split segments to minimize the
+	 * number of unique combinations when attempting reconstruction.
+	 */
 	for (indirect_split_t *is = list_head(&iv->iv_splits);
-	    is != NULL; is = list_next(&iv->iv_splits, is))
-		segments++;
+	    is != NULL; is = list_next(&iv->iv_splits, is)) {
+		uint64_t is_copies = 0;
+
+		for (int i = 0; i < is->is_children; i++) {
+			if (is->is_child[i].ic_data == NULL)
+				continue;
+
+			for (int j = i + 1; j < is->is_children; j++) {
+				if (is->is_child[j].ic_data == NULL)
+					continue;
+
+				if (is->is_child[j].ic_duplicate == -1 &&
+				    abd_cmp(is->is_child[i].ic_data,
+				    is->is_child[j].ic_data) == 0) {
+					is->is_child[j].ic_duplicate = i;
+				}
+			}
+
+			is_copies++;
+		}
+
+		/* Reconstruction is impossible, no valid is->is_child[] */
+		if (is_copies == 0) {
+			zio->io_error = EIO;
+			vdev_indirect_all_checksum_errors(zio);
+			zio_checksum_verified(zio);
+			return;
+		}
+
+		combinations *= is_copies;
+	}
 
 	for (;;) {
 		/* copy data from splits to main zio */
@@ -1513,6 +1550,15 @@ vdev_indirect_reconstruct_io_done(zio_t *zio)
 			 */
 			if (is->is_child[is->is_good_child].ic_data == NULL) {
 				ret = EIO;
+				goto next;
+			}
+
+			/*
+			 * If this child is a duplicate, its is_duplicate will
+			 * refer to the primary copy.  Skip this combination.
+			 */
+			if (is->is_child[is->is_good_child].ic_duplicate >= 0) {
+				ret = ECKSUM;
 				goto next;
 			}
 
@@ -1538,14 +1584,14 @@ vdev_indirect_reconstruct_io_done(zio_t *zio)
 		boolean_t more;
 next:
 		more = B_FALSE;
-		if (segments <= zfs_reconstruct_indirect_segments_max) {
+		if (combinations <= attempts_max) {
 			/*
-			 * There are relatively few segments, so
-			 * deterministically check all combinations.  We do
-			 * this by by adding one to the first split's
-			 * good_child.  If it overflows, then "carry over" to
-			 * the next split (like counting in base is_children,
-			 * but each digit can have a different base).
+			 * There are relatively few possible combinations, so
+			 * deterministically check them all.  We do this by
+			 * adding one to the first split's good_child.  If it
+			 * overflows, then "carry over" to the next split
+			 * (like counting in base is_children, but each
+			 * digit can have a different base).
 			 */
 			for (indirect_split_t *is = list_head(&iv->iv_splits);
 			    is != NULL; is = list_next(&iv->iv_splits, is)) {
@@ -1565,8 +1611,12 @@ next:
 			 */
 			for (indirect_split_t *is = list_head(&iv->iv_splits);
 			    is != NULL; is = list_next(&iv->iv_splits, is)) {
-				is->is_good_child =
-				    spa_get_random(is->is_children);
+				int c = spa_get_random(is->is_children);
+
+				while (is->is_child[c].ic_duplicate >= 0)
+					c = (c + 1) % is->is_children;
+
+				is->is_good_child = c;
 			}
 			more = B_TRUE;
 		}

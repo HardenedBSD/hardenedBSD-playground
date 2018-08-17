@@ -148,6 +148,7 @@ ZFS_COMMON_OBJS +=		\
 	zfs_debug.o		\
 	zfs_fm.o		\
 	zfs_fuid.o		\
+	zfs_rlock.o		\
 	zfs_sa.o		\
 	zfs_znode.o		\
 	zil.o			\
@@ -181,7 +182,6 @@ ZFS_OBJS +=			\
 	zfs_log.o		\
 	zfs_onexit.o		\
 	zfs_replay.o		\
-	zfs_rlock.o		\
 	zfs_vfsops.o		\
 	zfs_vnops.o		\
 	zvol.o

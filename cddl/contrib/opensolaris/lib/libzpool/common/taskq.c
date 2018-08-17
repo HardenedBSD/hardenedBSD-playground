@@ -32,6 +32,8 @@
 
 int taskq_now;
 taskq_t *system_taskq;
+taskq_t *system_delay_taskq;
+taskq_t *dynamic_taskq;
 
 #define	TASKQ_ACTIVE	0x00010000
 #define	TASKQ_NAMELEN	31
@@ -144,6 +146,28 @@ taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t tqflags)
 	cv_signal(&tq->tq_dispatch_cv);
 	mutex_exit(&tq->tq_lock);
 	return (1);
+}
+taskqid_t
+taskq_dispatch_delay(taskq_t *tq,  task_func_t func, void *arg, uint_t tqflags,
+    clock_t expire_time)
+{
+	return (0);
+}
+
+int
+taskq_empty_ent(taskq_ent_t *t)
+{
+	return (t->tqent_next == NULL);
+}
+
+void
+taskq_init_ent(taskq_ent_t *t)
+{
+	t->tqent_next = NULL;
+	t->tqent_prev = NULL;
+	t->tqent_func = NULL;
+	t->tqent_arg = NULL;
+	t->tqent_flags = 0;
 }
 
 void
@@ -338,11 +362,30 @@ system_taskq_init(void)
 {
 	system_taskq = taskq_create("system_taskq", 64, minclsyspri, 4, 512,
 	    TASKQ_DYNAMIC | TASKQ_PREPOPULATE);
+
+	system_delay_taskq = taskq_create("spl_delay_taskq", MAX(boot_ncpus, 4),
+	    maxclsyspri, boot_ncpus, INT_MAX, TASKQ_PREPOPULATE|TASKQ_DYNAMIC);
+	if (system_delay_taskq == NULL) {
+		taskq_destroy(system_taskq);
+		abort();
+	}
+
+	dynamic_taskq = taskq_create("spl_dynamic_taskq", 1,
+	    maxclsyspri, boot_ncpus, INT_MAX, TASKQ_PREPOPULATE);
+	if (dynamic_taskq == NULL) {
+		taskq_destroy(system_taskq);
+		taskq_destroy(system_delay_taskq);
+		abort();
+	}
 }
 
 void
 system_taskq_fini(void)
 {
 	taskq_destroy(system_taskq);
+	taskq_destroy(system_delay_taskq);
+	taskq_destroy(dynamic_taskq);
 	system_taskq = NULL; /* defensive */
+	system_delay_taskq = NULL;
+	dynamic_taskq = NULL;
 }

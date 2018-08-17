@@ -306,19 +306,35 @@ boolean_t zfs_free_leak_on_eio = B_FALSE;
  * has not completed in zfs_deadman_synctime_ms is considered "hung" resulting
  * in a system panic.
  */
-uint64_t zfs_deadman_synctime_ms = 1000000ULL;
+uint64_t zfs_deadman_synctime_ms = 300000ULL;
+
+/*
+ * This value controls the maximum amount of time zio_wait() will block for an
+ * outstanding IO.  By default this is 300 seconds at which point the "hung"
+ * behavior will be applied as described for zfs_deadman_synctime_ms.
+ */
+uint64_t zfs_deadman_ziotime_ms = 300000ULL;
 
 /*
  * Check time in milliseconds. This defines the frequency at which we check
  * for hung I/O.
  */
-uint64_t zfs_deadman_checktime_ms = 5000ULL;
+uint64_t zfs_deadman_checktime_ms = 60000ULL;
 
 /*
- * Default value of -1 for zfs_deadman_enabled is resolved in
- * zfs_deadman_init()
+ * By default the deadman is enabled.
  */
-int zfs_deadman_enabled = -1;
+int zfs_deadman_enabled = 1;
+
+/*
+ * Controls the behavior of the deadman when it detects a "hung" I/O.
+ * Valid values are zfs_deadman_failmode=<wait|continue|panic>.
+ *
+ * wait     - Wait for the "hung" I/O (default)
+ * continue - Attempt to recover from a "hung" I/O
+ * panic    - Panic the system
+ */
+char *zfs_deadman_failmode = "wait";
 
 /*
  * The worst case is single-sector max-parity RAID-Z blocks, in which
@@ -642,45 +658,25 @@ spa_lookup(const char *name)
  * If the zfs_deadman_enabled flag is set then it inspects all vdev queues
  * looking for potentially hung I/Os.
  */
-static void
-spa_deadman(void *arg, int pending)
+void
+spa_deadman(void *arg)
 {
 	spa_t *spa = arg;
 
-	/*
-	 * Disable the deadman timer if the pool is suspended.
-	 */
-	if (spa_suspended(spa)) {
-#ifdef illumos
-		VERIFY(cyclic_reprogram(spa->spa_deadman_cycid, CY_INFINITY));
-#else
-		/* Nothing.  just don't schedule any future callouts. */
-#endif
+	/* Disable the deadman if the pool is suspended. */
+	if (spa_suspended(spa))
 		return;
-	}
 
 	zfs_dbgmsg("slow spa_sync: started %llu seconds ago, calls %llu",
 	    (gethrtime() - spa->spa_sync_starttime) / NANOSEC,
 	    ++spa->spa_deadman_calls);
 	if (zfs_deadman_enabled)
-		vdev_deadman(spa->spa_root_vdev);
-#ifdef __FreeBSD__
-#ifdef _KERNEL
-	callout_schedule(&spa->spa_deadman_cycid,
-	    hz * zfs_deadman_checktime_ms / MILLISEC);
-#endif
-#endif
-}
+		vdev_deadman(spa->spa_root_vdev, FTAG);
 
-#if defined(__FreeBSD__) && defined(_KERNEL)
-static void
-spa_deadman_timeout(void *arg)
-{
-	spa_t *spa = arg;
-
-	taskqueue_enqueue(taskqueue_thread, &spa->spa_deadman_task);
+	spa->spa_deadman_tqid = taskq_dispatch_delay(system_delay_taskq,
+	    spa_deadman, spa, TQ_SLEEP, ddi_get_lbolt() +
+	    MSEC_TO_TICK(zfs_deadman_checktime_ms));
 }
-#endif
 
 /*
  * Create an uninitialized spa_t with the given name.  Requires
@@ -739,6 +735,9 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 #endif
 
 	spa->spa_deadman_synctime = MSEC2NSEC(zfs_deadman_synctime_ms);
+
+	spa->spa_deadman_ziotime = MSEC2NSEC(zfs_deadman_ziotime_ms);
+	spa_set_deadman_failmode(spa, zfs_deadman_failmode);
 
 #ifdef illumos
 	/*
@@ -1919,7 +1918,7 @@ spa_update_dspace(spa_t *spa)
  * Return the failure mode that has been set to this pool. The default
  * behavior will be to block all I/Os when a complete failure occurs.
  */
-uint8_t
+uint64_t
 spa_get_failmode(spa_t *spa)
 {
 	return (spa->spa_failmode);
@@ -2006,6 +2005,31 @@ uint64_t
 spa_deadman_synctime(spa_t *spa)
 {
 	return (spa->spa_deadman_synctime);
+}
+
+uint64_t
+spa_deadman_ziotime(spa_t *spa)
+{
+	return (spa->spa_deadman_ziotime);
+}
+
+uint64_t
+spa_get_deadman_failmode(spa_t *spa)
+{
+	return (spa->spa_deadman_failmode);
+}
+
+void
+spa_set_deadman_failmode(spa_t *spa, const char *failmode)
+{
+	if (strcmp(failmode, "wait") == 0)
+		spa->spa_deadman_failmode = ZIO_FAILURE_MODE_WAIT;
+	else if (strcmp(failmode, "continue") == 0)
+		spa->spa_deadman_failmode = ZIO_FAILURE_MODE_CONTINUE;
+	else if (strcmp(failmode, "panic") == 0)
+		spa->spa_deadman_failmode = ZIO_FAILURE_MODE_PANIC;
+	else
+		spa->spa_deadman_failmode = ZIO_FAILURE_MODE_WAIT;
 }
 
 uint64_t

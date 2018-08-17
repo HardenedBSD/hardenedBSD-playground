@@ -25,6 +25,7 @@
  * Copyright 2013 Martin Matuska <mm@FreeBSD.org>. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2013 Saso Kiselkov. All rights reserved.
+ * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  * Copyright (c) 2017 Datto Inc.
  */
 
@@ -323,6 +324,7 @@ struct spa {
 	uint64_t	spa_pool_props_object;	/* object for properties */
 	uint64_t	spa_bootfs;		/* default boot filesystem */
 	uint64_t	spa_failmode;		/* failure mode for the pool */
+	uint64_t	spa_deadman_failmode;	/* failure mode for deadman */
 	uint64_t	spa_delegation;		/* delegation on/off */
 	list_t		spa_config_list;	/* previous cache file(s) */
 	/* per-CPU array of root of async I/O: */
@@ -365,17 +367,11 @@ struct spa {
 	nvlist_t	*spa_feat_stats;	/* Cache of enabled features */
 	/* cache feature refcounts */
 	uint64_t	spa_feat_refcount_cache[SPA_FEATURES];
-#ifdef illumos
-	cyclic_id_t	spa_deadman_cycid;	/* cyclic id */
-#else	/* !illumos */
-#ifdef _KERNEL
-	struct callout	spa_deadman_cycid;	/* callout id */
-	struct task	spa_deadman_task;
-#endif
-#endif	/* illumos */
+	taskqid_t	spa_deadman_tqid;	/* Task id */
 	uint64_t	spa_deadman_calls;	/* number of deadman calls */
-	hrtime_t	spa_sync_starttime;	/* starting time fo spa_sync */
-	uint64_t	spa_deadman_synctime;	/* deadman expiration timer */
+	hrtime_t	spa_sync_starttime;	/* starting time of spa_sync */
+	uint64_t	spa_deadman_synctime;	/* deadman sync expiration */
+	uint64_t	spa_deadman_ziotime;	/* deadman zio expiration */
 	uint64_t	spa_all_vdev_zaps;	/* ZAP of per-vd ZAP obj #s */
 	spa_avz_action_t	spa_avz_action;	/* destroy/rebuild AVZ? */
 	spa_keystore_t	spa_keystore;	/* loaded crypto keys */

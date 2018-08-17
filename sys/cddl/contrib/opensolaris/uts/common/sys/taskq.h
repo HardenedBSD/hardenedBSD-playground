@@ -77,9 +77,17 @@ struct proc;
 #ifdef _KERNEL
 
 extern taskq_t *system_taskq;
+/* Global dynamic task queue for long delay */
+extern taskq_t *system_delay_taskq;
 
 void	taskq_init(void);
 void	taskq_mp_init(void);
+
+extern taskqid_t taskq_dispatch(taskq_t *, task_func_t, void *, uint_t);
+extern taskqid_t taskq_dispatch_delay(taskq_t *, task_func_t, void *,
+    uint_t, clock_t);
+extern void taskq_dispatch_ent(taskq_t *, task_func_t, void *, uint_t,
+    taskq_ent_t *);
 
 taskq_t	*taskq_create(const char *, int, pri_t, int, int, uint_t);
 taskq_t	*taskq_create_instance(const char *, int, int, pri_t, int, int, uint_t);
@@ -87,17 +95,16 @@ taskq_t	*taskq_create_proc(const char *, int, pri_t, int, int,
     struct proc *, uint_t);
 taskq_t	*taskq_create_sysdc(const char *, int, int, int,
     struct proc *, uint_t, uint_t);
-taskqid_t taskq_dispatch(taskq_t *, task_func_t, void *, uint_t);
-void	taskq_dispatch_ent(taskq_t *, task_func_t, void *, uint_t,
-    taskq_ent_t *);
 void	nulltask(void *);
-void	taskq_destroy(taskq_t *);
-void	taskq_wait(taskq_t *);
-void	taskq_wait_id(taskq_t *, taskqid_t);
+extern void taskq_destroy(taskq_t *);
+extern void taskq_wait_id(taskq_t *, taskqid_t);
+extern void taskq_wait_outstanding(taskq_t *, taskqid_t);
+extern void taskq_wait(taskq_t *);
+extern int taskq_cancel_id(taskq_t *, taskqid_t);
+extern int taskq_member(taskq_t *, kthread_t *)
 void	taskq_suspend(taskq_t *);
 int	taskq_suspended(taskq_t *);
 void	taskq_resume(taskq_t *);
-int	taskq_member(taskq_t *, kthread_t *);
 
 #endif	/* _KERNEL */
 
