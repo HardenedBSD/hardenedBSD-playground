@@ -225,7 +225,15 @@ typedef struct kthread kthread_t;
 #define	thread_create(stk, stksize, func, arg, len, pp, state, pri)	\
 	zk_thread_create(func, arg)
 #define	thread_exit() thr_exit(NULL)
-#define thread_join(t)  pthread_join((pthread_t)(t), NULL)
+
+static __inline int
+thread_join(void *t)
+{
+	void *rc;
+	/* XXX some error codes just mean it's exited already */
+	pthread_join((pthread_t)(t), &rc);
+	return (0);
+}
 
 #define	newproc(f, a, cid, pri, ctp, pid)	(ENOSYS)
 
