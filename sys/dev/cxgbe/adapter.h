@@ -194,8 +194,6 @@ struct vi_info {
 	uint16_t rss_size;	/* size of VI's RSS table slice */
 	uint16_t rss_base;	/* start of VI's RSS table slice */
 
-	eventhandler_tag vlan_c;
-
 	int nintr;
 	int first_intr;
 
@@ -1270,7 +1268,7 @@ int t4_filter_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
 int t4_hashfilter_ao_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
 int t4_hashfilter_tcb_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
 int t4_del_hashfilter_rpl(struct sge_iq *, const struct rss_header *, struct mbuf *);
-void free_hftid_tab(struct tid_info *);
+void free_hftid_hash(struct tid_info *);
 
 static inline struct wrqe *
 alloc_wrqe(int wr_len, struct sge_wrq *wrq)
