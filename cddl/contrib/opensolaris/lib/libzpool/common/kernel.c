@@ -87,7 +87,7 @@ zk_thread_create(void (*func)(), void *arg, int state)
 	if ((state & TS_JOINABLE) == 0)
 		flags |= THR_DETACHED;
 
-	VERIFY(thr_create(0, 0, (void *(*)(void *))func, arg, THR_DETACHED,
+	VERIFY(thr_create(0, 0, (void *(*)(void *))func, arg, flags,
 	    &tid) == 0);
 
 	return ((void *)(uintptr_t)tid);
@@ -322,7 +322,7 @@ cv_destroy(kcondvar_t *cv)
 	//VERIFY(cond_destroy(cv) == 0);
 	rc = cond_destroy(cv);
 	if (rc) {
-		printf("cond_destroy failed: %d\n", rc);
+		printf("cond_destroy(%p) failed: %d\n", cv, rc);
 		abort();
 	}
 }
