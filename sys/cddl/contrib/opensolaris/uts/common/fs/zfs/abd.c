@@ -8,7 +8,6 @@
  * source.  A copy of the CDDL is also available via the Internet at
  * http://www.illumos.org/license/CDDL.
  */
-
 /*
  * Copyright (c) 2014 by Chunwei Chen. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
@@ -93,16 +92,29 @@
 
 typedef struct abd_stats {
 	kstat_named_t abdstat_struct_size;
+	kstat_named_t abdstat_linear_cnt;
+	kstat_named_t abdstat_linear_data_size;
 	kstat_named_t abdstat_scatter_cnt;
 	kstat_named_t abdstat_scatter_data_size;
 	kstat_named_t abdstat_scatter_chunk_waste;
-	kstat_named_t abdstat_linear_cnt;
-	kstat_named_t abdstat_linear_data_size;
+	kstat_named_t abdstat_scatter_page_multi_chunk;
+	kstat_named_t abdstat_scatter_page_multi_zone;
+	kstat_named_t abdstat_scatter_page_alloc_retry;
+	kstat_named_t abdstat_scatter_sg_table_retry;
 } abd_stats_t;
 
 static abd_stats_t abd_stats = {
 	/* Amount of memory occupied by all of the abd_t struct allocations */
 	{ "struct_size",			KSTAT_DATA_UINT64 },
+	/*
+	 * The number of linear ABDs which are currently allocated, excluding
+	 * ABDs which don't own their data (for instance the ones which were
+	 * allocated through abd_get_offset() and abd_get_from_buf()). If an
+	 * ABD takes ownership of its buf then it will become tracked.
+	 */
+	{ "linear_cnt",				KSTAT_DATA_UINT64 },
+	/* Amount of data stored in all linear ABDs tracked by linear_cnt */
+	{ "linear_data_size",			KSTAT_DATA_UINT64 },
 	/*
 	 * The number of scatter ABDs which are currently allocated, excluding
 	 * ABDs which don't own their data (for instance the ones which were
@@ -117,14 +129,26 @@ static abd_stats_t abd_stats = {
 	 */
 	{ "scatter_chunk_waste",		KSTAT_DATA_UINT64 },
 	/*
-	 * The number of linear ABDs which are currently allocated, excluding
-	 * ABDs which don't own their data (for instance the ones which were
-	 * allocated through abd_get_offset() and abd_get_from_buf()). If an
-	 * ABD takes ownership of its buf then it will become tracked.
+	 * The number of scatter ABDs which contain multiple chunks.
+	 * ABDs are preferentially allocated from the minimum number of
+	 * contiguous multi-page chunks, a single chunk is optimal.
 	 */
-	{ "linear_cnt",				KSTAT_DATA_UINT64 },
-	/* Amount of data stored in all linear ABDs tracked by linear_cnt */
-	{ "linear_data_size",			KSTAT_DATA_UINT64 },
+	{ "scatter_page_multi_chunk",		KSTAT_DATA_UINT64 },
+	/*
+	 * The number of scatter ABDs which are split across memory zones.
+	 * ABDs are preferentially allocated using pages from a single zone.
+	 */
+	{ "scatter_page_multi_zone",		KSTAT_DATA_UINT64 },
+	/*
+	 *  The total number of retries encountered when attempting to
+	 *  allocate the pages to populate the scatter ABD.
+	 */
+	{ "scatter_page_alloc_retry",		KSTAT_DATA_UINT64 },
+	/*
+	 *  The total number of retries encountered when attempting to
+	 *  allocate the sg table for an ABD.
+	 */
+	{ "scatter_sg_table_retry",		KSTAT_DATA_UINT64 },
 };
 
 #define	ABDSTAT(stat)		(abd_stats.stat.value.ui64)
@@ -484,7 +508,7 @@ abd_get_offset_impl(abd_t *sabd, size_t off, size_t size)
 		    chunkcnt * sizeof (void *));
 	}
 
-	abd->abd_size = sabd->abd_size - off;
+	abd->abd_size = size;
 	abd->abd_parent = sabd;
 	refcount_create(&abd->abd_children);
 	(void) refcount_add_many(&sabd->abd_children, abd->abd_size, abd);
@@ -509,7 +533,6 @@ abd_get_offset_size(abd_t *sabd, size_t off, size_t size)
 
 	return (abd_get_offset_impl(sabd, off, size));
 }
-
 
 /*
  * Allocate a linear ABD structure for buf. You must free this with abd_put()
