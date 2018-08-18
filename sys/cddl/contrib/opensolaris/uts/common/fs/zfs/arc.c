@@ -9292,8 +9292,11 @@ l2arc_apply_transforms(spa_t *spa, arc_buf_hdr_t *hdr, uint64_t asize,
 		if (psize != asize)
 			abd_zero_off(eabd, psize, asize - psize);
 
+#ifdef _KERNEL
+		/* XXX Ignore mac until crypto is not a no-op */
 		/* assert that the MAC we got here matches the one we saved */
 		ASSERT0(bcmp(mac, hdr->b_crypt_hdr.b_mac, ZIO_DATA_MAC_LEN));
+#endif
 		spa_keystore_dsl_key_rele(spa, dck, FTAG);
 
 		if (to_write == cabd)
