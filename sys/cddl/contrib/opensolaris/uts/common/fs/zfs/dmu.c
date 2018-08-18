@@ -21,10 +21,11 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2013 by Saso Kiselkov. All rights reserved.
+ * Copyright (c) 2013, Joyent, Inc. All rights reserved.
+ * Copyright (c) 2016, Nexenta Systems, Inc. All rights reserved.
+ * Copyright (c) 2015 by Chunwei Chen. All rights reserved.
  */
-/* Copyright (c) 2013 by Saso Kiselkov. All rights reserved. */
-/* Copyright (c) 2013, Joyent, Inc. All rights reserved. */
-/* Copyright 2016 Nexenta Systems, Inc. All rights reserved. */
 
 #include <sys/dmu.h>
 #include <sys/dmu_impl.h>
@@ -46,8 +47,8 @@
 #include <sys/zio_compress.h>
 #include <sys/sa.h>
 #include <sys/zfeature.h>
-#include <sys/zfs_rlock.h>
 #include <sys/abd.h>
+#include <sys/zfs_rlock.h>
 #ifdef _KERNEL
 #include <sys/racct.h>
 #include <sys/vm.h>
@@ -2450,8 +2451,6 @@ dmu_object_set_compress(objset_t *os, uint64_t object, uint8_t compress,
 	dnode_setdirty(dn, tx);
 	dnode_rele(dn, FTAG);
 }
-
-int zfs_mdcomp_disable = 0;
 
 /*
  * When the "redundant_metadata" property is set to "most", only indirect
