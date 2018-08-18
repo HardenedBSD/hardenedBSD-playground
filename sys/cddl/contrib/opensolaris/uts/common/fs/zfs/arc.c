@@ -2976,6 +2976,7 @@ arc_evictable_space_increment(arc_buf_hdr_t *hdr, arc_state_t *state)
 		(void) refcount_add_many(&state->arcs_esize[type],
 		    HDR_GET_PSIZE(hdr), hdr);
 	}
+
 	for (arc_buf_t *buf = hdr->b_l1hdr.b_buf; buf != NULL;
 	    buf = buf->b_next) {
 		if (arc_buf_is_shared(buf))
@@ -3016,6 +3017,7 @@ arc_evictable_space_decrement(arc_buf_hdr_t *hdr, arc_state_t *state)
 		(void) refcount_remove_many(&state->arcs_esize[type],
 		    HDR_GET_PSIZE(hdr), hdr);
 	}
+
 	for (arc_buf_t *buf = hdr->b_l1hdr.b_buf; buf != NULL;
 	    buf = buf->b_next) {
 		if (arc_buf_is_shared(buf))
@@ -3034,6 +3036,8 @@ arc_evictable_space_decrement(arc_buf_hdr_t *hdr, arc_state_t *state)
 static void
 add_reference(arc_buf_hdr_t *hdr, void *tag)
 {
+	arc_state_t *state;
+
 	ASSERT(HDR_HAS_L1HDR(hdr));
 	if (!MUTEX_HELD(HDR_LOCK(hdr))) {
 		ASSERT(hdr->b_l1hdr.b_state == arc_anon);
@@ -3041,7 +3045,7 @@ add_reference(arc_buf_hdr_t *hdr, void *tag)
 		ASSERT3P(hdr->b_l1hdr.b_buf, ==, NULL);
 	}
 
-	arc_state_t *state = hdr->b_l1hdr.b_state;
+	state = hdr->b_l1hdr.b_state;
 
 	if ((refcount_add(&hdr->b_l1hdr.b_refcnt, tag) == 1) &&
 	    (state != arc_anon)) {
@@ -3698,8 +3702,6 @@ arc_hdr_free_on_write(arc_buf_hdr_t *hdr, boolean_t free_rdata)
 static void
 arc_share_buf(arc_buf_hdr_t *hdr, arc_buf_t *buf)
 {
-	arc_state_t *state = hdr->b_l1hdr.b_state;
-
 	ASSERT(arc_can_share(hdr, buf));
 	ASSERT3P(hdr->b_l1hdr.b_pabd, ==, NULL);
 	ASSERT(!ARC_BUF_ENCRYPTED(buf));
@@ -3710,7 +3712,7 @@ arc_share_buf(arc_buf_hdr_t *hdr, arc_buf_t *buf)
 	 * refcount ownership to the hdr since it always owns
 	 * the refcount whenever an arc_buf_t is shared.
 	 */
-	refcount_transfer_ownership(&state->arcs_size, buf, hdr);
+	refcount_transfer_ownership(&hdr->b_l1hdr.b_state->arcs_size, buf, hdr);
 	hdr->b_l1hdr.b_pabd = abd_get_from_buf(buf->b_data, arc_buf_size(buf));
 	abd_take_ownership_of_buf(hdr->b_l1hdr.b_pabd,
 	    HDR_ISTYPE_METADATA(hdr));
@@ -3730,8 +3732,6 @@ arc_share_buf(arc_buf_hdr_t *hdr, arc_buf_t *buf)
 static void
 arc_unshare_buf(arc_buf_hdr_t *hdr, arc_buf_t *buf)
 {
-	arc_state_t *state = hdr->b_l1hdr.b_state;
-
 	ASSERT(arc_buf_is_shared(buf));
 	ASSERT3P(hdr->b_l1hdr.b_pabd, !=, NULL);
 	ASSERT(MUTEX_HELD(HDR_LOCK(hdr)) || HDR_EMPTY(hdr));
@@ -3740,7 +3740,7 @@ arc_unshare_buf(arc_buf_hdr_t *hdr, arc_buf_t *buf)
 	 * We are no longer sharing this buffer so we need
 	 * to transfer its ownership to the rightful owner.
 	 */
-	refcount_transfer_ownership(&state->arcs_size, hdr, buf);
+	refcount_transfer_ownership(&hdr->b_l1hdr.b_state->arcs_size, hdr, buf);
 	arc_hdr_clear_flags(hdr, ARC_FLAG_SHARED_DATA);
 	abd_release_ownership_of_buf(hdr->b_l1hdr.b_pabd);
 	abd_put(hdr->b_l1hdr.b_pabd);
@@ -4216,6 +4216,7 @@ arc_hdr_realloc_crypt(arc_buf_hdr_t *hdr, boolean_t need_crypt)
 		buf->b_hdr = nhdr;
 		mutex_exit(&buf->b_evict_lock);
 	}
+
 	refcount_transfer(&nhdr->b_l1hdr.b_refcnt, &hdr->b_l1hdr.b_refcnt);
 	(void) refcount_remove(&nhdr->b_l1hdr.b_refcnt, FTAG);
 	ASSERT0(refcount_count(&hdr->b_l1hdr.b_refcnt));
@@ -8064,6 +8065,7 @@ arc_state_init(void)
 	aggsum_init(&astat_data_size, 0);
 	aggsum_init(&astat_metadata_size, 0);
 	aggsum_init(&astat_hdr_size, 0);
+	aggsum_init(&astat_l2_hdr_size, 0);
 	aggsum_init(&astat_bonus_size, 0);
 	aggsum_init(&astat_dnode_size, 0);
 	aggsum_init(&astat_dbuf_size, 0);
@@ -8103,6 +8105,16 @@ arc_state_fini(void)
 	multilist_destroy(arc_mfu_ghost->arcs_list[ARC_BUFC_DATA]);
 	multilist_destroy(arc_l2c_only->arcs_list[ARC_BUFC_METADATA]);
 	multilist_destroy(arc_l2c_only->arcs_list[ARC_BUFC_DATA]);
+
+	aggsum_fini(&arc_meta_used);
+	aggsum_fini(&arc_size);
+	aggsum_fini(&astat_data_size);
+	aggsum_fini(&astat_metadata_size);
+	aggsum_fini(&astat_hdr_size);
+	aggsum_fini(&astat_l2_hdr_size);
+	aggsum_fini(&astat_bonus_size);
+	aggsum_fini(&astat_dnode_size);
+	aggsum_fini(&astat_dbuf_size);
 }
 
 uint64_t

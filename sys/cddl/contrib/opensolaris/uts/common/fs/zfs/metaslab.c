@@ -741,7 +741,7 @@ metaslab_group_create(metaslab_class_t *mc, vdev_t *vd, int allocators)
 	}
 
 	mg->mg_taskq = taskq_create("metaslab_group_taskq", metaslab_load_pct,
-	    minclsyspri, 10, INT_MAX, TASKQ_THREADS_CPU_PCT);
+	    maxclsyspri, 10, INT_MAX, TASKQ_THREADS_CPU_PCT);
 
 	return (mg);
 }

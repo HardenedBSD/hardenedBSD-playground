@@ -318,7 +318,13 @@ cv_init(kcondvar_t *cv, char *name, int type, void *arg)
 void
 cv_destroy(kcondvar_t *cv)
 {
-	VERIFY(cond_destroy(cv) == 0);
+	int rc;
+	//VERIFY(cond_destroy(cv) == 0);
+	rc = cond_destroy(cv);
+	if (rc) {
+		printf("cond_destroy failed: %d\n", rc);
+		abort();
+	}
 }
 
 void

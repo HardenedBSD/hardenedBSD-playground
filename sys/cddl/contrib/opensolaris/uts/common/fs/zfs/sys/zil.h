@@ -420,6 +420,7 @@ extern void	zil_free(zilog_t *zilog);
 extern zilog_t	*zil_open(objset_t *os, zil_get_data_t *get_data);
 extern void	zil_close(zilog_t *zilog);
 
+void zil_async_to_sync(zilog_t *zilog, uint64_t foid);
 extern void	zil_replay(objset_t *os, void *arg,
     zil_replay_func_t *replay_func[TX_MAX_TYPE]);
 extern boolean_t zil_replaying(zilog_t *zilog, dmu_tx_t *tx);

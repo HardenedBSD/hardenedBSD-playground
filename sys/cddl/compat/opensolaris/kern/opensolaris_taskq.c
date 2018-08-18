@@ -230,5 +230,22 @@ taskq_wait(taskq_t *tq)
 void
 taskq_wait_id(taskq_t *tq, taskqid_t id)
 {
-        taskq_wait(tq);
+	struct taskq_ent *ent = (void*)id;
+
+	taskqueue_drain(tq->tq_queue, &ent->tqent_task);
+}
+/*
+ * The taskq_wait_outstanding() function should block until all tasks with a
+ * lower taskqid than the passed 'id' have been completed.  Note that all
+ * task id's are assigned monotonically at dispatch time.  Zero may be
+ * passed for the id to indicate all tasks dispatch up to this point,
+ * but not after, should be waited for.
+ *
+ * need to move to proper monotonic taskids to get this behavior
+ */
+
+void
+taskq_wait_outstanding(taskq_t *tq, taskqid_t id __unused)
+{
+	taskqueue_drain_all(tq->tq_queue);
 }

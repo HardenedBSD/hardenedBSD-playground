@@ -297,7 +297,11 @@ boolean_t zfs_recover = B_FALSE;
  * leaking space in the "partial temporary" failure case.
  */
 boolean_t zfs_free_leak_on_eio = B_FALSE;
-
+#ifdef ZFS_DEBUG
+uint64_t zfs_deadman_synctime_ms = 60000ULL;
+uint64_t zfs_deadman_ziotime_ms = 30000ULL;
+uint64_t zfs_deadman_checktime_ms = 6000ULL;
+#else
 /*
  * Expiration time in milliseconds. This value has two meanings. First it is
  * used to determine when the spa_deadman() logic should fire. By default the
@@ -320,7 +324,7 @@ uint64_t zfs_deadman_ziotime_ms = 300000ULL;
  * for hung I/O.
  */
 uint64_t zfs_deadman_checktime_ms = 60000ULL;
-
+#endif
 /*
  * By default the deadman is enabled.
  */

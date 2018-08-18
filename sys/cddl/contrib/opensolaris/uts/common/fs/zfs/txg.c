@@ -209,15 +209,15 @@ txg_sync_start(dsl_pool_t *dp)
 	tx->tx_threads = 2;
 
 	tx->tx_quiesce_thread = thread_create(NULL, 0, txg_quiesce_thread,
-	    dp, 0, &p0, TS_RUN, minclsyspri);
+	    dp, 0, &p0, TS_RUN, defclsyspri);
 
 	/*
 	 * The sync thread can need a larger-than-default stack size on
 	 * 32-bit x86.  This is due in part to nested pools and
 	 * scrub_visitbp() recursion.
 	 */
-	tx->tx_sync_thread = thread_create(NULL, 32<<10, txg_sync_thread,
-	    dp, 0, &p0, TS_RUN, minclsyspri);
+	tx->tx_sync_thread = thread_create(NULL, 0, txg_sync_thread,
+	    dp, 0, &p0, TS_RUN, defclsyspri);
 
 	mutex_exit(&tx->tx_sync_lock);
 }
@@ -394,10 +394,8 @@ txg_quiesce(dsl_pool_t *dp, uint64_t txg)
 }
 
 static void
-txg_do_callbacks(void *arg)
+txg_do_callbacks(list_t *cb_list)
 {
-	list_t *cb_list = arg;
-
 	dmu_tx_do_callbacks(cb_list, 0);
 
 	list_destroy(cb_list);
@@ -448,6 +446,20 @@ txg_dispatch_callbacks(dsl_pool_t *dp, uint64_t txg)
 		(void) taskq_dispatch(tx->tx_commit_cb_taskq, (task_func_t *)
 		    txg_do_callbacks, cb_list, TQ_SLEEP);
 	}
+}
+
+/*
+ * Wait for pending commit callbacks of already-synced transactions to finish
+ * processing.
+ * Calling this function from within a commit callback will deadlock.
+ */
+void
+txg_wait_callbacks(dsl_pool_t *dp)
+{
+	tx_state_t *tx = &dp->dp_tx;
+
+	if (tx->tx_commit_cb_taskq != NULL)
+		taskq_wait_outstanding(tx->tx_commit_cb_taskq, 0);
 }
 
 static boolean_t
