@@ -510,7 +510,10 @@ insert_tid(struct adapter *sc, int tid, void *ctx, int ntids)
 {
 	struct tid_info *t = &sc->tids;
 
-	t->tid_tab[tid] = ctx;
+	MPASS(tid >= t->tid_base);
+	MPASS(tid - t->tid_base < t->ntids);
+
+	t->tid_tab[tid - t->tid_base] = ctx;
 	atomic_add_int(&t->tids_in_use, ntids);
 }
 
@@ -519,7 +522,7 @@ lookup_tid(struct adapter *sc, int tid)
 {
 	struct tid_info *t = &sc->tids;
 
-	return (t->tid_tab[tid]);
+	return (t->tid_tab[tid - t->tid_base]);
 }
 
 void
@@ -527,7 +530,7 @@ update_tid(struct adapter *sc, int tid, void *ctx)
 {
 	struct tid_info *t = &sc->tids;
 
-	t->tid_tab[tid] = ctx;
+	t->tid_tab[tid - t->tid_base] = ctx;
 }
 
 void
@@ -535,7 +538,7 @@ remove_tid(struct adapter *sc, int tid, int ntids)
 {
 	struct tid_info *t = &sc->tids;
 
-	t->tid_tab[tid] = NULL;
+	t->tid_tab[tid - t->tid_base] = NULL;
 	atomic_subtract_int(&t->tids_in_use, ntids);
 }
 
@@ -646,7 +649,7 @@ select_ntuple(struct vi_info *vi, struct l2t_entry *e)
 	 * Initialize each of the fields which we care about which are present
 	 * in the Compressed Filter Tuple.
 	 */
-	if (tp->vlan_shift >= 0 && e->vlan != CPL_L2T_VLAN_NONE)
+	if (tp->vlan_shift >= 0 && EVL_VLANOFTAG(e->vlan) != CPL_L2T_VLAN_NONE)
 		ntuple |= (uint64_t)(F_FT_VLAN_VLD | e->vlan) << tp->vlan_shift;
 
 	if (tp->port_shift >= 0)
@@ -1127,7 +1130,7 @@ prepare_pkt(int open_type, uint16_t vtag, struct inpcb *inp, int *pktlen,
 	ipv6 = inp->inp_vflag & INP_IPV6;
 	len = 0;
 
-	if (vtag == 0xffff) {
+	if (EVL_VLANOFTAG(vtag) == 0xfff) {
 		struct ether_header *eh = (void *)pkt;
 
 		if (ipv6)

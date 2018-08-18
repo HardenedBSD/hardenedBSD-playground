@@ -131,6 +131,7 @@ __DEFAULT_YES_OPTIONS = \
     LIBTHR \
     LLVM_COV \
     LOADER_GELI \
+    LOADER_LUA \
     LOADER_OFW \
     LOADER_UBOOT \
     LOCALES \
@@ -202,7 +203,6 @@ __DEFAULT_NO_OPTIONS = \
     LIBSOFT \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
-    LOADER_LUA \
     NAND \
     OFED \
     OFED_EXTRA \
@@ -283,6 +283,8 @@ __DEFAULT_DEPENDENT_OPTIONS+=	LLVM_TARGET_${__llt:${__LLVM_TARGET_FILT}:tu}/LLVM
 .endif
 .endfor
 
+__DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF
+
 .include <bsd.compiler.mk>
 # If the compiler is not C++11 capable, disable Clang and use GCC instead.
 # This means that architectures that have GCC 4.2 as default can not
@@ -317,9 +319,9 @@ __DEFAULT_YES_OPTIONS+=LLVM_LIBUNWIND
 .else
 __DEFAULT_NO_OPTIONS+=LLVM_LIBUNWIND
 .endif
-.if ${__T} == "aarch64" || ${__T} == "amd64"
+.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "armv7"
 __DEFAULT_YES_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
-.elif ${__T} == "armv7" || ${__T} == "i386"
+.elif ${__T} == "i386"
 __DEFAULT_YES_OPTIONS+=LLD_BOOTSTRAP
 __DEFAULT_NO_OPTIONS+=LLD_IS_LD
 .else

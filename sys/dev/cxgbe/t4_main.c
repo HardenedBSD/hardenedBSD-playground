@@ -544,7 +544,6 @@ static void get_regs(struct adapter *, struct t4_regdump *, uint8_t *);
 static void vi_refresh_stats(struct adapter *, struct vi_info *);
 static void cxgbe_refresh_stats(struct adapter *, struct port_info *);
 static void cxgbe_tick(void *);
-static void cxgbe_vlan_config(void *, struct ifnet *, uint16_t);
 static void cxgbe_sysctls(struct port_info *);
 static int sysctl_int_array(SYSCTL_HANDLER_ARGS);
 static int sysctl_bitfield_8b(SYSCTL_HANDLER_ARGS);
@@ -684,8 +683,8 @@ struct {
 
 #ifdef TCP_OFFLOAD
 /*
- * service_iq() has an iq and needs the fl.  Offset of fl from the iq should be
- * exactly the same for both rxq and ofld_rxq.
+ * service_iq_fl() has an iq and needs the fl.  Offset of fl from the iq should
+ * be exactly the same for both rxq and ofld_rxq.
  */
 CTASSERT(offsetof(struct sge_ofld_rxq, iq) == offsetof(struct sge_rxq, iq));
 CTASSERT(offsetof(struct sge_ofld_rxq, fl) == offsetof(struct sge_rxq, fl));
@@ -1052,7 +1051,7 @@ t4_attach(device_t dev)
 		s->ntxq += nports * (num_vis - 1) * iaq.ntxq_vi;
 	}
 	s->neq = s->ntxq + s->nrxq;	/* the free list in an rxq is an eq */
-	s->neq += nports + 1;/* ctrl queues: 1 per port + 1 mgmt */
+	s->neq += nports;		/* ctrl queues: 1 per port */
 	s->niq = s->nrxq + 1;		/* 1 extra for firmware event queue */
 #if defined(TCP_OFFLOAD) || defined(RATELIMIT)
 	if (is_offload(sc) || is_ethoffload(sc)) {
@@ -1404,8 +1403,8 @@ t4_detach_common(device_t dev)
 	free(sc->sge.iqmap, M_CXGBE);
 	free(sc->sge.eqmap, M_CXGBE);
 	free(sc->tids.ftid_tab, M_CXGBE);
-	if (sc->tids.hftid_tab)
-		free_hftid_tab(&sc->tids);
+	free(sc->tids.hpftid_tab, M_CXGBE);
+	free_hftid_hash(&sc->tids);
 	free(sc->tids.atid_tab, M_CXGBE);
 	free(sc->tids.tid_tab, M_CXGBE);
 	free(sc->tt.tls_rx_ports, M_CXGBE);
@@ -1465,7 +1464,8 @@ cxgbe_probe(device_t dev)
 
 #define T4_CAP (IFCAP_VLAN_HWTAGGING | IFCAP_VLAN_MTU | IFCAP_HWCSUM | \
     IFCAP_VLAN_HWCSUM | IFCAP_TSO | IFCAP_JUMBO_MTU | IFCAP_LRO | \
-    IFCAP_VLAN_HWTSO | IFCAP_LINKSTATE | IFCAP_HWCSUM_IPV6 | IFCAP_HWSTATS)
+    IFCAP_VLAN_HWTSO | IFCAP_LINKSTATE | IFCAP_HWCSUM_IPV6 | IFCAP_HWSTATS | \
+    IFCAP_HWRXTSTMP)
 #define T4_CAP_ENABLE (T4_CAP)
 
 static int
@@ -1521,9 +1521,6 @@ cxgbe_vi_attach(device_t dev, struct vi_info *vi)
 	ifp->if_hw_tsomax = 65536 - (ETHER_HDR_LEN + ETHER_VLAN_ENCAP_LEN);
 	ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS;
 	ifp->if_hw_tsomaxsegsize = 65536;
-
-	vi->vlan_c = EVENTHANDLER_REGISTER(vlan_config, cxgbe_vlan_config, ifp,
-	    EVENTHANDLER_PRI_ANY);
 
 	ether_ifattach(ifp, vi->hw_addr);
 #ifdef DEV_NETMAP
@@ -1601,9 +1598,6 @@ cxgbe_vi_detach(struct vi_info *vi)
 	struct ifnet *ifp = vi->ifp;
 
 	ether_ifdetach(ifp);
-
-	if (vi->vlan_c)
-		EVENTHANDLER_DEREGISTER(vlan_config, vi->vlan_c);
 
 	/* Let detach proceed even if these fail. */
 #ifdef DEV_NETMAP
@@ -1820,6 +1814,18 @@ cxgbe_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		if (mask & IFCAP_TXRTLMT)
 			ifp->if_capenable ^= IFCAP_TXRTLMT;
 #endif
+		if (mask & IFCAP_HWRXTSTMP) {
+			int i;
+			struct sge_rxq *rxq;
+
+			ifp->if_capenable ^= IFCAP_HWRXTSTMP;
+			for_each_rxq(vi, i, rxq) {
+				if (ifp->if_capenable & IFCAP_HWRXTSTMP)
+					rxq->iq.flags |= IQ_RX_TIMESTAMP;
+				else
+					rxq->iq.flags &= ~IQ_RX_TIMESTAMP;
+			}
+		}
 
 #ifdef VLAN_CAPABILITIES
 		VLAN_CAPABILITIES(ifp);
@@ -3853,6 +3859,47 @@ get_params__post_init(struct adapter *sc)
 	    __func__, sc->vres.l2t.size, L2T_SIZE));
 	sc->params.core_vdd = val[6];
 
+	if (chip_id(sc) >= CHELSIO_T6) {
+
+#ifdef INVARIANTS
+		if (sc->params.fw_vers >=
+		    (V_FW_HDR_FW_VER_MAJOR(1) | V_FW_HDR_FW_VER_MINOR(20) |
+		    V_FW_HDR_FW_VER_MICRO(1) | V_FW_HDR_FW_VER_BUILD(0))) {
+			/*
+			 * Note that the code to enable the region should run
+			 * before t4_fw_initialize and not here.  This is just a
+			 * reminder to add said code.
+			 */
+			device_printf(sc->dev,
+			    "hpfilter region not enabled.\n");
+		}
+#endif
+
+		sc->tids.tid_base = t4_read_reg(sc,
+		    A_LE_DB_ACTIVE_TABLE_START_INDEX);
+
+		param[0] = FW_PARAM_PFVF(HPFILTER_START);
+		param[1] = FW_PARAM_PFVF(HPFILTER_END);
+		rc = -t4_query_params(sc, sc->mbox, sc->pf, 0, 2, param, val);
+		if (rc != 0) {
+			device_printf(sc->dev,
+			   "failed to query hpfilter parameters: %d.\n", rc);
+			return (rc);
+		}
+		if ((int)val[1] > (int)val[0]) {
+			sc->tids.hpftid_base = val[0];
+			sc->tids.hpftid_end = val[1];
+			sc->tids.nhpftids = val[1] - val[0] + 1;
+
+			/*
+			 * These should go off if the layout changes and the
+			 * driver needs to catch up.
+			 */
+			MPASS(sc->tids.hpftid_base == 0);
+			MPASS(sc->tids.tid_base == sc->tids.nhpftids);
+		}
+	}
+
 	/*
 	 * MPSBGMAP is queried separately because only recent firmwares support
 	 * it as a parameter and we don't want the compound query above to fail
@@ -3916,6 +3963,12 @@ get_params__post_init(struct adapter *sc)
 			return (rc);
 		}
 		sc->tids.ntids = val[0];
+		if (sc->params.fw_vers <
+		    (V_FW_HDR_FW_VER_MAJOR(1) | V_FW_HDR_FW_VER_MINOR(20) |
+		    V_FW_HDR_FW_VER_MICRO(5) | V_FW_HDR_FW_VER_BUILD(0))) {
+			MPASS(sc->tids.ntids >= sc->tids.nhpftids);
+			sc->tids.ntids -= sc->tids.nhpftids;
+		}
 		sc->tids.natids = min(sc->tids.ntids / 2, MAX_ATIDS);
 		sc->params.hash_filter = 1;
 	}
@@ -3952,6 +4005,12 @@ get_params__post_init(struct adapter *sc)
 			return (rc);
 		}
 		sc->tids.ntids = val[0];
+		if (sc->params.fw_vers <
+		    (V_FW_HDR_FW_VER_MAJOR(1) | V_FW_HDR_FW_VER_MINOR(20) |
+		    V_FW_HDR_FW_VER_MICRO(5) | V_FW_HDR_FW_VER_BUILD(0))) {
+			MPASS(sc->tids.ntids >= sc->tids.nhpftids);
+			sc->tids.ntids -= sc->tids.nhpftids;
+		}
 		sc->tids.natids = min(sc->tids.ntids / 2, MAX_ATIDS);
 		if (val[2] > val[1]) {
 			sc->tids.stid_base = val[1];
@@ -4771,9 +4830,26 @@ t4_setup_intr_handlers(struct adapter *sc)
 #ifdef DEV_NETMAP
 					if (q < vi->nnmrxq)
 						irq->nm_rxq = nm_rxq++;
+
+					if (irq->nm_rxq != NULL &&
+					    irq->rxq == NULL) {
+						/* Netmap rx only */
+						rc = t4_alloc_irq(sc, irq, rid,
+						    t4_nm_intr, irq->nm_rxq, s);
+					}
+					if (irq->nm_rxq != NULL &&
+					    irq->rxq != NULL) {
+						/* NIC and Netmap rx */
+						rc = t4_alloc_irq(sc, irq, rid,
+						    t4_vi_intr, irq, s);
+					}
 #endif
-					rc = t4_alloc_irq(sc, irq, rid,
-					    t4_vi_intr, irq, s);
+					if (irq->rxq != NULL &&
+					    irq->nm_rxq == NULL) {
+						/* NIC rx only */
+						rc = t4_alloc_irq(sc, irq, rid,
+						    t4_intr, irq->rxq, s);
+					}
 					if (rc != 0)
 						return (rc);
 #ifdef RSS
@@ -5397,18 +5473,6 @@ vi_tick(void *arg)
 	callout_schedule(&vi->tick, hz);
 }
 
-static void
-cxgbe_vlan_config(void *arg, struct ifnet *ifp, uint16_t vid)
-{
-	struct ifnet *vlan;
-
-	if (arg != ifp || ifp->if_type != IFT_ETHER)
-		return;
-
-	vlan = VLAN_DEVAT(ifp, vid);
-	VLAN_SETCOOKIE(vlan, ifp);
-}
-
 /*
  * Should match fw_caps_config_<foo> enums in t4fw_interface.h
  */
@@ -6008,6 +6072,13 @@ cxgbe_sysctls(struct port_info *pi)
 	 */
 	oid = SYSCTL_ADD_NODE(ctx, children, OID_AUTO, "tc", CTLFLAG_RD, NULL,
 	    "Tx scheduler traffic classes (cl_rl)");
+	children2 = SYSCTL_CHILDREN(oid);
+	SYSCTL_ADD_UINT(ctx, children2, OID_AUTO, "pktsize",
+	    CTLFLAG_RW, &pi->sched_params->pktsize, 0,
+	    "pktsize for per-flow cl-rl (0 means up to the driver )");
+	SYSCTL_ADD_UINT(ctx, children2, OID_AUTO, "burstsize",
+	    CTLFLAG_RW, &pi->sched_params->burstsize, 0,
+	    "burstsize for per-flow cl-rl (0 means up to the driver)");
 	for (i = 0; i < sc->chip_params->nsched_cls; i++) {
 		struct tx_cl_rl_params *tc = &pi->sched_params->cl_rl[i];
 
@@ -8120,6 +8191,11 @@ sysctl_tids(SYSCTL_HANDLER_ARGS)
 		    t->atids_in_use);
 	}
 
+	if (t->nhpftids) {
+		sbuf_printf(sb, "HPFTID range: %u-%u, in use: %u\n",
+		    t->hpftid_base, t->hpftid_end, t->hpftids_in_use);
+	}
+
 	if (t->ntids) {
 		sbuf_printf(sb, "TID range: ");
 		if (t4_read_reg(sc, A_LE_DB_CONFIG) & F_HASHEN) {
@@ -8134,10 +8210,10 @@ sysctl_tids(SYSCTL_HANDLER_ARGS)
 			}
 
 			if (b)
-				sbuf_printf(sb, "0-%u, ", b - 1);
+				sbuf_printf(sb, "%u-%u, ", t->tid_base, b - 1);
 			sbuf_printf(sb, "%u-%u", hb, t->ntids - 1);
 		} else
-			sbuf_printf(sb, "0-%u", t->ntids - 1);
+			sbuf_printf(sb, "%u-%u", t->tid_base, t->ntids - 1);
 		sbuf_printf(sb, ", in use: %u\n",
 		    atomic_load_acq_int(&t->tids_in_use));
 	}
@@ -8148,8 +8224,8 @@ sysctl_tids(SYSCTL_HANDLER_ARGS)
 	}
 
 	if (t->nftids) {
-		sbuf_printf(sb, "FTID range: %u-%u\n", t->ftid_base,
-		    t->ftid_base + t->nftids - 1);
+		sbuf_printf(sb, "FTID range: %u-%u, in use: %u\n", t->ftid_base,
+		    t->ftid_end, t->ftids_in_use);
 	}
 
 	if (t->netids) {
