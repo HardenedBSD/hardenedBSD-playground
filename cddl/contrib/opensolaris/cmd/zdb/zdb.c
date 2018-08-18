@@ -5680,8 +5680,9 @@ main(int argc, char **argv)
 		if (dump_opt[c])
 			dump_opt[c] += verbose;
 	}
-
+#if 0
 	aok = (dump_opt['A'] == 1) || (dump_opt['A'] > 2);
+#endif
 	zfs_recover = (dump_opt['A'] > 1);
 
 	printf("argc: %d optind: %d\n", argc, optind);
