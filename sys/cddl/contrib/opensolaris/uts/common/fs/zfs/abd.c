@@ -312,7 +312,7 @@ abd_free_struct(abd_t *abd)
 abd_t *
 abd_alloc(size_t size, boolean_t is_metadata)
 {
-	if (!zfs_abd_scatter_enabled)
+	if (!zfs_abd_scatter_enabled || size <= PAGESIZE)
 		return (abd_alloc_linear(size, is_metadata));
 
 	VERIFY3U(size, <=, SPA_MAXBLOCKSIZE);
@@ -486,7 +486,8 @@ abd_get_offset_impl(abd_t *sabd, size_t off, size_t size)
 	} else {
 		size_t new_offset = sabd->abd_u.abd_scatter.abd_offset + off;
 		size_t chunkcnt = abd_scatter_chunkcnt(sabd) -
-		    (new_offset / zfs_abd_chunk_size);
+			(new_offset / PAGESIZE);
+
 
 		abd = abd_alloc_struct(chunkcnt);
 
@@ -719,9 +720,9 @@ abd_iter_init(struct abd_iter *aiter, abd_t *abd)
 {
 	abd_verify(abd);
 	aiter->iter_abd = abd;
-	aiter->iter_pos = 0;
 	aiter->iter_mapaddr = NULL;
 	aiter->iter_mapsize = 0;
+	aiter->iter_pos = 0;
 }
 
 /*
@@ -770,9 +771,12 @@ abd_iter_map(struct abd_iter *aiter)
 	} else {
 		size_t index = abd_iter_scatter_chunk_index(aiter);
 		offset = abd_iter_scatter_chunk_offset(aiter);
-		aiter->iter_mapsize = zfs_abd_chunk_size - offset;
+		aiter->iter_mapsize = MIN(PAGESIZE - offset,
+			aiter->iter_abd->abd_size - aiter->iter_pos);
+
 		paddr = aiter->iter_abd->abd_u.abd_scatter.abd_chunks[index];
 	}
+
 	aiter->iter_mapaddr = (char *)paddr + offset;
 }
 
