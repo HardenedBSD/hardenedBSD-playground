@@ -145,8 +145,9 @@ struct vdev_queue {
 	avl_tree_t	vq_write_offset_tree;
 	uint64_t	vq_last_offset;
 	hrtime_t	vq_io_complete_ts; /* time last i/o completed */
+	hrtime_t	vq_io_delta_ts;
+	zio_t		vq_io_search; /* used as local for stack reduction */
 	kmutex_t	vq_lock;
-	uint64_t	vq_lastoffset;
 };
 
 /*
@@ -235,6 +236,7 @@ struct vdev {
 	vdev_stat_t	vdev_stat;	/* virtual device statistics	*/
 	boolean_t	vdev_expanding;	/* expand the vdev?		*/
 	boolean_t	vdev_reopening;	/* reopen in progress?		*/
+	boolean_t	vdev_nonrot;	/* true if solid state		*/
 	int		vdev_open_error; /* error on last open		*/
 	kthread_t	*vdev_open_thread; /* thread opening children	*/
 	uint64_t	vdev_crtxg;	/* txg when top-level was added */

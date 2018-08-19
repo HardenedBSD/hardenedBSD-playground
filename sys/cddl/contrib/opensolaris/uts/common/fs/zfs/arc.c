@@ -334,7 +334,7 @@ uint_t arc_reduce_dnlc_percent = 3;
 int zfs_arc_evict_batch_limit = 10;
 
 /* number of seconds before growing cache again */
-static int		arc_grow_retry = 60;
+static int		arc_grow_retry = 30;
 
 /* number of milliseconds before attempting a kmem-cache-reap */
 static int		arc_kmem_cache_reap_retry_ms = 0;

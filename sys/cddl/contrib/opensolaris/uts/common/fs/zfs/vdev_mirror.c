@@ -165,11 +165,16 @@ vdev_mirror_load(mirror_map_t *mm, vdev_t *vd, uint64_t zio_offset)
 	 * worse overall when resilvering with compared to without.
 	 */
 
+	/* Fix zio_offset for leaf vdevs */
+	if (vd->vdev_ops->vdev_op_leaf)
+		zio_offset += VDEV_LABEL_START_SIZE;
+
 	/* Standard load based on pending queue length. */
 	load = vdev_queue_length(vd);
-	lastoffset = vdev_queue_lastoffset(vd);
+	lastoffset = vdev_queue_last_offset(vd);
 
-	if (vd->vdev_rotation_rate == VDEV_RATE_NON_ROTATING) {
+	if (vd->vdev_rotation_rate == VDEV_RATE_NON_ROTATING ||
+	    vd->vdev_nonrot) {
 		/* Non-rotating media. */
 		if (lastoffset == zio_offset)
 			return (load + non_rotating_inc);
@@ -238,9 +243,9 @@ vdev_mirror_map_init(zio_t *zio)
 		}
 
 		mm = vdev_mirror_map_alloc(c, B_FALSE, B_TRUE);
-
 		for (c = 0; c < mm->mm_children; c++) {
 			mc = &mm->mm_child[c];
+
 			mc->mc_vd = vdev_lookup_top(spa, DVA_GET_VDEV(&dva[c]));
 			mc->mc_offset = DVA_GET_OFFSET(&dva[c]);
 		}
@@ -366,6 +371,7 @@ vdev_mirror_scrub_done(zio_t *zio)
 		}
 		mutex_exit(&zio->io_lock);
 	}
+
 	abd_free(zio->io_abd);
 
 	mc->mc_error = zio->io_error;
@@ -389,7 +395,7 @@ vdev_mirror_dva_select(zio_t *zio, int p)
 	int c;
 
 	preferred = mm->mm_preferred[p];
-	for (p-- ; p >= 0; p--) {
+	for (p--; p >= 0; p--) {
 		c = mm->mm_preferred[p];
 		if (DVA_GET_VDEV(&dva[c]) == DVA_GET_VDEV(&dva[preferred]))
 			preferred = c;
@@ -422,6 +428,7 @@ vdev_mirror_preferred_child_randomize(zio_t *zio)
  * Try to find a vdev whose DTL doesn't contain the block we want to read
  * prefering vdevs based on determined load.
  *
+ * Try to find a child whose DTL doesn't contain the block we want to read.
  * If we can't, try the read on any vdev we haven't already tried.
  */
 static int
@@ -442,7 +449,7 @@ vdev_mirror_child_select(zio_t *zio)
 		if (mc->mc_tried || mc->mc_skipped)
 			continue;
 
-		if (!vdev_readable(mc->mc_vd)) {
+		if (mc->mc_vd == NULL || !vdev_readable(mc->mc_vd)) {
 			mc->mc_error = SET_ERROR(ENXIO);
 			mc->mc_tried = 1;	/* don't even try */
 			mc->mc_skipped = 1;
@@ -469,15 +476,12 @@ vdev_mirror_child_select(zio_t *zio)
 	}
 
 	if (mm->mm_preferred_cnt == 1) {
-		vdev_queue_register_lastoffset(
-		    mm->mm_child[mm->mm_preferred[0]].mc_vd, zio);
 		return (mm->mm_preferred[0]);
 	}
 
 	if (mm->mm_preferred_cnt > 1) {
 		int c = vdev_mirror_preferred_child_randomize(zio);
 
-		vdev_queue_register_lastoffset(mm->mm_child[c].mc_vd, zio);
 		return (c);
 	}
 
@@ -487,8 +491,6 @@ vdev_mirror_child_select(zio_t *zio)
 	 */
 	for (c = 0; c < mm->mm_children; c++) {
 		if (!mm->mm_child[c].mc_tried) {
-			vdev_queue_register_lastoffset(mm->mm_child[c].mc_vd,
-			    zio);
 			return (c);
 		}
 	}

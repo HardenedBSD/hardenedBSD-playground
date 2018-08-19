@@ -297,10 +297,10 @@ boolean_t zfs_recover = B_FALSE;
  * leaking space in the "partial temporary" failure case.
  */
 boolean_t zfs_free_leak_on_eio = B_FALSE;
-#ifdef ZFS_DEBUG
-uint64_t zfs_deadman_synctime_ms = 60000ULL;
-uint64_t zfs_deadman_ziotime_ms = 30000ULL;
-uint64_t zfs_deadman_checktime_ms = 6000ULL;
+#if defined(ZFS_DEBUG) || !defined(_KERNEL)
+uint64_t zfs_deadman_synctime_ms = 30000ULL;
+uint64_t zfs_deadman_ziotime_ms = 15000ULL;
+uint64_t zfs_deadman_checktime_ms = 3000ULL;
 #else
 /*
  * Expiration time in milliseconds. This value has two meanings. First it is

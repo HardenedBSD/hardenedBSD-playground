@@ -151,6 +151,12 @@ enum zio_checksum {
 #define	ZIO_FAILURE_MODE_CONTINUE	1
 #define	ZIO_FAILURE_MODE_PANIC		2
 
+typedef enum zio_suspend_reason {
+	ZIO_SUSPEND_NONE = 0,
+	ZIO_SUSPEND_IOERR,
+	ZIO_SUSPEND_MMP,
+} zio_suspend_reason_t;
+
 enum zio_flag {
 	/*
 	 * Flags inherited by gang, ddt, and vdev children,
@@ -176,7 +182,7 @@ enum zio_flag {
 	ZIO_FLAG_DONT_CACHE	= 1 << 11,
 	ZIO_FLAG_NODATA		= 1 << 12,
 	ZIO_FLAG_INDUCE_DAMAGE	= 1 << 13,
-	ZIO_FLAG_IO_ALLOCATING	= 1 << 14,
+	ZIO_FLAG_IO_ALLOCATING  = 1 << 14,
 
 #define	ZIO_FLAG_DDT_INHERIT	(ZIO_FLAG_IO_RETRY - 1)
 #define	ZIO_FLAG_GANG_INHERIT	(ZIO_FLAG_IO_RETRY - 1)
@@ -468,14 +474,14 @@ struct zio {
 	void		*io_private;
 	int64_t		io_prev_space_delta;	/* DMU private */
 	blkptr_t	io_bp_orig;
+	/* io_lsize != io_orig_size iff this is a raw write */
+	uint64_t	io_lsize;
 
 	/* Data represented by this I/O */
 	struct abd	*io_abd;
 	struct abd	*io_orig_abd;
 	uint64_t	io_size;
 	uint64_t	io_orig_size;
-	/* io_lsize != io_orig_size iff this is a raw write */
-	uint64_t	io_lsize;
 
 	/* Stuff for the vdev stack */
 	vdev_t		*io_vd;
@@ -483,9 +489,12 @@ struct zio {
 	const zio_vsd_ops_t *io_vsd_ops;
 
 	uint64_t	io_offset;
-	hrtime_t	io_timestamp;
+	hrtime_t	io_timestamp;	/* submitted at */
 	hrtime_t	io_queued_timestamp;
 	hrtime_t	io_target_timestamp;
+	hrtime_t	io_delta;	/* vdev queue service delta */
+	hrtime_t	io_delay;	/* Device access time (disk or */
+					/* file). */
 	avl_node_t	io_queue_node;
 	avl_node_t	io_offset_node;
 	avl_node_t	io_alloc_node;

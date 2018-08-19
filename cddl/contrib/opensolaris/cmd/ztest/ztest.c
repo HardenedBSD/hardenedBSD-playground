@@ -135,6 +135,7 @@
 #include <libnvpair.h>
 #include <libzfs.h>
 #include <libcmdutils.h>
+#include <execinfo.h>
 
 static int ztest_fd_data = -1;
 static int ztest_fd_rand = -1;
@@ -172,6 +173,7 @@ typedef struct ztest_shared_opts {
 	uint64_t zo_time;
 	uint64_t zo_maxloops;
 	uint64_t zo_metaslab_force_ganging;
+	int zo_mmp_test;
 } ztest_shared_opts_t;
 
 static const ztest_shared_opts_t ztest_opts_defaults = {
@@ -190,6 +192,7 @@ static const ztest_shared_opts_t ztest_opts_defaults = {
 	.zo_passtime = 60,		/* 60 seconds */
 	.zo_killrate = 70,		/* 70% kill rate */
 	.zo_verbose = 0,
+	.zo_mmp_test = 0,
 	.zo_init = 1,
 	.zo_time = 300,			/* 5 minutes */
 	.zo_maxloops = 50,		/* max loops during spa_freeze() */
@@ -390,7 +393,9 @@ ztest_info_t ztest_info[] = {
 	ZTI_INIT(ztest_dmu_snapshot_create_destroy, 1, &zopt_sometimes),
 	ZTI_INIT(ztest_spa_create_destroy, 1, &zopt_sometimes),
 	ZTI_INIT(ztest_fault_inject, 1, &zopt_sometimes),
+#ifdef dobroken
 	ZTI_INIT(ztest_ddt_repair, 1, &zopt_sometimes),
+#endif
 	ZTI_INIT(ztest_dmu_snapshot_hold, 1, &zopt_sometimes),
 #ifdef notyet
 	ZTI_INIT(ztest_mmp_enable_disable, 1, &zopt_sometimes),
@@ -415,6 +420,8 @@ ztest_info_t ztest_info[] = {
 };
 
 #define	ZTEST_FUNCS	(sizeof (ztest_info) / sizeof (ztest_info_t))
+
+#define RA(x) __builtin_return_address((x))
 
 /*
  * The following struct is used to hold a list of uncalled commit callbacks.
@@ -467,6 +474,7 @@ static kmutex_t ztest_checkpoint_lock;
  * namespace does not change while the lock is held.
  */
 static pthread_rwlock_t ztest_name_lock;
+static pthread_mutex_t ztest_condvar_lock;
 
 static boolean_t ztest_dump_core = B_TRUE;
 static boolean_t ztest_dump_debug_buffer = B_FALSE;
@@ -1272,6 +1280,8 @@ typedef struct {
 typedef struct {
 	rl_t *z_rl;
 	ztest_znode_t *z_ztznode;
+	void *z_bt[10];
+	int z_depth;
 } ztest_zrl_t;
 
 static ztest_znode_t *
@@ -1430,6 +1440,7 @@ ztest_zrl_init(rl_t *rl, ztest_znode_t *zp)
 	ztest_zrl_t *zrl = umem_alloc(sizeof (*zrl), UMEM_NOFAIL);
 	zrl->z_rl = rl;
 	zrl->z_ztznode = zp;
+	zrl->z_depth = 0;
 	return (zrl);
 }
 
@@ -1443,15 +1454,43 @@ static ztest_zrl_t *
 ztest_range_lock(ztest_ds_t *zd, uint64_t object, uint64_t offset,
     uint64_t size, rl_type_t type)
 {
+	ztest_zrl_t *zrl;
 	ztest_znode_t *zp = ztest_znode_get(zd, object);
 	rl_t *rl = zfs_range_lock(&zp->z_range_lock, offset,
 	    size, type);
-	return (ztest_zrl_init(rl, zp));
+	zrl = ztest_zrl_init(rl, zp);
+#ifdef DEBUG_RL	
+	pthread_mutex_lock(&ztest_condvar_lock);
+	printf("%s\t: %p %p rd_cv: %p:%p wr_cv: %p:%p caller: %p %p\n", __func__, zrl->z_rl, zrl,
+		   &zrl->z_rl->r_rd_cv, zrl->z_rl->r_rd_cv,
+		   &zrl->z_rl->r_wr_cv, zrl->z_rl->r_wr_cv,
+		   RA(1), RA(2));
+	pthread_mutex_unlock(&ztest_condvar_lock);
+#endif	
+	return zrl;
 }
 
 static void
 ztest_range_unlock(ztest_ds_t *zd, ztest_zrl_t *zrl)
 {
+#ifdef DEBUG_RL
+	char **syms;
+	int i, depth;
+
+	pthread_mutex_lock(&ztest_condvar_lock);
+	printf("%s\t: %p %p rd_cv: %p:%p wr_cv: %p:%p caller: %p %p\n", __func__, zrl->z_rl, zrl,
+		   &zrl->z_rl->r_rd_cv, zrl->z_rl->r_rd_cv,
+		   &zrl->z_rl->r_wr_cv, zrl->z_rl->r_wr_cv,
+		   RA(1), RA(2));
+	if ((depth = zrl->z_depth)) {
+		syms = backtrace_symbols(zrl->z_bt, depth);
+		for (i = 0; i < depth; i++)
+			printf("%s\n", syms[i]);
+		abort();
+	}
+	zrl->z_depth = backtrace(zrl->z_bt, 10);
+	pthread_mutex_unlock(&ztest_condvar_lock);
+#endif
 	zfs_range_unlock(zrl->z_rl);
 	ztest_znode_put(zd, zrl->z_ztznode);
 	ztest_zrl_fini(zrl);
@@ -2723,6 +2762,9 @@ ztest_spa_create_destroy(ztest_ds_t *zd, uint64_t id)
 	spa_t *spa;
 	nvlist_t *nvroot;
 
+	if (zo->zo_mmp_test)
+		return;
+
 	/*
 	 * Attempt to create using a bad file.
 	 */
@@ -2808,6 +2850,9 @@ ztest_spa_upgrade(ztest_ds_t *zd, uint64_t id)
 	uint64_t version, newversion;
 	nvlist_t *nvroot, *props;
 	char *name;
+
+	if (ztest_opts.zo_mmp_test)
+		return;
 
 	mutex_enter(&ztest_vdev_lock);
 	name = kmem_asprintf("%s_upgrade", ztest_opts.zo_pool);
@@ -6733,6 +6778,7 @@ ztest_run(ztest_shared_t *zs)
 	mutex_init(&ztest_vdev_lock, NULL, MUTEX_DEFAULT, NULL);
 	mutex_init(&ztest_checkpoint_lock, NULL, MUTEX_DEFAULT, NULL);
 	VERIFY0(pthread_rwlock_init(&ztest_name_lock, NULL));
+	VERIFY0(pthread_mutex_init(&ztest_condvar_lock, NULL));
 
 	zs->zs_thread_start = gethrtime();
 	zs->zs_thread_stop =
@@ -6877,7 +6923,7 @@ ztest_run(ztest_shared_t *zs)
 	 * Verify that we can export the pool and reimport it under a
 	 * different name.
 	 */
-	if (ztest_random(2) == 0) {
+	if ((ztest_random(2) == 0) && !ztest_opts.zo_mmp_test) {
 		char name[ZFS_MAX_DATASET_NAME_LEN];
 		(void) snprintf(name, sizeof (name), "%s_import",
 		    ztest_opts.zo_pool);
@@ -7065,7 +7111,7 @@ ztest_import(ztest_shared_t *zs)
 	libzfs_fini(hdl);
 	kernel_fini();
 
-	if (1 /*!ztest_opts.zo_mmp_test*/) {
+	if (!ztest_opts.zo_mmp_test) {
 		ztest_run_zdb(ztest_opts.zo_pool);
 		ztest_freeze();
 		ztest_run_zdb(ztest_opts.zo_pool);
@@ -7132,7 +7178,7 @@ ztest_init(ztest_shared_t *zs)
 
 	kernel_fini();
 
-	if (1 /*!ztest_opts.zo_mmp_test */) {
+	if (!ztest_opts.zo_mmp_test) {
 		ztest_run_zdb(ztest_opts.zo_pool);
 		ztest_freeze();
 		ztest_run_zdb(ztest_opts.zo_pool);
@@ -7552,7 +7598,8 @@ main(int argc, char **argv)
 		}
 		kernel_fini();
 
-		ztest_run_zdb(ztest_opts.zo_pool);
+		if (!ztest_opts.zo_mmp_test)
+			ztest_run_zdb(ztest_opts.zo_pool);
 	}
 
 	if (ztest_opts.zo_verbose >= 1) {
