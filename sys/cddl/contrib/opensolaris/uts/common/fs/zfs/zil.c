@@ -105,7 +105,12 @@ SYSCTL_INT(_vfs_zfs, OID_AUTO, zil_replay_disable, CTLFLAG_RWTUN,
 boolean_t zfs_nocacheflush = B_FALSE;
 SYSCTL_INT(_vfs_zfs, OID_AUTO, cache_flush_disable, CTLFLAG_RDTUN,
     &zfs_nocacheflush, 0, "Disable cache flush");
+
+#ifdef _KERNEL
 boolean_t zfs_trim_enabled = B_TRUE;
+#else
+boolean_t zfs_trim_enabled = B_FALSE;
+#endif
 SYSCTL_DECL(_vfs_zfs_trim);
 SYSCTL_INT(_vfs_zfs_trim, OID_AUTO, enabled, CTLFLAG_RDTUN, &zfs_trim_enabled, 0,
     "Enable ZFS TRIM");
