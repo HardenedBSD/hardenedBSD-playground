@@ -189,8 +189,9 @@ static void
 vdev_label_read(zio_t *zio, vdev_t *vd, int l, abd_t *buf, uint64_t offset,
     uint64_t size, zio_done_func_t *done, void *private, int flags)
 {
-	ASSERT(spa_config_held(zio->io_spa, SCL_STATE_ALL, RW_WRITER) ==
-	    SCL_STATE_ALL);
+	ASSERT(
+	    spa_config_held(zio->io_spa, SCL_STATE, RW_READER) == SCL_STATE ||
+	    spa_config_held(zio->io_spa, SCL_STATE, RW_WRITER) == SCL_STATE);
 	ASSERT(flags & ZIO_FLAG_CONFIG_WRITER);
 
 	zio_nowait(zio_read_phys(zio, vd,
@@ -203,10 +204,9 @@ static void
 vdev_label_write(zio_t *zio, vdev_t *vd, int l, abd_t *buf, uint64_t offset,
     uint64_t size, zio_done_func_t *done, void *private, int flags)
 {
-	ASSERT(spa_config_held(zio->io_spa, SCL_ALL, RW_WRITER) == SCL_ALL ||
-	    (spa_config_held(zio->io_spa, SCL_CONFIG | SCL_STATE, RW_READER) ==
-	    (SCL_CONFIG | SCL_STATE) &&
-	    dsl_pool_sync_context(spa_get_dsl(zio->io_spa))));
+	ASSERT(
+	    spa_config_held(zio->io_spa, SCL_STATE, RW_READER) == SCL_STATE ||
+	    spa_config_held(zio->io_spa, SCL_STATE, RW_WRITER) == SCL_STATE);
 	ASSERT(flags & ZIO_FLAG_CONFIG_WRITER);
 
 	zio_nowait(zio_write_phys(zio, vd,
@@ -362,11 +362,9 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 	}
 
 	if (getstats) {
-		vdev_stat_t vs;
-
-		vdev_get_stats(vd, &vs);
-		fnvlist_add_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
-		    (uint64_t *)&vs, sizeof (vs) / sizeof (uint64_t));
+#if 0
+		vdev_config_generate_stats(vd, nv);
+#endif
 
 		root_vdev_actions_getprogress(vd, nv);
 
@@ -410,7 +408,7 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 				if (1ULL << (i + 1) < vdev_removal_max_span) {
 					to_alloc +=
 					    vd->vdev_mg->mg_histogram[i] <<
-					    i + 1;
+					    (i + 1);
 				} else {
 					seg_count +=
 					    vd->vdev_mg->mg_histogram[i];
@@ -494,8 +492,15 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 			break;
 		}
 
-		if (aux != NULL)
+		if (aux != NULL && !vd->vdev_tmpoffline) {
 			fnvlist_add_string(nv, ZPOOL_CONFIG_AUX_STATE, aux);
+		} else {
+			/*
+			 * We're healthy - clear any previous AUX_STATE values.
+			 */
+			if (nvlist_exists(nv, ZPOOL_CONFIG_AUX_STATE))
+				nvlist_remove_all(nv, ZPOOL_CONFIG_AUX_STATE);
+		}
 
 		if (vd->vdev_splitting && vd->vdev_orig_guid != 0LL) {
 			fnvlist_add_uint64(nv, ZPOOL_CONFIG_ORIG_GUID,
@@ -764,7 +769,7 @@ vdev_label_init(vdev_t *vd, uint64_t crtxg, vdev_labeltype_t reason)
 	char *buf;
 	size_t buflen;
 	int error;
-	uint64_t spare_guid, l2cache_guid;
+	uint64_t spare_guid = 0, l2cache_guid = 0;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL;
 
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_WRITER) == SCL_ALL);
@@ -992,6 +997,9 @@ retry:
 	return (error);
 }
 
+/*
+ * nextboot support
+ */
 int
 vdev_label_write_pad2(vdev_t *vd, const char *buf, size_t size)
 {
@@ -1164,6 +1172,60 @@ vdev_uberblock_load(vdev_t *rvd, uberblock_t *ub, nvlist_t **config)
 }
 
 /*
+ * For use when a leaf vdev is expanded.
+ * The location of labels 2 and 3 changed, and at the new location the
+ * uberblock rings are either empty or contain garbage.  The sync will write
+ * new configs there because the vdev is dirty, but expansion also needs the
+ * uberblock rings copied.  Read them from label 0 which did not move.
+ *
+ * Since the point is to populate labels {2,3} with valid uberblocks,
+ * we zero uberblocks we fail to read or which are not valid.
+ */
+
+static void
+vdev_copy_uberblocks(vdev_t *vd)
+{
+	abd_t *ub_abd;
+	zio_t *write_zio;
+	int locks = (SCL_L2ARC | SCL_ZIO);
+	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
+	    ZIO_FLAG_SPECULATIVE;
+
+	ASSERT(spa_config_held(vd->vdev_spa, SCL_STATE, RW_READER) ==
+	    SCL_STATE);
+	ASSERT(vd->vdev_ops->vdev_op_leaf);
+
+	spa_config_enter(vd->vdev_spa, locks, FTAG, RW_READER);
+
+	ub_abd = abd_alloc_linear(VDEV_UBERBLOCK_SIZE(vd), B_TRUE);
+
+	write_zio = zio_root(vd->vdev_spa, NULL, NULL, flags);
+	for (int n = 0; n < VDEV_UBERBLOCK_COUNT(vd); n++) {
+		const int src_label = 0;
+		zio_t *zio;
+
+		zio = zio_root(vd->vdev_spa, NULL, NULL, flags);
+		vdev_label_read(zio, vd, src_label, ub_abd,
+		    VDEV_UBERBLOCK_OFFSET(vd, n), VDEV_UBERBLOCK_SIZE(vd),
+		    NULL, NULL, flags);
+
+		if (zio_wait(zio) || uberblock_verify(abd_to_buf(ub_abd)))
+			abd_zero(ub_abd, VDEV_UBERBLOCK_SIZE(vd));
+
+		for (int l = 2; l < VDEV_LABELS; l++)
+			vdev_label_write(write_zio, vd, l, ub_abd,
+			    VDEV_UBERBLOCK_OFFSET(vd, n),
+			    VDEV_UBERBLOCK_SIZE(vd), NULL, NULL,
+			    flags | ZIO_FLAG_DONT_PROPAGATE);
+	}
+	(void) zio_wait(write_zio);
+
+	spa_config_exit(vd->vdev_spa, locks, FTAG);
+
+	abd_free(ub_abd);
+}
+
+/*
  * On success, increment root zio's count of good writes.
  * We only get credit for writes to known-visible vdevs; see spa_vdev_add().
  */
@@ -1194,7 +1256,15 @@ vdev_uberblock_sync(zio_t *zio, uint64_t *good_writes,
 	if (!vdev_writeable(vd))
 		return;
 
-	int n = ub->ub_txg & (VDEV_UBERBLOCK_COUNT(vd) - 1);
+	/* If the vdev was expanded, need to copy uberblock rings. */
+	if (vd->vdev_state == VDEV_STATE_HEALTHY &&
+	    vd->vdev_copy_uberblocks == B_TRUE) {
+		vdev_copy_uberblocks(vd);
+		vd->vdev_copy_uberblocks = B_FALSE;
+	}
+
+	int m = /* spa_multihost(vd->vdev_spa) ? MMP_BLOCKS_PER_LABEL : */ 0;
+	int n = ub->ub_txg % (VDEV_UBERBLOCK_COUNT(vd) - m);
 
 	/* Copy the uberblock_t into the ABD */
 	abd_t *ub_abd = abd_alloc_for_io(VDEV_UBERBLOCK_SIZE(vd), B_TRUE);
@@ -1314,7 +1384,7 @@ vdev_label_sync(zio_t *zio, uint64_t *good_writes,
 	buf = vp->vp_nvlist;
 	buflen = sizeof (vp->vp_nvlist);
 
-	if (nvlist_pack(label, &buf, &buflen, NV_ENCODE_XDR, KM_SLEEP) == 0) {
+	if (!nvlist_pack(label, &buf, &buflen, NV_ENCODE_XDR, KM_SLEEP)) {
 		for (; l < VDEV_LABELS; l += 2) {
 			vdev_label_write(zio, vd, l, vp_abd,
 			    offsetof(vdev_label_t, vl_vdev_phys),
@@ -1342,11 +1412,11 @@ vdev_label_sync_list(spa_t *spa, int l, uint64_t txg, int flags)
 	zio = zio_root(spa, NULL, NULL, flags);
 
 	for (vd = list_head(dl); vd != NULL; vd = list_next(dl, vd)) {
-		uint64_t *good_writes = kmem_zalloc(sizeof (uint64_t),
-		    KM_SLEEP);
+		uint64_t *good_writes;
 
 		ASSERT(!vd->vdev_ishole);
 
+		good_writes = kmem_zalloc(sizeof (uint64_t), KM_SLEEP);
 		zio_t *vio = zio_null(zio, spa, NULL,
 		    (vd->vdev_islog || vd->vdev_aux != NULL) ?
 		    vdev_label_sync_ignore_done : vdev_label_sync_top_done,
@@ -1412,10 +1482,13 @@ retry:
 	 * and the vdev configuration hasn't changed,
 	 * then there's nothing to do.
 	 */
-	if (ub->ub_txg < txg &&
-	    uberblock_update(ub, spa->spa_root_vdev, txg) == B_FALSE &&
-	    list_is_empty(&spa->spa_config_dirty_list))
-		return (0);
+	if (ub->ub_txg < txg) {
+		boolean_t changed = uberblock_update(ub, spa->spa_root_vdev,
+		    txg);
+
+		if (!changed && list_is_empty(&spa->spa_config_dirty_list))
+			return (0);
+	}
 
 	if (txg > spa_freeze_txg(spa))
 		return (0);
@@ -1494,7 +1567,7 @@ retry:
 			    "for pool '%s' when syncing out the odd labels of "
 			    "dirty vdevs", error, spa_name(spa));
 		}
-		goto retry;;
+		goto retry;
 	}
 
 	trim_thread_wakeup(spa);

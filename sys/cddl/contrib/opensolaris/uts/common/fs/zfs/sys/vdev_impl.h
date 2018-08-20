@@ -368,6 +368,7 @@ struct vdev {
 	boolean_t	vdev_cant_write; /* vdev is failing all writes	*/
 	boolean_t	vdev_isspare;	/* was a hot spare		*/
 	boolean_t	vdev_isl2cache;	/* was a l2cache device		*/
+	boolean_t	vdev_copy_uberblocks;  /* post expand copy uberblocks */
 	vdev_queue_t	vdev_queue;	/* I/O deadline schedule queue	*/
 	vdev_cache_t	vdev_cache;	/* physical block cache		*/
 	spa_aux_vdev_t	*vdev_aux;	/* for l2cache and spares vdevs	*/
@@ -378,6 +379,8 @@ struct vdev {
 #define	VDEV_RATE_UNKNOWN	0
 #define	VDEV_RATE_NON_ROTATING	1
 	uint64_t	vdev_leaf_zap;
+	hrtime_t	vdev_mmp_pending; /* 0 if write finished	*/
+	uint64_t	vdev_mmp_kstat_id;	/* to find kstat entry */
 
 	/*
 	 * For DTrace to work in userland (libzpool) context, these fields must
