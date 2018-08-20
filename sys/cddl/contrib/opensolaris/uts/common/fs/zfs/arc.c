@@ -3997,7 +3997,6 @@ arc_hdr_alloc(uint64_t spa, int32_t psize, int32_t lsize,
 	arc_hdr_set_compress(hdr, compression_type);
 	if (protected)
 		arc_hdr_set_flags(hdr, ARC_FLAG_PROTECTED);
-
 	hdr->b_l1hdr.b_state = arc_anon;
 	hdr->b_l1hdr.b_arc_access = 0;
 	hdr->b_l1hdr.b_bufcnt = 0;
@@ -4084,13 +4083,6 @@ arc_hdr_realloc(arc_buf_hdr_t *hdr, kmem_cache_t *old, kmem_cache_t *new)
 		VERIFY(!HDR_L2_WRITING(hdr));
 		VERIFY3P(hdr->b_l1hdr.b_pabd, ==, NULL);
 		ASSERT(!HDR_HAS_RABD(hdr));
-
-#ifdef ZFS_DEBUG
-		if (hdr->b_l1hdr.b_thawed != NULL) {
-			kmem_free(hdr->b_l1hdr.b_thawed, 1);
-			hdr->b_l1hdr.b_thawed = NULL;
-		}
-#endif
 
 		arc_hdr_clear_flags(nhdr, ARC_FLAG_HAS_L1HDR);
 	}
@@ -4472,13 +4464,6 @@ arc_hdr_destroy(arc_buf_hdr_t *hdr)
 		while (hdr->b_l1hdr.b_buf != NULL)
 			arc_buf_destroy_impl(hdr->b_l1hdr.b_buf);
 
-#ifdef ZFS_DEBUG
-		if (hdr->b_l1hdr.b_thawed != NULL) {
-			kmem_free(hdr->b_l1hdr.b_thawed, 1);
-			hdr->b_l1hdr.b_thawed = NULL;
-		}
-#endif
-
 		if (hdr->b_l1hdr.b_pabd != NULL) {
 			arc_hdr_free_abd(hdr, B_FALSE);
 		}
@@ -4488,9 +4473,6 @@ arc_hdr_destroy(arc_buf_hdr_t *hdr)
 	}
 
 	ASSERT3P(hdr->b_hash_next, ==, NULL);
-	if (HDR_PROTECTED(hdr)) {
-		ASSERT(HDR_HAS_L1HDR(hdr));
-	}
 	if (HDR_HAS_L1HDR(hdr)) {
 		ASSERT(!multilist_link_active(&hdr->b_l1hdr.b_arc_node));
 		ASSERT3P(hdr->b_l1hdr.b_acb, ==, NULL);
