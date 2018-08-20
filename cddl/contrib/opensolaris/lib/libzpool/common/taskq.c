@@ -281,6 +281,8 @@ taskq_create(const char *name, int nthreads, pri_t pri,
 		ASSERT3S(nthreads, >=, 1);
 	}
 
+	nthreads = MIN(nthreads, 3);
+ 
 	rw_init(&tq->tq_threadlock, NULL, RW_DEFAULT, NULL);
 	mutex_init(&tq->tq_lock, NULL, MUTEX_DEFAULT, NULL);
 	cv_init(&tq->tq_dispatch_cv, NULL, CV_DEFAULT, NULL);

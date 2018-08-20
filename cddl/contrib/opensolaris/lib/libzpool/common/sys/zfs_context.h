@@ -225,7 +225,7 @@ extern int aok;
 
 typedef struct kthread kthread_t;
 #define thread_create(stk, stksize, func, arg, len, pp, state, pri)     \
-        zk_thread_create(func, arg, state)
+	zk_thread_create(func, #func, arg, state)
 
 #define	thread_exit() thr_exit(NULL)
 
@@ -256,7 +256,7 @@ extern struct proc p0;
 
 #define	PS_NONE		-1
 
-extern kthread_t *zk_thread_create(void (*func)(void*), void *arg, int state);
+extern kthread_t *zk_thread_create(void (*func)(void*), const char *name, void *arg, int state);
 
 #define	issig(why)	(FALSE)
 #define	ISSIG(thr, why)	(FALSE)

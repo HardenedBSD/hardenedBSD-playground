@@ -73,6 +73,6 @@ CSTD=	c99
 # Since there are many asserts in this library, it makes no sense to compile
 # it without debugging.
 
-CFLAGS+=	-g -DDEBUG=1 -DZFS_DEBUG=1 -O0
+CFLAGS+=	-g -DDEBUG=1 -DZFS_DEBUG=1
 
 .include <bsd.lib.mk>

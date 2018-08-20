@@ -79,7 +79,7 @@ struct proc p0;
  */
 /*ARGSUSED*/
 kthread_t *
-zk_thread_create(void (*func)(), void *arg, int state)
+zk_thread_create(void (*func)(), const char *name, void *arg, int state)
 {
 	thread_t tid;
 	int flags = 0;
@@ -87,7 +87,7 @@ zk_thread_create(void (*func)(), void *arg, int state)
 	if ((state & TS_JOINABLE) == 0)
 		flags |= THR_DETACHED;
 
-	VERIFY(thr_create(0, 0, (void *(*)(void *))func, arg, flags,
+	VERIFY(thr_create_named(0, 0, (void *(*)(void *))func, name, arg, flags,
 	    &tid) == 0);
 
 	return ((void *)(uintptr_t)tid);
