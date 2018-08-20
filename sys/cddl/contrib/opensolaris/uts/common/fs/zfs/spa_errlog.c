@@ -345,6 +345,9 @@ spa_errlog_sync(spa_t *spa, uint64_t txg)
 	avl_tree_t scrub, last;
 	int scrub_finished;
 
+#ifndef _KERNEL
+	return;
+#endif
 	mutex_enter(&spa->spa_errlist_lock);
 
 	/*
