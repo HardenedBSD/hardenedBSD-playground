@@ -444,20 +444,21 @@ vdev_raidz_map_alloc(zio_t *zio, uint64_t ashift, uint64_t dcols,
 	ASSERT3U(rm->rm_asize - asize, ==, rm->rm_nskip << ashift);
 	ASSERT3U(rm->rm_nskip, <=, nparity);
 
-	for (c = 0; c < rm->rm_firstdatacol; c++)
-		rm->rm_col[c].rc_abd =
-		    abd_alloc_linear(rm->rm_col[c].rc_size, B_FALSE);
+	if (zio->io_type != ZIO_TYPE_FREE) {
+		for (c = 0; c < rm->rm_firstdatacol; c++)
+			rm->rm_col[c].rc_abd =
+				abd_alloc_linear(rm->rm_col[c].rc_size, B_FALSE);
 
-	rm->rm_col[c].rc_abd = abd_get_offset_size(zio->io_abd, 0,
-	    rm->rm_col[c].rc_size);
-	off = rm->rm_col[c].rc_size;
+		rm->rm_col[c].rc_abd = abd_get_offset_size(zio->io_abd, 0,
+	        rm->rm_col[c].rc_size);
+		off = rm->rm_col[c].rc_size;
 
-	for (c = c + 1; c < acols; c++) {
-		rm->rm_col[c].rc_abd = abd_get_offset_size(zio->io_abd, off,
-		    rm->rm_col[c].rc_size);
-		off += rm->rm_col[c].rc_size;
+		for (c = c + 1; c < acols; c++) {
+			rm->rm_col[c].rc_abd = abd_get_offset_size(zio->io_abd, off,
+		        rm->rm_col[c].rc_size);
+			off += rm->rm_col[c].rc_size;
+		}
 	}
-
 	/*
 	 * If all data stored spans all columns, there's a danger that parity
 	 * will always be on the same device and, since parity isn't read

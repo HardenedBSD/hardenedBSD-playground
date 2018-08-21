@@ -417,6 +417,9 @@ abd_free_linear(abd_t *abd)
 void
 abd_free(abd_t *abd)
 {
+	if (abd == NULL)
+		return;
+
 	abd_verify(abd);
 	ASSERT3P(abd->abd_parent, ==, NULL);
 	ASSERT(abd->abd_flags & ABD_FLAG_OWNER);
@@ -568,6 +571,8 @@ abd_get_from_buf(void *buf, size_t size)
 void
 abd_put(abd_t *abd)
 {
+	if (abd == NULL)
+		return;
 	abd_verify(abd);
 	ASSERT(!(abd->abd_flags & ABD_FLAG_OWNER));
 
