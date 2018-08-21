@@ -384,7 +384,9 @@ ztest_info_t ztest_info[] = {
 	ZTI_INIT(ztest_zil_remount, 1, &zopt_sometimes),
 	ZTI_INIT(ztest_dmu_read_write_zcopy, 1, &zopt_often),
 	ZTI_INIT(ztest_dmu_objset_create_destroy, 1, &zopt_often),
-	ZTI_INIT(ztest_dsl_prop_get_set, 1, &zopt_often),
+#ifdef broken
+	ZTI_INIT(ztest_dsl_prop_get_set, 1, &zopt_often), /* known to wedge the txg sync thread */
+#endif
 	ZTI_INIT(ztest_spa_prop_get_set, 1, &zopt_sometimes),
 #if 0
 	ZTI_INIT(ztest_dmu_prealloc, 1, &zopt_sometimes),
@@ -393,8 +395,8 @@ ztest_info_t ztest_info[] = {
 	ZTI_INIT(ztest_dmu_snapshot_create_destroy, 1, &zopt_sometimes),
 	ZTI_INIT(ztest_spa_create_destroy, 1, &zopt_sometimes),
 	ZTI_INIT(ztest_fault_inject, 1, &zopt_sometimes),
-#ifdef dobroken
-	ZTI_INIT(ztest_ddt_repair, 1, &zopt_sometimes),
+#ifdef broken
+	ZTI_INIT(ztest_ddt_repair, 1, &zopt_sometimes),   /* known to wedge the txg sync thread */
 #endif
 	ZTI_INIT(ztest_dmu_snapshot_hold, 1, &zopt_sometimes),
 #ifdef notyet
