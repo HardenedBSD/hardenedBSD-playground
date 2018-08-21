@@ -23,7 +23,6 @@ ident		GENERIC
 
 makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
 makeoptions	WITH_CTF=1		# Run ctfconvert(1) for DTrace support
-makeoptions	MODULES_OVERRIDE="dtrace cryptodev crypto aesni"
 
 options 	SCHED_ULE		# ULE scheduler
 options 	PREEMPTION		# Enable kernel thread preemption
@@ -94,7 +93,6 @@ options 	BUF_TRACKING		# Track buffer history
 options 	DDB			# Support DDB.
 options 	FULL_BUF_TRACKING	# Track more buffer history
 options 	GDB			# Support remote GDB.
-device		bvmdebug
 options 	DEADLKRES		# Enable the deadlock resolver
 options 	INVARIANTS		# Enable calls of extra sanity checking
 options 	INVARIANT_SUPPORT	# Extra sanity checks of internal structures, required by INVARIANTS
