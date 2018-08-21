@@ -362,10 +362,15 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 	}
 
 	if (getstats) {
-#if 0
+#ifdef notyet
 		vdev_config_generate_stats(vd, nv);
-#endif
+#else
+		vdev_stat_t vs;
 
+		vdev_get_stats(vd, &vs);
+		fnvlist_add_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
+		    (uint64_t *)&vs, sizeof (vs) / sizeof (uint64_t));
+#endif
 		root_vdev_actions_getprogress(vd, nv);
 
 		/*
