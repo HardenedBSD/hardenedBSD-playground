@@ -421,7 +421,7 @@ static int sysctl_vfs_zfs_arc_no_grow_shift(SYSCTL_HANDLER_ARGS);
 
 /* Debug hacks */
 #ifdef _KERNEL
-#define SEF_DEBUG
+#undef SEF_DEBUG
 #ifdef SEF_DEBUG
 static kmem_cache_t *hdr_full_crypt_cache;
 static void *

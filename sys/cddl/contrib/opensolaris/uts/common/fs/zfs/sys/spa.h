@@ -1101,9 +1101,9 @@ _NOTE(CONSTCOND) } while (0)
 
 extern int spa_mode_global;			/* mode, e.g. FREAD | FWRITE */
 extern int zfs_deadman_enabled;
-extern unsigned long zfs_deadman_synctime_ms;
-extern unsigned long zfs_deadman_ziotime_ms;
-extern unsigned long zfs_deadman_checktime_ms;
+extern uint64_t zfs_deadman_synctime_ms;
+extern uint64_t zfs_deadman_ziotime_ms;
+extern uint64_t zfs_deadman_checktime_ms;
 
 #ifdef	__cplusplus
 }
