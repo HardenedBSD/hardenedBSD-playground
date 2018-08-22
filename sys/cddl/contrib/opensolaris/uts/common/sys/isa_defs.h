@@ -540,7 +540,19 @@ extern "C" {
 #define	_DONT_USE_1275_GENERIC_NAMES
 #define	_HAVE_CPUID_INSN
 
-#elif defined(__powerpc__)
+#elif defined(__powerpc__) || defined(__powerpc64__)
+
+#if defined(__powerpc64__)
+#if !defined(_LP64)
+#define	_LP64
+#endif
+#else
+#if !defined(_ILP32)
+#define	_ILP32
+#endif
+#endif
+
+#define	_SUNOS_VTOC_16
 
 #if defined(__BIG_ENDIAN__)
 #define _BIT_FIELDS_HTOL
