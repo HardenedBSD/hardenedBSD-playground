@@ -38,6 +38,7 @@
 #include <sys/dsl_deleg.h>
 #include <sys/dmu_impl.h>
 #include <sys/spa.h>
+#include <sys/spa_impl.h>
 #include <sys/metaslab.h>
 #include <sys/zap.h>
 #include <sys/zio.h>
@@ -168,6 +169,7 @@ dsl_dir_hold_obj(dsl_pool_t *dp, uint64_t ddobj,
 {
 	dmu_buf_t *dbuf;
 	dsl_dir_t *dd;
+	dmu_object_info_t doi;
 	int err;
 
 	ASSERT(dsl_pool_config_held(dp));
@@ -176,14 +178,11 @@ dsl_dir_hold_obj(dsl_pool_t *dp, uint64_t ddobj,
 	if (err != 0)
 		return (err);
 	dd = dmu_buf_get_user(dbuf);
-#ifdef ZFS_DEBUG
-	{
-		dmu_object_info_t doi;
-		dmu_object_info_from_db(dbuf, &doi);
-		ASSERT3U(doi.doi_bonus_type, ==, DMU_OT_DSL_DIR);
-		ASSERT3U(doi.doi_bonus_size, >=, sizeof (dsl_dir_phys_t));
-	}
-#endif
+
+	dmu_object_info_from_db(dbuf, &doi);
+	ASSERT3U(doi.doi_bonus_type, ==, DMU_OT_DSL_DIR);
+	ASSERT3U(doi.doi_bonus_size, >=, sizeof (dsl_dir_phys_t));
+
 	if (dd == NULL) {
 		dsl_dir_t *winner;
 
@@ -191,6 +190,23 @@ dsl_dir_hold_obj(dsl_pool_t *dp, uint64_t ddobj,
 		dd->dd_object = ddobj;
 		dd->dd_dbuf = dbuf;
 		dd->dd_pool = dp;
+
+		if (dsl_dir_is_zapified(dd) &&
+		    zap_contains(dp->dp_meta_objset, ddobj,
+		    DD_FIELD_CRYPTO_KEY_OBJ) == 0) {
+			VERIFY0(zap_lookup(dp->dp_meta_objset,
+			    ddobj, DD_FIELD_CRYPTO_KEY_OBJ,
+			    sizeof (uint64_t), 1, &dd->dd_crypto_obj));
+
+#ifdef __linux__
+			/* check for on-disk format errata */
+			if (dsl_dir_incompatible_encryption_version(dd)) {
+				dp->dp_spa->spa_errata =
+				    ZPOOL_ERRATA_ZOL_6845_ENCRYPTION;
+			}
+#endif
+		}
+
 		mutex_init(&dd->dd_lock, NULL, MUTEX_DEFAULT, NULL);
 		dsl_prop_init(dd);
 
@@ -212,7 +228,8 @@ dsl_dir_hold_obj(dsl_pool_t *dp, uint64_t ddobj,
 				    sizeof (foundobj), 1, &foundobj);
 				ASSERT(err || foundobj == ddobj);
 #endif
-				(void) strcpy(dd->dd_myname, tail);
+				(void) strlcpy(dd->dd_myname, tail,
+				    sizeof (dd->dd_myname));
 			} else {
 				err = zap_value_search(dp->dp_meta_objset,
 				    dsl_dir_phys(dd->dd_parent)->
@@ -419,26 +436,29 @@ int
 dsl_dir_hold(dsl_pool_t *dp, const char *name, void *tag,
     dsl_dir_t **ddp, const char **tailp)
 {
-	char buf[ZFS_MAX_DATASET_NAME_LEN];
+	char *buf;
 	const char *spaname, *next, *nextnext = NULL;
 	int err;
 	dsl_dir_t *dd;
 	uint64_t ddobj;
 
+	buf = kmem_alloc(ZFS_MAX_DATASET_NAME_LEN, KM_SLEEP);
 	err = getcomponent(name, buf, &next);
 	if (err != 0)
-		return (err);
+		goto error;
 
 	/* Make sure the name is in the specified pool. */
 	spaname = spa_name(dp->dp_spa);
-	if (strcmp(buf, spaname) != 0)
-		return (SET_ERROR(EXDEV));
+	if (strcmp(buf, spaname) != 0) {
+		err = SET_ERROR(EXDEV);
+		goto error;
+	}
 
 	ASSERT(dsl_pool_config_held(dp));
 
 	err = dsl_dir_hold_obj(dp, dp->dp_root_dir_obj, NULL, tag, &dd);
 	if (err != 0) {
-		return (err);
+		goto error;
 	}
 
 	while (next != NULL) {
@@ -471,7 +491,7 @@ dsl_dir_hold(dsl_pool_t *dp, const char *name, void *tag,
 
 	if (err != 0) {
 		dsl_dir_rele(dd, tag);
-		return (err);
+		goto error;
 	}
 
 	/*
@@ -487,7 +507,10 @@ dsl_dir_hold(dsl_pool_t *dp, const char *name, void *tag,
 	}
 	if (tailp != NULL)
 		*tailp = next;
-	*ddp = dd;
+	if (err == 0)
+		*ddp = dd;
+error:
+	kmem_free(buf, ZFS_MAX_DATASET_NAME_LEN);
 	return (err);
 }
 
@@ -954,6 +977,7 @@ dsl_dir_create_sync(dsl_pool_t *dp, dsl_dir_t *pds, const char *name,
 	    DMU_OT_DSL_DIR_CHILD_MAP, DMU_OT_NONE, 0, tx);
 	if (spa_version(dp->dp_spa) >= SPA_VERSION_USED_BREAKDOWN)
 		ddphys->dd_flags |= DD_FLAG_USED_BREAKDOWN;
+
 	dmu_buf_rele(dbuf, FTAG);
 
 	return (ddobj);
@@ -967,7 +991,6 @@ dsl_dir_is_clone(dsl_dir_t *dd)
 	    dsl_dir_phys(dd)->dd_origin_obj !=
 	    dd->dd_pool->dp_origin_snap->ds_object));
 }
-
 
 uint64_t
 dsl_dir_get_used(dsl_dir_t *dd)
@@ -1540,7 +1563,7 @@ dsl_dir_diduse_space(dsl_dir_t *dd, dd_used_t type,
 		    accounted_delta, compressed, uncompressed, tx);
 		dsl_dir_transfer_space(dd->dd_parent,
 		    used - accounted_delta,
-		    DD_USED_CHILD_RSRV, DD_USED_CHILD, NULL);
+		    DD_USED_CHILD_RSRV, DD_USED_CHILD, tx);
 	}
 }
 
@@ -1954,6 +1977,14 @@ dsl_dir_rename_check(void *arg, dmu_tx_t *tx)
 			}
 		}
 
+		/* check for encryption errors */
+		error = dsl_dir_rename_crypt_check(dd, newparent);
+		if (error != 0) {
+			dsl_dir_rele(newparent, FTAG);
+			dsl_dir_rele(dd, FTAG);
+			return (SET_ERROR(EACCES));
+		}
+
 		/* no rename into our descendant */
 		if (closest_common_ancestor(dd, newparent) == dd) {
 			dsl_dir_rele(newparent, FTAG);
@@ -2054,7 +2085,8 @@ dsl_dir_rename_sync(void *arg, dmu_tx_t *tx)
 	    dd->dd_myname, tx);
 	ASSERT0(error);
 
-	(void) strcpy(dd->dd_myname, mynewname);
+	(void) strlcpy(dd->dd_myname, mynewname,
+	    sizeof (dd->dd_myname));
 	dsl_dir_rele(dd->dd_parent, dd);
 	dsl_dir_phys(dd)->dd_parent_obj = newparent->dd_object;
 	VERIFY0(dsl_dir_hold_obj(dp,

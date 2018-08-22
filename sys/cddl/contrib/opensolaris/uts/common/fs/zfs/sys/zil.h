@@ -33,6 +33,7 @@
 #include <sys/spa.h>
 #include <sys/zio.h>
 #include <sys/dmu.h>
+#include <sys/zio_crypt.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -407,7 +408,8 @@ typedef int zil_get_data_t(void *arg, lr_write_t *lr, char *dbuf,
     struct lwb *lwb, zio_t *zio);
 
 extern int zil_parse(zilog_t *zilog, zil_parse_blk_func_t *parse_blk_func,
-    zil_parse_lr_func_t *parse_lr_func, void *arg, uint64_t txg);
+    zil_parse_lr_func_t *parse_lr_func, void *arg, uint64_t txg,
+    boolean_t decrypt);
 
 extern void	zil_init(void);
 extern void	zil_fini(void);
@@ -418,6 +420,7 @@ extern void	zil_free(zilog_t *zilog);
 extern zilog_t	*zil_open(objset_t *os, zil_get_data_t *get_data);
 extern void	zil_close(zilog_t *zilog);
 
+void zil_async_to_sync(zilog_t *zilog, uint64_t foid);
 extern void	zil_replay(objset_t *os, void *arg,
     zil_replay_func_t *replay_func[TX_MAX_TYPE]);
 extern boolean_t zil_replaying(zilog_t *zilog, dmu_tx_t *tx);
@@ -429,7 +432,6 @@ extern itx_t	*zil_itx_create(uint64_t txtype, size_t lrsize);
 extern void	zil_itx_destroy(itx_t *itx);
 extern void	zil_itx_assign(zilog_t *zilog, itx_t *itx, dmu_tx_t *tx);
 
-extern void	zil_async_to_sync(zilog_t *zilog, uint64_t oid);
 extern void	zil_commit(zilog_t *zilog, uint64_t oid);
 extern void	zil_commit_impl(zilog_t *zilog, uint64_t oid);
 

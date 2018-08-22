@@ -167,6 +167,14 @@ typedef enum {
 	ZFS_PROP_PREV_SNAP,
 	ZFS_PROP_RECEIVE_RESUME_TOKEN,
 	ZFS_PROP_REMAPTXG,		/* not exposed to the user */
+	ZFS_PROP_ENCRYPTION,
+	ZFS_PROP_KEYLOCATION,
+	ZFS_PROP_KEYFORMAT,
+	ZFS_PROP_PBKDF2_SALT,
+	ZFS_PROP_PBKDF2_ITERS,
+	ZFS_PROP_ENCRYPTION_ROOT,
+	ZFS_PROP_KEY_GUID,
+	ZFS_PROP_KEYSTATUS,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
@@ -276,6 +284,8 @@ boolean_t zfs_prop_readonly(zfs_prop_t);
 boolean_t zfs_prop_visible(zfs_prop_t prop);
 boolean_t zfs_prop_inheritable(zfs_prop_t);
 boolean_t zfs_prop_setonce(zfs_prop_t);
+boolean_t zfs_prop_encryption_key_param(zfs_prop_t);
+boolean_t zfs_prop_valid_keylocation(const char *, boolean_t);
 const char *zfs_prop_to_name(zfs_prop_t);
 zfs_prop_t zfs_name_to_prop(const char *);
 boolean_t zfs_prop_user(const char *);
@@ -391,6 +401,30 @@ typedef enum {
 	ZFS_REDUNDANT_METADATA_ALL,
 	ZFS_REDUNDANT_METADATA_MOST
 } zfs_redundant_metadata_type_t;
+
+typedef enum zfs_keystatus {
+	ZFS_KEYSTATUS_NONE = 0,
+	ZFS_KEYSTATUS_UNAVAILABLE,
+	ZFS_KEYSTATUS_AVAILABLE
+} zfs_keystatus_t;
+
+typedef enum zfs_keyformat {
+	ZFS_KEYFORMAT_NONE = 0,
+	ZFS_KEYFORMAT_RAW,
+	ZFS_KEYFORMAT_HEX,
+	ZFS_KEYFORMAT_PASSPHRASE,
+	ZFS_KEYFORMAT_FORMATS
+} zfs_keyformat_t;
+
+typedef enum zfs_key_location {
+	ZFS_KEYLOCATION_NONE = 0,
+	ZFS_KEYLOCATION_PROMPT,
+	ZFS_KEYLOCATION_URI,
+	ZFS_KEYLOCATION_LOCATIONS
+} zfs_keylocation_t;
+
+#define	DEFAULT_PBKDF2_ITERATIONS 350000
+#define	MIN_PBKDF2_ITERATIONS 100000
 
 /*
  * On-disk version number.
@@ -1016,6 +1050,9 @@ typedef enum zfs_ioc {
 	ZFS_IOC_POOL_CHECKPOINT,
 	ZFS_IOC_POOL_DISCARD_CHECKPOINT,
 	ZFS_IOC_POOL_INITIALIZE,
+	ZFS_IOC_LOAD_KEY,
+	ZFS_IOC_UNLOAD_KEY,
+	ZFS_IOC_CHANGE_KEY,
 	ZFS_IOC_LAST
 } zfs_ioc_t;
 
@@ -1034,6 +1071,20 @@ typedef enum {
 	ZFS_ERR_DEVRM_IN_PROGRESS,
 	ZFS_ERR_VDEV_TOO_BIG
 } zfs_errno_t;
+
+/* supported encryption algorithms */
+enum zio_encrypt {
+	ZIO_CRYPT_INHERIT = 0,
+	ZIO_CRYPT_ON,
+	ZIO_CRYPT_OFF,
+	ZIO_CRYPT_AES_128_CCM,
+	ZIO_CRYPT_AES_192_CCM,
+	ZIO_CRYPT_AES_256_CCM,
+	ZIO_CRYPT_AES_128_GCM,
+	ZIO_CRYPT_AES_192_GCM,
+	ZIO_CRYPT_AES_256_GCM,
+	ZIO_CRYPT_FUNCTIONS
+};
 
 /*
  * Internal SPA load state.  Used by FMA diagnosis engine.
@@ -1079,6 +1130,12 @@ typedef enum {
 #define	ZPOOL_HIST_ERRNO	"errno"
 
 /*
+ * Special nvlist name that will not have its args recorded in the pool's
+ * history log.
+ */
+#define	ZPOOL_HIDDEN_ARGS	"hidden_args"
+
+/*
  * The following are names used when invoking ZFS_IOC_POOL_INITIALIZE.
  */
 #define	ZPOOL_INITIALIZE_COMMAND	"initialize_command"
@@ -1103,6 +1160,7 @@ typedef enum {
 #define	ZFS_IMPORT_ONLY		0x8
 #define	ZFS_IMPORT_CHECKPOINT	0x10
 #define	ZFS_IMPORT_TEMP_NAME	0x20
+#define	ZFS_IMPORT_LOAD_KEYS	0x40
 
 /*
  * Channel program argument/return nvlist keys and defaults.

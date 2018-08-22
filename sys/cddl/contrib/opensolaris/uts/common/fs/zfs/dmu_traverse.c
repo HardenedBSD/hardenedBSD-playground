@@ -138,7 +138,8 @@ traverse_zil(traverse_data_t *td, zil_header_t *zh)
 
 	zilog_t *zilog = zil_alloc(spa_get_dsl(td->td_spa)->dp_meta_objset, zh);
 	(void) zil_parse(zilog, traverse_zil_block, traverse_zil_record, td,
-	    claim_txg);
+	    claim_txg, !(td->td_flags & TRAVERSE_NO_DECRYPT));
+
 	zil_free(zilog);
 }
 
@@ -186,6 +187,7 @@ traverse_prefetch_metadata(traverse_data_t *td,
     const blkptr_t *bp, const zbookmark_phys_t *zb)
 {
 	arc_flags_t flags = ARC_FLAG_NOWAIT | ARC_FLAG_PREFETCH;
+	int zio_flags = ZIO_FLAG_CANFAIL | ZIO_FLAG_SPECULATIVE;
 
 	if (!(td->td_flags & TRAVERSE_PREFETCH_METADATA))
 		return;
@@ -201,8 +203,11 @@ traverse_prefetch_metadata(traverse_data_t *td,
 	if (BP_GET_LEVEL(bp) == 0 && BP_GET_TYPE(bp) != DMU_OT_DNODE)
 		return;
 
+	if ((td->td_flags & TRAVERSE_NO_DECRYPT) && BP_IS_PROTECTED(bp))
+		zio_flags |= ZIO_FLAG_RAW;
+
 	(void) arc_read(NULL, td->td_spa, bp, NULL, NULL,
-	    ZIO_PRIORITY_ASYNC_READ, ZIO_FLAG_CANFAIL, &flags, zb);
+	    ZIO_PRIORITY_ASYNC_READ, zio_flags, &flags, zb);
 }
 
 static boolean_t
@@ -219,11 +224,9 @@ static int
 traverse_visitbp(traverse_data_t *td, const dnode_phys_t *dnp,
     const blkptr_t *bp, const zbookmark_phys_t *zb)
 {
-	zbookmark_phys_t czb;
 	int err = 0;
 	arc_buf_t *buf = NULL;
 	prefetch_data_t *pd = td->td_pfd;
-	boolean_t hard = td->td_flags & TRAVERSE_HARD;
 
 	switch (resume_skip_check(td, dnp, zb)) {
 	case RESUME_SKIP_ALL:
@@ -296,43 +299,61 @@ traverse_visitbp(traverse_data_t *td, const dnode_phys_t *dnp,
 	}
 
 	if (BP_GET_LEVEL(bp) > 0) {
-		arc_flags_t flags = ARC_FLAG_WAIT;
-		int i;
-		blkptr_t *cbp;
-		int epb = BP_GET_LSIZE(bp) >> SPA_BLKPTRSHIFT;
+		uint32_t flags = ARC_FLAG_WAIT;
+		int32_t i;
+		int32_t epb = BP_GET_LSIZE(bp) >> SPA_BLKPTRSHIFT;
+		zbookmark_phys_t *czb;
+
+		ASSERT(!BP_IS_PROTECTED(bp));
 
 		err = arc_read(NULL, td->td_spa, bp, arc_getbuf_func, &buf,
 		    ZIO_PRIORITY_ASYNC_READ, ZIO_FLAG_CANFAIL, &flags, zb);
 		if (err != 0)
 			goto post;
-		cbp = buf->b_data;
+
+		czb = kmem_alloc(sizeof (zbookmark_phys_t), KM_SLEEP);
 
 		for (i = 0; i < epb; i++) {
-			SET_BOOKMARK(&czb, zb->zb_objset, zb->zb_object,
+			SET_BOOKMARK(czb, zb->zb_objset, zb->zb_object,
 			    zb->zb_level - 1,
 			    zb->zb_blkid * epb + i);
-			traverse_prefetch_metadata(td, &cbp[i], &czb);
+			traverse_prefetch_metadata(td,
+			    &((blkptr_t *)buf->b_data)[i], czb);
 		}
 
 		/* recursively visitbp() blocks below this */
 		for (i = 0; i < epb; i++) {
-			SET_BOOKMARK(&czb, zb->zb_objset, zb->zb_object,
+			SET_BOOKMARK(czb, zb->zb_objset, zb->zb_object,
 			    zb->zb_level - 1,
 			    zb->zb_blkid * epb + i);
-			err = traverse_visitbp(td, dnp, &cbp[i], &czb);
+			err = traverse_visitbp(td, dnp,
+			    &((blkptr_t *)buf->b_data)[i], czb);
 			if (err != 0)
 				break;
 		}
+
+		kmem_free(czb, sizeof (zbookmark_phys_t));
+
 	} else if (BP_GET_TYPE(bp) == DMU_OT_DNODE) {
-		arc_flags_t flags = ARC_FLAG_WAIT;
-		int i;
-		int epb = BP_GET_LSIZE(bp) >> DNODE_SHIFT;
+		uint32_t flags = ARC_FLAG_WAIT;
+		uint32_t zio_flags = ZIO_FLAG_CANFAIL;
+		int32_t i;
+		int32_t epb = BP_GET_LSIZE(bp) >> DNODE_SHIFT;
+		dnode_phys_t *child_dnp;
+
+		/*
+		 * dnode blocks might have their bonus buffers encrypted, so
+		 * we must be careful to honor TRAVERSE_NO_DECRYPT
+		 */
+		if ((td->td_flags & TRAVERSE_NO_DECRYPT) && BP_IS_PROTECTED(bp))
+			zio_flags |= ZIO_FLAG_RAW;
 
 		err = arc_read(NULL, td->td_spa, bp, arc_getbuf_func, &buf,
-		    ZIO_PRIORITY_ASYNC_READ, ZIO_FLAG_CANFAIL, &flags, zb);
+		    ZIO_PRIORITY_ASYNC_READ, zio_flags, &flags, zb);
 		if (err != 0)
 			goto post;
-		dnode_phys_t *child_dnp = buf->b_data;
+
+		child_dnp = buf->b_data;
 
 		for (i = 0; i < epb; i += child_dnp[i].dn_extra_slots + 1) {
 			prefetch_dnode_metadata(td, &child_dnp[i],
@@ -347,14 +368,19 @@ traverse_visitbp(traverse_data_t *td, const dnode_phys_t *dnp,
 				break;
 		}
 	} else if (BP_GET_TYPE(bp) == DMU_OT_OBJSET) {
+		uint32_t zio_flags = ZIO_FLAG_CANFAIL;
 		arc_flags_t flags = ARC_FLAG_WAIT;
+		objset_phys_t *osp;
+
+		if ((td->td_flags & TRAVERSE_NO_DECRYPT) && BP_IS_PROTECTED(bp))
+			zio_flags |= ZIO_FLAG_RAW;
 
 		err = arc_read(NULL, td->td_spa, bp, arc_getbuf_func, &buf,
-		    ZIO_PRIORITY_ASYNC_READ, ZIO_FLAG_CANFAIL, &flags, zb);
+		    ZIO_PRIORITY_ASYNC_READ, zio_flags, &flags, zb);
 		if (err != 0)
 			goto post;
 
-		objset_phys_t *osp = buf->b_data;
+		osp = buf->b_data;
 		prefetch_dnode_metadata(td, &osp->os_meta_dnode, zb->zb_objset,
 		    DMU_META_DNODE_OBJECT);
 		/*
@@ -392,7 +418,7 @@ post:
 	if (err == 0 && (td->td_flags & TRAVERSE_POST))
 		err = td->td_func(td->td_spa, NULL, bp, zb, dnp, td->td_arg);
 
-	if (hard && (err == EIO || err == ECKSUM)) {
+	if ((td->td_flags & TRAVERSE_HARD) && (err == EIO || err == ECKSUM)) {
 		/*
 		 * Ignore this disk error as requested by the HARD flag,
 		 * and continue traversal.
@@ -499,9 +525,10 @@ traverse_prefetcher(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
     const zbookmark_phys_t *zb, const dnode_phys_t *dnp, void *arg)
 {
 	prefetch_data_t *pfd = arg;
+	int zio_flags = ZIO_FLAG_CANFAIL | ZIO_FLAG_SPECULATIVE;
 	arc_flags_t aflags = ARC_FLAG_NOWAIT | ARC_FLAG_PREFETCH |
 	    ARC_FLAG_PRESCIENT_PREFETCH;
-	
+
 	ASSERT(pfd->pd_bytes_fetched >= 0);
 	if (bp == NULL)
 		return (0);
@@ -518,8 +545,11 @@ traverse_prefetcher(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
 	cv_broadcast(&pfd->pd_cv);
 	mutex_exit(&pfd->pd_mtx);
 
+	if ((pfd->pd_flags & TRAVERSE_NO_DECRYPT) && BP_IS_PROTECTED(bp))
+		zio_flags |= ZIO_FLAG_RAW;
+
 	(void) arc_read(NULL, spa, bp, NULL, NULL, ZIO_PRIORITY_ASYNC_READ,
-	    ZIO_FLAG_CANFAIL | ZIO_FLAG_SPECULATIVE, &aflags, zb);
+	    zio_flags, &aflags, zb);
 
 	return (0);
 }
@@ -555,74 +585,95 @@ traverse_impl(spa_t *spa, dsl_dataset_t *ds, uint64_t objset, blkptr_t *rootbp,
     uint64_t txg_start, zbookmark_phys_t *resume, int flags,
     blkptr_cb_t func, void *arg)
 {
-	traverse_data_t td;
-	prefetch_data_t pd = { 0 };
-	zbookmark_phys_t czb;
+	traverse_data_t *td;
+	prefetch_data_t *pd;
+	zbookmark_phys_t *czb;
 	int err;
 
 	ASSERT(ds == NULL || objset == ds->ds_object);
 	ASSERT(!(flags & TRAVERSE_PRE) || !(flags & TRAVERSE_POST));
 
-	td.td_spa = spa;
-	td.td_objset = objset;
-	td.td_rootbp = rootbp;
-	td.td_min_txg = txg_start;
-	td.td_resume = resume;
-	td.td_func = func;
-	td.td_arg = arg;
-	td.td_pfd = &pd;
-	td.td_flags = flags;
-	td.td_paused = B_FALSE;
-	td.td_realloc_possible = (txg_start == 0 ? B_FALSE : B_TRUE);
+	td = kmem_alloc(sizeof (traverse_data_t), KM_SLEEP);
+	pd = kmem_zalloc(sizeof (prefetch_data_t), KM_SLEEP);
+	czb = kmem_alloc(sizeof (zbookmark_phys_t), KM_SLEEP);
+
+	td->td_spa = spa;
+	td->td_objset = objset;
+	td->td_rootbp = rootbp;
+	td->td_min_txg = txg_start;
+	td->td_resume = resume;
+	td->td_func = func;
+	td->td_arg = arg;
+	td->td_pfd = pd;
+	td->td_flags = flags;
+	td->td_paused = B_FALSE;
+	td->td_realloc_possible = (txg_start == 0 ? B_FALSE : B_TRUE);
 
 	if (spa_feature_is_active(spa, SPA_FEATURE_HOLE_BIRTH)) {
 		VERIFY(spa_feature_enabled_txg(spa,
-		    SPA_FEATURE_HOLE_BIRTH, &td.td_hole_birth_enabled_txg));
+		    SPA_FEATURE_HOLE_BIRTH, &td->td_hole_birth_enabled_txg));
 	} else {
-		td.td_hole_birth_enabled_txg = UINT64_MAX;
+		td->td_hole_birth_enabled_txg = UINT64_MAX;
 	}
 
-	pd.pd_flags = flags;
+	pd->pd_flags = flags;
 	if (resume != NULL)
-		pd.pd_resume = *resume;
-	mutex_init(&pd.pd_mtx, NULL, MUTEX_DEFAULT, NULL);
-	cv_init(&pd.pd_cv, NULL, CV_DEFAULT, NULL);
+		pd->pd_resume = *resume;
+	mutex_init(&pd->pd_mtx, NULL, MUTEX_DEFAULT, NULL);
+	cv_init(&pd->pd_cv, NULL, CV_DEFAULT, NULL);
+
+	SET_BOOKMARK(czb, td->td_objset,
+	    ZB_ROOT_OBJECT, ZB_ROOT_LEVEL, ZB_ROOT_BLKID);
 
 	/* See comment on ZIL traversal in dsl_scan_visitds. */
 	if (ds != NULL && !ds->ds_is_snapshot && !BP_IS_HOLE(rootbp)) {
+		enum zio_flag zio_flags = ZIO_FLAG_CANFAIL;
 		arc_flags_t flags = ARC_FLAG_WAIT;
 		objset_phys_t *osp;
 		arc_buf_t *buf;
 
-		err = arc_read(NULL, td.td_spa, rootbp,
-		    arc_getbuf_func, &buf,
-		    ZIO_PRIORITY_ASYNC_READ, ZIO_FLAG_CANFAIL, &flags, NULL);
-		if (err != 0)
-			return (err);
+		if ((td->td_flags & TRAVERSE_NO_DECRYPT) &&
+		    BP_IS_PROTECTED(rootbp))
+			zio_flags |= ZIO_FLAG_RAW;
 
-		osp = buf->b_data;
-		traverse_zil(&td, &osp->os_zil_header);
-		arc_buf_destroy(buf, &buf);
+		err = arc_read(NULL, td->td_spa, rootbp, arc_getbuf_func,
+		    &buf, ZIO_PRIORITY_ASYNC_READ, zio_flags, &flags, czb);
+		if (err != 0) {
+			/*
+			 * If both TRAVERSE_HARD and TRAVERSE_PRE are set,
+			 * continue to visitbp so that td_func can be called
+			 * in pre stage, and err will reset to zero.
+			 */
+			if (!(td->td_flags & TRAVERSE_HARD) ||
+			    !(td->td_flags & TRAVERSE_PRE))
+				return (err);
+		} else {
+			osp = buf->b_data;
+			traverse_zil(td, &osp->os_zil_header);
+			arc_buf_destroy(buf, &buf);
+		}
 	}
 
 	if (!(flags & TRAVERSE_PREFETCH_DATA) ||
-	    0 == taskq_dispatch(system_taskq, traverse_prefetch_thread,
-	    &td, TQ_NOQUEUE))
-		pd.pd_exited = B_TRUE;
+	    taskq_dispatch(spa->spa_prefetch_taskq, traverse_prefetch_thread,
+	    td, TQ_NOQUEUE) == TASKQID_INVALID)
+		pd->pd_exited = B_TRUE;
 
-	SET_BOOKMARK(&czb, td.td_objset,
-	    ZB_ROOT_OBJECT, ZB_ROOT_LEVEL, ZB_ROOT_BLKID);
-	err = traverse_visitbp(&td, NULL, rootbp, &czb);
+	err = traverse_visitbp(td, NULL, rootbp, czb);
 
-	mutex_enter(&pd.pd_mtx);
-	pd.pd_cancel = B_TRUE;
-	cv_broadcast(&pd.pd_cv);
-	while (!pd.pd_exited)
-		cv_wait(&pd.pd_cv, &pd.pd_mtx);
-	mutex_exit(&pd.pd_mtx);
+	mutex_enter(&pd->pd_mtx);
+	pd->pd_cancel = B_TRUE;
+	cv_broadcast(&pd->pd_cv);
+	while (!pd->pd_exited)
+		cv_wait(&pd->pd_cv, &pd->pd_mtx);
+	mutex_exit(&pd->pd_mtx);
 
-	mutex_destroy(&pd.pd_mtx);
-	cv_destroy(&pd.pd_cv);
+	mutex_destroy(&pd->pd_mtx);
+	cv_destroy(&pd->pd_cv);
+
+	kmem_free(czb, sizeof (zbookmark_phys_t));
+	kmem_free(pd, sizeof (struct prefetch_data));
+	kmem_free(td, sizeof (struct traverse_data));
 
 	return (err);
 }

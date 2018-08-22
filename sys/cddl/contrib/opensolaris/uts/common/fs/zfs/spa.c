@@ -28,8 +28,9 @@
  * Copyright 2013 Saso Kiselkov. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2016 Toomas Soome <tsoome@me.com>
- * Copyright 2017 Joyent, Inc.
+ * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  * Copyright (c) 2017 Datto Inc.
+ * Copyright 2017 Joyent, Inc.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
  */
 
@@ -1228,10 +1229,9 @@ spa_activate(spa_t *spa, int mode)
 	 */
 	trim_thread_create(spa);
 
-	for (size_t i = 0; i < TXG_SIZE; i++) {
+	for (size_t i = 0; i < TXG_SIZE; i++)
 		spa->spa_txg_zio[i] = zio_root(spa, NULL, NULL,
 		    ZIO_FLAG_CANFAIL);
-	}
 
 	list_create(&spa->spa_config_dirty_list, sizeof (vdev_t),
 	    offsetof(vdev_t, vdev_config_dirty_node));
@@ -1249,6 +1249,41 @@ spa_activate(spa_t *spa, int mode)
 	avl_create(&spa->spa_errlist_last,
 	    spa_error_entry_compare, sizeof (spa_error_entry_t),
 	    offsetof(spa_error_entry_t, se_avl));
+
+	spa_keystore_init(&spa->spa_keystore);
+
+	/*
+	 * This taskq is used to perform zvol-minor-related tasks
+	 * asynchronously. This has several advantages, including easy
+	 * resolution of various deadlocks (zfsonlinux bug #3681).
+	 *
+	 * The taskq must be single threaded to ensure tasks are always
+	 * processed in the order in which they were dispatched.
+	 *
+	 * A taskq per pool allows one to keep the pools independent.
+	 * This way if one pool is suspended, it will not impact another.
+	 *
+	 * The preferred location to dispatch a zvol minor task is a sync
+	 * task. In this context, there is easy access to the spa_t and minimal
+	 * error handling is required because the sync task must succeed.
+	 */
+	spa->spa_zvol_taskq = taskq_create("z_zvol", 1, defclsyspri,
+	    1, INT_MAX, 0);
+
+	/*
+	 * Taskq dedicated to prefetcher threads: this is used to prevent the
+	 * pool traverse code from monopolizing the global (and limited)
+	 * system_taskq by inappropriately scheduling long running tasks on it.
+	 */
+	spa->spa_prefetch_taskq = taskq_create("z_prefetch", boot_ncpus,
+	    defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC);
+
+	/*
+	 * The taskq to upgrade datasets in this pool. Currently used by
+	 * feature SPA_FEATURE_USEROBJ_ACCOUNTING/SPA_FEATURE_PROJECT_QUOTA.
+	 */
+	spa->spa_upgrade_taskq = taskq_create("z_upgrade", boot_ncpus,
+	    defclsyspri, 1, INT_MAX, TASKQ_DYNAMIC);
 }
 
 /*
@@ -1270,6 +1305,21 @@ spa_deactivate(spa_t *spa)
 	trim_thread_destroy(spa);
 
 	spa_evicting_os_wait(spa);
+
+	if (spa->spa_zvol_taskq) {
+		taskq_destroy(spa->spa_zvol_taskq);
+		spa->spa_zvol_taskq = NULL;
+	}
+
+	if (spa->spa_prefetch_taskq) {
+		taskq_destroy(spa->spa_prefetch_taskq);
+		spa->spa_prefetch_taskq = NULL;
+	}
+
+	if (spa->spa_upgrade_taskq) {
+		taskq_destroy(spa->spa_upgrade_taskq);
+		spa->spa_upgrade_taskq = NULL;
+	}
 
 	txg_list_destroy(&spa->spa_vdev_txg_list);
 
@@ -1300,9 +1350,10 @@ spa_deactivate(spa_t *spa)
 	 * still have errors left in the queues.  Empty them just in case.
 	 */
 	spa_errlog_drain(spa);
-
 	avl_destroy(&spa->spa_errlist_scrub);
 	avl_destroy(&spa->spa_errlist_last);
+
+	spa_keystore_fini(&spa->spa_keystore);
 
 	spa->spa_state = POOL_STATE_UNINITIALIZED;
 
@@ -1663,7 +1714,7 @@ spa_load_spares(spa_t *spa)
 void
 spa_load_l2cache(spa_t *spa)
 {
-	nvlist_t **l2cache;
+	nvlist_t **l2cache = NULL;
 	uint_t nl2cache;
 	int i, j, oldnvdevs;
 	uint64_t guid;
@@ -2158,8 +2209,8 @@ spa_load_verify(spa_t *spa)
 			    spa_load_verify_data, spa_load_verify_metadata);
 		}
 		error = traverse_pool(spa, spa->spa_verify_min_txg,
-		    TRAVERSE_PRE | TRAVERSE_PREFETCH_METADATA,
-		    spa_load_verify_cb, rio);
+		    TRAVERSE_PRE | TRAVERSE_PREFETCH_METADATA |
+		    TRAVERSE_NO_DECRYPT, spa_load_verify_cb, rio);
 	}
 
 	(void) zio_wait(rio);
@@ -4715,11 +4766,27 @@ spa_l2cache_drop(spa_t *spa)
 }
 
 /*
+ * Verify encryption parameters for spa creation. If we are encrypting, we must
+ * have the encryption feature flag enabled.
+ */
+static int
+spa_create_check_encryption_params(dsl_crypto_params_t *dcp,
+    boolean_t has_encryption)
+{
+	if (dcp->cp_crypt != ZIO_CRYPT_OFF &&
+	    dcp->cp_crypt != ZIO_CRYPT_INHERIT &&
+	    !has_encryption)
+		return (SET_ERROR(ENOTSUP));
+
+	return (dmu_objset_create_crypt_check(NULL, dcp));
+}
+
+/*
  * Pool Creation
  */
 int
 spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
-    nvlist_t *zplprops)
+    nvlist_t *zplprops, dsl_crypto_params_t *dcp)
 {
 	spa_t *spa;
 	char *altroot = NULL;
@@ -4730,8 +4797,11 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	uint64_t txg = TXG_INITIAL;
 	nvlist_t **spares, **l2cache;
 	uint_t nspares, nl2cache;
-	uint64_t version, obj;
+	uint64_t version, obj, root_dsobj = 0;
 	boolean_t has_features;
+	boolean_t has_encryption;
+	spa_feature_t feat;
+	char *feat_name;
 	char *poolname;
 	nvlist_t *nvl;
 
@@ -4773,10 +4843,27 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 		spa->spa_import_flags |= ZFS_IMPORT_TEMP_NAME;
 
 	has_features = B_FALSE;
+	has_encryption = B_FALSE;
 	for (nvpair_t *elem = nvlist_next_nvpair(props, NULL);
 	    elem != NULL; elem = nvlist_next_nvpair(props, elem)) {
-		if (zpool_prop_feature(nvpair_name(elem)))
+		if (zpool_prop_feature(nvpair_name(elem))) {
 			has_features = B_TRUE;
+			feat_name = strchr(nvpair_name(elem), '@') + 1;
+			VERIFY0(zfeature_lookup_name(feat_name, &feat));
+			if (feat == SPA_FEATURE_ENCRYPTION)
+				has_encryption = B_TRUE;
+		}
+	}
+
+	/* verify encryption params, if they were provided */
+	if (dcp != NULL) {
+		error = spa_create_check_encryption_params(dcp, has_encryption);
+		if (error != 0) {
+			spa_deactivate(spa);
+			spa_remove(spa);
+			mutex_exit(&spa_namespace_lock);
+			return (error);
+		}
 	}
 
 	if (has_features || nvlist_lookup_uint64(props,
@@ -4870,8 +4957,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	}
 
 	spa->spa_is_initializing = B_TRUE;
-	spa->spa_dsl_pool = dp = dsl_pool_create(spa, zplprops, txg);
-	spa->spa_meta_objset = dp->dp_meta_objset;
+	spa->spa_dsl_pool = dp = dsl_pool_create(spa, zplprops, dcp, txg);
 	spa->spa_is_initializing = B_FALSE;
 
 	/*
@@ -4895,9 +4981,6 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	    sizeof (uint64_t), 1, &spa->spa_config_object, tx) != 0) {
 		cmn_err(CE_PANIC, "failed to add pool config");
 	}
-
-	if (spa_version(spa) >= SPA_VERSION_FEATURES)
-		spa_feature_create_zap_objects(spa, tx);
 
 	if (zap_add(spa->spa_meta_objset,
 	    DMU_POOL_DIRECTORY_OBJECT, DMU_POOL_CREATION_VERSION,
@@ -4958,14 +5041,25 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 
 	dmu_tx_commit(tx);
 
-	spa->spa_sync_on = B_TRUE;
-	txg_sync_start(spa->spa_dsl_pool);
-
 	/*
-	 * We explicitly wait for the first transaction to complete so that our
-	 * bean counters are appropriately updated.
+	 * If the root dataset is encrypted we will need to create key mappings
+	 * for the zio layer before we start to write any data to disk and hold
+	 * them until after the first txg has been synced. Waiting for the first
+	 * transaction to complete also ensures that our bean counters are
+	 * appropriately updated.
 	 */
-	txg_wait_synced(spa->spa_dsl_pool, txg);
+	if (dp->dp_root_dir->dd_crypto_obj != 0) {
+		root_dsobj = dsl_dir_phys(dp->dp_root_dir)->dd_head_dataset_obj;
+		VERIFY0(spa_keystore_create_mapping_impl(spa, root_dsobj,
+		    dp->dp_root_dir, FTAG));
+	}
+
+	spa->spa_sync_on = B_TRUE;
+	txg_sync_start(dp);
+	txg_wait_synced(dp, txg);
+
+	if (dp->dp_root_dir->dd_crypto_obj != 0)
+		VERIFY0(spa_keystore_remove_mapping(spa, root_dsobj, FTAG));
 
 	spa_spawn_aux_threads(spa);
 
@@ -7991,15 +8085,10 @@ spa_sync(spa_t *spa, uint64_t txg)
 	tx = dmu_tx_create_assigned(dp, txg);
 
 	spa->spa_sync_starttime = gethrtime();
-#ifdef illumos
-	VERIFY(cyclic_reprogram(spa->spa_deadman_cycid,
-	    spa->spa_sync_starttime + spa->spa_deadman_synctime));
-#else	/* !illumos */
-#ifdef _KERNEL
-	callout_schedule(&spa->spa_deadman_cycid,
-	    hz * spa->spa_deadman_synctime / NANOSEC);
-#endif
-#endif	/* illumos */
+	taskq_cancel_id(system_delay_taskq, spa->spa_deadman_tqid);
+	spa->spa_deadman_tqid = taskq_dispatch_delay(system_delay_taskq,
+	    spa_deadman, spa, TQ_SLEEP, ddi_get_lbolt() +
+	    NSEC_TO_TICK(spa->spa_deadman_synctime));
 
 	/*
 	 * If we are upgrading to SPA_VERSION_RAIDZ_DEFLATE this txg,
@@ -8215,13 +8304,8 @@ spa_sync(spa_t *spa, uint64_t txg)
 	}
 	dmu_tx_commit(tx);
 
-#ifdef illumos
-	VERIFY(cyclic_reprogram(spa->spa_deadman_cycid, CY_INFINITY));
-#else	/* !illumos */
-#ifdef _KERNEL
-	callout_drain(&spa->spa_deadman_cycid);
-#endif
-#endif	/* illumos */
+	taskq_cancel_id(system_delay_taskq, spa->spa_deadman_tqid);
+	spa->spa_deadman_tqid = 0;
 
 	/*
 	 * Clear the dirty config list.

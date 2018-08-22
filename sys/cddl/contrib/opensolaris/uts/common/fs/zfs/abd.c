@@ -8,7 +8,6 @@
  * source.  A copy of the CDDL is also available via the Internet at
  * http://www.illumos.org/license/CDDL.
  */
-
 /*
  * Copyright (c) 2014 by Chunwei Chen. All rights reserved.
  * Copyright (c) 2016 by Delphix. All rights reserved.
@@ -93,16 +92,29 @@
 
 typedef struct abd_stats {
 	kstat_named_t abdstat_struct_size;
+	kstat_named_t abdstat_linear_cnt;
+	kstat_named_t abdstat_linear_data_size;
 	kstat_named_t abdstat_scatter_cnt;
 	kstat_named_t abdstat_scatter_data_size;
 	kstat_named_t abdstat_scatter_chunk_waste;
-	kstat_named_t abdstat_linear_cnt;
-	kstat_named_t abdstat_linear_data_size;
+	kstat_named_t abdstat_scatter_page_multi_chunk;
+	kstat_named_t abdstat_scatter_page_multi_zone;
+	kstat_named_t abdstat_scatter_page_alloc_retry;
+	kstat_named_t abdstat_scatter_sg_table_retry;
 } abd_stats_t;
 
 static abd_stats_t abd_stats = {
 	/* Amount of memory occupied by all of the abd_t struct allocations */
 	{ "struct_size",			KSTAT_DATA_UINT64 },
+	/*
+	 * The number of linear ABDs which are currently allocated, excluding
+	 * ABDs which don't own their data (for instance the ones which were
+	 * allocated through abd_get_offset() and abd_get_from_buf()). If an
+	 * ABD takes ownership of its buf then it will become tracked.
+	 */
+	{ "linear_cnt",				KSTAT_DATA_UINT64 },
+	/* Amount of data stored in all linear ABDs tracked by linear_cnt */
+	{ "linear_data_size",			KSTAT_DATA_UINT64 },
 	/*
 	 * The number of scatter ABDs which are currently allocated, excluding
 	 * ABDs which don't own their data (for instance the ones which were
@@ -117,14 +129,26 @@ static abd_stats_t abd_stats = {
 	 */
 	{ "scatter_chunk_waste",		KSTAT_DATA_UINT64 },
 	/*
-	 * The number of linear ABDs which are currently allocated, excluding
-	 * ABDs which don't own their data (for instance the ones which were
-	 * allocated through abd_get_offset() and abd_get_from_buf()). If an
-	 * ABD takes ownership of its buf then it will become tracked.
+	 * The number of scatter ABDs which contain multiple chunks.
+	 * ABDs are preferentially allocated from the minimum number of
+	 * contiguous multi-page chunks, a single chunk is optimal.
 	 */
-	{ "linear_cnt",				KSTAT_DATA_UINT64 },
-	/* Amount of data stored in all linear ABDs tracked by linear_cnt */
-	{ "linear_data_size",			KSTAT_DATA_UINT64 },
+	{ "scatter_page_multi_chunk",		KSTAT_DATA_UINT64 },
+	/*
+	 * The number of scatter ABDs which are split across memory zones.
+	 * ABDs are preferentially allocated using pages from a single zone.
+	 */
+	{ "scatter_page_multi_zone",		KSTAT_DATA_UINT64 },
+	/*
+	 *  The total number of retries encountered when attempting to
+	 *  allocate the pages to populate the scatter ABD.
+	 */
+	{ "scatter_page_alloc_retry",		KSTAT_DATA_UINT64 },
+	/*
+	 *  The total number of retries encountered when attempting to
+	 *  allocate the sg table for an ABD.
+	 */
+	{ "scatter_sg_table_retry",		KSTAT_DATA_UINT64 },
 };
 
 #define	ABDSTAT(stat)		(abd_stats.stat.value.ui64)
@@ -288,7 +312,7 @@ abd_free_struct(abd_t *abd)
 abd_t *
 abd_alloc(size_t size, boolean_t is_metadata)
 {
-	if (!zfs_abd_scatter_enabled)
+	if (!zfs_abd_scatter_enabled || size <= PAGESIZE)
 		return (abd_alloc_linear(size, is_metadata));
 
 	VERIFY3U(size, <=, SPA_MAXBLOCKSIZE);
@@ -393,6 +417,9 @@ abd_free_linear(abd_t *abd)
 void
 abd_free(abd_t *abd)
 {
+	if (abd == NULL)
+		return;
+
 	abd_verify(abd);
 	ASSERT3P(abd->abd_parent, ==, NULL);
 	ASSERT(abd->abd_flags & ABD_FLAG_OWNER);
@@ -438,8 +465,9 @@ abd_alloc_for_io(size_t size, boolean_t is_metadata)
  * buffer data with sabd. Use abd_put() to free. sabd must not be freed while
  * any derived ABDs exist.
  */
-abd_t *
-abd_get_offset(abd_t *sabd, size_t off)
+/* ARGSUSED */
+static inline abd_t *
+abd_get_offset_impl(abd_t *sabd, size_t off, size_t size)
 {
 	abd_t *abd;
 
@@ -461,7 +489,8 @@ abd_get_offset(abd_t *sabd, size_t off)
 	} else {
 		size_t new_offset = sabd->abd_u.abd_scatter.abd_offset + off;
 		size_t chunkcnt = abd_scatter_chunkcnt(sabd) -
-		    (new_offset / zfs_abd_chunk_size);
+			(new_offset / PAGESIZE);
+
 
 		abd = abd_alloc_struct(chunkcnt);
 
@@ -483,12 +512,30 @@ abd_get_offset(abd_t *sabd, size_t off)
 		    chunkcnt * sizeof (void *));
 	}
 
-	abd->abd_size = sabd->abd_size - off;
+	abd->abd_size = size;
 	abd->abd_parent = sabd;
 	refcount_create(&abd->abd_children);
 	(void) refcount_add_many(&sabd->abd_children, abd->abd_size, abd);
 
 	return (abd);
+}
+
+abd_t *
+abd_get_offset(abd_t *sabd, size_t off)
+{
+	size_t size = sabd->abd_size > off ? sabd->abd_size - off : 0;
+
+	VERIFY3U(size, >, 0);
+
+	return (abd_get_offset_impl(sabd, off, size));
+}
+
+abd_t *
+abd_get_offset_size(abd_t *sabd, size_t off, size_t size)
+{
+	ASSERT3U(off + size, <=, sabd->abd_size);
+
+	return (abd_get_offset_impl(sabd, off, size));
 }
 
 /*
@@ -524,6 +571,8 @@ abd_get_from_buf(void *buf, size_t size)
 void
 abd_put(abd_t *abd)
 {
+	if (abd == NULL)
+		return;
 	abd_verify(abd);
 	ASSERT(!(abd->abd_flags & ABD_FLAG_OWNER));
 
@@ -676,9 +725,9 @@ abd_iter_init(struct abd_iter *aiter, abd_t *abd)
 {
 	abd_verify(abd);
 	aiter->iter_abd = abd;
-	aiter->iter_pos = 0;
 	aiter->iter_mapaddr = NULL;
 	aiter->iter_mapsize = 0;
+	aiter->iter_pos = 0;
 }
 
 /*
@@ -727,9 +776,12 @@ abd_iter_map(struct abd_iter *aiter)
 	} else {
 		size_t index = abd_iter_scatter_chunk_index(aiter);
 		offset = abd_iter_scatter_chunk_offset(aiter);
-		aiter->iter_mapsize = zfs_abd_chunk_size - offset;
+		aiter->iter_mapsize = MIN(PAGESIZE - offset,
+			aiter->iter_abd->abd_size - aiter->iter_pos);
+
 		paddr = aiter->iter_abd->abd_u.abd_scatter.abd_chunks[index];
 	}
+
 	aiter->iter_mapaddr = (char *)paddr + offset;
 }
 
@@ -949,10 +1001,12 @@ abd_cmp_cb(void *bufa, void *bufb, size_t size, void *private)
 }
 
 /*
- * Compares the first size bytes of two ABDs.
+ * Compares the contents of two ABDs.
  */
 int
-abd_cmp(abd_t *dabd, abd_t *sabd, size_t size)
+abd_cmp(abd_t *dabd, abd_t *sabd)
 {
-	return (abd_iterate_func2(dabd, sabd, 0, 0, size, abd_cmp_cb, NULL));
+	ASSERT3U(dabd->abd_size, ==, sabd->abd_size);
+	return (abd_iterate_func2(dabd, sabd, 0, 0, dabd->abd_size,
+	    abd_cmp_cb, NULL));
 }

@@ -25,6 +25,7 @@
  * Copyright 2013 Martin Matuska <mm@FreeBSD.org>. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2013 Saso Kiselkov. All rights reserved.
+ * Copyright (c) 2016 Actifio, Inc. All rights reserved.
  * Copyright (c) 2017 Datto Inc.
  */
 
@@ -44,6 +45,7 @@
 #include <sys/refcount.h>
 #include <sys/bplist.h>
 #include <sys/bpobj.h>
+#include <sys/dsl_crypt.h>
 #include <sys/zfeature.h>
 #include <sys/zthr.h>
 #include <zfeature_common.h>
@@ -266,7 +268,7 @@ struct spa {
 	uint64_t	spa_last_io;		/* lbolt of last non-scan I/O */
 	kmutex_t	spa_scrub_lock;		/* resilver/scrub lock */
 	uint64_t	spa_scrub_inflight;	/* in-flight scrub bytes */
-	uint64_t	spa_load_verify_ios;	/* in-flight verifications IOs */
+	uint64_t	spa_load_verify_ios;	/* in-flight verification IOs */
 	kcondvar_t	spa_scrub_io_cv;	/* scrub I/O completion */
 	uint8_t		spa_scrub_active;	/* active or suspended? */
 	uint8_t		spa_scrub_type;		/* type of scrub we're doing */
@@ -322,6 +324,7 @@ struct spa {
 	uint64_t	spa_pool_props_object;	/* object for properties */
 	uint64_t	spa_bootfs;		/* default boot filesystem */
 	uint64_t	spa_failmode;		/* failure mode for the pool */
+	uint64_t	spa_deadman_failmode;	/* failure mode for deadman */
 	uint64_t	spa_delegation;		/* delegation on/off */
 	list_t		spa_config_list;	/* previous cache file(s) */
 	/* per-CPU array of root of async I/O: */
@@ -340,6 +343,7 @@ struct spa {
 	uint64_t	spa_bootsize;		/* efi system partition size */
 	ddt_t		*spa_ddt[ZIO_CHECKSUM_FUNCTIONS]; /* in-core DDTs */
 	uint64_t	spa_ddt_stat_object;	/* DDT statistics */
+	uint64_t	spa_dedup_dspace;	/* Cache get_dedup_dspace() */
 	uint64_t	spa_dedup_ditto;	/* dedup ditto threshold */
 	uint64_t	spa_dedup_checksum;	/* default dedup checksum */
 	uint64_t	spa_dspace;		/* dspace in normal class */
@@ -364,19 +368,14 @@ struct spa {
 	nvlist_t	*spa_feat_stats;	/* Cache of enabled features */
 	/* cache feature refcounts */
 	uint64_t	spa_feat_refcount_cache[SPA_FEATURES];
-#ifdef illumos
-	cyclic_id_t	spa_deadman_cycid;	/* cyclic id */
-#else	/* !illumos */
-#ifdef _KERNEL
-	struct callout	spa_deadman_cycid;	/* callout id */
-	struct task	spa_deadman_task;
-#endif
-#endif	/* illumos */
+	taskqid_t	spa_deadman_tqid;	/* Task id */
 	uint64_t	spa_deadman_calls;	/* number of deadman calls */
-	hrtime_t	spa_sync_starttime;	/* starting time fo spa_sync */
-	uint64_t	spa_deadman_synctime;	/* deadman expiration timer */
+	hrtime_t	spa_sync_starttime;	/* starting time of spa_sync */
+	uint64_t	spa_deadman_synctime;	/* deadman sync expiration */
+	uint64_t	spa_deadman_ziotime;	/* deadman zio expiration */
 	uint64_t	spa_all_vdev_zaps;	/* ZAP of per-vd ZAP obj #s */
 	spa_avz_action_t	spa_avz_action;	/* destroy/rebuild AVZ? */
+	spa_keystore_t	spa_keystore;	/* loaded crypto keys */
 
 #ifdef illumos
 	/*
@@ -395,6 +394,8 @@ struct spa {
 	uint64_t	spa_lowmem_last_txg;	/* txg window start */
 
 	hrtime_t	spa_ccw_fail_time;	/* Conf cache write fail time */
+	taskq_t		*spa_zvol_taskq;	/* Taskq for minor management */
+	taskq_t		*spa_prefetch_taskq;	/* Taskq for prefetch threads */
 
 	/*
 	 * spa_refcount & spa_config_lock must be the last elements
@@ -404,15 +405,18 @@ struct spa {
 	 */
 	spa_config_lock_t spa_config_lock[SCL_LOCKS]; /* config changes */
 	refcount_t	spa_refcount;		/* number of opens */
-#ifndef illumos
+#ifdef __FreeBSD__
 	boolean_t	spa_splitting_newspa;	/* creating new spa in split */
 #endif
+	taskq_t		*spa_upgrade_taskq;	/* taskq for upgrade jobs */
 };
 
-extern const char *spa_config_path;
+extern char *spa_config_path;
 
 extern void spa_taskq_dispatch_ent(spa_t *spa, zio_type_t t, zio_taskq_type_t q,
     task_func_t *func, void *arg, uint_t flags, taskq_ent_t *ent);
+extern void spa_taskq_dispatch_sync(spa_t *, zio_type_t t, zio_taskq_type_t q,
+    task_func_t *func, void *arg, uint_t flags);
 extern void spa_load_spares(spa_t *spa);
 extern void spa_load_l2cache(spa_t *spa);
 

@@ -86,6 +86,7 @@ ZFS_COMMON_OBJS +=		\
 	dnode_sync.o		\
 	dsl_bookmark.o		\
 	dsl_dir.o		\
+	dsl_crypt.o		\
 	dsl_dataset.o		\
 	dsl_deadlist.o		\
 	dsl_destroy.o		\
@@ -96,8 +97,10 @@ ZFS_COMMON_OBJS +=		\
 	dsl_deleg.o		\
 	dsl_prop.o		\
 	dsl_scan.o		\
+	freebsd_crypto.o	\
 	zfeature.o		\
 	gzip.o			\
+	hkdf.o			\
 	lz4.o			\
 	lzjb.o			\
 	metaslab.o		\
@@ -131,6 +134,7 @@ ZFS_COMMON_OBJS +=		\
 	vdev_missing.o		\
 	vdev_queue.o		\
 	vdev_raidz.o		\
+	vdev_raidz_math_scalar.o		\
 	vdev_removal.o		\
 	vdev_root.o		\
 	zap.o			\
@@ -145,12 +149,14 @@ ZFS_COMMON_OBJS +=		\
 	zfs_debug.o		\
 	zfs_fm.o		\
 	zfs_fuid.o		\
+	zfs_rlock.o		\
 	zfs_sa.o		\
 	zfs_znode.o		\
 	zil.o			\
 	zio.o			\
 	zio_checksum.o		\
 	zio_compress.o		\
+	zio_crypt.o		\
 	zio_inject.o		\
 	zle.o			\
 	zrlock.o		\
@@ -177,7 +183,6 @@ ZFS_OBJS +=			\
 	zfs_log.o		\
 	zfs_onexit.o		\
 	zfs_replay.o		\
-	zfs_rlock.o		\
 	zfs_vfsops.o		\
 	zfs_vnops.o		\
 	zvol.o

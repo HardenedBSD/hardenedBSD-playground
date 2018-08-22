@@ -96,8 +96,8 @@ ddt_object_destroy(ddt_t *ddt, enum ddt_type type, enum ddt_class class,
 	ddt_object_name(ddt, type, class, name);
 
 	ASSERT(*objectp != 0);
-	VERIFY(ddt_object_count(ddt, type, class, &count) == 0 && count == 0);
 	ASSERT(ddt_histogram_empty(&ddt->ddt_histogram[type][class]));
+	VERIFY(ddt_object_count(ddt, type, class, &count) == 0 && count == 0);
 	VERIFY(zap_remove(os, DMU_POOL_DIRECTORY_OBJECT, name, tx) == 0);
 	VERIFY(zap_remove(os, spa->spa_ddt_stat_object, name, tx) == 0);
 	VERIFY(ddt_ops[type]->ddt_op_destroy(os, *objectp, tx) == 0);
@@ -119,7 +119,6 @@ ddt_object_load(ddt_t *ddt, enum ddt_type type, enum ddt_class class)
 
 	error = zap_lookup(ddt->ddt_os, DMU_POOL_DIRECTORY_OBJECT, name,
 	    sizeof (uint64_t), 1, &ddt->ddt_object[type][class]);
-
 	if (error != 0)
 		return (error);
 
@@ -222,7 +221,8 @@ ddt_object_walk(ddt_t *ddt, enum ddt_type type, enum ddt_class class,
 }
 
 int
-ddt_object_count(ddt_t *ddt, enum ddt_type type, enum ddt_class class, uint64_t *count)
+ddt_object_count(ddt_t *ddt, enum ddt_type type, enum ddt_class class,
+    uint64_t *count)
 {
 	ASSERT(ddt_object_exists(ddt, type, class));
 
@@ -266,6 +266,10 @@ ddt_bp_fill(const ddt_phys_t *ddp, blkptr_t *bp, uint64_t txg)
 	BP_SET_BIRTH(bp, txg, ddp->ddp_phys_birth);
 }
 
+/*
+ * The bp created via this function may be used for repairs and scrub, but it
+ * will be missing the salt / IV required to do a full decrypting read.
+ */
 void
 ddt_bp_create(enum zio_checksum checksum,
     const ddt_key_t *ddk, const ddt_phys_t *ddp, blkptr_t *bp)
@@ -276,11 +280,12 @@ ddt_bp_create(enum zio_checksum checksum,
 		ddt_bp_fill(ddp, bp, ddp->ddp_phys_birth);
 
 	bp->blk_cksum = ddk->ddk_cksum;
-	bp->blk_fill = 1;
 
 	BP_SET_LSIZE(bp, DDK_GET_LSIZE(ddk));
 	BP_SET_PSIZE(bp, DDK_GET_PSIZE(ddk));
 	BP_SET_COMPRESS(bp, DDK_GET_COMPRESS(ddk));
+	BP_SET_CRYPT(bp, DDK_GET_CRYPT(ddk));
+	BP_SET_FILL(bp, 1);
 	BP_SET_CHECKSUM(bp, checksum);
 	BP_SET_TYPE(bp, DMU_OT_DEDUP);
 	BP_SET_LEVEL(bp, 0);
@@ -294,9 +299,12 @@ ddt_key_fill(ddt_key_t *ddk, const blkptr_t *bp)
 	ddk->ddk_cksum = bp->blk_cksum;
 	ddk->ddk_prop = 0;
 
+	ASSERT(BP_IS_ENCRYPTED(bp) || !BP_USES_CRYPT(bp));
+
 	DDK_SET_LSIZE(ddk, BP_GET_LSIZE(bp));
 	DDK_SET_PSIZE(ddk, BP_GET_PSIZE(bp));
 	DDK_SET_COMPRESS(ddk, BP_GET_COMPRESS(bp));
+	DDK_SET_CRYPT(ddk, BP_USES_CRYPT(bp));
 }
 
 void
@@ -380,7 +388,7 @@ ddt_stat_generate(ddt_t *ddt, ddt_entry_t *dde, ddt_stat_t *dds)
 		if (ddp->ddp_phys_birth == 0)
 			continue;
 
-		for (int d = 0; d < SPA_DVAS_PER_BP; d++)
+		for (int d = 0; d < DDE_GET_NDVAS(dde); d++)
 			dsize += dva_get_dsize_sync(spa, &ddp->ddp_dva[d]);
 
 		dds->dds_blocks += 1;
@@ -508,10 +516,17 @@ ddt_get_dedup_stats(spa_t *spa, ddt_stat_t *dds_total)
 uint64_t
 ddt_get_dedup_dspace(spa_t *spa)
 {
-	ddt_stat_t dds_total = { 0 };
+	ddt_stat_t dds_total;
 
+	if (spa->spa_dedup_dspace != ~0ULL)
+		return (spa->spa_dedup_dspace);
+
+	bzero(&dds_total, sizeof (ddt_stat_t));
+
+	/* Calculate and cache the stats */
 	ddt_get_dedup_stats(spa, &dds_total);
-	return (dds_total.dds_ref_dsize - dds_total.dds_dsize);
+	spa->spa_dedup_dspace = dds_total.dds_ref_dsize - dds_total.dds_dsize;
+	return (spa->spa_dedup_dspace);
 }
 
 uint64_t
@@ -534,6 +549,7 @@ ddt_ditto_copies_needed(ddt_t *ddt, ddt_entry_t *dde, ddt_phys_t *ddp_willref)
 	uint64_t ditto = spa->spa_dedup_ditto;
 	int total_copies = 0;
 	int desired_copies = 0;
+	int copies_needed = 0;
 
 	for (int p = DDT_PHYS_SINGLE; p <= DDT_PHYS_TRIPLE; p++) {
 		ddt_phys_t *ddp = &dde->dde_phys[p];
@@ -559,7 +575,13 @@ ddt_ditto_copies_needed(ddt_t *ddt, ddt_entry_t *dde, ddt_phys_t *ddp_willref)
 	if (total_refcnt >= ditto * ditto)
 		desired_copies++;
 
-	return (MAX(desired_copies, total_copies) - total_copies);
+	copies_needed = MAX(desired_copies, total_copies) - total_copies;
+
+	/* encrypted blocks store their IV in DVA[2] */
+	if (DDK_GET_CRYPT(&dde->dde_key))
+		copies_needed = MIN(copies_needed, SPA_DVAS_PER_BP - 1);
+
+	return (copies_needed);
 }
 
 int
@@ -569,7 +591,7 @@ ddt_ditto_copies_present(ddt_entry_t *dde)
 	dva_t *dva = ddp->ddp_dva;
 	int copies = 0 - DVA_GET_GANG(dva);
 
-	for (int d = 0; d < SPA_DVAS_PER_BP; d++, dva++)
+	for (int d = 0; d < DDE_GET_NDVAS(dde); d++, dva++)
 		if (DVA_IS_VALID(dva))
 			copies++;
 
@@ -768,22 +790,31 @@ ddt_prefetch(spa_t *spa, const blkptr_t *bp)
 	}
 }
 
+/*
+ * Opaque struct used for ddt_key comparison
+ */
+#define	DDT_KEY_CMP_LEN	(sizeof (ddt_key_t) / sizeof (uint16_t))
+
+typedef struct ddt_key_cmp {
+	uint16_t	u16[DDT_KEY_CMP_LEN];
+} ddt_key_cmp_t;
+
 int
 ddt_entry_compare(const void *x1, const void *x2)
 {
 	const ddt_entry_t *dde1 = x1;
 	const ddt_entry_t *dde2 = x2;
-	const uint64_t *u1 = (const uint64_t *)&dde1->dde_key;
-	const uint64_t *u2 = (const uint64_t *)&dde2->dde_key;
+	const ddt_key_cmp_t *k1 = (const ddt_key_cmp_t *)&dde1->dde_key;
+	const ddt_key_cmp_t *k2 = (const ddt_key_cmp_t *)&dde2->dde_key;
+	int32_t cmp = 0;
 
-	for (int i = 0; i < DDT_KEY_WORDS; i++) {
-		if (u1[i] < u2[i])
-			return (-1);
-		if (u1[i] > u2[i])
-			return (1);
+	for (int i = 0; i < DDT_KEY_CMP_LEN; i++) {
+		cmp = (int32_t)k1->u16[i] - (int32_t)k2->u16[i];
+		if (likely(cmp))
+			break;
 	}
 
-	return (0);
+	return (AVL_ISIGN(cmp));
 }
 
 static ddt_t *
@@ -855,6 +886,7 @@ ddt_load(spa_t *spa)
 		 */
 		bcopy(ddt->ddt_histogram, &ddt->ddt_histogram_cache,
 		    sizeof (ddt->ddt_histogram));
+		spa->spa_dedup_dspace = ~0ULL;
 	}
 
 	return (0);
@@ -1107,6 +1139,7 @@ ddt_sync_table(ddt_t *ddt, dmu_tx_t *tx, uint64_t txg)
 
 	bcopy(ddt->ddt_histogram, &ddt->ddt_histogram_cache,
 	    sizeof (ddt->ddt_histogram));
+	spa->spa_dedup_dspace = ~0ULL;
 }
 
 void

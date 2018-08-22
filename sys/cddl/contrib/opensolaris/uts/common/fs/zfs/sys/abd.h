@@ -77,6 +77,7 @@ abd_t *abd_alloc_for_io(size_t, boolean_t);
 abd_t *abd_alloc_sametype(abd_t *, size_t);
 void abd_free(abd_t *);
 abd_t *abd_get_offset(abd_t *, size_t);
+abd_t *abd_get_offset_size(abd_t *, size_t, size_t);
 abd_t *abd_get_from_buf(void *, size_t);
 void abd_put(abd_t *);
 
@@ -102,7 +103,7 @@ int abd_iterate_func2(abd_t *, abd_t *, size_t, size_t, size_t,
 void abd_copy_off(abd_t *, abd_t *, size_t, size_t, size_t);
 void abd_copy_from_buf_off(abd_t *, const void *, size_t, size_t);
 void abd_copy_to_buf_off(void *, abd_t *, size_t, size_t);
-int abd_cmp(abd_t *, abd_t *, size_t);
+int abd_cmp(abd_t *, abd_t *);
 int abd_cmp_buf_off(abd_t *, const void *, size_t, size_t);
 void abd_zero_off(abd_t *, size_t, size_t);
 

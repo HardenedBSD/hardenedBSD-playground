@@ -38,19 +38,6 @@
 
 static taskq_t *vdev_file_taskq;
 
-void
-vdev_file_init(void)
-{
-	vdev_file_taskq = taskq_create("z_vdev_file", MAX(max_ncpus, 16),
-	    minclsyspri, max_ncpus, INT_MAX, 0);
-}
-
-void
-vdev_file_fini(void)
-{
-	taskq_destroy(vdev_file_taskq);
-}
-
 static void
 vdev_file_hold(vdev_t *vd)
 {
@@ -71,6 +58,9 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	vnode_t *vp;
 	vattr_t vattr;
 	int error;
+
+	/* Rotational optimizations only make sense on block devices */
+	vd->vdev_nonrot = B_TRUE;
 
 	/*
 	 * We must have a pathname, and it must be absolute.
@@ -172,52 +162,44 @@ vdev_file_close(vdev_t *vd)
 	vd->vdev_tsd = NULL;
 }
 
-/*
- * Implements the interrupt side for file vdev types. This routine will be
- * called when the I/O completes allowing us to transfer the I/O to the
- * interrupt taskqs. For consistency, the code structure mimics disk vdev
- * types.
- */
-static void
-vdev_file_io_intr(zio_t *zio)
-{
-	zio_delay_interrupt(zio);
-}
-
 static void
 vdev_file_io_strategy(void *arg)
 {
 	zio_t *zio = arg;
 	vdev_t *vd = zio->io_vd;
-	vdev_file_t *vf;
-	vnode_t *vp;
-	void *addr;
+	vdev_file_t *vf = vd->vdev_tsd;
 	ssize_t resid;
+	void *buf;
 
-	vf = vd->vdev_tsd;
-	vp = vf->vf_vnode;
-
-	ASSERT(zio->io_type == ZIO_TYPE_READ || zio->io_type == ZIO_TYPE_WRITE);
-	if (zio->io_type == ZIO_TYPE_READ) {
-		addr = abd_borrow_buf(zio->io_abd, zio->io_size);
-	} else {
-		addr = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
-	}
+	if (zio->io_type == ZIO_TYPE_READ)
+		buf = abd_borrow_buf(zio->io_abd, zio->io_size);
+	else
+		buf = abd_borrow_buf_copy(zio->io_abd, zio->io_size);
 
 	zio->io_error = vn_rdwr(zio->io_type == ZIO_TYPE_READ ?
-	    UIO_READ : UIO_WRITE, vp, addr, zio->io_size,
+	    UIO_READ : UIO_WRITE, vf->vf_vnode, buf, zio->io_size,
 	    zio->io_offset, UIO_SYSSPACE, 0, RLIM64_INFINITY, kcred, &resid);
 
-	if (zio->io_type == ZIO_TYPE_READ) {
-		abd_return_buf_copy(zio->io_abd, addr, zio->io_size);
-	} else {
-		abd_return_buf(zio->io_abd, addr, zio->io_size);
-	}
+	if (zio->io_type == ZIO_TYPE_READ)
+		abd_return_buf_copy(zio->io_abd, buf, zio->io_size);
+	else
+		abd_return_buf(zio->io_abd, buf, zio->io_size);
 
 	if (resid != 0 && zio->io_error == 0)
-		zio->io_error = ENOSPC;
+		zio->io_error = SET_ERROR(ENOSPC);
 
-	vdev_file_io_intr(zio);
+	zio_delay_interrupt(zio);
+}
+
+static void
+vdev_file_io_fsync(void *arg)
+{
+	zio_t *zio = (zio_t *)arg;
+	vdev_file_t *vf = zio->io_vd->vdev_tsd;
+
+	zio->io_error = VOP_FSYNC(vf->vf_vnode, FSYNC | FDSYNC, kcred, NULL);
+
+	zio_interrupt(zio);
 }
 
 static void
@@ -247,7 +229,6 @@ vdev_file_io_start(zio_t *zio)
 		return;
 	}
 
-	ASSERT(zio->io_type == ZIO_TYPE_READ || zio->io_type == ZIO_TYPE_WRITE);
 	zio->io_target_timestamp = zio_handle_io_delay(zio);
 
 	VERIFY3U(taskq_dispatch(vdev_file_taskq, vdev_file_io_strategy, zio,
@@ -275,6 +256,21 @@ vdev_ops_t vdev_file_ops = {
 	VDEV_TYPE_FILE,		/* name of this vdev type */
 	B_TRUE			/* leaf vdev */
 };
+
+void
+vdev_file_init(void)
+{
+	vdev_file_taskq = taskq_create("z_vdev_file", MAX(boot_ncpus, 16),
+	    minclsyspri, boot_ncpus, INT_MAX, TASKQ_DYNAMIC);
+
+	VERIFY(vdev_file_taskq);
+}
+
+void
+vdev_file_fini(void)
+{
+	taskq_destroy(vdev_file_taskq);
+}
 
 /*
  * From userland we access disks just like files.

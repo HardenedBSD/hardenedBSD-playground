@@ -145,8 +145,9 @@ struct vdev_queue {
 	avl_tree_t	vq_write_offset_tree;
 	uint64_t	vq_last_offset;
 	hrtime_t	vq_io_complete_ts; /* time last i/o completed */
+	hrtime_t	vq_io_delta_ts;
+	zio_t		vq_io_search; /* used as local for stack reduction */
 	kmutex_t	vq_lock;
-	uint64_t	vq_lastoffset;
 };
 
 /*
@@ -235,6 +236,7 @@ struct vdev {
 	vdev_stat_t	vdev_stat;	/* virtual device statistics	*/
 	boolean_t	vdev_expanding;	/* expand the vdev?		*/
 	boolean_t	vdev_reopening;	/* reopen in progress?		*/
+	boolean_t	vdev_nonrot;	/* true if solid state		*/
 	int		vdev_open_error; /* error on last open		*/
 	kthread_t	*vdev_open_thread; /* thread opening children	*/
 	uint64_t	vdev_crtxg;	/* txg when top-level was added */
@@ -366,6 +368,7 @@ struct vdev {
 	boolean_t	vdev_cant_write; /* vdev is failing all writes	*/
 	boolean_t	vdev_isspare;	/* was a hot spare		*/
 	boolean_t	vdev_isl2cache;	/* was a l2cache device		*/
+	boolean_t	vdev_copy_uberblocks;  /* post expand copy uberblocks */
 	vdev_queue_t	vdev_queue;	/* I/O deadline schedule queue	*/
 	vdev_cache_t	vdev_cache;	/* physical block cache		*/
 	spa_aux_vdev_t	*vdev_aux;	/* for l2cache and spares vdevs	*/
@@ -376,6 +379,8 @@ struct vdev {
 #define	VDEV_RATE_UNKNOWN	0
 #define	VDEV_RATE_NON_ROTATING	1
 	uint64_t	vdev_leaf_zap;
+	hrtime_t	vdev_mmp_pending; /* 0 if write finished	*/
+	uint64_t	vdev_mmp_kstat_id;	/* to find kstat entry */
 
 	/*
 	 * For DTrace to work in userland (libzpool) context, these fields must

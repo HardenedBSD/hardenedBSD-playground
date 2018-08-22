@@ -28,6 +28,6 @@ LIBADD=	nvpair umem uutil zfs zpool
 CFLAGS.gcc+= -fms-extensions
 # Since there are many asserts in this program, it makes no sense to compile
 # it without debugging.
-CFLAGS+=	-g -DDEBUG=1
+CFLAGS+=	-g -DDEBUG=1 -O0
 
 .include <bsd.prog.mk>

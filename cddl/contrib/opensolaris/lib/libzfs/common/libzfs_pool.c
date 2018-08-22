@@ -25,7 +25,8 @@
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
  * Copyright 2016 Nexenta Systems, Inc.
  * Copyright 2016 Igor Kozhukhov <ikozhukhov@gmail.com>
- * Copyright (c) 2017 Datto Inc.
+ * Copyright (c) 2018 Datto Inc.
+ * Copyright (c) 2017 Open-E, Inc. All Rights Reserved.
  */
 
 #include <sys/types.h>
@@ -40,6 +41,7 @@
 #include <strings.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <sys/efi_partition.h>
 #include <sys/zfs_ioctl.h>
 #include <dlfcn.h>
 
@@ -1128,6 +1130,9 @@ zpool_create(libzfs_handle_t *hdl, const char *pool, nvlist_t *nvroot,
 	zfs_cmd_t zc = { 0 };
 	nvlist_t *zc_fsprops = NULL;
 	nvlist_t *zc_props = NULL;
+	nvlist_t *hidden_args = NULL;
+	uint8_t *wkeydata = NULL;
+	uint_t wkeylen = 0;
 	char msg[1024];
 	int ret = -1;
 
@@ -1158,16 +1163,33 @@ zpool_create(libzfs_handle_t *hdl, const char *pool, nvlist_t *nvroot,
 		    strcmp(zonestr, "on") == 0);
 
 		if ((zc_fsprops = zfs_valid_proplist(hdl, ZFS_TYPE_FILESYSTEM,
-		    fsprops, zoned, NULL, NULL, msg)) == NULL) {
+		    fsprops, zoned, NULL, NULL, B_TRUE, msg)) == NULL) {
 			goto create_failed;
 		}
 		if (!zc_props &&
 		    (nvlist_alloc(&zc_props, NV_UNIQUE_NAME, 0) != 0)) {
 			goto create_failed;
 		}
+		if (zfs_crypto_create(hdl, NULL, zc_fsprops, props,
+		    &wkeydata, &wkeylen) != 0) {
+			(void) zfs_error(hdl, EZFS_CRYPTOFAILED, msg);
+			goto create_failed;
+		}
 		if (nvlist_add_nvlist(zc_props,
 		    ZPOOL_ROOTFS_PROPS, zc_fsprops) != 0) {
 			goto create_failed;
+		}
+		if (wkeydata != NULL) {
+			if (nvlist_alloc(&hidden_args, NV_UNIQUE_NAME, 0) != 0)
+				goto create_failed;
+
+			if (nvlist_add_uint8_array(hidden_args, "wkeydata",
+			    wkeydata, wkeylen) != 0)
+				goto create_failed;
+
+			if (nvlist_add_nvlist(zc_props, ZPOOL_HIDDEN_ARGS,
+			    hidden_args) != 0)
+				goto create_failed;
 		}
 	}
 
@@ -1181,6 +1203,9 @@ zpool_create(libzfs_handle_t *hdl, const char *pool, nvlist_t *nvroot,
 		zcmd_free_nvlists(&zc);
 		nvlist_free(zc_props);
 		nvlist_free(zc_fsprops);
+		nvlist_free(hidden_args);
+		if (wkeydata != NULL)
+			free(wkeydata);
 
 		switch (errno) {
 		case EBUSY:
@@ -1246,6 +1271,9 @@ create_failed:
 	zcmd_free_nvlists(&zc);
 	nvlist_free(zc_props);
 	nvlist_free(zc_fsprops);
+	nvlist_free(hidden_args);
+	if (wkeydata != NULL)
+		free(wkeydata);
 	return (ret);
 }
 
@@ -4373,6 +4401,34 @@ zpool_label_disk(libzfs_handle_t *hdl, zpool_handle_t *zhp, const char *name,
 	efi_free(vtoc);
 #endif /* illumos */
 	return (0);
+}
+
+/*
+ * By "whole disk" we mean an entire physical disk (something we can
+ * label, toggle the write cache on, etc.) as opposed to the full
+ * capacity of a pseudo-device such as lofi or did.  We act as if we
+ * are labeling the disk, which should be a pretty good test of whether
+ * it's a viable device or not.  Returns B_TRUE if it is and B_FALSE if
+ * it isn't.
+ */
+int
+zfs_dev_is_whole_disk(char *dev_name)
+{
+	struct dk_gpt *label;
+	int fd;
+
+	if ((fd = open(dev_name, O_RDONLY | O_DIRECT)) < 0)
+		return (0);
+
+	if (efi_alloc_and_init(fd, EFI_NUMPAR, &label) != 0) {
+		(void) close(fd);
+		return (0);
+	}
+
+	efi_free(label);
+	(void) close(fd);
+
+	return (1);
 }
 
 static boolean_t

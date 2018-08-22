@@ -741,7 +741,7 @@ metaslab_group_create(metaslab_class_t *mc, vdev_t *vd, int allocators)
 	}
 
 	mg->mg_taskq = taskq_create("metaslab_group_taskq", metaslab_load_pct,
-	    minclsyspri, 10, INT_MAX, TASKQ_THREADS_CPU_PCT);
+	    maxclsyspri, 10, INT_MAX, TASKQ_THREADS_CPU_PCT);
 
 	return (mg);
 }
@@ -1830,7 +1830,7 @@ metaslab_space_weight(metaslab_t *msp)
 	 * In effect, this means that we'll select the metaslab with the most
 	 * free bandwidth rather than simply the one with the most free space.
 	 */
-	if (metaslab_lba_weighting_enabled) {
+	if (!vd->vdev_nonrot && metaslab_lba_weighting_enabled) {
 		weight = 2 * weight - (msp->ms_id * weight) / vd->vdev_ms_count;
 		ASSERT(weight >= space && weight <= 2 * space);
 	}

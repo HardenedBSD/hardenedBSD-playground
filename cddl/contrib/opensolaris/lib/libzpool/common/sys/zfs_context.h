@@ -97,6 +97,8 @@ extern "C" {
 #endif
 
 #define	ZFS_EXPORTS_PATH	"/etc/zfs/exports"
+extern char *random_path;
+extern char *urandom_path;
 
 /*
  * Debugging
@@ -214,19 +216,36 @@ extern int aok;
 /*
  * Threads
  */
+#define TS_RUN          0x00000002
+#define TS_JOINABLE     0x00000004
+
 #define	curthread	((void *)(uintptr_t)thr_self())
 
 #define	kpreempt(x)	sched_yield()
 
 typedef struct kthread kthread_t;
+#define thread_create(stk, stksize, func, arg, len, pp, state, pri)     \
+	zk_thread_create(func, #func, arg, state)
 
-#define	thread_create(stk, stksize, func, arg, len, pp, state, pri)	\
-	zk_thread_create(func, arg)
 #define	thread_exit() thr_exit(NULL)
-#define	thread_join(t)	panic("libzpool cannot join threads")
+
+static __inline int
+thread_join(void *t)
+{
+	void *result;
+	int rc;
+	/* XXX some error codes just mean it's exited already */
+	rc = pthread_join((pthread_t)(t), &result);
+	if (rc) {
+		printf("join failed: rc: %d result: %p\n", rc, result);
+		abort();
+	}
+	return (0);
+}
 
 #define	newproc(f, a, cid, pri, ctp, pid)	(ENOSYS)
 
+	
 /* in libzpool, p0 exists only to have its address taken */
 struct proc {
 	uintptr_t	this_is_never_used_dont_dereference_it;
@@ -237,7 +256,7 @@ extern struct proc p0;
 
 #define	PS_NONE		-1
 
-extern kthread_t *zk_thread_create(void (*func)(void*), void *arg);
+extern kthread_t *zk_thread_create(void (*func)(void*), const char *name, void *arg, int state);
 
 #define	issig(why)	(FALSE)
 #define	ISSIG(thr, why)	(FALSE)
@@ -423,6 +442,7 @@ extern void	taskq_dispatch_ent(taskq_t *, task_func_t, void *, uint_t,
 extern void	taskq_destroy(taskq_t *);
 extern void	taskq_wait(taskq_t *);
 extern void	taskq_wait_id(taskq_t *, taskqid_t);
+extern void	taskq_wait_outstanding(taskq_t *, taskqid_t);
 extern int	taskq_member(taskq_t *, void *);
 extern void	system_taskq_init(void);
 extern void	system_taskq_fini(void);
@@ -548,10 +568,12 @@ extern vnode_t *rootdir;
 #define	ddi_get_lbolt64()	(gethrtime() >> 23)
 #define	hz	119	/* frequency when using gethrtime() >> 23 for lbolt */
 
+extern taskq_t *system_delay_taskq;
 extern void delay(clock_t ticks);
 
 #define	SEC_TO_TICK(sec)	((sec) * hz)
 #define	NSEC_TO_TICK(nsec)	((nsec) / (NANOSEC / hz))
+#define	MSEC_TO_TICK(msec)	((msec) / (MILLISEC / hz))
 
 #define	gethrestime_sec() time(NULL)
 #define	gethrestime(t) \
@@ -564,6 +586,7 @@ extern void delay(clock_t ticks);
 #define	boot_ncpus	(sysconf(_SC_NPROCESSORS_ONLN))
 
 #define	minclsyspri	60
+#define defclsyspri minclsyspri	
 #define	maxclsyspri	99
 
 #define	CPU_SEQID	(thr_self() & (max_ncpus - 1))
@@ -584,6 +607,8 @@ extern int random_get_pseudo_bytes(uint8_t *ptr, size_t len);
 extern void kernel_init(int);
 extern void kernel_fini(void);
 
+extern taskqid_t taskq_dispatch_delay(taskq_t *, task_func_t, void *,
+    uint_t, clock_t);
 struct spa;
 extern void nicenum(uint64_t num, char *buf, size_t);
 extern void show_pool_stats(struct spa *);

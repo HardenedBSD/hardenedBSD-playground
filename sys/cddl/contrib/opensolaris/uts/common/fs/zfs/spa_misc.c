@@ -297,28 +297,48 @@ boolean_t zfs_recover = B_FALSE;
  * leaking space in the "partial temporary" failure case.
  */
 boolean_t zfs_free_leak_on_eio = B_FALSE;
-
+#if defined(ZFS_DEBUG) || !defined(_KERNEL)
+uint64_t zfs_deadman_synctime_ms = 30000ULL;
+uint64_t zfs_deadman_ziotime_ms = 15000ULL;
+uint64_t zfs_deadman_checktime_ms = 3000ULL;
+#else
 /*
  * Expiration time in milliseconds. This value has two meanings. First it is
  * used to determine when the spa_deadman() logic should fire. By default the
- * spa_deadman() will fire if spa_sync() has not completed in 1000 seconds.
+ * spa_deadman() will fire if spa_sync() has not completed in 600 seconds.
  * Secondly, the value determines if an I/O is considered "hung". Any I/O that
  * has not completed in zfs_deadman_synctime_ms is considered "hung" resulting
- * in a system panic.
+ * in one of three behaviors controlled by zfs_deadman_failmode.
  */
-uint64_t zfs_deadman_synctime_ms = 1000000ULL;
+uint64_t zfs_deadman_synctime_ms = 600000ULL;
+
+/*
+ * This value controls the maximum amount of time zio_wait() will block for an
+ * outstanding IO.  By default this is 300 seconds at which point the "hung"
+ * behavior will be applied as described for zfs_deadman_synctime_ms.
+ */
+uint64_t zfs_deadman_ziotime_ms = 300000ULL;
 
 /*
  * Check time in milliseconds. This defines the frequency at which we check
  * for hung I/O.
  */
-uint64_t zfs_deadman_checktime_ms = 5000ULL;
+uint64_t zfs_deadman_checktime_ms = 60000ULL;
+#endif
+/*
+ * By default the deadman is enabled.
+ */
+int zfs_deadman_enabled = 1;
 
 /*
- * Default value of -1 for zfs_deadman_enabled is resolved in
- * zfs_deadman_init()
+ * Controls the behavior of the deadman when it detects a "hung" I/O.
+ * Valid values are zfs_deadman_failmode=<wait|continue|panic>.
+ *
+ * wait     - Wait for the "hung" I/O (default)
+ * continue - Attempt to recover from a "hung" I/O
+ * panic    - Panic the system
  */
-int zfs_deadman_enabled = -1;
+char *zfs_deadman_failmode = "wait";
 
 /*
  * The worst case is single-sector max-parity RAID-Z blocks, in which
@@ -642,45 +662,25 @@ spa_lookup(const char *name)
  * If the zfs_deadman_enabled flag is set then it inspects all vdev queues
  * looking for potentially hung I/Os.
  */
-static void
-spa_deadman(void *arg, int pending)
+void
+spa_deadman(void *arg)
 {
 	spa_t *spa = arg;
 
-	/*
-	 * Disable the deadman timer if the pool is suspended.
-	 */
-	if (spa_suspended(spa)) {
-#ifdef illumos
-		VERIFY(cyclic_reprogram(spa->spa_deadman_cycid, CY_INFINITY));
-#else
-		/* Nothing.  just don't schedule any future callouts. */
-#endif
+	/* Disable the deadman if the pool is suspended. */
+	if (spa_suspended(spa))
 		return;
-	}
 
 	zfs_dbgmsg("slow spa_sync: started %llu seconds ago, calls %llu",
 	    (gethrtime() - spa->spa_sync_starttime) / NANOSEC,
 	    ++spa->spa_deadman_calls);
 	if (zfs_deadman_enabled)
-		vdev_deadman(spa->spa_root_vdev);
-#ifdef __FreeBSD__
-#ifdef _KERNEL
-	callout_schedule(&spa->spa_deadman_cycid,
-	    hz * zfs_deadman_checktime_ms / MILLISEC);
-#endif
-#endif
-}
+		vdev_deadman(spa->spa_root_vdev, FTAG);
 
-#if defined(__FreeBSD__) && defined(_KERNEL)
-static void
-spa_deadman_timeout(void *arg)
-{
-	spa_t *spa = arg;
-
-	taskqueue_enqueue(taskqueue_thread, &spa->spa_deadman_task);
+	spa->spa_deadman_tqid = taskq_dispatch_delay(system_delay_taskq,
+	    spa_deadman, spa, TQ_SLEEP, ddi_get_lbolt() +
+	    MSEC_TO_TICK(zfs_deadman_checktime_ms));
 }
-#endif
 
 /*
  * Create an uninitialized spa_t with the given name.  Requires
@@ -739,6 +739,8 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 #endif
 
 	spa->spa_deadman_synctime = MSEC2NSEC(zfs_deadman_synctime_ms);
+	spa->spa_deadman_ziotime = MSEC2NSEC(zfs_deadman_ziotime_ms);
+	spa_set_deadman_failmode(spa, zfs_deadman_failmode);
 
 #ifdef illumos
 	/*
@@ -752,26 +754,6 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 	mutex_enter(&cpu_lock);
 	spa->spa_deadman_cycid = cyclic_add(&hdlr, &when);
 	mutex_exit(&cpu_lock);
-#else	/* !illumos */
-#ifdef _KERNEL
-	/*
-	 * callout(9) does not provide a way to initialize a callout with
-	 * a function and an argument, so we use callout_reset() to schedule
-	 * the callout in the very distant future.  Even if that event ever
-	 * fires, it should be okayas we won't have any active zio-s.
-	 * But normally spa_sync() will reschedule the callout with a proper
-	 * timeout.
-	 * callout(9) does not allow the callback function to sleep but
-	 * vdev_deadman() needs to acquire vq_lock and illumos mutexes are
-	 * emulated using sx(9).  For this reason spa_deadman_timeout()
-	 * will schedule spa_deadman() as task on a taskqueue that allows
-	 * sleeping.
-	 */
-	TASK_INIT(&spa->spa_deadman_task, 0, spa_deadman, spa);
-	callout_init(&spa->spa_deadman_cycid, 1);
-	callout_reset_sbt(&spa->spa_deadman_cycid, SBT_MAX, 0,
-	    spa_deadman_timeout, spa, 0);
-#endif
 #endif
 	refcount_create(&spa->spa_refcount);
 	spa_config_lock_init(spa);
@@ -829,6 +811,9 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 
 	spa->spa_min_ashift = INT_MAX;
 	spa->spa_max_ashift = 0;
+
+	/* Reset cached value */
+	spa->spa_dedup_dspace = ~0ULL;
 
 	/*
 	 * As a pool is being created, treat all features as disabled by
@@ -888,18 +873,12 @@ spa_remove(spa_t *spa)
 	nvlist_free(spa->spa_load_info);
 	nvlist_free(spa->spa_feat_stats);
 	spa_config_set(spa, NULL);
-
 #ifdef illumos
 	mutex_enter(&cpu_lock);
 	if (spa->spa_deadman_cycid != CYCLIC_NONE)
 		cyclic_remove(spa->spa_deadman_cycid);
 	mutex_exit(&cpu_lock);
 	spa->spa_deadman_cycid = CYCLIC_NONE;
-#else	/* !illumos */
-#ifdef _KERNEL
-	callout_drain(&spa->spa_deadman_cycid);
-	taskqueue_drain(taskqueue_thread, &spa->spa_deadman_task);
-#endif
 #endif
 
 	refcount_destroy(&spa->spa_refcount);
@@ -1384,13 +1363,21 @@ int
 spa_vdev_state_exit(spa_t *spa, vdev_t *vd, int error)
 {
 	boolean_t config_changed = B_FALSE;
+	vdev_t *vdev_top;
+
+	if (vd == NULL || vd == spa->spa_root_vdev) {
+		vdev_top = spa->spa_root_vdev;
+	} else {
+		vdev_top = vd->vdev_top;
+	}
 
 	if (vd != NULL || error == 0)
-		vdev_dtl_reassess(vd ? vd->vdev_top : spa->spa_root_vdev,
-		    0, 0, B_FALSE);
+		vdev_dtl_reassess(vdev_top, 0, 0, B_FALSE);
 
 	if (vd != NULL) {
-		vdev_state_dirty(vd->vdev_top);
+		if (vd != spa->spa_root_vdev)
+			vdev_state_dirty(vdev_top);
+
 		config_changed = B_TRUE;
 		spa->spa_config_generation++;
 	}
@@ -1578,6 +1565,9 @@ spa_get_random(uint64_t range)
 
 	ASSERT(range != 0);
 
+	if (range == 1)
+		return (0);
+
 	(void) random_get_pseudo_bytes((void *)&r, sizeof (uint64_t));
 
 	return (r % range);
@@ -1605,6 +1595,7 @@ snprintf_blkptr(char *buf, size_t buflen, const blkptr_t *bp)
 	char type[256];
 	char *checksum = NULL;
 	char *compress = NULL;
+	char *crypt_type = NULL;
 
 	if (bp != NULL) {
 		if (BP_GET_TYPE(bp) & DMU_OT_NEWTYPE) {
@@ -1618,6 +1609,15 @@ snprintf_blkptr(char *buf, size_t buflen, const blkptr_t *bp)
 			(void) strlcpy(type, dmu_ot[BP_GET_TYPE(bp)].ot_name,
 			    sizeof (type));
 		}
+		if (BP_IS_ENCRYPTED(bp)) {
+			crypt_type = "encrypted";
+		} else if (BP_IS_AUTHENTICATED(bp)) {
+			crypt_type = "authenticated";
+		} else if (BP_HAS_INDIRECT_MAC_CKSUM(bp)) {
+			crypt_type = "indirect-MAC";
+		} else {
+			crypt_type = "unencrypted";
+		}
 		if (!BP_IS_EMBEDDED(bp)) {
 			checksum =
 			    zio_checksum_table[BP_GET_CHECKSUM(bp)].ci_name;
@@ -1626,7 +1626,7 @@ snprintf_blkptr(char *buf, size_t buflen, const blkptr_t *bp)
 	}
 
 	SNPRINTF_BLKPTR(snprintf, ' ', buf, buflen, bp, type, checksum,
-	    compress);
+	    crypt_type, compress);
 }
 
 void
@@ -1833,11 +1833,19 @@ spa_freeze_txg(spa_t *spa)
 	return (spa->spa_freeze_txg);
 }
 
-/* ARGSUSED */
+/*
+ * Return the inflated asize for a logical write in bytes. This is used by the
+ * DMU to calculate the space a logical write will require on disk.
+ * If lsize is smaller than the largest physical block size allocatable on this
+ * pool we use its value instead, since the write will end up using the whole
+ * block anyway.
+ */
 uint64_t
 spa_get_worst_case_asize(spa_t *spa, uint64_t lsize)
 {
-	return (lsize * spa_asize_inflation);
+	if (lsize == 0)
+		return (0);	/* No inflation needed */
+	return (MAX(lsize, 1 << spa->spa_max_ashift) * spa_asize_inflation);
 }
 
 /*
@@ -1898,7 +1906,7 @@ spa_update_dspace(spa_t *spa)
  * Return the failure mode that has been set to this pool. The default
  * behavior will be to block all I/Os when a complete failure occurs.
  */
-uint8_t
+uint64_t
 spa_get_failmode(spa_t *spa)
 {
 	return (spa->spa_failmode);
@@ -1988,6 +1996,31 @@ spa_deadman_synctime(spa_t *spa)
 }
 
 uint64_t
+spa_deadman_ziotime(spa_t *spa)
+{
+	return (spa->spa_deadman_ziotime);
+}
+
+uint64_t
+spa_get_deadman_failmode(spa_t *spa)
+{
+	return (spa->spa_deadman_failmode);
+}
+
+void
+spa_set_deadman_failmode(spa_t *spa, const char *failmode)
+{
+	if (strcmp(failmode, "wait") == 0)
+		spa->spa_deadman_failmode = ZIO_FAILURE_MODE_WAIT;
+	else if (strcmp(failmode, "continue") == 0)
+		spa->spa_deadman_failmode = ZIO_FAILURE_MODE_CONTINUE;
+	else if (strcmp(failmode, "panic") == 0)
+		spa->spa_deadman_failmode = ZIO_FAILURE_MODE_PANIC;
+	else
+		spa->spa_deadman_failmode = ZIO_FAILURE_MODE_WAIT;
+}
+
+uint64_t
 dva_get_dsize_sync(spa_t *spa, const dva_t *dva)
 {
 	uint64_t asize = DVA_GET_ASIZE(dva);
@@ -1996,14 +2029,10 @@ dva_get_dsize_sync(spa_t *spa, const dva_t *dva)
 	ASSERT(spa_config_held(spa, SCL_ALL, RW_READER) != 0);
 
 	if (asize != 0 && spa->spa_deflate) {
-		uint64_t vdev = DVA_GET_VDEV(dva);
-		vdev_t *vd = vdev_lookup_top(spa, vdev);
-		if (vd == NULL) {
-			panic(
-			    "dva_get_dsize_sync(): bad DVA %llu:%llu",
-			    (u_longlong_t)vdev, (u_longlong_t)asize);
-		}
-		dsize = (asize >> SPA_MINBLOCKSHIFT) * vd->vdev_deflate_ratio;
+		vdev_t *vd = vdev_lookup_top(spa, DVA_GET_VDEV(dva));
+		if (vd != NULL)
+			dsize = (asize >> SPA_MINBLOCKSHIFT) *
+			    vd->vdev_deflate_ratio;
 	}
 
 	return (dsize);
@@ -2299,15 +2328,6 @@ spa_maxblocksize(spa_t *spa)
 		return (SPA_OLD_MAXBLOCKSIZE);
 }
 
-int
-spa_maxdnodesize(spa_t *spa)
-{
-	if (spa_feature_is_enabled(spa, SPA_FEATURE_LARGE_DNODE))
-		return (DNODE_MAX_SIZE);
-	else
-		return (DNODE_MIN_SIZE);
-}
-
 
 /*
  * Returns the txg that the last device removal completed. No indirect mappings
@@ -2351,6 +2371,33 @@ spa_get_last_removal_txg(spa_t *spa)
 	return (ret);
 }
 
+int
+spa_maxdnodesize(spa_t *spa)
+{
+	if (spa_feature_is_enabled(spa, SPA_FEATURE_LARGE_DNODE))
+		return (DNODE_MAX_SIZE);
+	else
+		return (DNODE_MIN_SIZE);
+}
+
+unsigned long
+spa_get_hostid(void)
+{
+	unsigned long myhostid;
+
+#ifdef	_KERNEL
+	myhostid = zone_get_hostid(NULL);
+#else	/* _KERNEL */
+	/*
+	 * We're emulating the system's hostid in userland, so
+	 * we can't use zone_get_hostid().
+	 */
+	(void) ddi_strtoul(hw_serial, NULL, 10, &myhostid);
+#endif	/* _KERNEL */
+
+	return (myhostid);
+}
+
 boolean_t
 spa_trust_config(spa_t *spa)
 {
@@ -2367,6 +2414,45 @@ void
 spa_set_missing_tvds(spa_t *spa, uint64_t missing)
 {
 	spa->spa_missing_tvds = missing;
+}
+
+/*
+ * Return the pool state string ("ONLINE", "DEGRADED", "SUSPENDED", etc).
+ */
+const char *
+spa_state_to_name(spa_t *spa)
+{
+	vdev_state_t state = spa->spa_root_vdev->vdev_state;
+	vdev_aux_t aux = spa->spa_root_vdev->vdev_stat.vs_aux;
+
+	if (spa_suspended(spa) &&
+	    (spa_get_failmode(spa) != ZIO_FAILURE_MODE_CONTINUE))
+		return ("SUSPENDED");
+
+	switch (state) {
+	case VDEV_STATE_CLOSED:
+	case VDEV_STATE_OFFLINE:
+		return ("OFFLINE");
+	case VDEV_STATE_REMOVED:
+		return ("REMOVED");
+	case VDEV_STATE_CANT_OPEN:
+		if (aux == VDEV_AUX_CORRUPT_DATA || aux == VDEV_AUX_BAD_LOG)
+			return ("FAULTED");
+		else if (aux == VDEV_AUX_SPLIT_POOL)
+			return ("SPLIT");
+		else
+			return ("UNAVAIL");
+	case VDEV_STATE_FAULTED:
+		return ("FAULTED");
+	case VDEV_STATE_DEGRADED:
+		return ("DEGRADED");
+	case VDEV_STATE_HEALTHY:
+		return ("ONLINE");
+	default:
+		break;
+	}
+
+	return ("UNKNOWN");
 }
 
 boolean_t

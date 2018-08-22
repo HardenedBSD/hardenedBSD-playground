@@ -145,8 +145,10 @@ extern struct mtx zfs_debug_mtx;
 } while (0)
 
 #define	sys_shutdown	rebooting
+extern taskq_t *system_delay_taskq;
 
 #define	noinline	__attribute__((noinline))
 #define	likely(x)	__builtin_expect((x), 1)
+#define	MSEC_TO_TICK(msec)	((msec) / (MILLISEC / hz))
 
 #endif	/* _SYS_ZFS_CONTEXT_H */

@@ -73,8 +73,8 @@ typedef pthread_rwlock_t rwlock_t;
 #define THR_DAEMON    0x00000100
 
 static __inline int
-thr_create(void *stack_base, size_t stack_size, void *(*start_func) (void*),
-    void *arg, long flags, thread_t *new_thread_ID)
+thr_create_named(void *stack_base, size_t stack_size, void *(*start_func) (void*),
+	const char *funcname, void *arg, long flags, thread_t *new_thread_ID)
 {
 	pthread_t dummy;
 	int ret;
@@ -86,19 +86,21 @@ thr_create(void *stack_base, size_t stack_size, void *(*start_func) (void*),
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
 
+	bzero(&attr, sizeof(attr));
 	if (flags & THR_DETACHED)
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
 	if (new_thread_ID == NULL)
 		new_thread_ID = &dummy;
 
 	/* This function ignores the THR_BOUND flag, since NPTL doesn't seem to support PTHREAD_SCOPE_PROCESS */
 
 	ret = pthread_create(new_thread_ID, &attr, start_func, arg);
-
+	pthread_set_name_np(*new_thread_ID, funcname);
 	pthread_attr_destroy(&attr);
 
 	return (ret);
 }
+#define thr_create(stack_base, stack_size, start_func, arg, flags, new_thread_ID) \
+	thr_create_named(stack_base, stack_size, start_func, #start_func, arg, flags, new_thread_ID)
 
 #endif	/* _THREAD_H */

@@ -63,7 +63,7 @@ CFLAGS+=	-I${SRCTOP}/lib/libpthread/sys
 CFLAGS+=	-I${SRCTOP}/lib/libthr/arch/${MACHINE_CPUARCH}/include
 CFLAGS.gcc+=	-fms-extensions
 
-LIBADD=		md pthread z nvpair avl umem
+LIBADD=		md pthread z nvpair avl umem crypto
 
 # atomic.S doesn't like profiling.
 MK_PROFILE=	no
@@ -73,6 +73,6 @@ CSTD=	c99
 # Since there are many asserts in this library, it makes no sense to compile
 # it without debugging.
 
-CFLAGS+=	-g -DDEBUG=1
+CFLAGS+=	-g -DDEBUG=1 -DZFS_DEBUG=1
 
 .include <bsd.lib.mk>
