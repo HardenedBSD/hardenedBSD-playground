@@ -59,6 +59,9 @@ SYSCTL_DECL(_vfs_zfs);
 SYSCTL_INT(_vfs_zfs, OID_AUTO, crypt_sessions, CTLFLAG_RD, &crypt_sessions, 0, "Number of cryptographic sessions created");
 #endif
 
+static struct mtx freebsd_crypto_mutex;
+MTX_SYSINIT(freebsd_crypto_mutex, &freebsd_crypto_mutex, "FreeBSD ZFS Crypto mutex", MTX_DEF);
+
 void
 crypto_mac_init(struct hmac_ctx *ctx, const crypto_key_t *c_key)
 {
@@ -364,7 +367,7 @@ freebsd_crypt_uio(boolean_t encrypt,
 			goto out;
 	} else
 		sid = *sessp;
-		
+
 	// The tag is always last in the uio
 	last_iovec = data_uio->uio_iov + (data_uio->uio_iovcnt - 1);
 	
@@ -373,6 +376,9 @@ freebsd_crypt_uio(boolean_t encrypt,
 		error = ENOMEM;
 		goto bad;
 	}
+
+	if (sessp != NULL)
+		mtx_lock(&freebsd_crypto_mutex);
 
 	auth_desc = crp->crp_desc;
 	enc_desc = auth_desc->crd_next;
@@ -423,6 +429,9 @@ again:
 			goto again;
 		}
 	}
+	if (sessp != NULL)
+		mtx_unlock(&freebsd_crypto_mutex);
+
 	if (crp)
 		crypto_freereq(crp);
 out:

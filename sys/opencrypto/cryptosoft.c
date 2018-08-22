@@ -1081,6 +1081,7 @@ swcr_freesession(device_t dev, crypto_session_t cses)
 		case CRYPTO_CAMELLIA_CBC:
 		case CRYPTO_NULL_CBC:
 		case CRYPTO_CHACHA20:
+		case CRYPTO_AES_CCM_16:
 			txf = swd->sw_exf;
 
 			if (swd->sw_kschedule)
@@ -1095,6 +1096,9 @@ swcr_freesession(device_t dev, crypto_session_t cses)
 		case CRYPTO_SHA2_512_HMAC:
 		case CRYPTO_RIPEMD160_HMAC:
 		case CRYPTO_NULL_HMAC:
+		case CRYPTO_AES_128_CCM_CBC_MAC:
+		case CRYPTO_AES_192_CCM_CBC_MAC:
+		case CRYPTO_AES_256_CCM_CBC_MAC:
 			axf = swd->sw_axf;
 
 			if (swd->sw_ictx) {
