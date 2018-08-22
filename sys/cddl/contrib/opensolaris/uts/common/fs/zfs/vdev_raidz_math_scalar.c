@@ -217,8 +217,9 @@ static const struct {
  * Starting with gcc 4.8, new opt level -Og is introduced for debugging, which
  * does not trigger this warning.
  */
+#if __GNUC__ > 4
 #pragma GCC diagnostic ignored "-Wframe-larger-than="
-
+#endif
 DEFINE_GEN_METHODS(scalar);
 DEFINE_REC_METHODS(scalar);
 
