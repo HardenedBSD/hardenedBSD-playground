@@ -59,8 +59,15 @@ SYSCTL_DECL(_vfs_zfs);
 SYSCTL_INT(_vfs_zfs, OID_AUTO, crypt_sessions, CTLFLAG_RD, &crypt_sessions, 0, "Number of cryptographic sessions created");
 #endif
 
+#ifdef _KERNEL
 static struct mtx freebsd_crypto_mutex;
 MTX_SYSINIT(freebsd_crypto_mutex, &freebsd_crypto_mutex, "FreeBSD ZFS Crypto mutex", MTX_DEF);
+#else
+#define mtx_lock(x)
+#define mtx_unlock(x)
+#endif
+
+
 
 void
 crypto_mac_init(struct hmac_ctx *ctx, const crypto_key_t *c_key)
