@@ -1,0 +1,114 @@
+#!/bin/sh
+#
+# $FreeBSD$
+#
+
+# PROVIDE: trust_machine_keygen
+# REQUIRE: FILESYSTEMS
+# KEYWORD: nojail
+
+. /etc/rc.subr
+
+name="trust_machine_keygen"
+desc="Generate Machine Trust Root Keypair"
+rcvar="trust_machine_keygen_enable"
+start_cmd="do_trust_machine_keygen"
+stop_cmd=":"
+load_rc_config $name
+
+generate_keys()
+{
+        echo "Generating machine trust root keypair"
+        openssl genpkey \
+                -out /etc/trust/root/priv/machine.pem \
+                -algorithm ${trust_machine_genpkey_alg} \
+                ${trust_machine_genpkey_opts}
+
+        if [ -z ${trust_machine_req_DN} ]; then
+            IFS="."
+
+            for dc in `hostname`; do
+                trust_machine_req_DN="${trust_machine_req_DN}/DC=${dc}"
+            done
+
+            IFS="\n"
+
+            trust_machine_req_DN="${trust_machine_req_DN}/OU=trust/CN=machine"
+        fi
+
+        openssl req -new \
+                -key /etc/trust/root/priv/machine.pem \
+                -out /etc/trust/root/reqs/machine.csr \
+                -subj ${trust_machine_req_DN} \
+                -days ${trust_machine_req_days} \
+                ${trust_machine_req_opts}
+
+        rm -f /etc/trust/root/reqs/machine.ext
+        touch /etc/trust/root/reqs/machine.ext
+
+        if [ ! -z "${trust_machine_x509_key_usage}" ]; then
+                echo "keyUsage=${trust_machine_x509_key_usage}" >> \
+                     /etc/trust/root/reqs/machine.ext
+        fi
+
+        if [ ! -z "${trust_machine_x509_ext_key_usage}" ]; then
+                echo "extendedKeyUsage=${trust_machine_x509_ext_key_usage}" >> \
+                     /etc/trust/root/reqs/machine.ext
+        fi
+
+        if [ ! -z "${trust_machine_x509_extensions}" ]; then
+                printf "${trust_machine_x509_extensions}" >> \
+                       /etc/trust/root/reqs/machine.ext
+        fi
+
+        openssl x509 -req \
+                -in /etc/trust/root/reqs/machine.csr \
+                -out /etc/trust/root/certs/machine.pub.pem \
+                -days ${trust_machine_req_days} \
+                -extfile /etc/trust/root/reqs/machine.ext \
+                -signkey ${trust_machine_x509_signkey} \
+                ${trust_machine_x509_opts}
+}
+
+do_trust_machine_keygen()
+{
+        local _nowdate _startdate _enddate _nowstamp _startstamp _endstamp
+
+        if [ -d /etc/trust/root/priv -a \
+             ! -f /etc/trust/root/priv/machine.pem ]; then
+                generate_keys
+        else
+                _nowdate=`date`
+                _startdate=`openssl x509 \
+                                    -startdate \
+                                    -in /etc/trust/root/certs/machine.pub.pem \
+                                    -noout | \
+                            sed s/notBefore=//`
+                _enddate=`openssl x509 \
+                                  -enddate \
+                                  -in /etc/trust/root/certs/machine.pub.pem \
+                                  -noout | \
+                          sed s/notAfter=//`
+                _nowstamp=`date -j -f "%a %b %d %T %Z %Y" "${_nowdate}" "+%s"`
+                _startstamp=`date -j -f "%b %d %T %Y %Z" "${_startdate}" "+%s"`
+                _endstamp=`date -j -f "%b %d %T %Y %Z" "${_enddate}" "+%s"`
+
+                if [ ${_nowstamp} -lt ${_startstamp} ]; then
+                        echo "WARNING: machine keypair is only valid in the future (${_startdate})"
+
+                        case ${trust_machine_key_regen} in
+                            [Nn][Oo]) echo "Not regenerating machine keypair" ;;
+                            [Yy][Ee][Ss]) generate_keys ;;
+                        esac
+                elif [ ${_nowstamp} -gt ${_endstamp} ]; then
+                        echo "WARNING: machine keypair expired at ${_enddate}"
+
+                        case ${trust_machine_key_regen} in
+                            [Nn][Oo]) echo "Not regenerating machine keypair" ;;
+                            [Yy][Ee][Ss]) generate_keys ;;
+                        esac
+                fi
+        fi
+}
+
+run_rc_command "$1"

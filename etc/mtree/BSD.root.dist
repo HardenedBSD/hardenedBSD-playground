@@ -80,6 +80,22 @@
         ..
         syslog.d
         ..
+        trust
+            certs
+            ..
+            priv        mode=0700
+            ..
+            reqs
+            ..
+            root
+                certs
+                ..
+                priv    mode=0700
+                ..
+                reqs
+                ..
+            ..
+        ..
         zfs
         ..
     ..

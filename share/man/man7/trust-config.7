@@ -1,0 +1,280 @@
+.\" Copyright (c) 2018 Eric McCorkle
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\" $FreeBSD$
+.\"
+.Dd August 2, 2018
+.Dt TRUST-CONFIG 7
+.Os
+.Sh NAME
+.Nm trust-config
+.Nd "trust system configuration"
+.Sh DESCRIPTION
+The trust system configuration specifices the the trust root
+certificates, intermediate certificates, and provides the trusted
+signing keys, allowing users to create signed executables (see
+.Xr signed-elf 5)
+as well as other signed assets.  It provides the default keys to
+.Xr signelf 8
+and other utilities, and controls which keys are included in critical
+system components as the builtin trust root set.
+.Sh TERMINOLOGY
+The trust configuration controls the behavior of a system consisting
+of several parts with interlocking functions; thus, it is essential to
+be clear about the terminology used to describe both the system and
+its configuration.
+.Ss Trust Root Certificates
+The
+.Sy trust root certificates
+are a set of public (verification) certificates which are built
+directly in to critical system components.  The trust root
+certificates are then used to verify intermediate certificates,
+revocation lists, signed executables, and other signed assets.
+.Pp
+System components such as the kernel and
+.Xr loader 8
+which play an essential role in the chain of custody from boot to user
+must necessarily include the trust root set into their binaries (which
+are presumably verified by earlier boot stages or stored in flash
+memory).  The build process must therefore collect a set of desired
+keys and build them into these components.  The
+.Sy trust root configuration
+is the set of certificates and additional information that controls
+this aspect of the build process.
+.Ss Intermediate Certificates
+The
+.Sy intermediate certificates
+are a set of public (verification) certificates which have a valid
+signature chain back to a trust root certificate.  The combined set of
+intermediate and root certificates are known as the
+.Sy trust certificates .
+.Ss Trusted Signing Keys
+The
+.Sy trusted signing keys
+are a set of private keys that correspond to public keys in the trust
+certificates.  These are used to produce signatures for various assets
+that can be verified by the trust certficates.
+.Ss Trust System Configuration
+The
+.Sy trust system configuration
+is the combination of the trust root configuration and the trusted
+signing keys.
+.Sh FILES
+The trust system configuration consists of the following files and
+directories:
+.Bl -bullet indent
+.It
+.Pa /etc/trust/ :
+The base directory for the trust system configuration
+.It
+.Pa /etc/trust/certs/ :
+The directory containing the intermediate trust certificates
+.It
+.Pa /etc/trust/priv/ :
+The directory containing the intermediate signing keys
+.It
+.Pa /etc/trust/reqs/ :
+The directory containing the intermediate signing requests
+.It
+.Pa /etc/trust/root :
+The base directory for the trust root configuration
+.It
+.Pa /etc/trust/root/certs/ :
+The directory containing the trust root certificates
+.It
+.Pa /etc/trust/root/priv/ :
+The directory containing the trust root signing keys
+.It
+.Pa /etc/trust/root/reqs/ :
+The directory containing the trust root signing requests
+.El
+.Pp
+The trusted signing key directories
+.Pa /etc/trust/priv/
+and
+.Pa /etc/trust/root/priv/
+contain PEM-encoded private keys or PKCS#8 data structures.  The
+standard file naming convention for a key named
+.Qq mykey
+is
+.Pa mykey.pem .
+.Pp
+The trusted certificate directories
+.Pa /etc/trust/certs/
+and
+.Pa /etc/trust/root/certs/
+contain PEM-encoded X509 certificates, and is generally compatible
+with OpenSSL CA directory parameters or configuration options.
+Certificates under
+.Pa /etc/trust/root/certs/
+will typically be self-signed certificates, though nothing prevents
+the inclusion of certificates signed by a third party.  Note, however,
+that signatures on trust root keys are ignored by all trust system
+components.  Certificates under
+.Pa /etc/trust/certs/
+must have a valid chain of signatures back to a certificate under
+.Pa /etc/trust/root/certs/ .
+.Ss Trusted Signing Keys
+Some certificates in the trust certificate directories correspond to
+trusted signing keys in
+.Pa /etc/trust/priv
+or
+.Pa /etc/trust/root/priv.
+Certificate signing requests for any locally-generated keys are retained
+under
+.Pa /etc/trust/reqs
+for intermediate certificates, or
+.Pa /etc/trust/root/reqs
+for root certificates.  This allows certificates to be easily re-signed
+if they or a member of their signature chain expires.
+.Pp
+The naming convention for signing keys and their corresponding
+certificates is as follows.  Signing key filenames consist of the
+key's name, followed by ".pem".  The corresponding certificate
+consists of the same name, followed by ".pub.pem".  Certificates in
+the
+.Pa /etc/trust/certs/
+may be optionally preceeded by up to four numerals (0-9), followed by
+a "." (this allows administrators to control the order in which
+intermediate certificates will be encountered when listing a directory).
+.Pp
+For example, the filename for a private key named
+.Qq mykey
+would be
+.Pa mykey.pem ,
+and its corresponding certificate would be
+.Pa mykey.pub.pem
+(or possibly
+.Pa 00.mykey.pub.pem ,
+if it were stored in
+.Pa /etc/trust/certs/
+).  Additionally, keys in
+.Pa /etc/trust/priv
+may only correspond to keys in
+.Pa /etc/trust/certs/ ;
+similarly, keys in
+.Pa /etc/trust/root/priv
+may only correspond to keys in
+.Pa /etc/trust/root/certs/ .
+It is an illegal configuration to have a key in
+.Pa /etc/trust/priv
+and a corresponding cert in
+.Pa /etc/trust/root/certs/ ,
+or vice versa.  It is also an illegal configuration to have
+certificates or keys with the same name in both
+.Pa /etc/trust/root/ ,
+and
+.Pa /etc/trust/ .
+
+.Ss Third-Party Trust Keys
+It is not required that all public key certificates in the trust root
+configuration have a corresponding trusted signing key (with one
+exception; see below).  There are many circumstances in which this may
+be desirable, such as administration of large networks or distribution
+of pre-built binaries from a trusted source.  Public-key certificates
+in the trust root configuration without a corresponding trusted
+signing key are known as
+.Qq third-party keys .
+.Pp
+It is important to consider the security implications of third-party
+keys before accepting such a key into a trust root configuration.
+Because of the severity of these implications, there is no requirement
+that any configuration include any third-party key(s), nor will there
+ever be such a requirement.
+.Pp
+Furthermore, the
+.Xr signelf 5
+utility is perfectly capable of overwriting signatures from
+third-party keys with a signature generated by a locally-controlled
+keypair; thus, assets signed by a third party can easily be inspected
+and re-signed locally at the behest of the system administrator.
+.Ss Machine Keypair
+The root key name
+.Qq machine ,
+which corresponds to the private key path
+.Pa /etc/trust/root/priv/machine.pem
+and public key path
+.Pa /etc/trust/root/certs/machine.pub.pem
+is known as the
+.Ar machine keypair.
+This keypair represents the root of trust specific to the local machine,
+and generally should not be exported.  This key generally should not be
+used directly; rather, it should be used to sign intermediate keypairs
+such as the local keypair (see next section).  This keypair should be
+generated upon installation or at startup, unless the administrator has
+opted for a non-standard trust configuration.  Most user-oriented systems,
+and all systems that build the base syntem or packages locally should have
+a machine keypair, as well as a local keypair.
+.Pp
+It is possible for some installations to lack a machine keypair,
+particularly on infrastructure-type systems that are set up using
+standardized images or configuration management systems.  Such systems
+generally do not build anything locally and rely on pre-built packages
+for installation and upgrades.
+.Pp
+However, it is an illegal configuration for there to be a public key
+certificate named
+.Pa /etc/trust/root/certs/machine.pub.pem
+without a corresponding private key, or for there to be an intermediate
+keypain named "machine".
+.Ss Local Keypair
+The intermediate key name
+.Qq local
+(which corresponds to the private key path
+.Pa /etc/trust/priv/local.pem
+and the public key path
+.Pa /etc/trust/certs/local.pub.pem
+by the file naming conventions) is used as the default keypair by
+tools such as
+.Xr signelf 8 .
+This keypair is known as the
+.Ar local keypair ,
+should be generated locally on each installation and signed by the machine
+keypair.  This keypair is used for signing artifacts, ephemeral keypairs,
+and other resources.  As with the machine keypair, it is possible for some
+installations to lack a local keypair.
+.Pp
+It is an illegal configuration for there to be a public key
+certificate named
+.Pa /etc/trust/certs/local.pub.pem
+without a corresponding private key.
+.Sh DEFAULT
+The default trust system configuration consists solely of a machine keypair
+which is generated during OS installation, and a local keypair which is
+signed by the machine keypair.  Any additional trusted keys (including
+third-party keys) are signed by the local keypair and loaded as intermediate
+keys rather than being added directly to the trust root configuration.
+This is the preferred configuration, and alternatives should only be used if
+there is a specific and compelling reason to do so.
+.Sh SEE ALSO
+.Xr trust 7 ,
+.Xr signed-elf 5 ,
+.Xr signelf 5 ,
+.Xr openssl 1
+.Sh HISTORY
+The trust system first appeared in
+.Fx 12.0 .
+.Sh AUTHORS
+This manual page was written by
+.An Eric L. McCorkle Aq Mt emc2@metricspace.net .

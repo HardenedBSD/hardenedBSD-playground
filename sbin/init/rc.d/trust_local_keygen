@@ -1,0 +1,117 @@
+#!/bin/sh
+#
+# $FreeBSD$
+#
+
+# PROVIDE: trust_local_keygen
+# REQUIRE: FILESYSTEMS trust_machine_keygen
+# KEYWORD: nojail
+
+. /etc/rc.subr
+
+
+name="trust_local_keygen"
+desc="Generate Local Intermediate Trust Keypair"
+rcvar="trust_local_keygen_enable"
+start_cmd="do_trust_local_keygen"
+stop_cmd=":"
+load_rc_config $name
+
+generate_keys()
+{
+        echo "Generating local intermediate trust keypair"
+        openssl genpkey \
+                -out /etc/trust/priv/local.pem \
+                -algorithm ${trust_local_genpkey_alg} \
+                ${trust_local_genpkey_opts}
+
+        if [ -z ${trust_local_req_DN} ]; then
+            IFS="."
+
+            for dc in `hostname`; do
+                trust_local_req_DN="${trust_local_req_DN}/DC=${dc}"
+            done
+
+            IFS="\n"
+
+            trust_local_req_DN="${trust_local_req_DN}/OU=trust/CN=local"
+        fi
+
+        openssl req -new \
+                -key /etc/trust/priv/local.pem \
+                -out /etc/trust/reqs/local.csr \
+                -subj ${trust_local_req_DN} \
+                -days ${trust_local_req_days} \
+                ${trust_local_req_opts}
+
+        rm -f /etc/trust/reqs/local.ext
+        touch /etc/trust/reqs/local.ext
+
+        if [ ! -z "${trust_local_x509_key_usage}" ]; then
+                echo "keyUsage=${trust_local_x509_key_usage}" >> \
+                     /etc/trust/reqs/local.ext
+        fi
+
+        if [ ! -z "${trust_local_x509_ext_key_usage}" ]; then
+                echo "extendedKeyUsage=${trust_local_x509_ext_key_usage}" >> \
+                     /etc/trust/reqs/local.ext
+        fi
+
+        if [ ! -z "${trust_local_x509_extensions}" ]; then
+                printf "${trust_local_x509_extensions}" >> \
+                       /etc/trust/reqs/local.ext
+        fi
+
+        openssl x509 -req \
+                -in /etc/trust/reqs/local.csr \
+                -out /etc/trust/certs/local.pub.pem \
+                -days ${trust_local_req_days} \
+                -extfile /etc/trust/reqs/local.ext \
+                -CAkey ${trust_local_x509_signkey} \
+                -CA ${trust_local_x509_signcert} \
+                -CAcreateserial \
+                ${trust_local_x509_opts}
+}
+
+do_trust_local_keygen()
+{
+        local _nowdate _startdate _enddate _nowstamp _startstamp _endstamp
+
+        if [ -d /etc/trust/priv -a \
+             ! -f /etc/trust/priv/local.pem ]; then
+                generate_keys
+        else
+                _nowdate=`date`
+                _startdate=`openssl x509 \
+                                    -startdate \
+                                    -in /etc/trust/certs/local.pub.pem \
+                                    -noout | \
+                            sed s/notBefore=//`
+                _enddate=`openssl x509 \
+                                  -enddate \
+                                  -in /etc/trust/certs/local.pub.pem \
+                                  -noout | \
+                          sed s/notAfter=//`
+                _nowstamp=`date -j -f "%a %b %d %T %Z %Y" "${_nowdate}" "+%s"`
+                _startstamp=`date -j -f "%b %d %T %Y %Z" "${_startdate}" "+%s"`
+                _endstamp=`date -j -f "%b %d %T %Y %Z" "${_enddate}" "+%s"`
+
+                if [ ${_nowstamp} -lt ${_startstamp} ]; then
+                        echo "WARNING: local keypair is only valid in the future (${_startdate})"
+
+                        case ${trust_local_key_regen} in
+                            [Nn][Oo]) echo "Not regenerating local keypair" ;;
+                            [Yy][Ee][Ss]) generate_keys ;;
+                        esac
+                elif [ ${_nowstamp} -gt ${_endstamp} ]; then
+                        echo "WARNING: local keypair expired at ${_enddate}"
+
+                        case ${trust_local_key_regen} in
+                            [Nn][Oo]) echo "Not regenerating local keypair" ;;
+                            [Yy][Ee][Ss]) generate_keys ;;
+                        esac
+                fi
+        fi
+}
+
+run_rc_command "$1"
