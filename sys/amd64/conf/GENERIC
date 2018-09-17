@@ -25,6 +25,7 @@ makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
 makeoptions	WITH_CTF=1		# Run ctfconvert(1) for DTrace support
 
 options 	SCHED_ULE		# ULE scheduler
+options 	NUMA			# Non-Uniform Memory Architecture support
 options 	PREEMPTION		# Enable kernel thread preemption
 options 	VIMAGE			# Subsystem virtualization, e.g. VNET
 options 	INET			# InterNETworking
@@ -314,6 +315,7 @@ device		wi			# WaveLAN/Intersil/Symbol 802.11 wireless NICs.
 device		wpi			# Intel 3945ABG wireless NICs.
 
 # Pseudo devices.
+device		crypto			# core crypto support
 device		loop			# Network loopback
 device		random			# Entropy device
 device		padlock_rng		# VIA Padlock RNG
@@ -376,6 +378,3 @@ device		vmx			# VMware VMXNET3 Ethernet
 
 # Netmap provides direct access to TX/RX rings on supported NICs
 device		netmap			# netmap(4) support
-
-# The crypto framework is required by IPSEC
-device		crypto			# Required by IPSEC

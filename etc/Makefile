@@ -12,45 +12,22 @@ UPDATE_DEPENDFILE=	no
 SUBDIR+=sendmail
 .endif
 
-BIN1=	crontab \
-	devd.conf \
-	devfs.conf \
+BIN1=	\
 	dhclient.conf \
 	disktab \
-	fbtab \
-	gettytab \
 	group \
-	hosts \
 	hosts.allow \
-	hosts.equiv \
 	libalias.conf \
 	libmap.conf \
 	login.access \
-	login.conf \
 	mac.conf \
-	motd \
 	netconfig \
-	networks \
-	nsswitch.conf \
 	phones \
-	protocols \
 	rc.bsdextended \
 	rc.firewall \
 	remote \
 	rpc \
-	services \
-	syslog.conf \
 	termcap.small
-
-.if exists(${.CURDIR}/etc.${MACHINE}/ttys)
-BIN1+=	etc.${MACHINE}/ttys
-.elif exists(${.CURDIR}/etc.${MACHINE_ARCH}/ttys)
-BIN1+=	etc.${MACHINE_ARCH}/ttys
-.elif exists(${.CURDIR}/etc.${MACHINE_CPUARCH}/ttys)
-BIN1+=	etc.${MACHINE_CPUARCH}/ttys
-.else
-.error etc.MACHINE/ttys missing
-.endif
 
 # NB: keep these sorted by MK_* knobs
 
@@ -58,6 +35,7 @@ BIN1+=	etc.${MACHINE_CPUARCH}/ttys
 BIN1+= amd.map
 .endif
 
+<<<<<<< HEAD
 .if ${MK_FTP} != "no"
 BIN1+= ftpusers
 .endif
@@ -66,6 +44,8 @@ BIN1+= ftpusers
 BIN1+= hbsd-update.conf
 .endif
 
+=======
+>>>>>>> freebsd/projects/clang700-import
 .if ${MK_LOCATE} != "no"
 BIN1+=	${SRCTOP}/usr.bin/locate/locate/locate.rc
 .endif
@@ -133,15 +113,8 @@ distribution:
 	cd ${.CURDIR}; \
 	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
 		${BIN1} ${DESTDIR}/etc; \
-	    cap_mkdb ${CAP_MKDB_ENDIAN} ${DESTDIR}/etc/login.conf; \
 	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 600 \
 		master.passwd nsmb.conf opieaccess ${DESTDIR}/etc;
-
-.if ${MK_SERVICESDB} != "no"
-	cd ${.CURDIR}; \
-	    services_mkdb ${CAP_MKDB_ENDIAN} -q -o ${DESTDIR}/var/db/services.db \
-		${DESTDIR}/etc/services;
-.endif
 
 .if ${MK_TCSH} == "no"
 	sed -i "" -e 's;/bin/csh;/bin/sh;' ${DESTDIR}/etc/master.passwd
@@ -149,24 +122,15 @@ distribution:
 	pwd_mkdb -i -p -d ${DESTDIR}/etc ${DESTDIR}/etc/master.passwd
 .if defined(NO_ROOT)
 	( \
-		echo "./etc/login.conf.db type=file mode=0644 uname=root gname=wheel"; \
 		echo "./etc/passwd type=file mode=0644 uname=root gname=wheel"; \
 		echo "./etc/pwd.db type=file mode=0644 uname=root gname=wheel"; \
 		echo "./etc/spwd.db type=file mode=0600 uname=root gname=wheel"; \
-		echo "./var/db/services.db type=file mode=0644 uname=root gname=wheel"; \
 	) | ${METALOG.add}
 .endif
-.if ${MK_BLUETOOTH} != "no"
-	${_+_}cd ${.CURDIR}/bluetooth; ${MAKE} install
-.endif
-	${_+_}cd ${.CURDIR}/defaults; ${MAKE} install
-	${_+_}cd ${.CURDIR}/devd; ${MAKE} install
 	${_+_}cd ${.CURDIR}/gss; ${MAKE} install
 	${_+_}cd ${.CURDIR}/mtree; ${MAKE} install
 	${_+_}cd ${SRCTOP}/share/termcap; ${MAKE} etc-termcap
-	${_+_}cd ${.CURDIR}/syslog.d; ${MAKE} install
 	${_+_}cd ${SRCTOP}/usr.sbin/rmt; ${MAKE} etc-rmt
-	${_+_}cd ${.CURDIR}/pam.d; ${MAKE} install
 .if ${MK_UNBOUND} != "no"
 	if [ ! -e ${DESTDIR}/etc/unbound ]; then \
 		${INSTALL_SYMLINK} ../var/unbound ${DESTDIR}/etc/unbound; \
@@ -183,18 +147,6 @@ distribution:
 	cd ${.CURDIR}/root; \
 	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
 		dot.k5login ${DESTDIR}/root/.k5login;
-.endif
-	cd ${.CURDIR}/root; \
-	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
-		dot.profile ${DESTDIR}/root/.profile; \
-	    rm -f ${DESTDIR}/.profile; \
-	    ${INSTALL_LINK} ${DESTDIR}/root/.profile ${DESTDIR}/.profile
-.if ${MK_TCSH} != "no"
-	cd ${.CURDIR}/root; \
-	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
-		dot.cshrc ${DESTDIR}/root/.cshrc; \
-	    rm -f ${DESTDIR}/.cshrc; \
-	    ${INSTALL_LINK} ${DESTDIR}/root/.cshrc ${DESTDIR}/.cshrc
 .endif
 
 .if ${MK_MAIL} != "no"
@@ -217,10 +169,6 @@ distribution:
 	    ${SRCTOP}/sys/${MACHINE}/conf/GENERIC.hints \
 	    ${DESTDIR}/boot/device.hints
 .endif
-.endif
-.if ${MK_NIS} == "no"
-	sed -i "" -e 's/.*_compat:/# &/' -e 's/compat$$/files/' \
-		${DESTDIR}/etc/nsswitch.conf
 .endif
 
 MTREE_CMD?=	mtree
@@ -300,15 +248,10 @@ distrib-dirs: ${MTREES:N/*} distrib-cleanup .PHONY
 	done
 .endif
 
-etc-examples-install: ${META_DEPS}
+etc-examples: ${META_DEPS}
 	cd ${.CURDIR}; ${INSTALL} ${TAG_ARGS} -o ${BINOWN} -g ${BINGRP} -m 444 \
 	    ${BIN1} ${BIN2} nsmb.conf opieaccess \
 	    ${DESTDIR}${SHAREDIR}/examples/etc
-
-etc-examples: etc-examples-install
-	${_+_}cd ${.CURDIR}/defaults; \
-	    ${MAKE} ${${MK_STAGING} == "yes":?all:install} \
-	    DESTDIR=${DESTDIR}${SHAREDIR}/examples
 
 .include <bsd.prog.mk>
 

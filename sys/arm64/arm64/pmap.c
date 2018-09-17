@@ -923,8 +923,7 @@ pmap_init(void)
 	 */
 	s = (vm_size_t)(pv_npg * sizeof(struct md_page));
 	s = round_page(s);
-	pv_table = (struct md_page *)kmem_malloc(kernel_arena, s,
-	    M_WAITOK | M_ZERO);
+	pv_table = (struct md_page *)kmem_malloc(s, M_WAITOK | M_ZERO);
 	for (i = 0; i < pv_npg; i++)
 		TAILQ_INIT(&pv_table[i].pv_list);
 	TAILQ_INIT(&pv_dummy.pv_list);
@@ -1745,8 +1744,8 @@ pmap_growkernel(vm_offset_t addr)
 	mtx_assert(&kernel_map->system_mtx, MA_OWNED);
 
 	addr = roundup2(addr, L2_SIZE);
-	if (addr - 1 >= kernel_map->max_offset)
-		addr = kernel_map->max_offset;
+	if (addr - 1 >= vm_map_max(kernel_map))
+		addr = vm_map_max(kernel_map);
 	while (kernel_vm_end < addr) {
 		l0 = pmap_l0(kernel_pmap, kernel_vm_end);
 		KASSERT(pmap_load(l0) != 0,
@@ -1769,8 +1768,8 @@ pmap_growkernel(vm_offset_t addr)
 		l2 = pmap_l1_to_l2(l1, kernel_vm_end);
 		if ((pmap_load(l2) & ATTR_AF) != 0) {
 			kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
-			if (kernel_vm_end - 1 >= kernel_map->max_offset) {
-				kernel_vm_end = kernel_map->max_offset;
+			if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
+				kernel_vm_end = vm_map_max(kernel_map);
 				break;
 			}
 			continue;
@@ -1788,8 +1787,8 @@ pmap_growkernel(vm_offset_t addr)
 		pmap_invalidate_page(kernel_pmap, kernel_vm_end);
 
 		kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
-		if (kernel_vm_end - 1 >= kernel_map->max_offset) {
-			kernel_vm_end = kernel_map->max_offset;
+		if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
+			kernel_vm_end = vm_map_max(kernel_map);
 			break;
 		}
 	}

@@ -259,8 +259,8 @@ again:
 	 * Discount the physical memory larger than the size of kernel_map
 	 * to avoid eating up all of KVA space.
 	 */
-	physmem_est = lmin(physmem, btoc(kernel_map->max_offset -
-	    kernel_map->min_offset));
+	physmem_est = lmin(physmem, btoc(vm_map_max(kernel_map) -
+	    vm_map_min(kernel_map)));
 
 	v = kern_vfs_bio_buffer_alloc(v, physmem_est);
 
@@ -274,13 +274,11 @@ again:
 		 * Try to protect 32-bit DMAable memory from the largest
 		 * early alloc of wired mem.
 		 */
-		firstaddr = kmem_alloc_attr(kernel_arena, size,
-		    M_ZERO | M_NOWAIT, (vm_paddr_t)1 << 32,
-		    ~(vm_paddr_t)0, VM_MEMATTR_DEFAULT);
+		firstaddr = kmem_alloc_attr(size, M_ZERO | M_NOWAIT,
+		    (vm_paddr_t)1 << 32, ~(vm_paddr_t)0, VM_MEMATTR_DEFAULT);
 		if (firstaddr == 0)
 #endif
-			firstaddr = kmem_malloc(kernel_arena, size,
-			    M_ZERO | M_WAITOK);
+			firstaddr = kmem_malloc(size, M_ZERO | M_WAITOK);
 		if (firstaddr == 0)
 			panic("startup: no room for tables");
 		goto again;

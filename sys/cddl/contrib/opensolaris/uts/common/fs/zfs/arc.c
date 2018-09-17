@@ -320,7 +320,7 @@ int zfs_arc_evict_batch_limit = 10;
 static int		arc_grow_retry = 60;
 
 /* number of milliseconds before attempting a kmem-cache-reap */
-static int		arc_kmem_cache_reap_retry_ms = 1000;
+static int		arc_kmem_cache_reap_retry_ms = 0;
 
 /* shift of arc_c for calculating overflow limit in arc_get_data_impl */
 int		zfs_arc_overflow_shift = 8;
@@ -435,7 +435,11 @@ SYSCTL_INT(_vfs_zfs, OID_AUTO, arc_grow_retry, CTLFLAG_RW,
     &arc_grow_retry, 0,
     "Wait in seconds before considering growing ARC");
 SYSCTL_INT(_vfs_zfs, OID_AUTO, compressed_arc_enabled, CTLFLAG_RDTUN,
-    &zfs_compressed_arc_enabled, 0, "Enable compressed ARC");
+    &zfs_compressed_arc_enabled, 0,
+    "Enable compressed ARC");
+SYSCTL_INT(_vfs_zfs, OID_AUTO, arc_kmem_cache_reap_retry_ms, CTLFLAG_RWTUN,
+    &arc_kmem_cache_reap_retry_ms, 0,
+    "Interval between ARC kmem_cache reapings");
 
 /*
  * We don't have a tunable for arc_free_target due to the dependency on
@@ -534,8 +538,13 @@ typedef struct arc_state {
  */
 int zfs_arc_meta_prune = 10000;
 unsigned long zfs_arc_dnode_limit_percent = 10;
-int zfs_arc_meta_strategy = ARC_STRATEGY_META_BALANCED;
+int zfs_arc_meta_strategy = ARC_STRATEGY_META_ONLY;
 int zfs_arc_meta_adjust_restarts = 4096;
+
+SYSCTL_INT(_vfs_zfs, OID_AUTO, arc_meta_strategy, CTLFLAG_RWTUN,
+    &zfs_arc_meta_strategy, 0,
+    "ARC metadata reclamation strategy "
+    "(0 = metadata only, 1 = balance data and metadata)");
 
 /* The 6 states: */
 static arc_state_t ARC_anon;
@@ -657,6 +666,12 @@ typedef struct arc_stats {
 	 * Number of bytes consumed by bonus buffers.
 	 */
 	kstat_named_t arcstat_bonus_size;
+#if defined(__FreeBSD__) && defined(COMPAT_FREEBSD11)
+	/*
+	 * Sum of the previous three counters, provided for compatibility.
+	 */
+	kstat_named_t arcstat_other_size;
+#endif
 	/*
 	 * Total number of bytes consumed by ARC buffers residing in the
 	 * arc_anon state. This includes *all* buffers in the arc_anon
@@ -871,6 +886,9 @@ static arc_stats_t arc_stats = {
 	{ "dbuf_size",			KSTAT_DATA_UINT64 },
 	{ "dnode_size",			KSTAT_DATA_UINT64 },
 	{ "bonus_size",			KSTAT_DATA_UINT64 },
+#if defined(__FreeBSD__) && defined(COMPAT_FREEBSD11)
+	{ "other_size",			KSTAT_DATA_UINT64 },
+#endif
 	{ "anon_size",			KSTAT_DATA_UINT64 },
 	{ "anon_evictable_data",	KSTAT_DATA_UINT64 },
 	{ "anon_evictable_metadata",	KSTAT_DATA_UINT64 },
@@ -4434,6 +4452,12 @@ arc_adjust(void)
 	}
 
 	/*
+	 * Re-sum ARC stats after the first round of evictions.
+	 */
+	asize = aggsum_value(&arc_size);
+	ameta = aggsum_value(&arc_meta_used);
+
+	/*
 	 * Adjust MFU size
 	 *
 	 * Now that we've tried to evict enough from the MRU to get its
@@ -6821,6 +6845,11 @@ arc_kstat_update(kstat_t *ksp, int rw)
 		ARCSTAT(arcstat_bonus_size) = aggsum_value(&astat_bonus_size);
 		ARCSTAT(arcstat_dnode_size) = aggsum_value(&astat_dnode_size);
 		ARCSTAT(arcstat_dbuf_size) = aggsum_value(&astat_dbuf_size);
+#if defined(__FreeBSD__) && defined(COMPAT_FREEBSD11)
+		ARCSTAT(arcstat_other_size) = aggsum_value(&astat_bonus_size) +
+		    aggsum_value(&astat_dnode_size) +
+		    aggsum_value(&astat_dbuf_size);
+#endif
 		ARCSTAT(arcstat_l2_hdr_size) = aggsum_value(&astat_l2_hdr_size);
 	}
 

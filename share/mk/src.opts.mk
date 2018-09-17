@@ -158,7 +158,11 @@ __DEFAULT_YES_OPTIONS = \
     QUOTAS \
     RADIUS_SUPPORT \
     RBOOTD \
+<<<<<<< HEAD
     RELRO \
+=======
+    REPRODUCIBLE_BUILD \
+>>>>>>> freebsd/projects/clang700-import
     RESCUE \
     ROUTED \
     SENDMAIL \
@@ -207,9 +211,12 @@ __DEFAULT_NO_OPTIONS = \
     OFED \
     OFED_EXTRA \
     OPENLDAP \
+<<<<<<< HEAD
     OPENNTPD \
     PORTSNAP \
     REPRODUCIBLE_BUILD \
+=======
+>>>>>>> freebsd/projects/clang700-import
     RPCBIND_WARMSTART_SUPPORT \
     SHARED_TOOLCHAIN \
     SORT_THREADS \
@@ -399,6 +406,11 @@ BROKEN_OPTIONS+=LOADER_OFW
 # UBOOT is only for arm, mips and powerpc, exclude others
 .if ${__T:Marm*} == "" && ${__T:Mmips*} == "" && ${__T:Mpowerpc*} == ""
 BROKEN_OPTIONS+=LOADER_UBOOT
+.endif
+# GELI and Lua in loader currently cause boot failures on sparc64.
+# Further debugging is required.
+.if ${__T} == "sparc64"
+BROKEN_OPTIONS+=LOADER_GELI LOADER_LUA
 .endif
 
 .if ${__T:Mmips64*}

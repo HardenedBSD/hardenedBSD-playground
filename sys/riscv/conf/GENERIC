@@ -30,13 +30,12 @@ makeoptions	WITHOUT_MODULES="usb otusfw mwlfw ispfw mwlfw ralfw rtwnfw"
 
 options 	SCHED_ULE		# ULE scheduler
 options 	PREEMPTION		# Enable kernel thread preemption
-# options 	VIMAGE			# Subsystem virtualization, e.g. VNET
+options 	VIMAGE			# Subsystem virtualization, e.g. VNET
 options 	INET			# InterNETworking
 options 	INET6			# IPv6 communications protocols
 options 	TCP_HHOOK		# hhook(9) framework for TCP
 options 	IPSEC			# IP (v4/v6) security
 options 	IPSEC_SUPPORT		# Allow kldload of ipsec and tcpmd5
-device		crypto			# core crypto support (required for IPSEC)
 options 	TCP_OFFLOAD		# TCP offload
 options 	SCTP			# Stream Control Transmission Protocol
 options 	FFS			# Berkeley Fast Filesystem
@@ -89,6 +88,15 @@ device		vtnet			# VirtIO Ethernet device
 device		virtio_blk		# VirtIO Block device
 device		virtio_mmio		# VirtIO MMIO bus
 
+# DTrace support
+# device	dtrace
+# device	dtrace_profile
+# device	dtrace_sdt
+# device	dtrace_fbt
+# device	dtrace_systrace
+# device	dtrace_prototype
+# device	dtraceall
+
 # Serial (COM) ports
 device		uart		# Generic UART driver
 device		uart_ns8250	# ns8250-type UART driver
@@ -121,6 +129,7 @@ options 	MALLOC_DEBUG_MAXZONES=8	# Separate malloc(9) zones
 options		ZSTDIO			# zstd-compressed kernel and user dumps
 
 # Pseudo devices.
+device		crypto		# core crypto support
 device		loop		# Network loopback
 device		random		# Entropy device
 device		ether		# Ethernet support

@@ -41,7 +41,7 @@
 	.text
 
 /* Address: %rdi */
-ENTRY(pagezero)
+ENTRY(pagezero_std)
 	PUSH_FRAME_POINTER
 	movq	$PAGE_SIZE/8,%rcx
 	xorl	%eax,%eax
@@ -49,7 +49,17 @@ ENTRY(pagezero)
 	stosq
 	POP_FRAME_POINTER
 	ret
-END(pagezero)
+END(pagezero_std)
+
+ENTRY(pagezero_erms)
+	PUSH_FRAME_POINTER
+	movq	$PAGE_SIZE,%rcx
+	xorl	%eax,%eax
+	rep
+	stosb
+	POP_FRAME_POINTER
+	ret
+END(pagezero_erms)
 
 /*
  * pagecopy(%rdi=from, %rsi=to)
@@ -96,42 +106,42 @@ END(sse2_pagezero)
  * Adapted from bcopy written by:
  *  ws@tools.de     (Wolfgang Solfrank, TooLs GmbH) +49-228-985800
  */
-ENTRY(memmove)
+ENTRY(memmove_std)
 	PUSH_FRAME_POINTER
-	movq	%rdi,%r9
+	movq	%rdi,%rax
 	movq	%rdx,%rcx
 
-	movq	%rdi,%rax
-	subq	%rsi,%rax
-	cmpq	%rcx,%rax			/* overlapping && src < dst? */
-	jb	1f
+	movq	%rdi,%r8
+	subq	%rsi,%r8
+	cmpq	%rcx,%r8			/* overlapping && src < dst? */
+	jb	2f
 
 	shrq	$3,%rcx				/* copy by 64-bit words */
 	rep
 	movsq
 	movq	%rdx,%rcx
 	andq	$7,%rcx				/* any bytes left? */
-	jne	2f
-	movq	%r9,%rax
+	jne	1f
 	POP_FRAME_POINTER
 	ret
-2:
+1:
 	rep
 	movsb
-	movq	%r9,%rax
 	POP_FRAME_POINTER
 	ret
 
 	/* ALIGN_TEXT */
-1:
+2:
 	addq	%rcx,%rdi			/* copy backwards */
 	addq	%rcx,%rsi
 	decq	%rdi
 	decq	%rsi
-	andq	$7,%rcx				/* any fractional bytes? */
 	std
+	andq	$7,%rcx				/* any fractional bytes? */
+	je	3f
 	rep
 	movsb
+3:
 	movq	%rdx,%rcx			/* copy remainder by 32-bit words */
 	shrq	$3,%rcx
 	subq	$7,%rsi
@@ -139,10 +149,37 @@ ENTRY(memmove)
 	rep
 	movsq
 	cld
-	movq	%r9,%rax
 	POP_FRAME_POINTER
 	ret
-END(memmove)
+END(memmove_std)
+
+ENTRY(memmove_erms)
+	PUSH_FRAME_POINTER
+	movq	%rdi,%rax
+	movq	%rdx,%rcx
+
+	movq	%rdi,%r8
+	subq	%rsi,%r8
+	cmpq	%rcx,%r8			/* overlapping && src < dst? */
+	jb	1f
+
+	rep
+	movsb
+	POP_FRAME_POINTER
+	ret
+
+1:
+	addq	%rcx,%rdi			/* copy backwards */
+	addq	%rcx,%rsi
+	decq	%rdi
+	decq	%rsi
+	std
+	rep
+	movsb
+	cld
+	POP_FRAME_POINTER
+	ret
+END(memmove_erms)
 
 /*
  * memcpy(dst, src, len)
@@ -150,7 +187,7 @@ END(memmove)
  *
  * Note: memcpy does not support overlapping copies
  */
-ENTRY(memcpy)
+ENTRY(memcpy_std)
 	PUSH_FRAME_POINTER
 	movq	%rdi,%rax
 	movq	%rdx,%rcx
@@ -167,13 +204,23 @@ ENTRY(memcpy)
 	movsb
 	POP_FRAME_POINTER
 	ret
-END(memcpy)
+END(memcpy_std)
+
+ENTRY(memcpy_erms)
+	PUSH_FRAME_POINTER
+	movq	%rdi,%rax
+	movq	%rdx,%rcx
+	rep
+	movsb
+	POP_FRAME_POINTER
+	ret
+END(memcpy_erms)
 
 /*
  * memset(dst, c,   len)
  *        rdi, rsi, rdx
  */
-ENTRY(memset)
+ENTRY(memset_std)
 	PUSH_FRAME_POINTER
 	movq	%rdi,%r9
 	movq	%rdx,%rcx
@@ -195,7 +242,19 @@ ENTRY(memset)
 	movq	%r9,%rax
 	POP_FRAME_POINTER
 	ret
-END(memset)
+END(memset_std)
+
+ENTRY(memset_erms)
+	PUSH_FRAME_POINTER
+	movq	%rdi,%r9
+	movq	%rdx,%rcx
+	movb	%sil,%al
+	rep
+	stosb
+	movq	%r9,%rax
+	POP_FRAME_POINTER
+	ret
+END(memset_erms)
 
 /* fillw(pat, base, cnt) */
 /*       %rdi,%rsi, %rdx */
@@ -312,9 +371,10 @@ ENTRY(copyout_smap)
 	movsq
 	movb	%dl,%cl
 	andb	$7,%cl
+	je	1f
 	rep
 	movsb
-	clac
+1:	clac
 
 done_copyout:
 	xorl	%eax,%eax
@@ -361,6 +421,7 @@ ENTRY(copyin_nosmap)
 	movsq
 	movb	%al,%cl
 	andb	$7,%cl				/* copy remaining bytes */
+	je	done_copyin
 	rep
 	movsb
 
@@ -393,10 +454,10 @@ ENTRY(copyin_smap)
 	movsq
 	movb	%al,%cl
 	andb	$7,%cl				/* copy remaining bytes */
-	je	done_copyin
+	je	1f
 	rep
 	movsb
-	clac
+1:	clac
 
 done_copyin:
 	xorl	%eax,%eax
@@ -912,6 +973,8 @@ ENTRY(copyinstr_smap)
 	subq	%rsi,%rax
 	jbe	cpystrflt
 
+	stac
+
 	/* restrict maxlen to <= VM_MAXUSER_ADDRESS-from */
 	cmpq	%rdx,%rax
 	jae	1f
@@ -922,31 +985,19 @@ ENTRY(copyinstr_smap)
 
 2:
 	decq	%rdx
-	jz	copyinstr_toolong
+	jz	copyinstr_toolong_smap
 
-	stac
 	lodsb
 	stosb
-	clac
 	orb	%al,%al
 	jnz	2b
+
+	clac
 
 copyinstr_succ:
 	/* Success -- 0 byte reached */
 	decq	%rdx
 	xorl	%eax,%eax
-	jmp	cpystrflt_x
-copyinstr_toolong:
-	/* rdx is zero - return ENAMETOOLONG or EFAULT */
-	movq	$VM_MAXUSER_ADDRESS,%rax
-	cmpq	%rax,%rsi
-	jae	cpystrflt
-	movq	$ENAMETOOLONG,%rax
-	jmp	cpystrflt_x
-
-	/* Fault entry clears PSL.AC */
-cpystrflt:
-	movq	$EFAULT,%rax
 
 cpystrflt_x:
 	/* set *lencopied and return %eax */
@@ -960,6 +1011,21 @@ cpystrflt_x:
 1:
 	POP_FRAME_POINTER
 	ret
+	/* Fault entry clears PSL.AC */
+cpystrflt:
+	movq	$EFAULT,%rax
+	jmp	cpystrflt_x
+
+copyinstr_toolong_smap:
+	clac
+copyinstr_toolong:
+	/* rdx is zero - return ENAMETOOLONG or EFAULT */
+	movq	$VM_MAXUSER_ADDRESS,%rax
+	cmpq	%rax,%rsi
+	jae	cpystrflt
+	movq	$ENAMETOOLONG,%rax
+	jmp	cpystrflt_x
+
 END(copyinstr_smap)
 
 /*
@@ -1225,3 +1291,36 @@ ENTRY(handle_ibrs_exit_rs)
 END(handle_ibrs_exit_rs)
 
 	.noaltmacro
+
+/*
+ * Flush L1D cache.  Load enough of the data from the kernel text
+ * to flush existing L1D content.
+ *
+ * N.B. The function does not follow ABI calling conventions, it corrupts %rbx.
+ * The vmm.ko caller expects that only %rax, %rdx, %rbx, %rcx, %r9, and %rflags
+ * registers are clobbered.  The NMI handler caller only needs %r13 preserved.
+ */
+ENTRY(flush_l1d_sw)
+#define	L1D_FLUSH_SIZE	(64 * 1024)
+	movq	$KERNBASE, %r9
+	movq	$-L1D_FLUSH_SIZE, %rcx
+	/*
+	 * pass 1: Preload TLB.
+	 * Kernel text is mapped using superpages.  TLB preload is
+	 * done for the benefit of older CPUs which split 2M page
+	 * into 4k TLB entries.
+	 */
+1:	movb	L1D_FLUSH_SIZE(%r9, %rcx), %al
+	addq	$PAGE_SIZE, %rcx
+	jne	1b
+	xorl	%eax, %eax
+	cpuid
+	movq	$-L1D_FLUSH_SIZE, %rcx
+	/* pass 2: Read each cache line. */
+2:	movb	L1D_FLUSH_SIZE(%r9, %rcx), %al
+	addq	$64, %rcx
+	jne	2b
+	lfence
+	ret
+#undef	L1D_FLUSH_SIZE
+END(flush_l1d_sw)

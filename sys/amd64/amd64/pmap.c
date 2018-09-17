@@ -147,6 +147,7 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/intr_machdep.h>
 #include <x86/apicvar.h>
+#include <x86/ifunc.h>
 #include <machine/cpu.h>
 #include <machine/cputypes.h>
 #include <machine/md_var.h>
@@ -1185,11 +1186,7 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 	pmap_init_pat();
 
 	/* Initialize TLB Context Id. */
-	TUNABLE_INT_FETCH("vm.pmap.pcid_enabled", &pmap_pcid_enabled);
-	if ((cpu_feature2 & CPUID2_PCID) != 0 && pmap_pcid_enabled) {
-		/* Check for INVPCID support */
-		invpcid_works = (cpu_stdext_feature & CPUID_STDEXT_INVPCID)
-		    != 0;
+	if (pmap_pcid_enabled) {
 		for (i = 0; i < MAXCPU; i++) {
 			kernel_pmap->pm_pcids[i].pm_pcid = PMAP_PCID_KERN;
 			kernel_pmap->pm_pcids[i].pm_gen = 1;
@@ -1210,8 +1207,6 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 		 * during pcpu setup.
 		 */
 		load_cr4(rcr4() | CR4_PCIDE);
-	} else {
-		pmap_pcid_enabled = 0;
 	}
 }
 
@@ -1418,8 +1413,7 @@ pmap_init(void)
 	 */
 	s = (vm_size_t)(pv_npg * sizeof(struct md_page));
 	s = round_page(s);
-	pv_table = (struct md_page *)kmem_malloc(kernel_arena, s,
-	    M_WAITOK | M_ZERO);
+	pv_table = (struct md_page *)kmem_malloc(s, M_WAITOK | M_ZERO);
 	for (i = 0; i < pv_npg; i++)
 		TAILQ_INIT(&pv_table[i].pv_list);
 	TAILQ_INIT(&pv_dummy.pv_list);
@@ -2667,10 +2661,6 @@ pmap_pinit0(pmap_t pmap)
 	CPU_FOREACH(i) {
 		pmap->pm_pcids[i].pm_pcid = PMAP_PCID_KERN + 1;
 		pmap->pm_pcids[i].pm_gen = 1;
-		if (!pti) {
-			__pcpu[i].pc_kcr3 = PMAP_NO_CR3;
-			__pcpu[i].pc_ucr3 = PMAP_NO_CR3;
-		}
 	}
 	pmap_activate_boot(pmap);
 }
@@ -3105,8 +3095,8 @@ pmap_growkernel(vm_offset_t addr)
 		return;
 
 	addr = roundup2(addr, NBPDR);
-	if (addr - 1 >= kernel_map->max_offset)
-		addr = kernel_map->max_offset;
+	if (addr - 1 >= vm_map_max(kernel_map))
+		addr = vm_map_max(kernel_map);
 	while (kernel_vm_end < addr) {
 		pdpe = pmap_pdpe(kernel_pmap, kernel_vm_end);
 		if ((*pdpe & X86_PG_V) == 0) {
@@ -3126,8 +3116,8 @@ pmap_growkernel(vm_offset_t addr)
 		pde = pmap_pdpe_to_pde(pdpe, kernel_vm_end);
 		if ((*pde & X86_PG_V) != 0) {
 			kernel_vm_end = (kernel_vm_end + NBPDR) & ~PDRMASK;
-			if (kernel_vm_end - 1 >= kernel_map->max_offset) {
-				kernel_vm_end = kernel_map->max_offset;
+			if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
+				kernel_vm_end = vm_map_max(kernel_map);
 				break;                       
 			}
 			continue;
@@ -3145,8 +3135,8 @@ pmap_growkernel(vm_offset_t addr)
 		pde_store(pde, newpdir);
 
 		kernel_vm_end = (kernel_vm_end + NBPDR) & ~PDRMASK;
-		if (kernel_vm_end - 1 >= kernel_map->max_offset) {
-			kernel_vm_end = kernel_map->max_offset;
+		if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
+			kernel_vm_end = vm_map_max(kernel_map);
 			break;                       
 		}
 	}
@@ -7452,17 +7442,177 @@ pmap_pcid_alloc(pmap_t pmap, u_int cpuid)
 	return (0);
 }
 
+static uint64_t
+pmap_pcid_alloc_checked(pmap_t pmap, u_int cpuid)
+{
+	uint64_t cached;
+
+	cached = pmap_pcid_alloc(pmap, cpuid);
+	KASSERT(pmap->pm_pcids[cpuid].pm_pcid >= 0 &&
+	    pmap->pm_pcids[cpuid].pm_pcid < PMAP_PCID_OVERMAX,
+	    ("pmap %p cpu %d pcid %#x", pmap, cpuid,
+	    pmap->pm_pcids[cpuid].pm_pcid));
+	KASSERT(pmap->pm_pcids[cpuid].pm_pcid != PMAP_PCID_KERN ||
+	    pmap == kernel_pmap,
+	    ("non-kernel pmap pmap %p cpu %d pcid %#x",
+	    pmap, cpuid, pmap->pm_pcids[cpuid].pm_pcid));
+	return (cached);
+}
+
+static void
+pmap_activate_sw_pti_post(pmap_t pmap)
+{
+
+	if (pmap->pm_ucr3 != PMAP_NO_CR3)
+		PCPU_GET(tssp)->tss_rsp0 = ((vm_offset_t)PCPU_PTR(pti_stack) +
+		    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful;
+}
+
+static void inline
+pmap_activate_sw_pcid_pti(pmap_t pmap, u_int cpuid, const bool invpcid_works1)
+{
+	struct invpcid_descr d;
+	uint64_t cached, cr3, kcr3, ucr3;
+
+	cached = pmap_pcid_alloc_checked(pmap, cpuid);
+	cr3 = rcr3();
+	if ((cr3 & ~CR3_PCID_MASK) != pmap->pm_cr3)
+		load_cr3(pmap->pm_cr3 | pmap->pm_pcids[cpuid].pm_pcid);
+	PCPU_SET(curpmap, pmap);
+	kcr3 = pmap->pm_cr3 | pmap->pm_pcids[cpuid].pm_pcid;
+	ucr3 = pmap->pm_ucr3 | pmap->pm_pcids[cpuid].pm_pcid |
+	    PMAP_PCID_USER_PT;
+
+	if (!cached && pmap->pm_ucr3 != PMAP_NO_CR3) {
+		/*
+		 * Explicitly invalidate translations cached from the
+		 * user page table.  They are not automatically
+		 * flushed by reload of cr3 with the kernel page table
+		 * pointer above.
+		 *
+		 * Note that the if() condition is resolved statically
+		 * by using the function argument instead of
+		 * runtime-evaluated invpcid_works value.
+		 */
+		if (invpcid_works1) {
+			d.pcid = PMAP_PCID_USER_PT |
+			    pmap->pm_pcids[cpuid].pm_pcid;
+			d.pad = 0;
+			d.addr = 0;
+			invpcid(&d, INVPCID_CTX);
+		} else {
+			pmap_pti_pcid_invalidate(ucr3, kcr3);
+		}
+	}
+
+	PCPU_SET(kcr3, kcr3 | CR3_PCID_SAVE);
+	PCPU_SET(ucr3, ucr3 | CR3_PCID_SAVE);
+	if (cached)
+		PCPU_INC(pm_save_cnt);
+}
+
+static void
+pmap_activate_sw_pcid_invpcid_pti(pmap_t pmap, u_int cpuid)
+{
+
+	pmap_activate_sw_pcid_pti(pmap, cpuid, true);
+	pmap_activate_sw_pti_post(pmap);
+}
+
+static void
+pmap_activate_sw_pcid_noinvpcid_pti(pmap_t pmap, u_int cpuid)
+{
+	register_t rflags;
+
+	/*
+	 * If the INVPCID instruction is not available,
+	 * invltlb_pcid_handler() is used to handle an invalidate_all
+	 * IPI, which checks for curpmap == smp_tlb_pmap.  The below
+	 * sequence of operations has a window where %CR3 is loaded
+	 * with the new pmap's PML4 address, but the curpmap value has
+	 * not yet been updated.  This causes the invltlb IPI handler,
+	 * which is called between the updates, to execute as a NOP,
+	 * which leaves stale TLB entries.
+	 *
+	 * Note that the most typical use of pmap_activate_sw(), from
+	 * the context switch, is immune to this race, because
+	 * interrupts are disabled (while the thread lock is owned),
+	 * and the IPI happens after curpmap is updated.  Protect
+	 * other callers in a similar way, by disabling interrupts
+	 * around the %cr3 register reload and curpmap assignment.
+	 */
+	rflags = intr_disable();
+	pmap_activate_sw_pcid_pti(pmap, cpuid, false);
+	intr_restore(rflags);
+	pmap_activate_sw_pti_post(pmap);
+}
+
+static void
+pmap_activate_sw_pcid_nopti(pmap_t pmap, u_int cpuid)
+{
+	uint64_t cached, cr3;
+
+	cached = pmap_pcid_alloc_checked(pmap, cpuid);
+	cr3 = rcr3();
+	if (!cached || (cr3 & ~CR3_PCID_MASK) != pmap->pm_cr3)
+		load_cr3(pmap->pm_cr3 | pmap->pm_pcids[cpuid].pm_pcid |
+		    cached);
+	PCPU_SET(curpmap, pmap);
+	if (cached)
+		PCPU_INC(pm_save_cnt);
+}
+
+static void
+pmap_activate_sw_pcid_noinvpcid_nopti(pmap_t pmap, u_int cpuid)
+{
+	register_t rflags;
+
+	rflags = intr_disable();
+	pmap_activate_sw_pcid_nopti(pmap, cpuid);
+	intr_restore(rflags);
+}
+
+static void
+pmap_activate_sw_nopcid_nopti(pmap_t pmap, u_int cpuid __unused)
+{
+
+	load_cr3(pmap->pm_cr3);
+	PCPU_SET(curpmap, pmap);
+}
+
+static void
+pmap_activate_sw_nopcid_pti(pmap_t pmap, u_int cpuid __unused)
+{
+
+	pmap_activate_sw_nopcid_nopti(pmap, cpuid);
+	PCPU_SET(kcr3, pmap->pm_cr3);
+	PCPU_SET(ucr3, pmap->pm_ucr3);
+	pmap_activate_sw_pti_post(pmap);
+}
+
+DEFINE_IFUNC(static, void, pmap_activate_sw_mode, (pmap_t, u_int), static)
+{
+
+	if (pmap_pcid_enabled && pti && invpcid_works)
+		return (pmap_activate_sw_pcid_invpcid_pti);
+	else if (pmap_pcid_enabled && pti && !invpcid_works)
+		return (pmap_activate_sw_pcid_noinvpcid_pti);
+	else if (pmap_pcid_enabled && !pti && invpcid_works)
+		return (pmap_activate_sw_pcid_nopti);
+	else if (pmap_pcid_enabled && !pti && !invpcid_works)
+		return (pmap_activate_sw_pcid_noinvpcid_nopti);
+	else if (!pmap_pcid_enabled && pti)
+		return (pmap_activate_sw_nopcid_pti);
+	else /* if (!pmap_pcid_enabled && !pti) */
+		return (pmap_activate_sw_nopcid_nopti);
+}
+
 void
 pmap_activate_sw(struct thread *td)
 {
 	pmap_t oldpmap, pmap;
-	struct invpcid_descr d;
-	uint64_t cached, cr3, kcr3, kern_pti_cached, rsp0, ucr3;
-	register_t rflags;
 	u_int cpuid;
-	struct amd64tss *tssp;
 
-	rflags = 0;
 	oldpmap = PCPU_GET(curpmap);
 	pmap = vmspace_pmap(td->td_proc->p_vmspace);
 	if (oldpmap == pmap)
@@ -7473,91 +7623,7 @@ pmap_activate_sw(struct thread *td)
 #else
 	CPU_SET(cpuid, &pmap->pm_active);
 #endif
-	cr3 = rcr3();
-	if (pmap_pcid_enabled) {
-		cached = pmap_pcid_alloc(pmap, cpuid);
-		KASSERT(pmap->pm_pcids[cpuid].pm_pcid >= 0 &&
-		    pmap->pm_pcids[cpuid].pm_pcid < PMAP_PCID_OVERMAX,
-		    ("pmap %p cpu %d pcid %#x", pmap, cpuid,
-		    pmap->pm_pcids[cpuid].pm_pcid));
-		KASSERT(pmap->pm_pcids[cpuid].pm_pcid != PMAP_PCID_KERN ||
-		    pmap == kernel_pmap,
-		    ("non-kernel pmap thread %p pmap %p cpu %d pcid %#x",
-		    td, pmap, cpuid, pmap->pm_pcids[cpuid].pm_pcid));
-
-		/*
-		 * If the INVPCID instruction is not available,
-		 * invltlb_pcid_handler() is used for handle
-		 * invalidate_all IPI, which checks for curpmap ==
-		 * smp_tlb_pmap.  Below operations sequence has a
-		 * window where %CR3 is loaded with the new pmap's
-		 * PML4 address, but curpmap value is not yet updated.
-		 * This causes invltlb IPI handler, called between the
-		 * updates, to execute as NOP, which leaves stale TLB
-		 * entries.
-		 *
-		 * Note that the most typical use of
-		 * pmap_activate_sw(), from the context switch, is
-		 * immune to this race, because interrupts are
-		 * disabled (while the thread lock is owned), and IPI
-		 * happens after curpmap is updated.  Protect other
-		 * callers in a similar way, by disabling interrupts
-		 * around the %cr3 register reload and curpmap
-		 * assignment.
-		 */
-		if (!invpcid_works)
-			rflags = intr_disable();
-
-		kern_pti_cached = pti ? 0 : cached;
-		if (!kern_pti_cached || (cr3 & ~CR3_PCID_MASK) != pmap->pm_cr3) {
-			load_cr3(pmap->pm_cr3 | pmap->pm_pcids[cpuid].pm_pcid |
-			    kern_pti_cached);
-		}
-		PCPU_SET(curpmap, pmap);
-		if (pti) {
-			kcr3 = pmap->pm_cr3 | pmap->pm_pcids[cpuid].pm_pcid;
-			ucr3 = pmap->pm_ucr3 | pmap->pm_pcids[cpuid].pm_pcid |
-			    PMAP_PCID_USER_PT;
-
-			if (!cached && pmap->pm_ucr3 != PMAP_NO_CR3) {
-				/*
-				 * Manually invalidate translations cached
-				 * from the user page table.  They are not
-				 * flushed by reload of cr3 with the kernel
-				 * page table pointer above.
-				 */
-				if (invpcid_works) {
-					d.pcid = PMAP_PCID_USER_PT |
-					    pmap->pm_pcids[cpuid].pm_pcid;
-					d.pad = 0;
-					d.addr = 0;
-					invpcid(&d, INVPCID_CTX);
-				} else {
-					pmap_pti_pcid_invalidate(ucr3, kcr3);
-				}
-			}
-
-			PCPU_SET(kcr3, kcr3 | CR3_PCID_SAVE);
-			PCPU_SET(ucr3, ucr3 | CR3_PCID_SAVE);
-		}
-		if (!invpcid_works)
-			intr_restore(rflags);
-		if (cached)
-			PCPU_INC(pm_save_cnt);
-	} else {
-		load_cr3(pmap->pm_cr3);
-		PCPU_SET(curpmap, pmap);
-		if (pti) {
-			PCPU_SET(kcr3, pmap->pm_cr3);
-			PCPU_SET(ucr3, pmap->pm_ucr3);
-		}
-	}
-	if (pmap->pm_ucr3 != PMAP_NO_CR3) {
-		rsp0 = ((vm_offset_t)PCPU_PTR(pti_stack) +
-		    PC_PTI_STACK_SZ * sizeof(uint64_t)) & ~0xful;
-		tssp = PCPU_GET(tssp);
-		tssp->tss_rsp0 = rsp0;
-	}
+	pmap_activate_sw_mode(pmap, cpuid);
 #ifdef SMP
 	CPU_CLR_ATOMIC(cpuid, &oldpmap->pm_active);
 #else
@@ -7577,6 +7643,7 @@ pmap_activate(struct thread *td)
 void
 pmap_activate_boot(pmap_t pmap)
 {
+	uint64_t kcr3;
 	u_int cpuid;
 
 	/*
@@ -7592,6 +7659,15 @@ pmap_activate_boot(pmap_t pmap)
 	CPU_SET(cpuid, &pmap->pm_active);
 #endif
 	PCPU_SET(curpmap, pmap);
+	if (pti) {
+		kcr3 = pmap->pm_cr3;
+		if (pmap_pcid_enabled)
+			kcr3 |= pmap->pm_pcids[cpuid].pm_pcid | CR3_PCID_SAVE;
+	} else {
+		kcr3 = PMAP_NO_CR3;
+	}
+	PCPU_SET(kcr3, kcr3);
+	PCPU_SET(ucr3, PMAP_NO_CR3);
 }
 
 void
