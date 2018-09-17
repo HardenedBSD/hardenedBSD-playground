@@ -6,8 +6,6 @@ MAN=	services_mkdb.8
 SRCS=	services_mkdb.c uniq.c extern.h
 
 CFI_OVERRIDE=-fno-sanitize=cfi-icall
-<<<<<<< HEAD
-=======
 
 .include <bsd.endian.mk>
 .include <src.opts.mk>
@@ -20,6 +18,5 @@ afterinstallconfig:
 		cat -l >> ${METALOG}
 .endif
 .endif
->>>>>>> upstream/hardened/current/master
 
 .include <bsd.prog.mk>

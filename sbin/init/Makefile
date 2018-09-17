@@ -19,8 +19,6 @@ INSTALLFLAGS=-b -B.bak
 CFLAGS+=-DDEBUGSHELL -DSECURE -DLOGIN_CAP -DCOMPAT_SYSV_INIT
 LIBADD=	util crypt
 
-<<<<<<< HEAD
-=======
 CONFTTYSNAME=	ttys
 .if exists(${.CURDIR}/ttys.${MACHINE})
 CONFTTYS+=	ttys.${MACHINE}
@@ -32,7 +30,6 @@ CONFTTYS+=	ttys.${MACHINE_CPUARCH}
 .error MACHINE.ttys missing
 .endif
 
->>>>>>> upstream/hardened/current/master
 NOCFI=	yes
 
 # Needed for getmntopts.c
