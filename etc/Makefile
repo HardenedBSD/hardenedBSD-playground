@@ -35,17 +35,6 @@ BIN1=	\
 BIN1+= amd.map
 .endif
 
-<<<<<<< HEAD
-.if ${MK_FTP} != "no"
-BIN1+= ftpusers
-.endif
-
-.if ${MK_HBSD_UPDATE} != "no"
-BIN1+= hbsd-update.conf
-.endif
-
-=======
->>>>>>> freebsd/projects/clang700-import
 .if ${MK_LOCATE} != "no"
 BIN1+=	${SRCTOP}/usr.bin/locate/locate/locate.rc
 .endif

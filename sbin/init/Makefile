@@ -19,20 +19,7 @@ INSTALLFLAGS=-b -B.bak
 CFLAGS+=-DDEBUGSHELL -DSECURE -DLOGIN_CAP -DCOMPAT_SYSV_INIT
 LIBADD=	util crypt
 
-<<<<<<< HEAD
 NOCFI=	yes
-=======
-CONFTTYSNAME=	ttys
-.if exists(${.CURDIR}/ttys.${MACHINE})
-CONFTTYS+=	ttys.${MACHINE}
-.elif exists(${.CURDIR}/ttys.${MACHINE_ARCH})
-CONFTTYS+=	ttys.${MACHINE_ARCH}
-.elif exists(${.CURDIR}/ttys.${MACHINE_CPUARCH})
-CONFTTYS+=	ttys.${MACHINE_CPUARCH}
-.else
-.error MACHINE.ttys missing
-.endif
->>>>>>> freebsd/projects/clang700-import
 
 # Needed for getmntopts.c
 MOUNT=	${SRCTOP}/sbin/mount
