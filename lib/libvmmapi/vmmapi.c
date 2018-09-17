@@ -392,8 +392,8 @@ vm_setup_memory(struct vmctx *ctx, size_t memsize, enum vm_mmap_style vms)
 	ptr = mmap(NULL, len, PROT_NONE, MAP_GUARD | MAP_ALIGNED_SUPER, -1, 0);
 	if (ptr == MAP_FAILED)
 		return (-1);
-
 	baseaddr = ptr + VM_MMAP_GUARD_SIZE;
+
 	if (ctx->highmem > 0) {
 		gpa = 4*GB;
 		len = ctx->highmem;
