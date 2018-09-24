@@ -6,6 +6,8 @@ CFI_OVERRIDE= -fno-sanitize=cfi-icall
 
 .if ${MK_LIBRESSL} == "no"
 
+CONFS=	openssl.cnf
+CONFSDIR=	/etc/ssl
 PROG=	openssl
 
 LIBADD=	ssl crypto

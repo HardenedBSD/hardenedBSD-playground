@@ -46,7 +46,7 @@
 
 TYPE="FreeBSD"
 REVISION="12.0"
-BRANCH="ALPHA6"
+BRANCH="ALPHA7"
 if [ -n "${BRANCH_OVERRIDE}" ]; then
 	BRANCH=${BRANCH_OVERRIDE}
 fi
@@ -300,7 +300,7 @@ else
 fi
 
 if [ -z "${include_metadata}" ]; then
-	VERINFO="${VERSION}${hbsdv}${svn}${git}${hg}${p4version}"
+	VERINFO="${VERSION}${hbsdv}${svn}${git}${hg}${p4version} ${i}"
 	VERSTR="${VERINFO}\\n"
 else
 	VERINFO="${VERSION} #${v}${hbsdv}${svn}${git}${hg}${p4version}: ${t}"

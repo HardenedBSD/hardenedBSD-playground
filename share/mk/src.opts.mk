@@ -114,7 +114,6 @@ __DEFAULT_YES_OPTIONS = \
     HBSD_UPDATE \
     HBSDCONTROL \
     HTML \
-    HYPERV \
     ICONV \
     INET \
     INET6 \
@@ -160,7 +159,6 @@ __DEFAULT_YES_OPTIONS = \
     RADIUS_SUPPORT \
     RBOOTD \
     RELRO \
-    REPRODUCIBLE_BUILD \
     RESCUE \
     ROUTED \
     SENDMAIL \
@@ -211,6 +209,7 @@ __DEFAULT_NO_OPTIONS = \
     OPENLDAP \
     OPENNTPD \
     PORTSNAP \
+    REPRODUCIBLE_BUILD \
     RPCBIND_WARMSTART_SUPPORT \
     SHARED_TOOLCHAIN \
     SORT_THREADS \
@@ -406,6 +405,11 @@ BROKEN_OPTIONS+=LOADER_UBOOT
 .if ${__T} == "sparc64"
 BROKEN_OPTIONS+=LOADER_GELI LOADER_LUA
 .endif
+# Lua in loader currently cause boot failures on powerpc.
+# Further debugging is required.
+.if ${__T} == "powerpc"
+BROKEN_OPTIONS+=LOADER_LUA
+.endif
 
 .if ${__T:Mmips64*}
 # profiling won't work on MIPS64 because there is only assembly for o32
@@ -419,6 +423,13 @@ __DEFAULT_YES_OPTIONS+=MLX5TOOL
 .else
 __DEFAULT_NO_OPTIONS+=CXGBETOOL
 __DEFAULT_NO_OPTIONS+=MLX5TOOL
+.endif
+
+# HyperV is currently x86-only
+.if ${__T} == "amd64" || ${__T} == "i386"
+__DEFAULT_YES_OPTIONS+=HYPERV
+.else
+__DEFAULT_NO_OPTIONS+=HYPERV
 .endif
 
 # NVME is only x86 and powerpc64

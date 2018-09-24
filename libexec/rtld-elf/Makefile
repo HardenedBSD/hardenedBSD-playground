@@ -10,6 +10,7 @@ MK_SSP=		no
 MK_CFI=		no
 MK_CROSS_DSO_CFI=	no
 
+CONFS=		libmap.conf
 PROG?=		ld-elf.so.1
 .if (${PROG:M*ld-elf32*} != "")
 TAGS+=		lib32
