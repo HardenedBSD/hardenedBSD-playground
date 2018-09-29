@@ -1428,7 +1428,7 @@ pmap_init(void)
 		if (ppim->va == 0)
 			continue;
 		/* Make the direct map consistent */
-		if (ppim->pa < dmaplimit && ppim->pa + ppim->sz < dmaplimit) {
+		if (ppim->pa < dmaplimit && ppim->pa + ppim->sz <= dmaplimit) {
 			(void)pmap_change_attr(PHYS_TO_DMAP(ppim->pa),
 			    ppim->sz, ppim->mode);
 		}
@@ -1813,7 +1813,6 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
 	    ("pmap_invalidate_page: invalid type %d", pmap->pm_type));
 
 	sched_pin();
-	smp_masked_invlpg(pmap_invalidate_cpu_mask(pmap), va, pmap);
 	if (pmap == kernel_pmap) {
 		invlpg(va);
 	} else {
@@ -1821,6 +1820,7 @@ pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
 			invlpg(va);
 		pmap_invalidate_page_mode(pmap, va);
 	}
+	smp_masked_invlpg(pmap_invalidate_cpu_mask(pmap), va, pmap);
 	sched_unpin();
 }
 
@@ -1916,7 +1916,6 @@ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 	    ("pmap_invalidate_range: invalid type %d", pmap->pm_type));
 
 	sched_pin();
-	smp_masked_invlpg_range(pmap_invalidate_cpu_mask(pmap), sva, eva, pmap);
 	if (pmap == kernel_pmap) {
 		for (addr = sva; addr < eva; addr += PAGE_SIZE)
 			invlpg(addr);
@@ -1927,6 +1926,7 @@ pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		}
 		pmap_invalidate_range_mode(pmap, sva, eva);
 	}
+	smp_masked_invlpg_range(pmap_invalidate_cpu_mask(pmap), sva, eva, pmap);
 	sched_unpin();
 }
 
@@ -1972,10 +1972,10 @@ pmap_invalidate_all_pcid(pmap_t pmap, bool invpcid_works1)
 			critical_exit();
 		} else
 			pmap->pm_pcids[cpuid].pm_gen = 0;
-	}
-	CPU_FOREACH(i) {
-		if (cpuid != i)
-			pmap->pm_pcids[i].pm_gen = 0;
+		CPU_FOREACH(i) {
+			if (cpuid != i)
+				pmap->pm_pcids[i].pm_gen = 0;
+		}
 	}
 	/* See the comment in pmap_invalidate_page_pcid(). */
 	atomic_thread_fence_seq_cst();
@@ -2027,8 +2027,8 @@ pmap_invalidate_all(pmap_t pmap)
 	    ("pmap_invalidate_all: invalid type %d", pmap->pm_type));
 
 	sched_pin();
-	smp_masked_invltlb(pmap_invalidate_cpu_mask(pmap), pmap);
 	pmap_invalidate_all_mode(pmap);
+	smp_masked_invltlb(pmap_invalidate_cpu_mask(pmap), pmap);
 	sched_unpin();
 }
 
@@ -7061,7 +7061,7 @@ pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, int mode)
 		 * If the specified range of physical addresses fits within
 		 * the direct map window, use the direct map.
 		 */
-		if (pa < dmaplimit && pa + size < dmaplimit) {
+		if (pa < dmaplimit && pa + size <= dmaplimit) {
 			va = PHYS_TO_DMAP(pa);
 			if (!pmap_change_attr(va, size, mode))
 				return ((void *)(va + offset));
