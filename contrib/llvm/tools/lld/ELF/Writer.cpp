@@ -519,6 +519,13 @@ template <class ELFT> void Writer<ELFT>::run() {
 static bool shouldKeepInSymtab(SectionBase *Sec, StringRef SymName,
                                const Symbol &B) {
   if (B.isSection())
+<<<<<<< HEAD
+=======
+    return false;
+
+  // If sym references a section in a discarded group, don't keep it.
+  if (Sec == &InputSection::Discarded)
+>>>>>>> upstream/hardened/current/master
     return false;
 
   if (Config->Discard == DiscardPolicy::None)
