@@ -6,6 +6,7 @@ PROG=		boot1.sym
 INTERNALPROG=
 WARNS?=		6
 
+CFLAGS+=	-DEFI_BOOT1
 # We implement a slightly non-standard %S in that it always takes a
 # CHAR16 that's common in UEFI-land instead of a wchar_t. This only
 # seems to matter on arm64 where wchar_t defaults to an int instead
@@ -76,20 +77,6 @@ LDADD+=		${LIBEFI} ${LIBSA}
 
 DPADD+=		${LDSCRIPT}
 
-NM?=		nm
-OBJCOPY?=	objcopy
-
-.if ${MACHINE_CPUARCH} == "amd64"
-EFI_TARGET=	efi-app-x86_64
-.elif ${MACHINE_CPUARCH} == "i386"
-EFI_TARGET=	efi-app-ia32
-.else
-EFI_TARGET=	binary
-.endif
-
-# Arbitrarily set the PE/COFF header timestamps to 1 Jan 2016 00:00:00
-# for build reproducibility.
-SOURCE_DATE_EPOCH?=1451606400
 boot1.efi: ${PROG}
 	if ${NM} ${.ALLSRC} | grep ' U '; then \
 		echo "Undefined symbols in ${.ALLSRC}"; \

@@ -45,13 +45,6 @@ struct if_clone;
  */
 typedef uint16_t qidx_t;
 #define QIDX_INVALID 0xFFFF
-/*
- * Most cards can handle much larger TSO requests
- * but the FreeBSD TCP stack will break on larger
- * values
- */
-#define FREEBSD_TSO_SIZE_MAX 65518
-
 
 struct iflib_ctx;
 typedef struct iflib_ctx *if_ctx_t;
@@ -180,7 +173,7 @@ typedef struct pci_vendor_info {
 #define IFLIB_PNP_DESCR "U32:vendor;U32:device;U32:subvendor;U32:subdevice;" \
     "U32:revision;U32:class;D:#"
 #define IFLIB_PNP_INFO(b, u, t) \
-    MODULE_PNP_INFO(IFLIB_PNP_DESCR, b, u, t, sizeof(t[0]), nitems(t) - 1)
+    MODULE_PNP_INFO(IFLIB_PNP_DESCR, b, u, t, nitems(t) - 1)
 
 typedef struct if_txrx {
 	int (*ift_txd_encap) (void *, if_pkt_info_t);
@@ -216,6 +209,7 @@ typedef struct if_softc_ctx {
 	int isc_tx_tso_size_max;
 	int isc_tx_tso_segsize_max;
 	int isc_tx_csum_flags;
+	int isc_capabilities;
 	int isc_capenable;
 	int isc_rss_table_size;
 	int isc_rss_table_mask;
@@ -242,6 +236,8 @@ struct if_shared_ctx {
 	bus_size_t isc_q_align;
 	bus_size_t isc_tx_maxsize;
 	bus_size_t isc_tx_maxsegsize;
+	bus_size_t isc_tso_maxsize;
+	bus_size_t isc_tso_maxsegsize;
 	bus_size_t isc_rx_maxsize;
 	bus_size_t isc_rx_maxsegsize;
 	int isc_rx_nsegments;

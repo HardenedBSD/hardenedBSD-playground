@@ -69,6 +69,7 @@ __FBSDID("$FreeBSD$");
 #include <net/vnet.h>
 
 #include <netinet/in.h>
+#include <netinet/in_kdtrace.h>
 #include <netinet/in_systm.h>
 #include <netinet/ip.h>
 #include <netinet/in_var.h>
@@ -102,19 +103,19 @@ __FBSDID("$FreeBSD$");
 
 #include <security/mac/mac_framework.h>
 
-static VNET_DEFINE(int, tcp_syncookies) = 1;
+VNET_DEFINE_STATIC(int, tcp_syncookies) = 1;
 #define	V_tcp_syncookies		VNET(tcp_syncookies)
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, syncookies, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_syncookies), 0,
     "Use TCP SYN cookies if the syncache overflows");
 
-static VNET_DEFINE(int, tcp_syncookiesonly) = 0;
+VNET_DEFINE_STATIC(int, tcp_syncookiesonly) = 0;
 #define	V_tcp_syncookiesonly		VNET(tcp_syncookiesonly)
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, syncookies_only, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_syncookiesonly), 0,
     "Use only TCP SYN cookies");
 
-static VNET_DEFINE(int, functions_inherit_listen_socket_stack) = 1;
+VNET_DEFINE_STATIC(int, functions_inherit_listen_socket_stack) = 1;
 #define V_functions_inherit_listen_socket_stack \
     VNET(functions_inherit_listen_socket_stack)
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, functions_inherit_listen_socket_stack,
@@ -129,7 +130,7 @@ SYSCTL_INT(_net_inet_tcp, OID_AUTO, functions_inherit_listen_socket_stack,
 static void	 syncache_drop(struct syncache *, struct syncache_head *);
 static void	 syncache_free(struct syncache *);
 static void	 syncache_insert(struct syncache *, struct syncache_head *);
-static int	 syncache_respond(struct syncache *, struct syncache_head *, int,
+static int	 syncache_respond(struct syncache *, struct syncache_head *,
 		    const struct mbuf *);
 static struct	 socket *syncache_socket(struct syncache *, struct socket *,
 		    struct mbuf *m);
@@ -162,7 +163,7 @@ static int	 syncookie_cmp(struct in_conninfo *inc, struct syncache_head *sch,
 #define TCP_SYNCACHE_HASHSIZE		512
 #define TCP_SYNCACHE_BUCKETLIMIT	30
 
-static VNET_DEFINE(struct tcp_syncache, tcp_syncache);
+VNET_DEFINE_STATIC(struct tcp_syncache, tcp_syncache);
 #define	V_tcp_syncache			VNET(tcp_syncache)
 
 static SYSCTL_NODE(_net_inet_tcp, OID_AUTO, syncache, CTLFLAG_RW, 0,
@@ -488,7 +489,7 @@ syncache_timer(void *xsch)
 			free(s, M_TCPLOG);
 		}
 
-		syncache_respond(sc, sch, 1, NULL);
+		syncache_respond(sc, sch, NULL);
 		TCPSTAT_INC(tcps_sc_retransmitted);
 		syncache_timeout(sc, sch, 0);
 	}
@@ -769,10 +770,9 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 		goto abort;
 	}
 #ifdef INET6
-	if (sc->sc_inc.inc_flags & INC_ISIPV6) {
+	if (inp->inp_vflag & INP_IPV6PROTO) {
 		struct inpcb *oinp = sotoinpcb(lso);
-		struct in6_addr laddr6;
-		struct sockaddr_in6 sin6;
+
 		/*
 		 * Inherit socket options from the listening socket.
 		 * Note that in6p_inputopts are not (and should not be)
@@ -786,6 +786,11 @@ syncache_socket(struct syncache *sc, struct socket *lso, struct mbuf *m)
 		if (oinp->in6p_outputopts)
 			inp->in6p_outputopts =
 			    ip6_copypktopts(oinp->in6p_outputopts, M_NOWAIT);
+	}
+
+	if (sc->sc_inc.inc_flags & INC_ISIPV6) {
+		struct in6_addr laddr6;
+		struct sockaddr_in6 sin6;
 
 		sin6.sin6_family = AF_INET6;
 		sin6.sin6_len = sizeof(sin6);
@@ -1400,6 +1405,7 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 		 */
 		mac_syncache_destroy(&maclabel);
 #endif
+		TCP_PROBE5(receive, NULL, NULL, m, NULL, th);
 		/* Retransmit SYN|ACK and reset retransmit count. */
 		if ((s = tcp_log_addrs(&sc->sc_inc, th, NULL, NULL))) {
 			log(LOG_DEBUG, "%s; %s: Received duplicate SYN, "
@@ -1407,14 +1413,14 @@ syncache_add(struct in_conninfo *inc, struct tcpopt *to, struct tcphdr *th,
 			    s, __func__);
 			free(s, M_TCPLOG);
 		}
-		if (syncache_respond(sc, sch, 1, m) == 0) {
+		if (syncache_respond(sc, sch, m) == 0) {
 			sc->sc_rxmits = 0;
 			syncache_timeout(sc, sch, 1);
 			TCPSTAT_INC(tcps_sndacks);
 			TCPSTAT_INC(tcps_sndtotal);
 		}
 		SCH_UNLOCK(sch);
-		goto done;
+		goto donenoprobe;
 	}
 
 	if (tfo_cookie_valid) {
@@ -1495,6 +1501,7 @@ skip_alloc:
 		if (to->to_flags & TOF_TS) {
 			sc->sc_tsreflect = to->to_tsval;
 			sc->sc_flags |= SCF_TIMESTAMP;
+			sc->sc_tsoff = tcp_new_ts_offset(inc);
 		}
 		if (to->to_flags & TOF_SCALE) {
 			int wscale = 0;
@@ -1566,10 +1573,11 @@ skip_alloc:
 		goto tfo_expanded;
 	}
 
+	TCP_PROBE5(receive, NULL, NULL, m, NULL, th);
 	/*
 	 * Do a standard 3-way handshake.
 	 */
-	if (syncache_respond(sc, sch, 0, m) == 0) {
+	if (syncache_respond(sc, sch, m) == 0) {
 		if (V_tcp_syncookies && V_tcp_syncookiesonly && sc != &scs)
 			syncache_free(sc);
 		else if (sc != &scs)
@@ -1581,8 +1589,11 @@ skip_alloc:
 			syncache_free(sc);
 		TCPSTAT_INC(tcps_sc_dropped);
 	}
+	goto donenoprobe;
 
 done:
+	TCP_PROBE5(receive, NULL, NULL, m, NULL, th);
+donenoprobe:
 	if (m) {
 		*lsop = NULL;
 		m_freem(m);
@@ -1611,7 +1622,7 @@ tfo_expanded:
  * i.e. m0 != NULL, or upon 3WHS ACK timeout, i.e. m0 == NULL.
  */
 static int
-syncache_respond(struct syncache *sc, struct syncache_head *sch, int locked,
+syncache_respond(struct syncache *sc, struct syncache_head *sch,
     const struct mbuf *m0)
 {
 	struct ip *ip = NULL;
@@ -1793,6 +1804,7 @@ syncache_respond(struct syncache *sc, struct syncache_head *sch, int locked,
 			return (error);
 		}
 #endif
+		TCP_PROBE5(send, NULL, NULL, ip6, NULL, th);
 		error = ip6_output(m, NULL, NULL, 0, NULL, NULL, NULL);
 	}
 #endif
@@ -1813,6 +1825,7 @@ syncache_respond(struct syncache *sc, struct syncache_head *sch, int locked,
 			return (error);
 		}
 #endif
+		TCP_PROBE5(send, NULL, NULL, ip, NULL, th);
 		error = ip_output(m, sc->sc_ipopts, NULL, 0, NULL, NULL);
 	}
 #endif
@@ -2027,11 +2040,6 @@ syncookie_generate(struct syncache_head *sch, struct syncache *sc)
 	iss = hash & ~0xff;
 	iss |= cookie.cookie ^ (hash >> 24);
 
-	/* Randomize the timestamp. */
-	if (sc->sc_flags & SCF_TIMESTAMP) {
-		sc->sc_tsoff = arc4random() - tcp_ts_getticks();
-	}
-
 	TCPSTAT_INC(tcps_sc_sendcookie);
 	return (iss);
 }
@@ -2118,7 +2126,7 @@ syncookie_lookup(struct in_conninfo *inc, struct syncache_head *sch,
 	if (to->to_flags & TOF_TS) {
 		sc->sc_flags |= SCF_TIMESTAMP;
 		sc->sc_tsreflect = to->to_tsval;
-		sc->sc_tsoff = to->to_tsecr - tcp_ts_getticks();
+		sc->sc_tsoff = tcp_new_ts_offset(inc);
 	}
 
 	if (to->to_flags & TOF_SIGNATURE)

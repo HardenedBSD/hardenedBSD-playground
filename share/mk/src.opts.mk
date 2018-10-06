@@ -114,8 +114,8 @@ __DEFAULT_YES_OPTIONS = \
     GPIO \
     HAST \
     HBSD_UPDATE \
+    HBSDCONTROL \
     HTML \
-    HYPERV \
     ICONV \
     INET \
     INET6 \
@@ -133,6 +133,7 @@ __DEFAULT_YES_OPTIONS = \
     LIBTHR \
     LLVM_COV \
     LOADER_GELI \
+    LOADER_LUA \
     LOADER_OFW \
     LOADER_UBOOT \
     LOCALES \
@@ -148,7 +149,7 @@ __DEFAULT_YES_OPTIONS = \
     NETGRAPH \
     NLS_CATALOGS \
     NS_CACHING \
-    OPENNTPD \
+    NTP \
     OPENSSL \
     PAM \
     PC_SYSINSTALL \
@@ -204,11 +205,11 @@ __DEFAULT_NO_OPTIONS = \
     LIBSOFT \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
-    LOADER_LUA \
     NAND \
-    NTP \
     OFED \
+    OFED_EXTRA \
     OPENLDAP \
+    OPENNTPD \
     PORTSNAP \
     REPRODUCIBLE_BUILD \
     RPCBIND_WARMSTART_SUPPORT \
@@ -284,6 +285,8 @@ __DEFAULT_DEPENDENT_OPTIONS+=	LLVM_TARGET_${__llt:${__LLVM_TARGET_FILT}:tu}/LLVM
 .endif
 .endfor
 
+__DEFAULT_NO_OPTIONS+=LLVM_TARGET_BPF
+
 .include <bsd.compiler.mk>
 # If the compiler is not C++11 capable, disable Clang and use GCC instead.
 # This means that architectures that have GCC 4.2 as default can not
@@ -310,9 +313,7 @@ __DEFAULT_NO_OPTIONS+=CLANG CLANG_BOOTSTRAP CLANG_IS_CC LLD
 BROKEN_OPTIONS+=BINUTILS BINUTILS_BOOTSTRAP GCC GCC_BOOTSTRAP GDB
 .endif
 .if ${__T:Mriscv*} != ""
-BROKEN_OPTIONS+=PROFILE # "sorry, unimplemented: profiler support for RISC-V"
-BROKEN_OPTIONS+=TESTS   # "undefined reference to `_Unwind_Resume'"
-BROKEN_OPTIONS+=CXX     # "libcxxrt.so: undefined reference to `_Unwind_Resume_or_Rethrow'"
+BROKEN_OPTIONS+=OFED
 .endif
 .if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || \
     ${__T:Mriscv*} != "" || ${__TT} == "mips"
@@ -320,8 +321,11 @@ __DEFAULT_YES_OPTIONS+=LLVM_LIBUNWIND
 .else
 __DEFAULT_NO_OPTIONS+=LLVM_LIBUNWIND
 .endif
-.if ${__T} == "aarch64" || ${__T} == "amd64"
+.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "armv7"
 __DEFAULT_YES_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
+.elif ${__T} == "i386"
+__DEFAULT_YES_OPTIONS+=LLD_BOOTSTRAP
+__DEFAULT_NO_OPTIONS+=LLD_IS_LD
 .else
 __DEFAULT_NO_OPTIONS+=LLD_BOOTSTRAP LLD_IS_LD
 .endif
@@ -331,13 +335,12 @@ __DEFAULT_YES_OPTIONS+=LLDB
 __DEFAULT_NO_OPTIONS+=LLDB
 .endif
 # LLVM lacks support for FreeBSD 64-bit atomic operations for ARMv4/ARMv5
-.if ${__T} == "arm" || ${__T} == "armeb"
+.if ${__T} == "arm"
 BROKEN_OPTIONS+=LLDB
 .endif
 # GDB in base is generally less functional than GDB in ports.  Ports GDB
-# does not yet contain kernel support for arm, and sparc64 kernel support
-# has not been tested.
-.if ${__T:Marm*} != "" || ${__T} == "sparc64"
+# sparc64 kernel support has not been tested.
+.if ${__T} == "sparc64"
 __DEFAULT_NO_OPTIONS+=GDB_LIBEXEC
 .else
 __DEFAULT_YES_OPTIONS+=GDB_LIBEXEC
@@ -388,10 +391,6 @@ __DEFAULT_NO_OPTIONS+=LLVM_NM_IS_NM
 __DEFAULT_NO_OPTIONS+=LLVM_OBJDUMP_IS_OBJDUMP
 .endif
 
-# GELI isn't supported on !x86
-.if ${__T} != "i386" && ${__T} != "amd64"
-BROKEN_OPTIONS+=LOADER_GELI
-.endif
 # OFW is only for powerpc and sparc64, exclude others
 .if ${__T:Mpowerpc*} == "" && ${__T:Msparc64} == ""
 BROKEN_OPTIONS+=LOADER_OFW
@@ -399,6 +398,16 @@ BROKEN_OPTIONS+=LOADER_OFW
 # UBOOT is only for arm, mips and powerpc, exclude others
 .if ${__T:Marm*} == "" && ${__T:Mmips*} == "" && ${__T:Mpowerpc*} == ""
 BROKEN_OPTIONS+=LOADER_UBOOT
+.endif
+# GELI and Lua in loader currently cause boot failures on sparc64.
+# Further debugging is required.
+.if ${__T} == "sparc64"
+BROKEN_OPTIONS+=LOADER_GELI LOADER_LUA
+.endif
+# Lua in loader currently cause boot failures on powerpc.
+# Further debugging is required.
+.if ${__T} == "powerpc" || ${__T} == "powerpc64"
+BROKEN_OPTIONS+=LOADER_LUA
 .endif
 
 .if ${__T:Mmips64*}
@@ -413,6 +422,13 @@ __DEFAULT_YES_OPTIONS+=MLX5TOOL
 .else
 __DEFAULT_NO_OPTIONS+=CXGBETOOL
 __DEFAULT_NO_OPTIONS+=MLX5TOOL
+.endif
+
+# HyperV is currently x86-only
+.if ${__T} == "amd64" || ${__T} == "i386"
+__DEFAULT_YES_OPTIONS+=HYPERV
+.else
+__DEFAULT_NO_OPTIONS+=HYPERV
 .endif
 
 # NVME is only x86 and powerpc64
@@ -519,6 +535,10 @@ MK_KERBEROS:=	no
 
 .if ${MK_PF} == "no"
 MK_AUTHPF:=	no
+.endif
+
+.if ${MK_OFED} == "no"
+MK_OFED_EXTRA:=	no
 .endif
 
 .if ${MK_PORTSNAP} == "no"

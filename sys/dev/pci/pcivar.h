@@ -311,7 +311,7 @@ struct pci_device_table {
 	"M16:mask;U16:vendor;U16:device;U16:subvendor;U16:subdevice;"	\
 	"U16:class;U16:subclass;U16:revid;"
 #define PCI_PNP_INFO(table)						\
-	MODULE_PNP_INFO(PCI_PNP_STR, pci, table, table, sizeof(table[0]), \
+	MODULE_PNP_INFO(PCI_PNP_STR, pci, table, table,			\
 	    sizeof(table) / sizeof(table[0]))
 
 const struct pci_device_table *pci_match_device(device_t child,
@@ -681,6 +681,8 @@ uint32_t pcie_adjust_config(device_t dev, int reg, uint32_t mask,
 bool	pcie_flr(device_t dev, u_int max_delay, bool force);
 int	pcie_get_max_completion_timeout(device_t dev);
 bool	pcie_wait_for_pending_transactions(device_t dev, u_int max_delay);
+
+void	pci_print_faulted_dev(void);
 
 #ifdef BUS_SPACE_MAXADDR
 #if (BUS_SPACE_MAXADDR > 0xFFFFFFFF)

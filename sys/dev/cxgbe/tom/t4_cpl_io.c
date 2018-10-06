@@ -198,7 +198,7 @@ send_flowc_wr(struct toepcb *toep, struct flowc_tx_params *ftxp)
 
 #ifdef RATELIMIT
 /*
- * Input is Bytes/second (so_max_pacing-rate), chip counts in Kilobits/second.
+ * Input is Bytes/second (so_max_pacing_rate), chip counts in Kilobits/second.
  */
 static int
 update_tx_rate_limit(struct adapter *sc, struct toepcb *toep, u_int Bps)
@@ -231,7 +231,7 @@ update_tx_rate_limit(struct adapter *sc, struct toepcb *toep, u_int Bps)
 		if (toep->tx_credits < flowclen16 || toep->txsd_avail == 0 ||
 		    (wr = alloc_wrqe(roundup2(flowclen, 16), toep->ofld_txq)) == NULL) {
 			if (tc_idx >= 0)
-				t4_release_cl_rl_kbps(sc, port_id, tc_idx);
+				t4_release_cl_rl(sc, port_id, tc_idx);
 			return (ENOMEM);
 		}
 
@@ -259,7 +259,7 @@ update_tx_rate_limit(struct adapter *sc, struct toepcb *toep, u_int Bps)
 	}
 
 	if (toep->tc_idx >= 0)
-		t4_release_cl_rl_kbps(sc, port_id, toep->tc_idx);
+		t4_release_cl_rl(sc, port_id, toep->tc_idx);
 	toep->tc_idx = tc_idx;
 
 	return (0);
@@ -634,7 +634,7 @@ write_tx_wr(void *dst, struct toepcb *toep, unsigned int immdlen,
 	if (txalign > 0) {
 		struct tcpcb *tp = intotcpcb(toep->inp);
 
-		if (plen < 2 * tp->t_maxseg || is_10G_port(toep->vi->pi))
+		if (plen < 2 * tp->t_maxseg)
 			txwr->lsodisable_to_flags |=
 			    htobe32(F_FW_OFLD_TX_DATA_WR_LSODISABLE);
 		else

@@ -84,26 +84,24 @@ struct vmmdev_softc {
 
 static SLIST_HEAD(, vmmdev_softc) head;
 
+static unsigned pr_allow_flag;
 static struct mtx vmmdev_mtx;
 
 static MALLOC_DEFINE(M_VMMDEV, "vmmdev", "vmmdev");
 
 SYSCTL_DECL(_hw_vmm);
 
-static int vmm_priv_check(struct ucred *cred);
+static int vmm_priv_check(struct ucred *ucred);
 static int devmem_create_cdev(const char *vmname, int id, char *devmem);
 static void devmem_destroy(void *arg);
 
 static int
 vmm_priv_check(struct ucred *ucred)
 {
-	struct prison *prison;
 
-	if (jailed(ucred)) {
-		prison = ucred->cr_prison;
-		if ((prison->pr_allow & PR_ALLOW_VMM) != PR_ALLOW_VMM)
-			return (EPERM);
-	}
+	if (jailed(ucred) &&
+	    !(ucred->cr_prison->pr_allow & pr_allow_flag))
+		return (EPERM);
 
 	return (0);
 }
@@ -1022,6 +1020,8 @@ void
 vmmdev_init(void)
 {
 	mtx_init(&vmmdev_mtx, "vmm device mutex", NULL, MTX_DEF);
+	pr_allow_flag = prison_add_allow(NULL, "vmm", NULL,
+	    "Allow use of vmm in a jail.");
 }
 
 int

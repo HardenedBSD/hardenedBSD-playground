@@ -101,7 +101,7 @@ struct malloc_type_internal {
 	uint32_t	mti_probes[DTMALLOC_PROBE_MAX];
 					/* DTrace probe ID array. */
 	u_char		mti_zone;
-	struct malloc_type_stats	mti_stats[MAXCPU];
+	struct malloc_type_stats	*mti_stats;
 };
 
 /*
@@ -215,7 +215,6 @@ void	*malloc(size_t size, struct malloc_type *type, int flags) __malloc_like
  * an inline function variant ended up being compiled to a mere malloc call
  * regardless of argument. gcc generates expected code (like the above).
  */
-#ifdef _KERNEL
 #define	malloc(size, type, flags) ({					\
 	void *_malloc_item;						\
 	size_t _size = (size);						\
@@ -230,7 +229,6 @@ void	*malloc(size_t size, struct malloc_type *type, int flags) __malloc_like
 	}								\
 	_malloc_item;							\
 })
-#endif
 
 void	*malloc_domain(size_t size, struct malloc_type *type, int domain,
 	    int flags) __malloc_like __result_use_check __alloc_size(1);

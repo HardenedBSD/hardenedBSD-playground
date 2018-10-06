@@ -62,6 +62,7 @@ _LIBRARIES=	\
 		asn1 \
 		auditd \
 		avl \
+		be \
 		begemot \
 		bluetooth \
 		bsdxml \
@@ -193,6 +194,12 @@ _LIBRARIES+= \
 
 .endif
 
+.if ${MK_HBSDCONTROL} != "no"
+_LIBRARIES+= \
+		hbsdcontrol \
+
+.endif
+
 .if ${MK_OFED} != "no"
 _LIBRARIES+= \
 		cxgb4 \
@@ -243,6 +250,9 @@ _DP_cap_pwd=	nv
 _DP_cap_random=	nv
 _DP_cap_sysctl=	nv
 _DP_cap_syslog=	nv
+.if ${MK_HBSDCONTROL} != "no"
+_DP_hbsdcontrol=	sbuf
+.endif
 .if ${MK_OFED} != "no"
 _DP_pcap=	ibverbs mlx5
 .endif
@@ -337,6 +347,7 @@ _DP_zfs=	md pthread umem util uutil m nvpair avl bsdxml geom nvpair z \
 		zfs_core
 _DP_zfs_core=	nvpair
 _DP_zpool=	md pthread z nvpair avl umem
+_DP_be=		zfs nvpair
 
 # OFED support
 .if ${MK_OFED} != "no"
@@ -474,11 +485,18 @@ LIBBSNMPTOOLS?=	${LIBBSNMPTOOLSDIR}/libbsnmptools.a
 LIBAMUDIR=	${OBJTOP}/usr.sbin/amd/libamu
 LIBAMU?=	${LIBAMUDIR}/libamu.a
 
+LIBBE?=		${LIBBEDIR}/libbe.a
+
 LIBPMCSTATDIR=	${OBJTOP}/lib/libpmcstat
 LIBPMCSTAT?=	${LIBPMCSTATDIR}/libpmcstat.a
 
 LIBC_NOSSP_PICDIR=	${OBJTOP}/lib/libc
 LIBC_NOSSP_PIC?=	${LIBC_NOSSP_PICDIR}/libc_nossp_pic.a
+
+.if ${MK_HBSDCONTROL} != "no"
+LIBHBSDCONTROLDIR=	${OBJTOP}/lib/libhbsdcontrol
+LIBHBSDCONTROL?=	${LIBHBSDCONTROLDIR}/libhbsdcontrol.a
+.endif
 
 # Define a directory for each library.  This is useful for adding -L in when
 # not using a --sysroot or for meta mode bootstrapping when there is no

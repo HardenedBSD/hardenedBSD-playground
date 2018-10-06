@@ -264,7 +264,6 @@ static int	if_setflag(struct ifnet *, int, int, int *, int);
 static int	if_transmit(struct ifnet *ifp, struct mbuf *m);
 static void	if_unroute(struct ifnet *, int flag, int fam);
 static void	link_rtrequest(int, struct rtentry *, struct rt_addrinfo *);
-static int	ifhwioctl(u_long, struct ifnet *, caddr_t, struct thread *);
 static int	if_delmulti_locked(struct ifnet *, struct ifmultiaddr *, int);
 static void	do_link_state_change(void *, int);
 static int	if_getgroup(struct ifgroupreq *, struct ifnet *);
@@ -293,7 +292,7 @@ int	ifqmaxlen = IFQ_MAXLEN;
 VNET_DEFINE(struct ifnethead, ifnet);	/* depend on static init XXX */
 VNET_DEFINE(struct ifgrouphead, ifg_head);
 
-static VNET_DEFINE(int, if_indexlim) = 8;
+VNET_DEFINE_STATIC(int, if_indexlim) = 8;
 
 /* Table of ifnet by index. */
 VNET_DEFINE(struct ifnet **, ifindex_table);
@@ -2298,6 +2297,7 @@ void	(*vlan_trunk_cap_p)(struct ifnet *);		/* XXX: private from if_vlan */
 struct ifnet *(*vlan_trunkdev_p)(struct ifnet *);
 struct	ifnet *(*vlan_devat_p)(struct ifnet *, uint16_t);
 int	(*vlan_tag_p)(struct ifnet *, uint16_t *);
+int	(*vlan_pcp_p)(struct ifnet *, uint16_t *);
 int	(*vlan_setcookie_p)(struct ifnet *, void *);
 void	*(*vlan_cookie_p)(struct ifnet *);
 
@@ -2511,7 +2511,7 @@ ifr_data_get_ptr(void *ifrp)
 /*
  * Hardware specific interface ioctls.
  */
-static int
+int
 ifhwioctl(u_long cmd, struct ifnet *ifp, caddr_t data, struct thread *td)
 {
 	struct ifreq *ifr;
@@ -3545,6 +3545,7 @@ if_addmulti(struct ifnet *ifp, struct sockaddr *sa,
 				error = ENOMEM;
 				goto free_llsa_out;
 			}
+			ll_ifma->ifma_flags |= IFMA_F_ENQUEUED;
 			CK_STAILQ_INSERT_HEAD(&ifp->if_multiaddrs, ll_ifma,
 			    ifma_link);
 		} else
@@ -3557,6 +3558,7 @@ if_addmulti(struct ifnet *ifp, struct sockaddr *sa,
 	 * referenced link layer address.  Add the primary address to the
 	 * ifnet address list.
 	 */
+	ifma->ifma_flags |= IFMA_F_ENQUEUED;
 	CK_STAILQ_INSERT_HEAD(&ifp->if_multiaddrs, ifma, ifma_link);
 
 	if (retifma != NULL)
@@ -3757,9 +3759,10 @@ if_delmulti_locked(struct ifnet *ifp, struct ifmultiaddr *ifma, int detaching)
 	if (--ifma->ifma_refcount > 0)
 		return 0;
 
-	if (ifp != NULL && detaching == 0)
+	if (ifp != NULL && detaching == 0 && (ifma->ifma_flags & IFMA_F_ENQUEUED)) {
 		CK_STAILQ_REMOVE(&ifp->if_multiaddrs, ifma, ifmultiaddr, ifma_link);
-
+		ifma->ifma_flags &= ~IFMA_F_ENQUEUED;
+	}
 	/*
 	 * If this ifma is a network-layer ifma, a link-layer ifma may
 	 * have been associated with it. Release it first if so.
@@ -3772,8 +3775,11 @@ if_delmulti_locked(struct ifnet *ifp, struct ifmultiaddr *ifma, int detaching)
 			ll_ifma->ifma_ifp = NULL;	/* XXX */
 		if (--ll_ifma->ifma_refcount == 0) {
 			if (ifp != NULL) {
-				CK_STAILQ_REMOVE(&ifp->if_multiaddrs, ll_ifma, ifmultiaddr,
-				    ifma_link);
+				if (ll_ifma->ifma_flags & IFMA_F_ENQUEUED) {
+					CK_STAILQ_REMOVE(&ifp->if_multiaddrs, ll_ifma, ifmultiaddr,
+						ifma_link);
+					ll_ifma->ifma_flags &= ~IFMA_F_ENQUEUED;
+				}
 			}
 			if_freemulti(ll_ifma);
 		}
@@ -3899,6 +3905,44 @@ if_requestencap_default(struct ifnet *ifp, struct if_encap_req *req)
 	req->bufsize = req->lladdr_len;
 	req->lladdr_off = 0;
 
+	return (0);
+}
+
+/*
+ * Tunnel interfaces can nest, also they may cause infinite recursion
+ * calls when misconfigured. We'll prevent this by detecting loops.
+ * High nesting level may cause stack exhaustion. We'll prevent this
+ * by introducing upper limit.
+ *
+ * Return 0, if tunnel nesting count is equal or less than limit.
+ */
+int
+if_tunnel_check_nesting(struct ifnet *ifp, struct mbuf *m, uint32_t cookie,
+    int limit)
+{
+	struct m_tag *mtag;
+	int count;
+
+	count = 1;
+	mtag = NULL;
+	while ((mtag = m_tag_locate(m, cookie, 0, mtag)) != NULL) {
+		if (*(struct ifnet **)(mtag + 1) == ifp) {
+			log(LOG_NOTICE, "%s: loop detected\n", if_name(ifp));
+			return (EIO);
+		}
+		count++;
+	}
+	if (count > limit) {
+		log(LOG_NOTICE,
+		    "%s: if_output recursively called too many times(%d)\n",
+		    if_name(ifp), count);
+		return (EIO);
+	}
+	mtag = m_tag_alloc(cookie, 0, sizeof(struct ifnet *), M_NOWAIT);
+	if (mtag == NULL)
+		return (ENOMEM);
+	*(struct ifnet **)(mtag + 1) = ifp;
+	m_tag_prepend(m, mtag);
 	return (0);
 }
 

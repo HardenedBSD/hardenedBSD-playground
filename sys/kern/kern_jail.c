@@ -192,9 +192,9 @@ static struct bool_flags pr_flag_allow[NBBY * NBPW] = {
 	{"allow.mount", "allow.nomount", PR_ALLOW_MOUNT},
 	{"allow.quotas", "allow.noquotas", PR_ALLOW_QUOTAS},
 	{"allow.socket_af", "allow.nosocket_af", PR_ALLOW_SOCKET_AF},
+	{"allow.mlock", "allow.nomlock", PR_ALLOW_MLOCK},
 	{"allow.reserved_ports", "allow.noreserved_ports",
 	 PR_ALLOW_RESERVED_PORTS},
-	{"allow.vmm", "allow.novmm", PR_ALLOW_VMM},
 };
 const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
 
@@ -1407,11 +1407,12 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		 * there is a duplicate on a jail with more than one
 		 * IP stop checking and return error.
 		 */
-		tppr = ppr;
 #ifdef VIMAGE
-		for (; tppr != &prison0; tppr = tppr->pr_parent)
+		for (tppr = ppr; tppr != &prison0; tppr = tppr->pr_parent)
 			if (tppr->pr_flags & PR_VNET)
 				break;
+#else
+		tppr = &prison0;
 #endif
 		FOREACH_PRISON_DESCENDANT(tppr, tpr, descend) {
 			if (tpr == pr ||
@@ -1474,11 +1475,12 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 			}
 		}
 		/* Check for conflicting IP addresses. */
-		tppr = ppr;
 #ifdef VIMAGE
-		for (; tppr != &prison0; tppr = tppr->pr_parent)
+		for (tppr = ppr; tppr != &prison0; tppr = tppr->pr_parent)
 			if (tppr->pr_flags & PR_VNET)
 				break;
+#else
+		tppr = &prison0;
 #endif
 		FOREACH_PRISON_DESCENDANT(tppr, tpr, descend) {
 			if (tpr == pr ||
@@ -3314,6 +3316,17 @@ prison_priv_check(struct ucred *cred, int priv)
 			return (EPERM);
 
 		/*
+		 * Conditionnaly allow locking (unlocking) physical pages
+		 * in memory.
+		 */
+	case PRIV_VM_MLOCK:
+	case PRIV_VM_MUNLOCK:
+		if (cred->cr_prison->pr_allow & PR_ALLOW_MLOCK)
+			return (0);
+		else
+			return (EPERM);
+
+		/*
 		 * Conditionally allow jailed root to bind reserved ports.
 		 */
 	case PRIV_NETINET_RESERVEDPORT:
@@ -3627,10 +3640,6 @@ SYSCTL_PROC(_security_jail, OID_AUTO, mount_allowed,
     CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE,
     NULL, PR_ALLOW_MOUNT, sysctl_jail_default_allow, "I",
     "Processes in jail can mount/unmount jail-friendly file systems (deprecated)");
-SYSCTL_PROC(_security_jail, OID_AUTO, vmm,
-    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_MPSAFE,
-    NULL, PR_ALLOW_VMM, sysctl_jail_default_allow, "I",
-    "Jail can use vmm");
 
 static int
 sysctl_jail_default_level(SYSCTL_HANDLER_ARGS)
@@ -3777,10 +3786,10 @@ SYSCTL_JAIL_PARAM(_allow, quotas, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may set file quotas");
 SYSCTL_JAIL_PARAM(_allow, socket_af, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may create sockets other than just UNIX/IPv4/IPv6/route");
+SYSCTL_JAIL_PARAM(_allow, mlock, CTLTYPE_INT | CTLFLAG_RW,
+    "B", "Jail may lock (unlock) physical pages in memory");
 SYSCTL_JAIL_PARAM(_allow, reserved_ports, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may bind sockets to reserved ports");
-SYSCTL_JAIL_PARAM(_allow, vmm, CTLTYPE_INT | CTLFLAG_RW,
-    "B", "Jail may use vmm");
 
 SYSCTL_JAIL_PARAM_SUBNODE(allow, mount, "Jail mount/unmount permission flags");
 SYSCTL_JAIL_PARAM(_allow_mount, , CTLTYPE_INT | CTLFLAG_RW,

@@ -110,7 +110,7 @@ SYSCTL_INT(_net_inet_ip, IPCTL_FORWARDING, forwarding, CTLFLAG_VNET | CTLFLAG_RW
     &VNET_NAME(ipforwarding), 0,
     "Enable IP forwarding between interfaces");
 
-static VNET_DEFINE(int, ipsendredirects) = 1;	/* XXX */
+VNET_DEFINE_STATIC(int, ipsendredirects) = 1;	/* XXX */
 #define	V_ipsendredirects	VNET(ipsendredirects)
 SYSCTL_INT(_net_inet_ip, IPCTL_SENDREDIRECTS, redirect, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(ipsendredirects), 0,
@@ -129,12 +129,12 @@ SYSCTL_INT(_net_inet_ip, IPCTL_SENDREDIRECTS, redirect, CTLFLAG_VNET | CTLFLAG_R
  * to the loopback interface instead of the interface where the
  * packets for those addresses are received.
  */
-#ifdef PAX_HARDENING
-static VNET_DEFINE(int, ip_checkinterface) = 1;
-#else
-static VNET_DEFINE(int, ip_checkinterface);
-#endif
 
+#ifdef PAX_HARDENING
+VNET_DEFINE_STATIC(int, ip_checkinterface) = 1;
+#else
+VNET_DEFINE_STATIC(int, ip_checkinterface);
+#endif
 #define	V_ip_checkinterface	VNET(ip_checkinterface)
 SYSCTL_INT(_net_inet_ip, OID_AUTO, check_interface, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(ip_checkinterface), 0,
@@ -563,13 +563,15 @@ tooshort:
 
 	/*
 	 * Try to forward the packet, but if we fail continue.
+	 * ip_tryforward() does not generate redirects, so fall
+	 * through to normal processing if redirects are required.
 	 * ip_tryforward() does inbound and outbound packet firewall
 	 * processing. If firewall has decided that destination becomes
 	 * our local address, it sets M_FASTFWD_OURS flag. In this
 	 * case skip another inbound firewall processing and update
 	 * ip pointer.
 	 */
-	if (V_ipforwarding != 0
+	if (V_ipforwarding != 0 && V_ipsendredirects == 0
 #if defined(IPSEC) || defined(IPSEC_SUPPORT)
 	    && (!IPSEC_ENABLED(ipv4) ||
 	    IPSEC_CAPS(ipv4, m, IPSEC_CAP_OPERABLE) == 0)
@@ -1199,7 +1201,7 @@ ip_savecontrol(struct inpcb *inp, struct mbuf **mp, struct ip *ip,
 			mbuf_tstmp2timespec(m, &ts);
 			getboottimebin(&boottimebin);
 			bintime2timespec(&boottimebin, &ts1);
-			timespecadd(&ts, &ts1);
+			timespecadd(&ts, &ts1, &ts);
 		} else {
 			nanotime(&ts);
 		}
@@ -1353,7 +1355,7 @@ makedummy:
  * locking.  This code remains in ip_input.c as ip_mroute.c is optionally
  * compiled.
  */
-static VNET_DEFINE(int, ip_rsvp_on);
+VNET_DEFINE_STATIC(int, ip_rsvp_on);
 VNET_DEFINE(struct socket *, ip_rsvpd);
 
 #define	V_ip_rsvp_on		VNET(ip_rsvp_on)

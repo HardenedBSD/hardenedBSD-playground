@@ -8,7 +8,6 @@
 #define TOP_H
 
 #include <unistd.h>
-#include <stdbool.h>
 
 /* Number of lines of header information on the standard screen */
 extern int Header_lines;
@@ -35,9 +34,6 @@ extern enum displaymodes displaymode;
 extern int pcpu_stats;
 extern int overstrike;
 extern pid_t mypid;
-extern bool utf8flag;
-
-extern const char * myname;
 
 extern int (*compares[])(const void*, const void*);
 

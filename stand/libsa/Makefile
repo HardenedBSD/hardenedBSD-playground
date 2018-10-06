@@ -37,6 +37,10 @@ SRCS+=	bcmp.c bcopy.c bzero.c ffs.c fls.c \
 .PATH: ${LIBC_SRC}/stdlib
 SRCS+=	abs.c strtol.c strtoll.c strtoul.c strtoull.c
 
+# common boot code
+.PATH:	${SYSDIR}/kern
+SRCS+=	subr_boot.c
+
 .if ${MACHINE_CPUARCH} == "arm"
 .PATH: ${LIBC_SRC}/arm/gen
 
@@ -69,8 +73,13 @@ SRCS+=	aeabi_memcmp.S aeabi_memcpy.S aeabi_memmove.S aeabi_memset.S
 
 .if ${MACHINE_CPUARCH} == "powerpc"
 .PATH: ${LIBC_SRC}/quad
-SRCS+=	ashldi3.c ashrdi3.c
+SRCS+=	ashldi3.c ashrdi3.c lshrdi3.c
 SRCS+=	syncicache.c
+.endif
+
+.if ${MACHINE_CPUARCH} == "mips"
+.PATH: ${LIBC_SRC}/quad
+SRCS+=	ashldi3.c ashrdi3.c lshrdi3.c
 .endif
 
 # uuid functions from libc

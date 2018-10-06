@@ -35,6 +35,7 @@ __FBSDID("$FreeBSD$");
 #ifdef HARDENEDBSD
 #include <sys/mman.h>
 #endif
+#include <sys/stat.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>

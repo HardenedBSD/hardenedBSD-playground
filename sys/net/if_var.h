@@ -411,6 +411,7 @@ struct ifnet {
 #define	NET_EPOCH_ENTER_ET(et) epoch_enter_preempt(net_epoch_preempt, &(et))
 #define	NET_EPOCH_EXIT() epoch_exit_preempt(net_epoch_preempt, &nep_et)
 #define	NET_EPOCH_EXIT_ET(et) epoch_exit_preempt(net_epoch_preempt, &(et))
+#define	NET_EPOCH_WAIT() epoch_wait_preempt(net_epoch_preempt)
 
 
 /*
@@ -548,12 +549,14 @@ void	ifa_ref(struct ifaddr *ifa);
  * Multicast address structure.  This is analogous to the ifaddr
  * structure except that it keeps track of multicast addresses.
  */
+#define IFMA_F_ENQUEUED		0x1
 struct ifmultiaddr {
 	CK_STAILQ_ENTRY(ifmultiaddr) ifma_link; /* queue macro glue */
 	struct	sockaddr *ifma_addr; 	/* address this membership is for */
 	struct	sockaddr *ifma_lladdr;	/* link-layer translation, if any */
 	struct	ifnet *ifma_ifp;	/* back-pointer to interface */
 	u_int	ifma_refcount;		/* reference count */
+	int	ifma_flags;
 	void	*ifma_protospec;	/* protocol-specific state, if any */
 	struct	ifmultiaddr *ifma_llifma; /* pointer to ifma for ifma_lladdr */
 	struct	epoch_context	ifma_epoch_ctx;
@@ -644,6 +647,7 @@ int	if_printf(struct ifnet *, const char *, ...) __printflike(2, 3);
 void	if_ref(struct ifnet *);
 void	if_rele(struct ifnet *);
 int	if_setlladdr(struct ifnet *, const u_char *, int);
+int	if_tunnel_check_nesting(struct ifnet *, struct mbuf *, uint32_t, int);
 void	if_up(struct ifnet *);
 int	ifioctl(struct socket *, u_long, caddr_t, struct thread *);
 int	ifpromisc(struct ifnet *, int);
@@ -755,6 +759,8 @@ int if_hw_tsomax_update(if_t ifp, struct ifnet_hw_tsomax *);
 
 /* accessors for struct ifreq */
 void *ifr_data_get_ptr(void *ifrp);
+
+int ifhwioctl(u_long, struct ifnet *, caddr_t, struct thread *);
 
 #ifdef DEVICE_POLLING
 enum poll_cmd { POLL_ONLY, POLL_AND_CHECK_STATUS };

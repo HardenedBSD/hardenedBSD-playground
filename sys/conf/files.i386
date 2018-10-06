@@ -532,6 +532,7 @@ kern/subr_sfbuf.c		standard
 libkern/divdi3.c		standard
 libkern/ffsll.c			standard
 libkern/flsll.c			standard
+libkern/memcmp.c		standard
 libkern/memset.c		standard
 libkern/moddi3.c		standard
 libkern/qdivrem.c		standard
@@ -605,6 +606,7 @@ x86/x86/msi.c			optional apic pci
 x86/x86/nexus.c			standard
 x86/x86/stack_machdep.c		optional ddb | stack
 x86/x86/tsc.c			standard
+x86/x86/ucode.c			standard
 x86/x86/pvclock.c		standard
 x86/x86/delay.c			standard
 x86/xen/hvm.c			optional xenhvm

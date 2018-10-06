@@ -34,6 +34,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <err.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -347,12 +348,12 @@ i_procstates(int total, int *brkdn)
     procstates_buffer = setup_buffer(procstates_buffer, 0);
 
     /* write current number of processes and remember the value */
-    printf("%d %s:", total, (ps.thread) ? "threads" :"processes");
+    printf("%d %s:", total, ps.thread ? "threads" : "processes");
     ltotal = total;
 
     /* put out enough spaces to get to column 15 */
     i = digits(total);
-    while (i++ < 4)
+    while (i++ < (ps.thread ? 6 : 4))
     {
 	putchar(' ');
     }
@@ -389,10 +390,10 @@ else {
 	/* if number of digits differs, rewrite the label */
 	if (digits(total) != digits(ltotal))
 	{
-	    fputs(" processes:", stdout);
+	    printf(" %s:", ps.thread ? "threads" : "processes");
 	    /* put out enough spaces to get to column 15 */
 	    i = digits(total);
-	    while (i++ < 4)
+	    while (i++ < (ps.thread ? 6 : 4))
 	    {
 		putchar(' ');
 	    }
@@ -420,6 +421,7 @@ i_cpustates(int *states)
     int value;
     const char * const *names;
     const char *thisname;
+    int *hstates = states;
     int cpu;
 
 for (cpu = 0; cpu < num_cpus; cpu++) {
@@ -453,6 +455,7 @@ for (cpu = 0; cpu < num_cpus; cpu++) {
 }
 
     /* copy over values into "last" array */
+    states = hstates;
     memcpy(lcpustates, states, num_cpustates * sizeof(int) * num_cpus);
 }
 
@@ -462,6 +465,7 @@ u_cpustates(int *states)
     int value;
     const char * const *names;
     const char *thisname;
+    int *hstates = states;
     int *lp;
     int *colp;
     int cpu;
@@ -504,6 +508,8 @@ for (cpu = 0; cpu < num_cpus; cpu++) {
 	colp++;
     }
 }
+
+    states = hstates;
 }
 
 void
@@ -703,6 +709,7 @@ u_swap(int *stats)
  *	respect to screen updates).
  */
 
+#define NEXT_MSG_ADDLEN 5
 static char *next_msg = NULL;
 static int msglen = 0;
 /* Invariant: msglen is always the length of the message currently displayed
@@ -711,7 +718,7 @@ static int msglen = 0;
 void
 i_message(void)
 {
-    next_msg = setup_buffer(next_msg, 5);
+    next_msg = setup_buffer(next_msg, NEXT_MSG_ADDLEN);
 
     while (lastline < y_message)
     {
@@ -960,7 +967,8 @@ new_message(int type, const char *msgfmt, ...)
     va_start(args, msgfmt);
 
     /* first, format the message */
-    vsnprintf(next_msg, strlen(next_msg), msgfmt, args);
+    vsnprintf(next_msg, setup_buffer_bufsiz + NEXT_MSG_ADDLEN,
+		    msgfmt, args);
 
     va_end(args);
 
@@ -1273,43 +1281,19 @@ line_update(char *old, char *new, int start, int line)
 char *
 printable(char str[])
 {
-	char *ptr;
-	char ch;
+    char *ptr;
+    char ch;
 
-	ptr = str;
-	if (utf8flag) {
-		while ((ch = *ptr) != '\0') {
-			if (0x00 == (0x80 & ch)) {
-				if (!isprint(ch)) {
-					*ptr = '?';
-				}
-				++ptr;
-			} else if (0xC0 == (0xE0 & ch)) {
-				++ptr;
-				if ('\0' != *ptr) ++ptr;
-			} else if (0xE0 == (0xF0 & ch)) {
-				++ptr;
-				if ('\0' != *ptr) ++ptr;
-				if ('\0' != *ptr) ++ptr;
-			} else if (0xF0 == (0xF8 & ch)) {
-				++ptr;
-				if ('\0' != *ptr) ++ptr;
-				if ('\0' != *ptr) ++ptr;
-				if ('\0' != *ptr) ++ptr;
-			} else {
-				*ptr = '?';
-				++ptr;
-			}
-		}
-	} else {
-		while ((ch = *ptr) != '\0') {
-			if (!isprint(ch)) {
-				*ptr = '?';
-			}
-			ptr++;
-		}
+    ptr = str;
+    while ((ch = *ptr) != '\0')
+    {
+	if (!isprint(ch))
+	{
+	    *ptr = '?';
 	}
-	return(str);
+	ptr++;
+    }
+    return(str);
 }
 
 void
@@ -1343,6 +1327,8 @@ i_uptime(struct timeval *bt, time_t *tod)
     }
 }
 
+#define SETUPBUFFER_REQUIRED_ADDBUFSIZ 2
+
 static char *
 setup_buffer(char *buffer, int addlen)
 {
@@ -1350,12 +1336,15 @@ setup_buffer(char *buffer, int addlen)
 
 	if (NULL == buffer) {
 		setup_buffer_bufsiz = screen_width;
-		b = calloc(setup_buffer_bufsiz + addlen, sizeof(char));
+		b = calloc(setup_buffer_bufsiz + addlen +
+				SETUPBUFFER_REQUIRED_ADDBUFSIZ,
+				sizeof(char));
 	} else {
 		if (screen_width > setup_buffer_bufsiz) {
 			setup_buffer_bufsiz = screen_width;
 			free(buffer);
-			b = calloc(setup_buffer_bufsiz + addlen,
+			b = calloc(setup_buffer_bufsiz + addlen +
+					SETUPBUFFER_REQUIRED_ADDBUFSIZ,
 					sizeof(char));
 		} else {
 			b = buffer;
@@ -1363,9 +1352,7 @@ setup_buffer(char *buffer, int addlen)
 	}
 
 	if (NULL == b) {
-		fprintf(stderr, "%s: can't allocate sufficient memory\n",
-				myname);
-		exit(4);
+		errx(4, "can't allocate sufficient memory");
 	}
 
 	return b;

@@ -149,6 +149,7 @@ CWARNFLAGS+=	-Wno-error=bool-operation		\
 		-Wno-error=implicit-fallthrough		\
 		-Wno-error=int-in-bool-context		\
 		-Wno-error=memset-elt-size		\
+		-Wno-error=noexcept-type		\
 		-Wno-error=nonnull			\
 		-Wno-error=pointer-compare		\
 		-Wno-error=stringop-overflow
@@ -158,6 +159,7 @@ CWARNFLAGS+=	-Wno-error=bool-operation		\
 .if ${COMPILER_TYPE} == "gcc" && ${COMPILER_VERSION} >= 80100
 CWARNFLAGS+=	-Wno-error=aggressive-loop-optimizations	\
 		-Wno-error=cast-function-type			\
+		-Wno-error=catch-value				\
 		-Wno-error=multistatement-macros		\
 		-Wno-error=restrict				\
 		-Wno-error=sizeof-pointer-memaccess		\
@@ -219,7 +221,7 @@ CFLAGS+=	${SSP_CFLAGS}
 DEBUG_FILES_CFLAGS?= -g
 
 # Allow user-specified additional warning flags, plus compiler and file
-# specific flag overrides, unless we've overriden this...
+# specific flag overrides, unless we've overridden this...
 .if ${MK_WARNS} != "no"
 CFLAGS+=	${CWARNFLAGS:M*} ${CWARNFLAGS.${COMPILER_TYPE}}
 CFLAGS+=	${CWARNFLAGS.${.IMPSRC:T}}
@@ -248,8 +250,8 @@ PHONY_NOTMAIN = analyze afterdepend afterinstall all beforedepend beforeinstall 
 		beforelinking build build-tools buildconfig buildfiles \
 		buildincludes check checkdpadd clean cleandepend cleandir \
 		cleanobj configure depend distclean distribute exe \
-		files html includes install installconfig installfiles \
-		installincludes lint obj objlink objs objwarn \
+		files html includes install installconfig installdirs \
+		installfiles installincludes lint obj objlink objs objwarn \
 		realinstall tags whereobj
 
 # we don't want ${PROG} to be PHONY
@@ -338,7 +340,7 @@ STAGE_TARGETS+= $t
 STAGE_TARGETS+= stage_as
 .endif
 
-.if !empty(_LIBS) || (${MK_STAGING_PROG} != "no" && !defined(INTERNALPROG))
+.if !empty(STAGE_TARGETS) || (${MK_STAGING_PROG} != "no" && !defined(INTERNALPROG))
 
 .if !empty(LINKS)
 STAGE_TARGETS+= stage_links

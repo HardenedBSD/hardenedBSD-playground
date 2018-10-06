@@ -138,7 +138,7 @@ static void objlist_remove(Objlist *, Obj_Entry *);
 static int open_binary_fd(const char *argv0, bool search_in_path);
 static int parse_args(char* argv[], int argc, bool *use_pathp, int *fdp);
 static int parse_integer(const char *);
-static void *path_enumerate(const char *, path_enum_proc, void *);
+static void *path_enumerate(const char *, path_enum_proc, const char *, void *);
 static void print_usage(const char *argv0);
 static void release_object(Obj_Entry *);
 static int relocate_object_dag(Obj_Entry *root, bool bind_now,
@@ -153,7 +153,8 @@ static int rtld_dirname(const char *, char *);
 static int rtld_dirname_abs(const char *, char *);
 static void *rtld_dlopen(const char *name, int fd, int mode);
 static void rtld_exit(void);
-static char *search_library_path(const char *, const char *, int *);
+static char *search_library_path(const char *, const char *, const char *,
+    int *);
 static char *search_library_pathfds(const char *, const char *, int *);
 static const void **get_program_var_addr(const char *, RtldLockState *);
 static void set_program_var(const char *, const void *);
@@ -433,8 +434,8 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 	phdr = (const Elf_Phdr *)aux_info[AT_PHDR]->a_un.a_ptr;
 	if (phdr == obj_rtld.phdr) {
 	    if (!trust) {
-		rtld_printf("Tainted process refusing to run binary %s\n",
-		  argv0);
+		_rtld_error("Tainted process refusing to run binary %s",
+		    argv0);
 		rtld_die();
 	    }
 	    dbg("opening main program in direct exec mode");
@@ -445,7 +446,7 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 		if (!explicit_fd)
 		    fd = open_binary_fd(argv0, search_in_path);
 		if (fstat(fd, &st) == -1) {
-		    _rtld_error("failed to fstat FD %d (%s): %s", fd,
+		    _rtld_error("Failed to fstat FD %d (%s): %s", fd,
 		      explicit_fd ? "user-provided descriptor" : argv0,
 		      rtld_strerror(errno));
 		    rtld_die();
@@ -472,8 +473,8 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 		    dir_enable = true;
 		}
 		if (!dir_enable) {
-		    rtld_printf("No execute permission for binary %s\n",
-		      argv0);
+		    _rtld_error("No execute permission for binary %s",
+		        argv0);
 		    rtld_die();
 		}
 
@@ -502,7 +503,7 @@ _rtld(Elf_Addr *sp, func_ptr_type *exit_proc, Obj_Entry **objp)
 			    break;
 		}
 	    } else {
-		rtld_printf("no binary\n");
+		_rtld_error("No binary");
 		rtld_die();
 	    }
 	}
@@ -990,6 +991,7 @@ rtld_die(void)
 
     if (msg == NULL)
 	msg = "Fatal error";
+    rtld_fdputstr(STDERR_FILENO, _BASENAME_RTLD ": ");
     rtld_fdputstr(STDERR_FILENO, msg);
     rtld_fdputchar(STDERR_FILENO, '\n');
     _exit(1);
@@ -1603,8 +1605,7 @@ gnu_hash(const char *s)
 static char *
 find_library(const char *xname, const Obj_Entry *refobj, int *fdp)
 {
-	char *pathname;
-	char *name;
+	char *name, *pathname, *refobj_path;
 	bool nodeflib, objgiven;
 
 	objgiven = refobj != NULL;
@@ -1624,6 +1625,7 @@ find_library(const char *xname, const Obj_Entry *refobj, int *fdp)
 	}
 
 	dbg(" Searching for \"%s\"", name);
+	refobj_path = objgiven ? refobj->path : NULL;
 
 	/*
 	 * If refobj->rpath != NULL, then refobj->runpath is NULL.  Fall
@@ -1632,52 +1634,61 @@ find_library(const char *xname, const Obj_Entry *refobj, int *fdp)
 	 * nodeflib.
 	 */
 	if (objgiven && refobj->rpath != NULL && ld_library_path_rpath) {
-		pathname = search_library_path(name, ld_library_path, fdp);
+		pathname = search_library_path(name, ld_library_path,
+		    refobj_path, fdp);
 		if (pathname != NULL)
 			return (pathname);
 		if (refobj != NULL) {
-			pathname = search_library_path(name, refobj->rpath, fdp);
+			pathname = search_library_path(name, refobj->rpath,
+			    refobj_path, fdp);
 			if (pathname != NULL)
 				return (pathname);
 		}
 		pathname = search_library_pathfds(name, ld_library_dirs, fdp);
 		if (pathname != NULL)
 			return (pathname);
-		pathname = search_library_path(name, gethints(false), fdp);
+		pathname = search_library_path(name, gethints(false),
+		    refobj_path, fdp);
 		if (pathname != NULL)
 			return (pathname);
-		pathname = search_library_path(name, ld_standard_library_path, fdp);
+		pathname = search_library_path(name, ld_standard_library_path,
+		    refobj_path, fdp);
 		if (pathname != NULL)
 			return (pathname);
 	} else {
 		nodeflib = objgiven ? refobj->z_nodeflib : false;
 		if (objgiven) {
-			pathname = search_library_path(name, refobj->rpath, fdp);
+			pathname = search_library_path(name, refobj->rpath,
+			    refobj->path, fdp);
 			if (pathname != NULL)
 				return (pathname);
 		}
 		if (objgiven && refobj->runpath == NULL && refobj != obj_main) {
-			pathname = search_library_path(name, obj_main->rpath, fdp);
+			pathname = search_library_path(name, obj_main->rpath,
+			    refobj_path, fdp);
 			if (pathname != NULL)
 				return (pathname);
 		}
-		pathname = search_library_path(name, ld_library_path, fdp);
+		pathname = search_library_path(name, ld_library_path,
+		    refobj_path, fdp);
 		if (pathname != NULL)
 			return (pathname);
 		if (objgiven) {
-			pathname = search_library_path(name, refobj->runpath, fdp);
+			pathname = search_library_path(name, refobj->runpath,
+			    refobj_path, fdp);
 			if (pathname != NULL)
 				return (pathname);
 		}
 		pathname = search_library_pathfds(name, ld_library_dirs, fdp);
 		if (pathname != NULL)
 			return (pathname);
-		pathname = search_library_path(name, gethints(nodeflib), fdp);
+		pathname = search_library_path(name, gethints(nodeflib),
+		    refobj_path, fdp);
 		if (pathname != NULL)
 			return (pathname);
 		if (objgiven && !nodeflib) {
 			pathname = search_library_path(name,
-			    ld_standard_library_path, fdp);
+			    ld_standard_library_path, refobj_path, fdp);
 			if (pathname != NULL)
 				return (pathname);
 		}
@@ -1872,8 +1883,9 @@ cleanup1:
 	hargs.request = RTLD_DI_SERINFOSIZE;
 	hargs.serinfo = &hmeta;
 
-	path_enumerate(ld_standard_library_path, fill_search_info, &sargs);
-	path_enumerate(hints, fill_search_info, &hargs);
+	path_enumerate(ld_standard_library_path, fill_search_info, NULL,
+	    &sargs);
+	path_enumerate(hints, fill_search_info, NULL, &hargs);
 
 	SLPinfo = xmalloc(smeta.dls_size);
 	hintinfo = xmalloc(hmeta.dls_size);
@@ -1891,8 +1903,9 @@ cleanup1:
 	hargs.serpath = &hintinfo->dls_serpath[0];
 	hargs.strspace = (char *)&hintinfo->dls_serpath[hmeta.dls_cnt];
 
-	path_enumerate(ld_standard_library_path, fill_search_info, &sargs);
-	path_enumerate(hints, fill_search_info, &hargs);
+	path_enumerate(ld_standard_library_path, fill_search_info, NULL,
+	    &sargs);
+	path_enumerate(hints, fill_search_info, NULL, &hargs);
 
 	/*
 	 * Now calculate the difference between two sets, by excluding
@@ -2529,7 +2542,7 @@ do_load_object(int fd, const char *name, char *path, struct stat *sbp,
 	    return NULL;
 	}
 	if (fs.f_flags & MNT_NOEXEC) {
-	    _rtld_error("Cannot execute objects on %s\n", fs.f_mntonname);
+	    _rtld_error("Cannot execute objects on %s", fs.f_mntonname);
 	    return NULL;
 	}
     }
@@ -3082,7 +3095,8 @@ rtld_exit(void)
  * callback on the result.
  */
 static void *
-path_enumerate(const char *path, path_enum_proc callback, void *arg)
+path_enumerate(const char *path, path_enum_proc callback,
+    const char *refobj_path, void *arg)
 {
     const char *trans;
     if (path == NULL)
@@ -3094,7 +3108,7 @@ path_enumerate(const char *path, path_enum_proc callback, void *arg)
 	char  *res;
 
 	len = strcspn(path, ":;");
-	trans = lm_findn(NULL, path, len);
+	trans = lm_findn(refobj_path, path, len);
 	if (trans)
 	    res = callback(trans, strlen(trans), arg);
 	else
@@ -3153,7 +3167,8 @@ try_library_path(const char *dir, size_t dirlen, void *param)
 }
 
 static char *
-search_library_path(const char *name, const char *path, int *fdp)
+search_library_path(const char *name, const char *path,
+    const char *refobj_path, int *fdp)
 {
     char *p;
     struct try_library_args arg;
@@ -3167,7 +3182,7 @@ search_library_path(const char *name, const char *path, int *fdp)
     arg.buflen = PATH_MAX;
     arg.fd = -1;
 
-    p = path_enumerate(path, try_library_path, &arg);
+    p = path_enumerate(path, try_library_path, refobj_path, &arg);
     *fdp = arg.fd;
 
     free(arg.buffer);
@@ -3884,12 +3899,12 @@ do_search_info(const Obj_Entry *obj, int request, struct dl_serinfo *info)
     _info.dls_size = __offsetof(struct dl_serinfo, dls_serpath);
     _info.dls_cnt  = 0;
 
-    path_enumerate(obj->rpath, fill_search_info, &args);
-    path_enumerate(ld_library_path, fill_search_info, &args);
-    path_enumerate(obj->runpath, fill_search_info, &args);
-    path_enumerate(gethints(obj->z_nodeflib), fill_search_info, &args);
+    path_enumerate(obj->rpath, fill_search_info, NULL, &args);
+    path_enumerate(ld_library_path, fill_search_info, NULL, &args);
+    path_enumerate(obj->runpath, fill_search_info, NULL, &args);
+    path_enumerate(gethints(obj->z_nodeflib), fill_search_info, NULL, &args);
     if (!obj->z_nodeflib)
-      path_enumerate(ld_standard_library_path, fill_search_info, &args);
+      path_enumerate(ld_standard_library_path, fill_search_info, NULL, &args);
 
 
     if (request == RTLD_DI_SERINFOSIZE) {
@@ -3909,25 +3924,25 @@ do_search_info(const Obj_Entry *obj, int request, struct dl_serinfo *info)
     args.strspace = (char *)&info->dls_serpath[_info.dls_cnt];
 
     args.flags = LA_SER_RUNPATH;
-    if (path_enumerate(obj->rpath, fill_search_info, &args) != NULL)
+    if (path_enumerate(obj->rpath, fill_search_info, NULL, &args) != NULL)
 	return (-1);
 
     args.flags = LA_SER_LIBPATH;
-    if (path_enumerate(ld_library_path, fill_search_info, &args) != NULL)
+    if (path_enumerate(ld_library_path, fill_search_info, NULL, &args) != NULL)
 	return (-1);
 
     args.flags = LA_SER_RUNPATH;
-    if (path_enumerate(obj->runpath, fill_search_info, &args) != NULL)
+    if (path_enumerate(obj->runpath, fill_search_info, NULL, &args) != NULL)
 	return (-1);
 
     args.flags = LA_SER_CONFIG;
-    if (path_enumerate(gethints(obj->z_nodeflib), fill_search_info, &args)
+    if (path_enumerate(gethints(obj->z_nodeflib), fill_search_info, NULL, &args)
       != NULL)
 	return (-1);
 
     args.flags = LA_SER_DEFAULT;
-    if (!obj->z_nodeflib &&
-      path_enumerate(ld_standard_library_path, fill_search_info, &args) != NULL)
+    if (!obj->z_nodeflib && path_enumerate(ld_standard_library_path,
+      fill_search_info, NULL, &args) != NULL)
 	return (-1);
     return (0);
 }
@@ -4801,47 +4816,87 @@ tls_get_addr_common(Elf_Addr **dtvp, int index, size_t offset)
     defined(__powerpc__) || defined(__riscv)
 
 /*
+ * Return pointer to allocated TLS block
+ */
+static void *
+get_tls_block_ptr(void *tcb, size_t tcbsize)
+{
+    size_t extra_size, post_size, pre_size, tls_block_size;
+    size_t tls_init_align;
+
+    tls_init_align = MAX(obj_main->tlsalign, 1);
+
+    /* Compute fragments sizes. */
+    extra_size = tcbsize - TLS_TCB_SIZE;
+    post_size = calculate_tls_post_size(tls_init_align);
+    tls_block_size = tcbsize + post_size;
+    pre_size = roundup2(tls_block_size, tls_init_align) - tls_block_size;
+
+    return ((char *)tcb - pre_size - extra_size);
+}
+
+/*
  * Allocate Static TLS using the Variant I method.
+ *
+ * For details on the layout, see lib/libc/gen/tls.c.
+ *
+ * NB: rtld's tls_static_space variable includes TLS_TCB_SIZE and post_size as
+ *     it is based on tls_last_offset, and TLS offsets here are really TCB
+ *     offsets, whereas libc's tls_static_space is just the executable's static
+ *     TLS segment.
  */
 void *
 allocate_tls(Obj_Entry *objs, void *oldtcb, size_t tcbsize, size_t tcbalign)
 {
     Obj_Entry *obj;
-    char *tcb;
-    Elf_Addr **tls;
-    Elf_Addr *dtv;
+    char *tls_block;
+    Elf_Addr *dtv, **tcb;
     Elf_Addr addr;
     int i;
+    size_t extra_size, maxalign, post_size, pre_size, tls_block_size;
+    size_t tls_init_align;
 
     if (oldtcb != NULL && tcbsize == TLS_TCB_SIZE)
 	return (oldtcb);
 
     assert(tcbsize >= TLS_TCB_SIZE);
-    tcb = xcalloc(1, tls_static_space - TLS_TCB_SIZE + tcbsize);
-    tls = (Elf_Addr **)(tcb + tcbsize - TLS_TCB_SIZE);
+    maxalign = MAX(tcbalign, tls_static_max_align);
+    tls_init_align = MAX(obj_main->tlsalign, 1);
+
+    /* Compute fragmets sizes. */
+    extra_size = tcbsize - TLS_TCB_SIZE;
+    post_size = calculate_tls_post_size(tls_init_align);
+    tls_block_size = tcbsize + post_size;
+    pre_size = roundup2(tls_block_size, tls_init_align) - tls_block_size;
+    tls_block_size += pre_size + tls_static_space - TLS_TCB_SIZE - post_size;
+
+    /* Allocate whole TLS block */
+    tls_block = malloc_aligned(tls_block_size, maxalign);
+    tcb = (Elf_Addr **)(tls_block + pre_size + extra_size);
 
     if (oldtcb != NULL) {
-	memcpy(tls, oldtcb, tls_static_space);
-	free(oldtcb);
+	memcpy(tls_block, get_tls_block_ptr(oldtcb, tcbsize),
+	    tls_static_space);
+	free_aligned(get_tls_block_ptr(oldtcb, tcbsize));
 
 	/* Adjust the DTV. */
-	dtv = tls[0];
+	dtv = tcb[0];
 	for (i = 0; i < dtv[1]; i++) {
 	    if (dtv[i+2] >= (Elf_Addr)oldtcb &&
 		dtv[i+2] < (Elf_Addr)oldtcb + tls_static_space) {
-		dtv[i+2] = dtv[i+2] - (Elf_Addr)oldtcb + (Elf_Addr)tls;
+		dtv[i+2] = dtv[i+2] - (Elf_Addr)oldtcb + (Elf_Addr)tcb;
 	    }
 	}
     } else {
 	dtv = xcalloc(tls_max_index + 2, sizeof(Elf_Addr));
-	tls[0] = dtv;
+	tcb[0] = dtv;
 	dtv[0] = tls_dtv_generation;
 	dtv[1] = tls_max_index;
 
 	for (obj = globallist_curr(objs); obj != NULL;
 	  obj = globallist_next(obj)) {
 	    if (obj->tlsoffset > 0) {
-		addr = (Elf_Addr)tls + obj->tlsoffset;
+		addr = (Elf_Addr)tcb + obj->tlsoffset;
 		if (obj->tlsinitsize > 0)
 		    memcpy((void*) addr, obj->tlsinit, obj->tlsinitsize);
 		if (obj->tlssize > obj->tlsinitsize)
@@ -4860,14 +4915,19 @@ free_tls(void *tcb, size_t tcbsize, size_t tcbalign)
 {
     Elf_Addr *dtv;
     Elf_Addr tlsstart, tlsend;
-    int dtvsize, i;
+    size_t post_size;
+    size_t dtvsize, i, tls_init_align;
 
     assert(tcbsize >= TLS_TCB_SIZE);
+    tls_init_align = MAX(obj_main->tlsalign, 1);
 
-    tlsstart = (Elf_Addr)tcb + tcbsize - TLS_TCB_SIZE;
-    tlsend = tlsstart + tls_static_space;
+    /* Compute fragments sizes. */
+    post_size = calculate_tls_post_size(tls_init_align);
 
-    dtv = *(Elf_Addr **)tlsstart;
+    tlsstart = (Elf_Addr)tcb + TLS_TCB_SIZE + post_size;
+    tlsend = (Elf_Addr)tcb + tls_static_space;
+
+    dtv = *(Elf_Addr **)tcb;
     dtvsize = dtv[1];
     for (i = 0; i < dtvsize; i++) {
 	if (dtv[i+2] && (dtv[i+2] < tlsstart || dtv[i+2] >= tlsend)) {
@@ -4875,7 +4935,7 @@ free_tls(void *tcb, size_t tcbsize, size_t tcbalign)
 	}
     }
     free(dtv);
-    free(tcb);
+    free_aligned(get_tls_block_ptr(tcb, tcbsize));
 }
 
 #endif
@@ -5426,12 +5486,12 @@ open_binary_fd(const char *argv0, bool search_in_path)
 	if (search_in_path && strchr(argv0, '/') == NULL) {
 		pathenv = getenv("PATH");
 		if (pathenv == NULL) {
-			rtld_printf("-p and no PATH environment variable\n");
+			_rtld_error("-p and no PATH environment variable");
 			rtld_die();
 		}
 		pathenv = strdup(pathenv);
 		if (pathenv == NULL) {
-			rtld_printf("Cannot allocate memory\n");
+			_rtld_error("Cannot allocate memory");
 			rtld_die();
 		}
 		fd = -1;
@@ -5457,8 +5517,7 @@ open_binary_fd(const char *argv0, bool search_in_path)
 	}
 
 	if (fd == -1) {
-		rtld_printf("Opening %s: %s\n", argv0,
-		    rtld_strerror(errno));
+		_rtld_error("Cannot open %s: %s", argv0, rtld_strerror(errno));
 		rtld_die();
 	}
 	return (fd);
@@ -5502,7 +5561,7 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp)
 			opt = arg[j];
 			if (opt == 'h') {
 				print_usage(argv[0]);
-				rtld_die();
+				_exit(0);
 			} else if (opt == 'f') {
 			/*
 			 * -f XX can be used to specify a descriptor for the
@@ -5512,13 +5571,13 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp)
 			 */
 			if (j != arglen - 1) {
 				/* -f must be the last option in, e.g., -abcf */
-				_rtld_error("invalid options: %s", arg);
+				_rtld_error("Invalid options: %s", arg);
 				rtld_die();
 			}
 			i++;
 			fd = parse_integer(argv[i]);
 			if (fd == -1) {
-				_rtld_error("invalid file descriptor: '%s'",
+				_rtld_error("Invalid file descriptor: '%s'",
 				    argv[i]);
 				rtld_die();
 			}
@@ -5527,7 +5586,7 @@ parse_args(char* argv[], int argc, bool *use_pathp, int *fdp)
 			} else if (opt == 'p') {
 				*use_pathp = true;
 			} else {
-				rtld_printf("invalid argument: '%s'\n", arg);
+				_rtld_error("Invalid argument: '%s'", arg);
 				print_usage(argv[0]);
 				rtld_die();
 			}

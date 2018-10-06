@@ -28,7 +28,6 @@ __FBSDID("$FreeBSD$");
 
 #include "opt_inet.h"
 #include "opt_inet6.h"
-#include "opt_ipsec.h"
 #include "opt_tcpdebug.h"
 /**
  * Some notes about usage.
@@ -164,14 +163,12 @@ __FBSDID("$FreeBSD$");
 #include <netinet/tcp_offload.h>
 #endif
 
-#ifdef ipsec
-#include <netipsec/ipsec.h>
-#include <netipsec/ipsec6.h>
-#endif				/* ipsec */
 #include "opt_rss.h"
 
 MALLOC_DEFINE(M_TCPHPTS, "tcp_hpts", "TCP hpts");
 #ifdef RSS
+#include <net/netisr.h>
+#include <net/rss_config.h>
 static int tcp_bind_threads = 1;
 #else
 static int tcp_bind_threads = 0;
@@ -1081,7 +1078,7 @@ hpts_random_cpu(struct inpcb *inp){
 
 static uint16_t
 hpts_cpuid(struct inpcb *inp){
-	uint16_t cpuid;
+	u_int cpuid;
 
 
 	/*
@@ -1285,7 +1282,7 @@ out:
 				 * lock again but we also need some kasserts
 				 * here.
 				 */
-				INP_INFO_UNLOCK_ASSERT(&V_tcbinfo);
+				INP_INFO_WUNLOCK_ASSERT(&V_tcbinfo);
 				INP_UNLOCK_ASSERT(inp);
 				m = n;
 				if (m)
@@ -1327,7 +1324,7 @@ out:
 			INP_WUNLOCK(inp);
 		if (ti_locked == TI_RLOCKED)
 			INP_INFO_RUNLOCK_ET(&V_tcbinfo, et);
-		INP_INFO_UNLOCK_ASSERT(&V_tcbinfo);
+		INP_INFO_WUNLOCK_ASSERT(&V_tcbinfo);
 		INP_UNLOCK_ASSERT(inp);
 		ti_locked = TI_UNLOCKED;
 		mtx_lock(&hpts->p_mtx);

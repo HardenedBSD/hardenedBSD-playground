@@ -149,7 +149,9 @@ static driver_t ixlv_driver = {
 
 devclass_t ixlv_devclass;
 DRIVER_MODULE(ixlv, pci, ixlv_driver, ixlv_devclass, 0, 0);
-
+MODULE_PNP_INFO("U32:vendor;U32:device;U32:subvendor;U32:subdevice;U32:revision",
+    pci, ixlv, ixlv_vendor_info_array,
+        nitems(ixlv_vendor_info_array) - 1);
 MODULE_DEPEND(ixlv, pci, 1, 1, 1);
 MODULE_DEPEND(ixlv, ether, 1, 1, 1);
 MODULE_DEPEND(ixlv, iflib, 1, 1, 1);
@@ -256,10 +258,10 @@ extern struct if_txrx ixl_txrx;
 static struct if_shared_ctx ixlv_sctx_init = {
 	.isc_magic = IFLIB_MAGIC,
 	.isc_q_align = PAGE_SIZE,/* max(DBA_ALIGN, PAGE_SIZE) */
-	.isc_tx_maxsize = IXL_TSO_SIZE,
-
+	.isc_tx_maxsize = IXL_TSO_SIZE + sizeof(struct ether_vlan_header),
 	.isc_tx_maxsegsize = PAGE_SIZE,
-
+	.isc_tso_maxsize = IXL_TSO_SIZE + sizeof(struct ether_vlan_header),
+	.isc_tso_maxsegsize = PAGE_SIZE,
 	// TODO: Review the rx_maxsize and rx_maxsegsize params
 	// Where are they used in iflib?
 	.isc_rx_maxsize = 16384,
@@ -446,7 +448,7 @@ ixlv_if_attach_pre(if_ctx_t ctx)
 	// TODO: Probably needs changing
 	vsi->shared->isc_rss_table_size = sc->hw.func_caps.rss_table_size;
 	scctx->isc_tx_csum_flags = CSUM_OFFLOAD;
-	scctx->isc_capenable = IXL_CAPS;
+	scctx->isc_capabilities = scctx->isc_capenable = IXL_CAPS;
 
 	INIT_DBG_DEV(dev, "end");
 	return (0);
@@ -1841,11 +1843,6 @@ ixlv_setup_interface(device_t dev, struct ixl_vsi *vsi)
 
 	INIT_DBG_DEV(dev, "begin");
 
-	/* initialize fast path functions */
-	cap = IXL_CAPS;
-	if_setifheaderlen(ifp, sizeof(struct ether_vlan_header));
-	if_setcapabilitiesbit(ifp, cap, 0);
-	if_setcapenable(ifp, if_getcapabilities(ifp));
 	/* TODO: Remove VLAN_ENCAP_LEN? */
 	vsi->shared->isc_max_frame_size =
 	    ifp->if_mtu + ETHER_HDR_LEN + ETHER_CRC_LEN
@@ -1855,16 +1852,6 @@ ixlv_setup_interface(device_t dev, struct ixl_vsi *vsi)
 #else
 	if_initbaudrate(ifp, IF_Gbps(40));
 #endif
-
-	/*
-	** Don't turn this on by default, if vlans are
-	** created on another pseudo device (eg. lagg)
-	** then vlan events are not passed thru, breaking
-	** operation, but with HW FILTER off it works. If
-	** using vlans directly on the ixl driver you can
-	** enable this and get full hardware tag filtering.
-	*/
-	if_setcapabilitiesbit(ifp, IFCAP_VLAN_HWFILTER, 0);
 
 	/* Media types based on reported link speed over AdminQ */
 	ifmedia_add(&sc->media, IFM_ETHER | IFM_100_TX, 0, NULL);
