@@ -151,11 +151,8 @@ __DEFAULT_YES_OPTIONS = \
     NLS_CATALOGS \
     NS_CACHING \
     NTP \
-<<<<<<< HEAD
-=======
     NVME \
     OFED \
->>>>>>> origin/freebsd/current/master
     OPENSSL \
     PAM \
     PC_SYSINSTALL \
@@ -212,7 +209,6 @@ __DEFAULT_NO_OPTIONS = \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
     NAND \
-    OFED \
     OFED_EXTRA \
     OPENLDAP \
     OPENNTPD \
@@ -417,21 +413,10 @@ BROKEN_OPTIONS+=LOADER_GELI LOADER_LUA
 # profiling won't work on MIPS64 because there is only assembly for o32
 BROKEN_OPTIONS+=PROFILE
 .endif
-<<<<<<< HEAD
-
-.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || \
-    ${__T} == "powerpc64" || ${__T} == "sparc64"
-__DEFAULT_YES_OPTIONS+=CXGBETOOL
-__DEFAULT_YES_OPTIONS+=MLX5TOOL
-.else
-__DEFAULT_NO_OPTIONS+=CXGBETOOL
-__DEFAULT_NO_OPTIONS+=MLX5TOOL
-=======
 .if ${__T} != "aarch64" && ${__T} != "amd64" && ${__T} != "i386" && \
     ${__T} != "powerpc64" && ${__T} != "sparc64"
 BROKEN_OPTIONS+=CXGBETOOL
 BROKEN_OPTIONS+=MLX5TOOL
->>>>>>> origin/freebsd/current/master
 .endif
 
 # HyperV is currently x86-only
