@@ -744,14 +744,6 @@ _cp=		cp
 .endif
 _glxiic=	glxiic
 _glxsb=		glxsb
-<<<<<<< HEAD
-_mse=		mse
-_ncr=		ncr
-_ncv=		ncv
-_nsp=		nsp
-=======
-#_ibcs2=		ibcs2
->>>>>>> origin/freebsd/current/master
 _pcfclock=	pcfclock
 _pst=		pst
 _sbni=		sbni
