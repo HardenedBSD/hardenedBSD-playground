@@ -152,7 +152,6 @@ __DEFAULT_YES_OPTIONS = \
     NS_CACHING \
     NTP \
     NVME \
-    OFED \
     OPENSSL \
     PAM \
     PC_SYSINSTALL \
@@ -209,6 +208,7 @@ __DEFAULT_NO_OPTIONS = \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
     NAND \
+    OFED \
     OFED_EXTRA \
     OPENLDAP \
     OPENNTPD \
