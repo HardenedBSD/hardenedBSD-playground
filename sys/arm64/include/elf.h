@@ -68,6 +68,7 @@ __ElfType(Auxinfo);
 
 #define	ELF_MACHINE_OK(x) ((x) == (ELF_ARCH))
 
+<<<<<<< HEAD
 /* Values for a_type. */
 #define	AT_NULL		0	/* Terminates the vector. */
 #define	AT_IGNORE	1	/* Ignored entry. */
@@ -100,6 +101,8 @@ __ElfType(Auxinfo);
 
 #define	AT_COUNT	28	/* Count of defined aux entry types. */
 
+=======
+>>>>>>> origin/freebsd/current/master
 /* Define "machine" characteristics */
 #if __ELF_WORD_SIZE == 64
 #define	ELF_TARG_CLASS	ELFCLASS64

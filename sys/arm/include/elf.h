@@ -61,6 +61,7 @@ __ElfType(Auxinfo);
  * Relocation types.
  */
 
+<<<<<<< HEAD
 /* Values for a_type. */
 #define	AT_NULL		0	/* Terminates the vector. */
 #define	AT_IGNORE	1	/* Ignored entry. */
@@ -93,8 +94,9 @@ __ElfType(Auxinfo);
 
 #define	AT_COUNT	28	/* Count of defined aux entry types. */
 
+=======
+>>>>>>> origin/freebsd/current/master
 #define	R_ARM_COUNT	33	/* Count of defined relocation types. */
-
 
 /* Define "machine" characteristics */
 #define	ELF_TARG_CLASS	ELFCLASS32

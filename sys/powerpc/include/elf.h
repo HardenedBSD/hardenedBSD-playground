@@ -90,6 +90,7 @@ typedef struct {	/* Auxiliary vector entry on initial stack */
 
 __ElfType(Auxinfo);
 
+<<<<<<< HEAD
 /* Values for a_type. */
 #define	AT_NULL		0	/* Terminates the vector. */
 #define	AT_IGNORE	1	/* Ignored entry. */
@@ -120,6 +121,8 @@ __ElfType(Auxinfo);
 
 #define	AT_COUNT	28	/* Count of defined aux entry types. */
 
+=======
+>>>>>>> origin/freebsd/current/master
 /*
  * Relocation types.
  */
