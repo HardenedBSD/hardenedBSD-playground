@@ -9,13 +9,10 @@ OBJS=		${SRCS:N*.h:R:S/$/.o/g}
 OBJS+=		Scrt1.o gcrt1.o
 CFLAGS+=	-I${.CURDIR} -I${.CURDIR:H}/common \
 		-I${SRCTOP}/lib/libc/include
-<<<<<<< HEAD
-CFLAGS+=	-fno-omit-frame-pointer
-MK_CFI=		no
-MK_CROSS_DSO_CFI=	no
-=======
 CFLAGS+=	-fno-omit-frame-pointer -DCRT_IRELOC_RELA
->>>>>>> upstream/hardened/current/master
+
+MK_CFI=			no
+MK_CROSS_DSO_CFI=	no
 
 FILES=		${OBJS}
 FILESMODE=	${LIBMODE}

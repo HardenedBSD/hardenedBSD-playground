@@ -38,7 +38,6 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
-<<<<<<< HEAD
 # 2018mmdd: new clang import which bumps version from 6.0.1 to 7.0.0.
 OLD_FILES+=usr/lib/clang/6.0.1/include/sanitizer/allocator_interface.h
 OLD_FILES+=usr/lib/clang/6.0.1/include/sanitizer/asan_interface.h
@@ -175,7 +174,6 @@ OLD_FILES+=usr/lib/clang/6.0.1/lib/freebsd/libclang_rt.ubsan_standalone_cxx-x86_
 OLD_DIRS+=usr/lib/clang/6.0.1/lib/freebsd
 OLD_DIRS+=usr/lib/clang/6.0.1/lib
 OLD_DIRS+=usr/lib/clang/6.0.1
-=======
 # 20181021: mse(4) removal
 OLD_FILES+=usr/share/man/man4/mse.4.gz
 # 20181021: joy(4) removal
@@ -417,7 +415,6 @@ OLD_LIBS+=usr/lib32/libnuron.so
 OLD_LIBS+=usr/lib32/libsureware.so
 OLD_LIBS+=usr/lib32/libubsec.so
 OLD_LIBS+=usr/lib32/libssl.so.8
->>>>>>> upstream/hardened/current/master
 # 20180824: libbe(3) SHLIBDIR fixed to reflect correct location
 OLD_LIBS+=usr/lib/libbe.so.1
 # 20180819: Remove deprecated arc4random(3) stir/addrandom interfaces
