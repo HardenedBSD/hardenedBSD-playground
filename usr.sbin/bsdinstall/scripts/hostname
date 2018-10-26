@@ -34,13 +34,7 @@ BSDCFG_SHARE="/usr/share/bsdconfig"
 f_dprintf "%s: loading_includes..." "$0"
 f_include $BSDCFG_SHARE/dialog.subr
 
-<<<<<<< HEAD
-exec 3>&1
-HOSTNAME=`dialog --backtitle 'HardenedBSD Installer' --title 'Set Hostname' --nocancel --inputbox \
-	'Please choose a hostname for this machine.
-=======
 ############################################################ CONFIGURATION
->>>>>>> origin/freebsd/current/master
 
 #
 # Default value
@@ -57,7 +51,7 @@ HOSTNAME=`dialog --backtitle 'HardenedBSD Installer' --title 'Set Hostname' --no
 #
 # Strings that should be moved to an i18n file and loaded with f_include_lang()
 #
-msg_freebsd_installer="FreeBSD Installer"
+msg_freebsd_installer="HardenedBSD Installer"
 msg_ok="OK"
 msg_please_choose_a_hostname="Please choose a hostname for this machine.\n\nIf you are running on a managed network, please ask\nyour network administrator for an appropriate name."
 msg_set_hostname="Set Hostname"

@@ -33,28 +33,7 @@ BSDCFG_SHARE="/usr/share/bsdconfig"
 . $BSDCFG_SHARE/common.subr || exit 1
 f_include $BSDCFG_SHARE/dialog.subr
 
-<<<<<<< HEAD
-############################################################ FUNCTIONS
-
-error() {
-	local msg
-	if [ -n "$1" ]; then
-		msg="$1\n\n"
-	fi
-	test -n "$DISTDIR_IS_UNIONFS" && umount -f $BSDINSTALL_DISTDIR
-	test -f $PATH_FSTAB && bsdinstall umount
-	dialog --backtitle "HardenedBSD Installer" --title "Abort" \
-	    --no-label "Exit" --yes-label "Restart" --yesno \
-	    "${msg}An installation step has been aborted. Would you like to restart the installation or exit the installer?" 0 0
-	if [ $? -ne 0 ]; then
-		exit 1
-	else
-		exec $0
-	fi
-}
-=======
 ############################################################ GLOBALS
->>>>>>> origin/freebsd/current/master
 
 #
 # Strings that should be moved to an i18n file and loaded with f_include_lang()
@@ -63,7 +42,7 @@ hline_arrows_tab_enter="Press arrows, TAB or ENTER"
 hline_arrows_tab_space_enter="Press arrows, TAB, SPACE or ENTER"
 msg_abort="Abort"
 msg_exit="Exit"
-msg_freebsd_installer="FreeBSD Installer"
+msg_freebsd_installer="HardenedBSD Installer"
 msg_gpt_active_fix="Your hardware is known to have issues booting in CSM/Legacy/BIOS mode from GPT partitions that are not set active. Would you like the installer to apply this workaround for you?"
 msg_lenovo_fix="Your model of Lenovo is known to have a BIOS bug that prevents it booting from GPT partitions without UEFI. Would you like the installer to apply a workaround for you?"
 msg_an_installation_step_has_been_aborted="An installation step has been aborted. Would you like\nto restart the installation or exit the installer?"
