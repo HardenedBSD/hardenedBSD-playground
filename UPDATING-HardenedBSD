@@ -1,5 +1,5 @@
 [20181019] shift to FreeBSD 13-CURRENT 
-__HardenedBSD_version = 1300000
+__HardenedBSD_version = 1300058
 
 	FreeBSD started 13-CURRENT, do the same here.
 
