@@ -199,7 +199,11 @@ __DEFAULT_NO_OPTIONS = \
     BSD_GREP_FASTMATCH \
     DEVD_PIE \
     DTRACE_TESTS \
+<<<<<<< HEAD
     FREEBSD_UPDATE \
+=======
+    EXPERIMENTAL \
+>>>>>>> origin/freebsd/current/master
     GNU_GREP_COMPAT \
     HESIOD \
     LIB32 \
