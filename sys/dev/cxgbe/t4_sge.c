@@ -4725,8 +4725,11 @@ add_to_txpkts(struct mbuf *m, struct txpkts *txp, u_int available)
 
 	MPASS(txp->wr_type == 0 || txp->wr_type == 1);
 
+	if (cannot_use_txpkts(m))
+		return (1);
+
 	nsegs = mbuf_nsegs(m);
-	if (needs_tso(m) || (txp->wr_type == 1 && nsegs != 1))
+	if (txp->wr_type == 1 && nsegs != 1)
 		return (1);
 
 	plen = txp->plen + m->m_pkthdr.len;
@@ -5079,6 +5082,9 @@ reclaim_tx_descs(struct sge_txq *txq, u_int n)
 		KASSERT(can_reclaim >= ndesc,
 		    ("%s: unexpected number of credits: %d, %d",
 		    __func__, can_reclaim, ndesc));
+		KASSERT(ndesc != 0,
+		    ("%s: descriptor with no credits: cidx %d",
+		    __func__, eq->cidx));
 
 		for (m = txsd->m; m != NULL; m = nextpkt) {
 			nextpkt = m->m_nextpkt;
