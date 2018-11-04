@@ -92,7 +92,6 @@ __DEFAULT_YES_OPTIONS = \
     DICT \
     DMAGENT \
     DYNAMICROOT \
-    ED_CRYPTO \
     EE \
     EFI \
     ELFTOOLCHAIN_BOOTSTRAP \
