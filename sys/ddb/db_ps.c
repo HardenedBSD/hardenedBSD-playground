@@ -466,23 +466,12 @@ DB_SHOW_COMMAND(proc, db_show_proc)
 		db_printf(" ABI: %s\n", p->p_sysent->sv_name);
 	if (p->p_args != NULL) {
 		db_printf(" arguments: ");
-<<<<<<< HEAD
-		for (i = 0; i < (int)p->p_args->ar_length; i++) {
-			if (p->p_args->ar_args[i] == '\0')
-				db_printf(" ");
-			else
-				db_printf("%c", p->p_args->ar_args[i]);
-		}
+		dump_args(p);
 		db_printf("\n");
 	}
 #ifdef PAX
 	pax_db_printf_flags(p, PAX_LOG_DEFAULT);
 #endif
-=======
-		dump_args(p);
-		db_printf("\n");
-	}
->>>>>>> origin/freebsd/10-stable/master
 	db_printf(" threads: %d\n", p->p_numthreads);
 	FOREACH_THREAD_IN_PROC(p, td) {
 		dumpthread(p, td, 1);
