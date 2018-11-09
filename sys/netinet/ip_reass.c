@@ -34,6 +34,7 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include "opt_pax.h"
 #include "opt_rss.h"
 
 #include <sys/param.h>
@@ -526,7 +527,11 @@ ipreass_init(void)
 		V_ipq[i].count = 0;
 	}
 	V_ipq_hashseed = arc4random();
+#ifdef PAX_HARDENING
+	V_maxfragsperpacket = 0;
+#else
 	V_maxfragsperpacket = 16;
+#endif
 	V_ipq_zone = uma_zcreate("ipq", sizeof(struct ipq), NULL, NULL, NULL,
 	    NULL, UMA_ALIGN_PTR, 0);
 	max = IP_MAXFRAGPACKETS;

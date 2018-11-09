@@ -1,3 +1,9 @@
+[20181019] shift to FreeBSD 13-CURRENT 
+__HardenedBSD_version = 1300058
+
+	FreeBSD started 13-CURRENT, do the same here.
+
+
 [20180701] OpenSSL
 __HardenedBSD_version = 1200058
 

@@ -808,8 +808,10 @@ sys_mount(struct thread *td, struct mount_args *uap)
 	free(fstype, M_TEMP);
 	if (vfsp == NULL)
 		return (ENOENT);
-	if (vfsp->vfc_vfsops->vfs_cmount == NULL || ((vfsp->vfc_flags &
-	    VFCF_SBDRY) != 0 && (vfsp->vfc_vfsops_sd->vfs_cmount == NULL)))
+	if (((vfsp->vfc_flags & VFCF_SBDRY) != 0 &&
+	    vfsp->vfc_vfsops_sd->vfs_cmount == NULL) ||
+	    ((vfsp->vfc_flags & VFCF_SBDRY) == 0 &&
+	    vfsp->vfc_vfsops->vfs_cmount == NULL))
 		return (EOPNOTSUPP);
 
 	ma = mount_argsu(ma, "fstype", uap->type, MFSNAMELEN);
@@ -1645,17 +1647,16 @@ vfs_getopt_size(struct vfsoptlist *opts, const char *name, off_t *value)
 	if (iv < 0)
 		return (EINVAL);
 	switch (vtp[0]) {
-	case 't':
-	case 'T':
+	case 't': case 'T':
 		iv *= 1024;
-	case 'g':
-	case 'G':
+		/* FALLTHROUGH */
+	case 'g': case 'G':
 		iv *= 1024;
-	case 'm':
-	case 'M':
+		/* FALLTHROUGH */
+	case 'm': case 'M':
 		iv *= 1024;
-	case 'k':
-	case 'K':
+		/* FALLTHROUGH */
+	case 'k': case 'K':
 		iv *= 1024;
 	case '\0':
 		break;

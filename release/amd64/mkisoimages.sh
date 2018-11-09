@@ -49,7 +49,8 @@ if [ "$1" = "-b" ]; then
 	mkdir efi
 	mount -t msdosfs /dev/$device efi
 	mkdir -p efi/efi/boot
-	cp -p "$BASEBITSDIR/boot/loader.efi" efi/efi/boot/bootx64.efi
+	cp "$BASEBITSDIR/boot/loader.efi" efi/efi/boot/bootx64.efi
+	chmod 0755 efi/efi/boot/bootx64.efi
 	umount efi
 	rmdir efi
 	mdconfig -d -u $device
