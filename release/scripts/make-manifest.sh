@@ -28,11 +28,6 @@ desc_ports="${ports}"
 desc_src="${src}"
 desc_tests="${tests}"
 
-<<<<<<< HEAD
-default_doc=off
-default_lib32=off
-=======
->>>>>>> origin/freebsd/current/master
 default_src=off
 default_ports=off
 default_tests=off
