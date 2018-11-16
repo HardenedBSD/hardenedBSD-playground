@@ -161,7 +161,6 @@ __DEFAULT_YES_OPTIONS = \
     QUOTAS \
     RADIUS_SUPPORT \
     RBOOTD \
-    RELRO \
     RESCUE \
     ROUTED \
     SENDMAIL \
