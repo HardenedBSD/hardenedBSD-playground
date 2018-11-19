@@ -38,7 +38,6 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
-<<<<<<< HEAD
 # 2018mmdd: new clang import which bumps version from 6.0.1 to 7.0.1.
 OLD_FILES+=usr/lib/clang/6.0.1/include/sanitizer/allocator_interface.h
 OLD_FILES+=usr/lib/clang/6.0.1/include/sanitizer/asan_interface.h
@@ -175,13 +174,11 @@ OLD_FILES+=usr/lib/clang/6.0.1/lib/freebsd/libclang_rt.ubsan_standalone_cxx-x86_
 OLD_DIRS+=usr/lib/clang/6.0.1/lib/freebsd
 OLD_DIRS+=usr/lib/clang/6.0.1/lib
 OLD_DIRS+=usr/lib/clang/6.0.1
-=======
 # 20181116: Rename test file.
 OLD_FILES+=usr/tests/sys/netinet/reuseport_lb
 # 20181112: Cleanup old libcap_dns.
 OLD_LIBS+=lib/casper/libcap_dns.so.1
 OLD_LIBS+=usr/lib32/libcap_dns.so.1
->>>>>>> upstream/hardened/current/master
 # 20181030: malloc_domain(9) KPI change
 OLD_FILES+=usr/share/man/man9/malloc_domain.9.gz
 # 20181026: joy(4) removal
