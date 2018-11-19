@@ -174,8 +174,11 @@ OLD_FILES+=usr/lib/clang/6.0.1/lib/freebsd/libclang_rt.ubsan_standalone_cxx-x86_
 OLD_DIRS+=usr/lib/clang/6.0.1/lib/freebsd
 OLD_DIRS+=usr/lib/clang/6.0.1/lib
 OLD_DIRS+=usr/lib/clang/6.0.1
+<<<<<<< HEAD
 # 20181116: Rename test file.
 OLD_FILES+=usr/tests/sys/netinet/reuseport_lb
+=======
+>>>>>>> freebsd/projects/clang700-import
 # 20181112: Cleanup old libcap_dns.
 OLD_LIBS+=lib/casper/libcap_dns.so.1
 OLD_LIBS+=usr/lib32/libcap_dns.so.1
