@@ -632,6 +632,11 @@ options 	LINPROCFS
 options 	LINSYSFS
 
 #####################################################################
+# ZFS support
+
+options		ZFS
+
+#####################################################################
 # VM OPTIONS
 
 # KSTACK_PAGES is the number of memory pages to assign to the kernel

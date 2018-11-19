@@ -106,10 +106,13 @@ if [ `id -u` -ne 0 ]; then
 	exit 1
 fi
 
-kldstat -n vmm > /dev/null 2>&1 
-if [ $? -ne 0 ]; then
-	errmsg "vmm.ko is not loaded"
-	exit 1
+JAIL_TEST=`sysctl -n security.jail.jailed`
+if [ $JAIL_TEST == 0 ]; then
+	kldstat -n vmm > /dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		errmsg "vmm.ko is not loaded"
+		exit 1
+	fi
 fi
 
 force_install=0
