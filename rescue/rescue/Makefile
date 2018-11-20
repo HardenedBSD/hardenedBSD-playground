@@ -6,11 +6,7 @@
 PACKAGE=rescue
 MAN=
 MK_SSP=	no
-<<<<<<< HEAD
 MK_CFI=	no
-=======
-NO_SHARED=	yes
->>>>>>> origin/freebsd/current/master
 
 PROG=	rescue
 BINDIR?=/rescue
