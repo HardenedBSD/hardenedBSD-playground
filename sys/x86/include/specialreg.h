@@ -549,16 +549,13 @@
 #define	MSR_PP1_ENERGY_STATUS	0x641
 #define	MSR_PPERF		0x64e
 #define	MSR_TSC_DEADLINE	0x6e0	/* Writes are not serializing */
-<<<<<<< HEAD
 #define	MSR_IA32_DEBUG_INTERFACE 0xc80	/* Intel Silicon Debug interface */
-=======
 #define	MSR_IA32_PM_ENABLE	0x770
 #define	MSR_IA32_HWP_CAPABILITIES	0x771
 #define	MSR_IA32_HWP_REQUEST_PKG	0x772
 #define	MSR_IA32_HWP_INTERRUPT		0x773
 #define	MSR_IA32_HWP_REQUEST	0x774
 #define	MSR_IA32_HWP_STATUS	0x777
->>>>>>> origin/freebsd/current/master
 
 /*
  * VMX MSRs
