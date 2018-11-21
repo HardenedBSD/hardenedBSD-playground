@@ -290,7 +290,6 @@ int	vasprintf(char **ret, struct malloc_type *mtp, const char *format,
 int	vsnprintf(char *, size_t, const char *, __va_list) __printflike(3, 0);
 int	vsnrprintf(char *, size_t, int, const char *, __va_list) __printflike(4, 0);
 int	vsprintf(char *buf, const char *, __va_list) __printflike(2, 0);
-int	ttyprintf(struct tty *, const char *, ...) __printflike(2, 3);
 int	sscanf(const char *, char const * _Nonnull, ...) __scanflike(2, 3);
 int	vsscanf(const char * _Nonnull, char const * _Nonnull, __va_list)  __scanflike(2, 0);
 long	strtol(const char *, char **, int);
@@ -323,6 +322,12 @@ void	*memmove(void * _Nonnull dest, const void * _Nonnull src, size_t n);
 #define memmove(dest, src, n) __builtin_memmove((dest), (src), (n))
 int	memcmp(const void *b1, const void *b2, size_t len);
 #define memcmp(b1, b2, len) __builtin_memcmp((b1), (b2), (len))
+
+void	*memset_early(void * _Nonnull buf, int c, size_t len);
+#define bzero_early(buf, len) memset_early((buf), 0, (len))
+void	*memcpy_early(void * _Nonnull to, const void * _Nonnull from, size_t len);
+void	*memmove_early(void * _Nonnull dest, const void * _Nonnull src, size_t n);
+#define bcopy_early(from, to, len) memmove_early((to), (from), (len))
 
 int	copystr(const void * _Nonnull __restrict kfaddr,
 	    void * _Nonnull __restrict kdaddr, size_t len,
@@ -518,6 +523,32 @@ int alloc_unr_specific(struct unrhdr *uh, u_int item);
 int alloc_unrl(struct unrhdr *uh);
 void free_unr(struct unrhdr *uh, u_int item);
 
+#if defined(__mips__) || defined(__powerpc__)
+#define UNR64_LOCKED
+#endif
+
+struct unrhdr64 {
+        uint64_t	counter;
+};
+
+static __inline void
+new_unrhdr64(struct unrhdr64 *unr64, uint64_t low)
+{
+
+	unr64->counter = low;
+}
+
+#ifdef UNR64_LOCKED
+uint64_t alloc_unr64(struct unrhdr64 *);
+#else
+static __inline uint64_t
+alloc_unr64(struct unrhdr64 *unr64)
+{
+
+	return (atomic_fetchadd_64(&unr64->counter, 1));
+}
+#endif
+
 void	intr_prof_stack_use(struct thread *td, struct trapframe *frame);
 
 void counted_warning(unsigned *counter, const char *msg);
@@ -537,6 +568,9 @@ void _gone_in_dev(struct device *dev, int major, const char *msg);
 #endif
 #define gone_in(major, msg)		__gone_ok(major, msg) _gone_in(major, msg)
 #define gone_in_dev(dev, major, msg)	__gone_ok(major, msg) _gone_in_dev(dev, major, msg)
+#define	gone_by_fcp101_dev(dev)						\
+	gone_in_dev((dev), 13,						\
+	    "see https://github.com/freebsd/fcp/blob/master/fcp-0101.md")
 
 __NULLABILITY_PRAGMA_POP
 

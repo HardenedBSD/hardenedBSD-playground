@@ -63,6 +63,8 @@ __FBSDID("$FreeBSD$");
 #ifdef RSS
 #include <net/rss_config.h>
 #endif
+#include <netinet/in.h>
+#include <netinet/ip.h>
 #if defined(__i386__) || defined(__amd64__)
 #include <machine/md_var.h>
 #include <machine/cputypes.h>
@@ -90,12 +92,15 @@ __FBSDID("$FreeBSD$");
 static int t4_probe(device_t);
 static int t4_attach(device_t);
 static int t4_detach(device_t);
+static int t4_child_location_str(device_t, device_t, char *, size_t);
 static int t4_ready(device_t);
 static int t4_read_port_device(device_t, int, device_t *);
 static device_method_t t4_methods[] = {
 	DEVMETHOD(device_probe,		t4_probe),
 	DEVMETHOD(device_attach,	t4_attach),
 	DEVMETHOD(device_detach,	t4_detach),
+
+	DEVMETHOD(bus_child_location_str, t4_child_location_str),
 
 	DEVMETHOD(t4_is_main_ready,	t4_ready),
 	DEVMETHOD(t4_read_port_device,	t4_read_port_device),
@@ -156,6 +161,8 @@ static device_method_t t5_methods[] = {
 	DEVMETHOD(device_attach,	t4_attach),
 	DEVMETHOD(device_detach,	t4_detach),
 
+	DEVMETHOD(bus_child_location_str, t4_child_location_str),
+
 	DEVMETHOD(t4_is_main_ready,	t4_ready),
 	DEVMETHOD(t4_read_port_device,	t4_read_port_device),
 
@@ -188,6 +195,8 @@ static device_method_t t6_methods[] = {
 	DEVMETHOD(device_probe,		t6_probe),
 	DEVMETHOD(device_attach,	t4_attach),
 	DEVMETHOD(device_detach,	t4_detach),
+
+	DEVMETHOD(bus_child_location_str, t4_child_location_str),
 
 	DEVMETHOD(t4_is_main_ready,	t4_ready),
 	DEVMETHOD(t4_read_port_device,	t4_read_port_device),
@@ -520,9 +529,9 @@ struct intrs_and_queues {
 
 static void setup_memwin(struct adapter *);
 static void position_memwin(struct adapter *, int, uint32_t);
-static int validate_mem_range(struct adapter *, uint32_t, int);
+static int validate_mem_range(struct adapter *, uint32_t, uint32_t);
 static int fwmtype_to_hwmtype(int);
-static int validate_mt_off_len(struct adapter *, int, uint32_t, int,
+static int validate_mt_off_len(struct adapter *, int, uint32_t, uint32_t,
     uint32_t *);
 static int fixup_devlog_params(struct adapter *);
 static int cfg_itype_and_nqueues(struct adapter *, struct intrs_and_queues *);
@@ -835,6 +844,24 @@ t4_init_devnames(struct adapter *sc)
 }
 
 static int
+t4_ifnet_unit(struct adapter *sc, struct port_info *pi)
+{
+	const char *parent, *name;
+	long value;
+	int line, unit;
+
+	line = 0;
+	parent = device_get_nameunit(sc->dev);
+	name = sc->names->ifnet_name;
+	while (resource_find_dev(&line, name, &unit, "at", parent) == 0) {
+		if (resource_long_value(name, unit, "port", &value) == 0 &&
+		    value == pi->port_id)
+			return (unit);
+	}
+	return (-1);
+}
+
+static int
 t4_attach(device_t dev)
 {
 	struct adapter *sc;
@@ -1035,7 +1062,8 @@ t4_attach(device_t dev)
 			pi->flags |= FIXED_IFMEDIA;
 		PORT_UNLOCK(pi);
 
-		pi->dev = device_add_child(dev, sc->names->ifnet_name, -1);
+		pi->dev = device_add_child(dev, sc->names->ifnet_name,
+		    t4_ifnet_unit(sc, pi));
 		if (pi->dev == NULL) {
 			device_printf(dev,
 			    "failed to add device for port %d.\n", i);
@@ -1125,6 +1153,9 @@ t4_attach(device_t dev)
 #ifdef RATELIMIT
 	t4_init_etid_table(sc);
 #endif
+	if (sc->vres.key.size != 0)
+		sc->key_map = vmem_create("T4TLS key map", sc->vres.key.start,
+		    sc->vres.key.size, 32, 0, M_FIRSTFIT | M_WAITOK);
 
 	/*
 	 * Second pass over the ports.  This time we know the number of rx and
@@ -1248,6 +1279,16 @@ done:
 		t4_sysctls(sc);
 
 	return (rc);
+}
+
+static int
+t4_child_location_str(device_t bus, device_t dev, char *buf, size_t buflen)
+{
+	struct port_info *pi;
+
+	pi = device_get_softc(dev);
+	snprintf(buf, buflen, "port=%d", pi->port_id);
+	return (0);
 }
 
 static int
@@ -1400,6 +1441,8 @@ t4_detach_common(device_t dev)
 #ifdef RATELIMIT
 	t4_free_etid_table(sc);
 #endif
+	if (sc->key_map)
+		vmem_destroy(sc->key_map);
 
 #if defined(TCP_OFFLOAD) || defined(RATELIMIT)
 	free(sc->sge.ofld_txq, M_CXGBE);
@@ -1535,8 +1578,12 @@ cxgbe_vi_attach(device_t dev, struct vi_info *vi)
 	ifp->if_hwassist = CSUM_TCP | CSUM_UDP | CSUM_IP | CSUM_TSO |
 	    CSUM_UDP_IPV6 | CSUM_TCP_IPV6;
 
-	ifp->if_hw_tsomax = 65536 - (ETHER_HDR_LEN + ETHER_VLAN_ENCAP_LEN);
-	ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS;
+	ifp->if_hw_tsomax = IP_MAXPACKET;
+	ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS_TSO;
+#ifdef RATELIMIT
+	if (is_ethoffload(vi->pi->adapter) && vi->nofldtxq != 0)
+		ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS_EO_TSO;
+#endif
 	ifp->if_hw_tsomaxsegsize = 65536;
 
 	ether_ifattach(ifp, vi->hw_addr);
@@ -2784,14 +2831,14 @@ t4_range_cmp(const void *a, const void *b)
  * the card's address space.
  */
 static int
-validate_mem_range(struct adapter *sc, uint32_t addr, int len)
+validate_mem_range(struct adapter *sc, uint32_t addr, uint32_t len)
 {
 	struct t4_range mem_ranges[4], *r, *next;
 	uint32_t em, addr_len;
 	int i, n, remaining;
 
 	/* Memory can only be accessed in naturally aligned 4 byte units */
-	if (addr & 3 || len & 3 || len <= 0)
+	if (addr & 3 || len & 3 || len == 0)
 		return (EINVAL);
 
 	/* Enabled memories */
@@ -2930,7 +2977,7 @@ fwmtype_to_hwmtype(int mtype)
  * the start of the range is returned in addr.
  */
 static int
-validate_mt_off_len(struct adapter *sc, int mtype, uint32_t off, int len,
+validate_mt_off_len(struct adapter *sc, int mtype, uint32_t off, uint32_t len,
     uint32_t *addr)
 {
 	uint32_t em, addr_len, maddr;
@@ -4150,6 +4197,11 @@ set_params__post_init(struct adapter *sc)
 	if (t4_set_params(sc, sc->mbox, sc->pf, 0, 1, &param, &val) == 0)
 		sc->params.port_caps32 = 1;
 
+	/* Let filter + maskhash steer to a part of the VI's RSS region. */
+	val = 1 << (G_MASKSIZE(t4_read_reg(sc, A_TP_RSS_CONFIG_TNL)) - 1);
+	t4_set_reg_field(sc, A_TP_RSS_CONFIG_TNL, V_MASKFILTER(M_MASKFILTER),
+	    V_MASKFILTER(val - 1));
+
 #ifdef TCP_OFFLOAD
 	/*
 	 * Override the TOE timers with user provided tunables.  This is not the
@@ -5146,7 +5198,7 @@ vi_full_init(struct vi_info *vi)
 	struct ifnet *ifp = vi->ifp;
 	uint16_t *rss;
 	struct sge_rxq *rxq;
-	int rc, i, j, hashen;
+	int rc, i, j;
 #ifdef RSS
 	int nbuckets = rss_getnumbuckets();
 	int hashconfig = rss_gethashconfig();
@@ -5210,14 +5262,14 @@ vi_full_init(struct vi_info *vi)
 	}
 
 #ifdef RSS
-	hashen = hashconfig_to_hashen(hashconfig);
+	vi->hashen = hashconfig_to_hashen(hashconfig);
 
 	/*
 	 * We may have had to enable some hashes even though the global config
 	 * wants them disabled.  This is a potential problem that must be
 	 * reported to the user.
 	 */
-	extra = hashen_to_hashconfig(hashen) ^ hashconfig;
+	extra = hashen_to_hashconfig(vi->hashen) ^ hashconfig;
 
 	/*
 	 * If we consider only the supported hash types, then the enabled hashes
@@ -5246,12 +5298,12 @@ vi_full_init(struct vi_info *vi)
 	if (extra & RSS_HASHTYPE_RSS_UDP_IPV6)
 		if_printf(ifp, "UDP/IPv6 4-tuple hashing forced on.\n");
 #else
-	hashen = F_FW_RSS_VI_CONFIG_CMD_IP6FOURTUPEN |
+	vi->hashen = F_FW_RSS_VI_CONFIG_CMD_IP6FOURTUPEN |
 	    F_FW_RSS_VI_CONFIG_CMD_IP6TWOTUPEN |
 	    F_FW_RSS_VI_CONFIG_CMD_IP4FOURTUPEN |
 	    F_FW_RSS_VI_CONFIG_CMD_IP4TWOTUPEN | F_FW_RSS_VI_CONFIG_CMD_UDPEN;
 #endif
-	rc = -t4_config_vi_rss(sc, sc->mbox, vi->viid, hashen, rss[0], 0, 0);
+	rc = -t4_config_vi_rss(sc, sc->mbox, vi->viid, vi->hashen, rss[0], 0, 0);
 	if (rc != 0) {
 		free(rss, M_CXGBE);
 		if_printf(ifp, "rss hash/defaultq config failed: %d\n", rc);
@@ -6061,6 +6113,8 @@ vi_sysctls(struct vi_info *vi)
 	    &vi->first_rxq, 0, "index of first rx queue");
 	SYSCTL_ADD_INT(ctx, children, OID_AUTO, "first_txq", CTLFLAG_RD,
 	    &vi->first_txq, 0, "index of first tx queue");
+	SYSCTL_ADD_UINT(ctx, children, OID_AUTO, "rss_base", CTLFLAG_RD, NULL,
+	    vi->rss_base, "start of RSS indirection table");
 	SYSCTL_ADD_UINT(ctx, children, OID_AUTO, "rss_size", CTLFLAG_RD, NULL,
 	    vi->rss_size, "size of RSS indirection table");
 
@@ -9755,6 +9809,7 @@ t4_ioctl(struct cdev *dev, unsigned long cmd, caddr_t data, int fflag,
 					txq->txpkts1_wrs = 0;
 					txq->txpkts0_pkts = 0;
 					txq->txpkts1_pkts = 0;
+					txq->raw_wrs = 0;
 					mp_ring_reset_stats(txq->r);
 				}
 

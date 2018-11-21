@@ -195,6 +195,7 @@ static struct bool_flags pr_flag_allow[NBBY * NBPW] = {
 	{"allow.mlock", "allow.nomlock", PR_ALLOW_MLOCK},
 	{"allow.reserved_ports", "allow.noreserved_ports",
 	 PR_ALLOW_RESERVED_PORTS},
+	{"allow.read_msgbuf", "allow.noread_msgbuf", PR_ALLOW_READ_MSGBUF},
 };
 const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
 
@@ -3081,6 +3082,7 @@ prison_priv_check(struct ucred *cred, int priv)
 	case PRIV_NET_SETIFMETRIC:
 	case PRIV_NET_SETIFPHYS:
 	case PRIV_NET_SETIFMAC:
+	case PRIV_NET_SETLANPCP:
 	case PRIV_NET_ADDMULTI:
 	case PRIV_NET_DELMULTI:
 	case PRIV_NET_HWIOCTL:
@@ -3369,6 +3371,15 @@ prison_priv_check(struct ucred *cred, int priv)
 		 */
 	case PRIV_PROC_SETLOGINCLASS:
 		return (0);
+
+		/*
+		 * Do not allow a process inside a jail to read the kernel
+		 * message buffer unless explicitly permitted.
+		 */
+	case PRIV_MSGBUF:
+		if (cred->cr_prison->pr_allow & PR_ALLOW_READ_MSGBUF)
+			return (0);
+		return (EPERM);
 
 	default:
 		/*
@@ -3790,6 +3801,8 @@ SYSCTL_JAIL_PARAM(_allow, mlock, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may lock (unlock) physical pages in memory");
 SYSCTL_JAIL_PARAM(_allow, reserved_ports, CTLTYPE_INT | CTLFLAG_RW,
     "B", "Jail may bind sockets to reserved ports");
+SYSCTL_JAIL_PARAM(_allow, read_msgbuf, CTLTYPE_INT | CTLFLAG_RW,
+    "B", "Jail may read the kernel message buffer");
 
 SYSCTL_JAIL_PARAM_SUBNODE(allow, mount, "Jail mount/unmount permission flags");
 SYSCTL_JAIL_PARAM(_allow_mount, , CTLTYPE_INT | CTLFLAG_RW,

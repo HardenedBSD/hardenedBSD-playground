@@ -176,6 +176,7 @@ reldoc:
 	cd ${DOCDIR}/en_US.ISO8859-1/htdocs/releases/${REVISION}R && \
 	    env MAN4DIR=${WORLDDIR}/share/man/man4 \
 	    SVN=${SVN} \
+	    _BRANCH=${BRANCH} \
 	    ${MAKE} all install clean "FORMATS=html txt" \
 	    INSTALL_COMPRESSED='' URLS_ABSOLUTE=YES DOCDIR=${.OBJDIR}/rdoc \
 	    WEBDIR=${DOCDIR} DESTDIR=${.OBJDIR}/rdoc
@@ -214,6 +215,7 @@ disc1: packagesystem
 	echo hostid_enable=\"NO\" >> ${.TARGET}/etc/rc.conf
 	echo debug.witness.trace=0 >> ${.TARGET}/etc/sysctl.conf
 	echo vfs.mountroot.timeout=\"10\" >> ${.TARGET}/boot/loader.conf
+	echo kernels_autodetect=\"NO\" >> ${.TARGET}/boot/loader.conf
 	cp ${.CURDIR}/rc.local ${.TARGET}/etc
 	# XXXOP - try to work around installer lockup on random dev in a virtual machine
 	dd if=/dev/random of=${.TARGET}/boot/entropy bs=4k count=1
@@ -245,6 +247,7 @@ bootonly: packagesystem
 	echo hostid_enable=\"NO\" >> ${.TARGET}/etc/rc.conf
 	echo debug.witness.trace=0 >> ${.TARGET}/etc/sysctl.conf
 	echo vfs.mountroot.timeout=\"10\" >> ${.TARGET}/boot/loader.conf
+	echo kernels_autodetect=\"NO\" >> ${.TARGET}/boot/loader.conf
 	cp ${.CURDIR}/rc.local ${.TARGET}/etc
 	# XXXOP - try to work around installer lockup on random dev in a virtual machine
 	dd if=/dev/random of=${.TARGET}/boot/entropy bs=4k count=1
@@ -273,6 +276,7 @@ dvd: packagesystem
 	echo hostid_enable=\"NO\" >> ${.TARGET}/etc/rc.conf
 	echo debug.witness.trace=0 >> ${.TARGET}/etc/sysctl.conf
 	echo vfs.mountroot.timeout=\"10\" >> ${.TARGET}/boot/loader.conf
+	echo kernels_autodetect=\"NO\" >> ${.TARGET}/boot/loader.conf
 	cp ${.CURDIR}/rc.local ${.TARGET}/etc
 	# XXXOP - try to work around installer lockup on random dev in a virtual machine
 	dd if=/dev/random of=${.TARGET}/boot/entropy bs=4k count=1

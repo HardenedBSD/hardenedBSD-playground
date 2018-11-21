@@ -19,7 +19,7 @@
 # $FreeBSD$
 
 cpu		HAMMER
-ident		HARDENEDBSD-12-CURRENT
+ident		HARDENEDBSD-13-CURRENT
 
 makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
 makeoptions	WITH_CTF=1		# Run ctfconvert(1) for DTrace support
@@ -52,7 +52,6 @@ options 	MSDOSFS			# MSDOS Filesystem
 options 	CD9660			# ISO 9660 Filesystem
 options 	PROCFS			# Process filesystem (requires PSEUDOFS)
 options 	PSEUDOFS		# Pseudo-filesystem framework
-options 	GEOM_PART_GPT		# GUID Partition Tables.
 options 	GEOM_RAID		# Soft RAID functionality.
 options 	GEOM_LABEL		# Provides labelization
 options 	GEOM_ELI		# Disk encryption.
@@ -155,10 +154,6 @@ device		mpr			# LSI-Logic MPT-Fusion 3
 device		sym			# NCR/Symbios Logic (newer chipsets + those of `ncr')
 device		trm			# Tekram DC395U/UW/F DC315U adapters
 
-device		adv			# Advansys SCSI adapters
-device		adw			# Advansys wide SCSI adapters
-device		aic			# Adaptec 15[012]x SCSI adapters, AIC-6[23]60.
-device		bt			# Buslogic/Mylex MultiMaster SCSI adapters
 device		isci			# Intel C600 SAS controller
 
 # ATA/SCSI peripherals
@@ -175,7 +170,6 @@ device		ses			# Enclosure Services (SES and SAF-TE)
 device		amr			# AMI MegaRAID
 device		arcmsr			# Areca SATA II RAID
 device		ciss			# Compaq Smart RAID 5*
-device		dpt			# DPT Smartcache III, IV - See NOTES for options
 device		hptmv			# Highpoint RocketRAID 182x
 device		hptnr			# Highpoint DC7280, R750
 device		hptrr			# Highpoint RocketRAID 17xx, 22xx, 23xx, 25xx

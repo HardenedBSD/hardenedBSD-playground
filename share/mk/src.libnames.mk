@@ -75,6 +75,7 @@ _LIBRARIES=	\
 		cam \
 		casper \
 		cap_dns \
+		cap_fileargs \
 		cap_grp \
 		cap_pwd \
 		cap_random \
@@ -224,6 +225,7 @@ _DP_zstd=	pthread
 .if ${MK_BLACKLIST} != "no"
 _DP_blacklist+=	pthread
 .endif
+_DP_crypto=	pthread
 .if ${MK_OPENSSL} != "no"
 _DP_archive+=	crypto
 .else
@@ -245,6 +247,7 @@ _DP_cam=	sbuf
 _DP_kvm=	elf
 _DP_casper=	nv
 _DP_cap_dns=	nv
+_DP_cap_fileargs=	nv
 _DP_cap_grp=	nv
 _DP_cap_pwd=	nv
 _DP_cap_random=	nv
@@ -283,7 +286,7 @@ _DP_mp=	crypto
 _DP_memstat=	kvm
 _DP_magic=	z
 _DP_mt=		sbuf bsdxml
-_DP_ldns=	crypto
+_DP_ldns=	ssl crypto
 .if ${MK_OPENSSL} != "no"
 _DP_fetch=	ssl crypto
 .else

@@ -53,6 +53,7 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
+#include <sys/epoch.h>
 #include <sys/exec.h>
 #include <sys/file.h>
 #include <sys/filedesc.h>
@@ -521,6 +522,7 @@ proc0_init(void *dummy __unused)
 	td->td_pax = PAX_NOTE_ALL_DISABLED;
 #endif
 	td->td_domain.dr_policy = td->td_cpuset->cs_domain;
+	epoch_thread_init(td);
 	prison0_init();
 	p->p_peers = 0;
 	p->p_leader = p;

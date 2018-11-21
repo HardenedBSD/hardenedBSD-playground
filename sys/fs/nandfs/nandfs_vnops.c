@@ -1233,6 +1233,8 @@ nandfs_readdir(struct vop_readdir_args *ap)
 				dirent.d_namlen = name_len;
 				strncpy(dirent.d_name, ndirent->name, name_len);
 				dirent.d_reclen = GENERIC_DIRSIZ(&dirent);
+				/* NOTE: d_off is the offset of the *next* entry. */
+				dirent.d_off = diroffset + ndirent->rec_len;
 				DPRINTF(READDIR, ("copying `%*.*s`\n", name_len,
 				    name_len, dirent.d_name));
 			}
@@ -1939,8 +1941,8 @@ nandfs_symlink(struct vop_symlink_args *ap)
 
 
 	len = strlen(ap->a_target);
-	error = vn_rdwr(UIO_WRITE, *vpp, ap->a_target, len, (off_t)0,
-	    UIO_SYSSPACE, IO_NODELOCKED | IO_NOMACCHECK,
+	error = vn_rdwr(UIO_WRITE, *vpp, __DECONST(void *, ap->a_target),
+	    len, (off_t)0, UIO_SYSSPACE, IO_NODELOCKED | IO_NOMACCHECK,
 	    cnp->cn_cred, NOCRED, NULL, NULL);
 	if (error)
 		vput(*vpp);

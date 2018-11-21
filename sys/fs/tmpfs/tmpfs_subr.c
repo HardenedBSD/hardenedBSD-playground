@@ -182,7 +182,7 @@ tmpfs_ref_node_locked(struct tmpfs_node *node)
 int
 tmpfs_alloc_node(struct mount *mp, struct tmpfs_mount *tmp, enum vtype type,
     uid_t uid, gid_t gid, mode_t mode, struct tmpfs_node *parent,
-    char *target, dev_t rdev, struct tmpfs_node **node)
+    const char *target, dev_t rdev, struct tmpfs_node **node)
 {
 	struct tmpfs_node *nnode;
 	vm_object_t obj;
@@ -230,7 +230,7 @@ tmpfs_alloc_node(struct mount *mp, struct tmpfs_mount *tmp, enum vtype type,
 	nnode->tn_uid = uid;
 	nnode->tn_gid = gid;
 	nnode->tn_mode = mode;
-	nnode->tn_id = alloc_unr(tmp->tm_ino_unr);
+	nnode->tn_id = alloc_unr64(&tmp->tm_ino_unr);
 	nnode->tn_refcount = 1;
 
 	/* Type-specific initialization. */
@@ -368,13 +368,6 @@ tmpfs_free_node_locked(struct tmpfs_mount *tmp, struct tmpfs_node *node,
 		panic("tmpfs_free_node: type %p %d", node, (int)node->tn_type);
 	}
 
-	/*
-	 * If we are unmounting there is no need for going through the overhead
-	 * of freeing the inodes from the unr individually, so free them all in
-	 * one go later.
-	 */
-	if (!detach)
-		free_unr(tmp->tm_ino_unr, node->tn_id);
 	uma_zfree(tmp->tm_node_pool, node);
 	TMPFS_LOCK(tmp);
 	tmpfs_free_tmp(tmp);
@@ -717,7 +710,7 @@ tmpfs_free_vp(struct vnode *vp)
  */
 int
 tmpfs_alloc_file(struct vnode *dvp, struct vnode **vpp, struct vattr *vap,
-    struct componentname *cnp, char *target)
+    struct componentname *cnp, const char *target)
 {
 	int error;
 	struct tmpfs_dirent *de;
