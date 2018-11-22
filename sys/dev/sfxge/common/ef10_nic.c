@@ -1072,6 +1072,17 @@ ef10_get_datapath_caps(
 	encp->enc_rx_disable_scatter_supported =
 	    CAP_FLAG(flags, RX_DISABLE_SCATTER) ? B_TRUE : B_FALSE;
 
+	/* Check if the firmware supports packed stream mode */
+	encp->enc_rx_packed_stream_supported =
+	    CAP_FLAG(flags, RX_PACKED_STREAM) ? B_TRUE : B_FALSE;
+
+	/*
+	 * Check if the firmware supports configurable buffer sizes
+	 * for packed stream mode (otherwise buffer size is 1Mbyte)
+	 */
+	encp->enc_rx_var_packed_stream_supported =
+	    CAP_FLAG(flags, RX_PACKED_STREAM_VAR_BUFFERS) ? B_TRUE : B_FALSE;
+
 	/* Check if the firmware supports set mac with running filters */
 	encp->enc_allow_set_mac_with_installed_filters =
 	    CAP_FLAG(flags, VADAPTOR_PERMIT_SET_MAC_WHEN_FILTERS_INSTALLED) ?
@@ -1092,6 +1103,18 @@ ef10_get_datapath_caps(
 		CAP_FLAG2(flags2, INIT_EVQ_V2) ? B_TRUE : B_FALSE;
 
 	/*
+	 * Check if firmware-verified NVRAM updates must be used.
+	 *
+	 * The firmware trusted installer requires all NVRAM updates to use
+	 * version 2 of MC_CMD_NVRAM_UPDATE_START (to enable verified update)
+	 * and version 2 of MC_CMD_NVRAM_UPDATE_FINISH (to verify the updated
+	 * partition and report the result).
+	 */
+	encp->enc_fw_verified_nvram_update_required =
+	    CAP_FLAG2(flags2, NVRAM_UPDATE_REPORT_VERIFY_RESULT) ?
+	    B_TRUE : B_FALSE;
+
+	/*
 	 * Check if firmware provides packet memory and Rx datapath
 	 * counters.
 	 */
@@ -1104,18 +1127,6 @@ ef10_get_datapath_caps(
 	 */
 	encp->enc_mac_stats_40g_tx_size_bins =
 	    CAP_FLAG2(flags2, MAC_STATS_40G_TX_SIZE_BINS) ? B_TRUE : B_FALSE;
-
-	/*
-	 * Check if firmware-verified NVRAM updates must be used.
-	 *
-	 * The firmware trusted installer requires all NVRAM updates to use
-	 * version 2 of MC_CMD_NVRAM_UPDATE_START (to enable verified update)
-	 * and version 2 of MC_CMD_NVRAM_UPDATE_FINISH (to verify the updated
-	 * partition and report the result).
-	 */
-	encp->enc_fw_verified_nvram_update_required =
-	    CAP_FLAG2(flags2, NVRAM_UPDATE_REPORT_VERIFY_RESULT) ?
-	    B_TRUE : B_FALSE;
 
 #undef CAP_FLAG
 #undef CAP_FLAG2
