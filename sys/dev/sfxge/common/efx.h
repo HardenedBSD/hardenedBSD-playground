@@ -52,6 +52,9 @@ extern "C" {
 #define	EFX_FIELD_OFFSET(_type, _field)		\
 	((size_t) &(((_type *)0)->_field))
 
+/* The macro expands divider twice */
+#define	EFX_DIV_ROUND_UP(_n, _d)		(((_n) + (_d) - 1) / (_d))
+
 /* Return codes */
 
 typedef __success(return == 0) int efx_rc_t;
@@ -1086,6 +1089,7 @@ efx_bist_stop(
 #define	EFX_FEATURE_PIO_BUFFERS		0x00000800
 #define	EFX_FEATURE_FW_ASSISTED_TSO	0x00001000
 #define	EFX_FEATURE_FW_ASSISTED_TSO_V2	0x00002000
+#define	EFX_FEATURE_PACKED_STREAM	0x00004000
 
 typedef struct efx_nic_cfg_s {
 	uint32_t		enc_board_type;
@@ -1107,6 +1111,7 @@ typedef struct efx_nic_cfg_s {
 	uint32_t		enc_evq_limit;
 	uint32_t		enc_txq_limit;
 	uint32_t		enc_rxq_limit;
+	uint32_t		enc_txq_max_ndescs;
 	uint32_t		enc_buftbl_limit;
 	uint32_t		enc_piobuf_limit;
 	uint32_t		enc_piobuf_size;
@@ -1181,6 +1186,8 @@ typedef struct efx_nic_cfg_s {
 	boolean_t		enc_allow_set_mac_with_installed_filters;
 	boolean_t		enc_enhanced_set_mac_supported;
 	boolean_t		enc_init_evq_v2_supported;
+	boolean_t		enc_rx_packed_stream_supported;
+	boolean_t		enc_rx_var_packed_stream_supported;
 	boolean_t		enc_pm_and_rxdp_counters;
 	boolean_t		enc_mac_stats_40g_tx_size_bins;
 	/* External port identifier */
@@ -1622,6 +1629,16 @@ typedef __checkReturn	boolean_t
 #define	EFX_ADDR_MISMATCH	0x4000
 #define	EFX_DISCARD		0x8000
 
+/*
+ * The following flags are used only for packed stream
+ * mode. The values for the flags are reused to fit into 16 bit,
+ * since EFX_PKT_START and EFX_PKT_CONT are never used in
+ * packed stream mode
+ */
+#define	EFX_PKT_PACKED_STREAM_NEW_BUFFER	EFX_PKT_START
+#define	EFX_PKT_PACKED_STREAM_PARSE_INCOMPLETE	EFX_PKT_CONT
+
+
 #define	EFX_EV_RX_NLABELS	32
 #define	EFX_EV_TX_NLABELS	32
 
@@ -1632,6 +1649,28 @@ typedef	__checkReturn	boolean_t
 	__in		uint32_t id,
 	__in		uint32_t size,
 	__in		uint16_t flags);
+
+#if EFSYS_OPT_RX_PACKED_STREAM
+
+/*
+ * Packed stream mode is documented in SF-112241-TC.
+ * The general idea is that, instead of putting each incoming
+ * packet into a separate buffer which is specified in a RX
+ * descriptor, a large buffer is provided to the hardware and
+ * packets are put there in a continuous stream.
+ * The main advantage of such an approach is that RX queue refilling
+ * happens much less frequently.
+ */
+
+typedef	__checkReturn	boolean_t
+(*efx_rx_ps_ev_t)(
+	__in_opt	void *arg,
+	__in		uint32_t label,
+	__in		uint32_t id,
+	__in		uint32_t pkt_count,
+	__in		uint16_t flags);
+
+#endif
 
 typedef	__checkReturn	boolean_t
 (*efx_tx_ev_t)(
@@ -1722,6 +1761,9 @@ typedef __checkReturn	boolean_t
 typedef struct efx_ev_callbacks_s {
 	efx_initialized_ev_t		eec_initialized;
 	efx_rx_ev_t			eec_rx;
+#if EFSYS_OPT_RX_PACKED_STREAM
+	efx_rx_ps_ev_t			eec_rx_ps;
+#endif
 	efx_tx_ev_t			eec_tx;
 	efx_exception_ev_t		eec_exception;
 	efx_rxq_flush_done_ev_t		eec_rxq_flush_done;
@@ -1900,6 +1942,11 @@ efx_pseudo_hdr_pkt_length_get(
 typedef enum efx_rxq_type_e {
 	EFX_RXQ_TYPE_DEFAULT,
 	EFX_RXQ_TYPE_SCATTER,
+	EFX_RXQ_TYPE_PACKED_STREAM_1M,
+	EFX_RXQ_TYPE_PACKED_STREAM_512K,
+	EFX_RXQ_TYPE_PACKED_STREAM_256K,
+	EFX_RXQ_TYPE_PACKED_STREAM_128K,
+	EFX_RXQ_TYPE_PACKED_STREAM_64K,
 	EFX_RXQ_NTYPES
 } efx_rxq_type_t;
 
@@ -1940,6 +1987,29 @@ efx_rx_qpush(
 	__in	unsigned int added,
 	__inout	unsigned int *pushedp);
 
+#if EFSYS_OPT_RX_PACKED_STREAM
+
+/*
+ * Fake length for RXQ descriptors in packed stream mode
+ * to make hardware happy
+ */
+#define	EFX_RXQ_PACKED_STREAM_FAKE_BUF_SIZE 32
+
+extern			void
+efx_rx_qpush_ps_credits(
+	__in		efx_rxq_t *erp);
+
+extern	__checkReturn	uint8_t *
+efx_rx_qps_packet_info(
+	__in		efx_rxq_t *erp,
+	__in		uint8_t *buffer,
+	__in		uint32_t buffer_length,
+	__in		uint32_t current_offset,
+	__out		uint16_t *lengthp,
+	__out		uint32_t *next_offsetp,
+	__out		uint32_t *timestamp);
+#endif
+
 extern	__checkReturn	efx_rc_t
 efx_rx_qflush(
 	__in	efx_rxq_t *erp);
@@ -1976,12 +2046,6 @@ efx_tx_init(
 extern		void
 efx_tx_fini(
 	__in	efx_nic_t *enp);
-
-#define	EFX_BUG35388_WORKAROUND(_encp)					\
-	(((_encp) == NULL) ? 1 : ((_encp)->enc_bug35388_workaround != 0))
-
-#define	EFX_TXQ_MAXNDESCS(_encp)					\
-	((EFX_BUG35388_WORKAROUND(_encp)) ? 2048 : 4096)
 
 #define	EFX_TXQ_MINNDESCS		512
 

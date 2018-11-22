@@ -158,6 +158,8 @@ siena_board_cfg(
 	encp->enc_rxq_limit = MIN(EFX_RXQ_LIMIT_TARGET, nrxq);
 	encp->enc_txq_limit = MIN(EFX_TXQ_LIMIT_TARGET, ntxq);
 
+	encp->enc_txq_max_ndescs = 4096;
+
 	encp->enc_buftbl_limit = SIENA_SRAM_ROWS -
 	    (encp->enc_txq_limit * EFX_TXQ_DC_NDESCS(EFX_TXQ_DC_SIZE)) -
 	    (encp->enc_rxq_limit * EFX_RXQ_DC_NDESCS(EFX_RXQ_DC_SIZE));
@@ -167,6 +169,8 @@ siena_board_cfg(
 	encp->enc_fw_assisted_tso_v2_enabled = B_FALSE;
 	encp->enc_fw_assisted_tso_v2_n_contexts = 0;
 	encp->enc_allow_set_mac_with_installed_filters = B_TRUE;
+	encp->enc_rx_packed_stream_supported = B_FALSE;
+	encp->enc_rx_var_packed_stream_supported = B_FALSE;
 
 	/* Siena supports two 10G ports, and 8 lanes of PCIe Gen2 */
 	encp->enc_required_pcie_bandwidth_mbps = 2 * 10000;
