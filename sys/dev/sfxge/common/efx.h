@@ -920,13 +920,13 @@ efx_phy_media_type_get(
 	__in		efx_nic_t *enp,
 	__out		efx_phy_media_type_t *typep);
 
-extern					efx_rc_t
+extern	__checkReturn		efx_rc_t
 efx_phy_module_get_info(
-	__in				efx_nic_t *enp,
-	__in				uint8_t dev_addr,
-	__in				uint8_t offset,
-	__in				uint8_t len,
-	__out_bcount(len)		uint8_t *data);
+	__in			efx_nic_t *enp,
+	__in			uint8_t dev_addr,
+	__in			uint8_t offset,
+	__in			uint8_t len,
+	__out_bcount(len)	uint8_t *data);
 
 #if EFSYS_OPT_PHY_STATS
 
@@ -1388,6 +1388,7 @@ typedef enum efx_nvram_type_e {
 	EFX_NVRAM_DYNAMIC_CFG,
 	EFX_NVRAM_LICENSE,
 	EFX_NVRAM_UEFIROM,
+	EFX_NVRAM_MUM_FIRMWARE,
 	EFX_NVRAM_NTYPES,
 } efx_nvram_type_t;
 
@@ -2049,12 +2050,6 @@ efx_rx_qpush(
 
 #if EFSYS_OPT_RX_PACKED_STREAM
 
-/*
- * Fake length for RXQ descriptors in packed stream mode
- * to make hardware happy
- */
-#define	EFX_RXQ_PACKED_STREAM_FAKE_BUF_SIZE 32
-
 extern			void
 efx_rx_qpush_ps_credits(
 	__in		efx_rxq_t *erp);
@@ -2116,9 +2111,11 @@ efx_tx_fini(
 
 #define	EFX_TXQ_MAX_BUFS 8 /* Maximum independent of EFX_BUG35388_WORKAROUND. */
 
-#define	EFX_TXQ_CKSUM_IPV4	0x0001
-#define	EFX_TXQ_CKSUM_TCPUDP	0x0002
-#define	EFX_TXQ_FATSOV2		0x0004
+#define	EFX_TXQ_CKSUM_IPV4		0x0001
+#define	EFX_TXQ_CKSUM_TCPUDP		0x0002
+#define	EFX_TXQ_FATSOV2			0x0004
+#define	EFX_TXQ_CKSUM_INNER_IPV4	0x0008
+#define	EFX_TXQ_CKSUM_INNER_TCPUDP	0x0010
 
 extern	__checkReturn	efx_rc_t
 efx_tx_qcreate(

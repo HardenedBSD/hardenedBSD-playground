@@ -49,6 +49,7 @@ efx_mcdi_init_rxq(
 	__in		boolean_t disable_scatter,
 	__in		uint32_t ps_bufsize)
 {
+	efx_nic_cfg_t *encp = &(enp->en_nic_cfg);
 	efx_mcdi_req_t req;
 	uint8_t payload[MAX(MC_CMD_INIT_RXQ_EXT_IN_LEN,
 			    MC_CMD_INIT_RXQ_EXT_OUT_LEN)];
@@ -58,6 +59,7 @@ efx_mcdi_init_rxq(
 	uint64_t addr;
 	efx_rc_t rc;
 	uint32_t dma_mode;
+	boolean_t want_outer_classes;
 
 	/* If this changes, then the payload size might need to change. */
 	EFSYS_ASSERT3U(MC_CMD_INIT_RXQ_OUT_LEN, ==, 0);
@@ -67,6 +69,25 @@ efx_mcdi_init_rxq(
 		dma_mode = MC_CMD_INIT_RXQ_EXT_IN_PACKED_STREAM;
 	else
 		dma_mode = MC_CMD_INIT_RXQ_EXT_IN_SINGLE_PACKET;
+
+	if (encp->enc_tunnel_encapsulations_supported != 0) {
+		/*
+		 * WANT_OUTER_CLASSES can only be specified on hardware which
+		 * supports tunnel encapsulation offloads, even though it is
+		 * effectively the behaviour the hardware gives.
+		 *
+		 * Also, on hardware which does support such offloads, older
+		 * firmware rejects the flag if the offloads are not supported
+		 * by the current firmware variant, which means this may fail if
+		 * the capabilities are not updated when the firmware variant
+		 * changes. This is not an issue on newer firmware, as it was
+		 * changed in bug 69842 (v6.4.2.1007) to permit this flag to be
+		 * specified on all firmware variants.
+		 */
+		want_outer_classes = B_TRUE;
+	} else {
+		want_outer_classes = B_FALSE;
+	}
 
 	(void) memset(payload, 0, sizeof (payload));
 	req.emr_cmd = MC_CMD_INIT_RXQ;
@@ -79,7 +100,7 @@ efx_mcdi_init_rxq(
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_EXT_IN_TARGET_EVQ, target_evq);
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_EXT_IN_LABEL, label);
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_EXT_IN_INSTANCE, instance);
-	MCDI_IN_POPULATE_DWORD_8(req, INIT_RXQ_EXT_IN_FLAGS,
+	MCDI_IN_POPULATE_DWORD_9(req, INIT_RXQ_EXT_IN_FLAGS,
 	    INIT_RXQ_EXT_IN_FLAG_BUFF_MODE, 0,
 	    INIT_RXQ_EXT_IN_FLAG_HDR_SPLIT, 0,
 	    INIT_RXQ_EXT_IN_FLAG_TIMESTAMP, 0,
@@ -88,7 +109,8 @@ efx_mcdi_init_rxq(
 	    INIT_RXQ_EXT_IN_FLAG_DISABLE_SCATTER, disable_scatter,
 	    INIT_RXQ_EXT_IN_DMA_MODE,
 	    dma_mode,
-	    INIT_RXQ_EXT_IN_PACKED_STREAM_BUFF_SIZE, ps_bufsize);
+	    INIT_RXQ_EXT_IN_PACKED_STREAM_BUFF_SIZE, ps_bufsize,
+	    INIT_RXQ_EXT_IN_FLAG_WANT_OUTER_CLASSES, want_outer_classes);
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_EXT_IN_OWNER_ID, 0);
 	MCDI_IN_SET_DWORD(req, INIT_RXQ_EXT_IN_PORT_ID, EVB_PORT_ID_ASSIGNED);
 
@@ -710,6 +732,14 @@ ef10_rx_prefix_hash(
 }
 #endif /* EFSYS_OPT_RX_SCALE */
 
+#if EFSYS_OPT_RX_PACKED_STREAM
+/*
+ * Fake length for RXQ descriptors in packed stream mode
+ * to make hardware happy
+ */
+#define	EFX_RXQ_PACKED_STREAM_FAKE_BUF_SIZE 32
+#endif
+
 			void
 ef10_rx_qpost(
 	__in		efx_rxq_t *erp,
@@ -723,6 +753,15 @@ ef10_rx_qpost(
 	unsigned int i;
 	unsigned int offset;
 	unsigned int id;
+
+#if EFSYS_OPT_RX_PACKED_STREAM
+	/*
+	 * Real size of the buffer does not fit into ESF_DZ_RX_KER_BYTE_CNT
+	 * and equal to 0 after applying mask. Hardware does not like it.
+	 */
+	if (erp->er_ev_qstate->eers_rx_packed_stream)
+		size = EFX_RXQ_PACKED_STREAM_FAKE_BUF_SIZE;
+#endif
 
 	/* The client driver must not overfill the queue */
 	EFSYS_ASSERT3U(added - completed + n, <=,
@@ -787,8 +826,7 @@ ef10_rx_qpush_ps_credits(
 {
 	efx_nic_t *enp = erp->er_enp;
 	efx_dword_t dword;
-	efx_evq_rxq_state_t *rxq_state =
-		&erp->er_eep->ee_rxq_state[erp->er_label];
+	efx_evq_rxq_state_t *rxq_state = erp->er_ev_qstate;
 	uint32_t credits;
 
 	EFSYS_ASSERT(rxq_state->eers_rx_packed_stream);
@@ -837,8 +875,7 @@ ef10_rx_qps_packet_info(
 	uint16_t buf_len;
 	uint8_t *pkt_start;
 	efx_qword_t *qwordp;
-	efx_evq_rxq_state_t *rxq_state =
-		&erp->er_eep->ee_rxq_state[erp->er_label];
+	efx_evq_rxq_state_t *rxq_state = erp->er_ev_qstate;
 
 	EFSYS_ASSERT(rxq_state->eers_rx_packed_stream);
 
@@ -995,7 +1032,9 @@ ef10_rx_qcreate(
 	erp->er_eep = eep;
 	erp->er_label = label;
 
-	ef10_ev_rxlabel_init(eep, erp, label, ps_buf_size != 0);
+	ef10_ev_rxlabel_init(eep, erp, label, type);
+
+	erp->er_ev_qstate = &erp->er_eep->ee_rxq_state[label];
 
 	return (0);
 

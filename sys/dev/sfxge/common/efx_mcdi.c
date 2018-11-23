@@ -295,7 +295,8 @@ efx_mcdi_request_start(
 	 */
 	if ((max_version >= 2) &&
 	    ((emrp->emr_cmd > MC_CMD_CMD_SPACE_ESCAPE_7) ||
-	    (emrp->emr_in_length > MCDI_CTL_SDU_LEN_MAX_V1))) {
+	    (emrp->emr_in_length > MCDI_CTL_SDU_LEN_MAX_V1) ||
+	    (emrp->emr_out_length > MCDI_CTL_SDU_LEN_MAX_V1))) {
 		/* Construct MCDI v2 header */
 		hdr_len = sizeof (hdr);
 		EFX_POPULATE_DWORD_8(hdr[0],
@@ -797,9 +798,8 @@ efx_mcdi_ev_cpl(
 			emrp->emr_rc = 0;
 		}
 	}
-	if (errcode == 0) {
+	if (emrp->emr_rc == 0)
 		efx_mcdi_finish_response(enp, emrp);
-	}
 
 	emtp->emt_ev_cpl(emtp->emt_context);
 }
