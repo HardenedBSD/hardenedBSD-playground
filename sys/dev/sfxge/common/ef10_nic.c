@@ -494,59 +494,6 @@ fail1:
 }
 
 static	__checkReturn	efx_rc_t
-efx_mcdi_get_capabilities(
-	__in		efx_nic_t *enp,
-	__out		uint32_t *flagsp,
-	__out		uint32_t *flags2p,
-	__out		uint32_t *tso2ncp)
-{
-	efx_mcdi_req_t req;
-	uint8_t payload[MAX(MC_CMD_GET_CAPABILITIES_IN_LEN,
-			    MC_CMD_GET_CAPABILITIES_V2_OUT_LEN)];
-	efx_rc_t rc;
-
-	(void) memset(payload, 0, sizeof (payload));
-	req.emr_cmd = MC_CMD_GET_CAPABILITIES;
-	req.emr_in_buf = payload;
-	req.emr_in_length = MC_CMD_GET_CAPABILITIES_IN_LEN;
-	req.emr_out_buf = payload;
-	req.emr_out_length = MC_CMD_GET_CAPABILITIES_V2_OUT_LEN;
-
-	efx_mcdi_execute(enp, &req);
-
-	if (req.emr_rc != 0) {
-		rc = req.emr_rc;
-		goto fail1;
-	}
-
-	if (req.emr_out_length_used < MC_CMD_GET_CAPABILITIES_OUT_LEN) {
-		rc = EMSGSIZE;
-		goto fail2;
-	}
-
-	*flagsp = MCDI_OUT_DWORD(req, GET_CAPABILITIES_OUT_FLAGS1);
-
-	if (req.emr_out_length_used < MC_CMD_GET_CAPABILITIES_V2_OUT_LEN) {
-		*flags2p = 0;
-		*tso2ncp = 0;
-	} else {
-		*flags2p = MCDI_OUT_DWORD(req, GET_CAPABILITIES_V2_OUT_FLAGS2);
-		*tso2ncp = MCDI_OUT_WORD(req,
-				GET_CAPABILITIES_V2_OUT_TX_TSO_V2_N_CONTEXTS);
-	}
-
-	return (0);
-
-fail2:
-	EFSYS_PROBE(fail2);
-fail1:
-	EFSYS_PROBE1(fail1, efx_rc_t, rc);
-
-	return (rc);
-}
-
-
-static	__checkReturn	efx_rc_t
 efx_mcdi_alloc_vis(
 	__in		efx_nic_t *enp,
 	__in		uint32_t min_vi_count,
@@ -557,7 +504,7 @@ efx_mcdi_alloc_vis(
 {
 	efx_mcdi_req_t req;
 	uint8_t payload[MAX(MC_CMD_ALLOC_VIS_IN_LEN,
-			    MC_CMD_ALLOC_VIS_OUT_LEN)];
+			    MC_CMD_ALLOC_VIS_EXT_OUT_LEN)];
 	efx_rc_t rc;
 
 	if (vi_countp == NULL) {
@@ -570,7 +517,7 @@ efx_mcdi_alloc_vis(
 	req.emr_in_buf = payload;
 	req.emr_in_length = MC_CMD_ALLOC_VIS_IN_LEN;
 	req.emr_out_buf = payload;
-	req.emr_out_length = MC_CMD_ALLOC_VIS_OUT_LEN;
+	req.emr_out_length = MC_CMD_ALLOC_VIS_EXT_OUT_LEN;
 
 	MCDI_IN_SET_DWORD(req, ALLOC_VIS_IN_MIN_VI_COUNT, min_vi_count);
 	MCDI_IN_SET_DWORD(req, ALLOC_VIS_IN_MAX_VI_COUNT, max_vi_count);
@@ -1015,8 +962,8 @@ ef10_get_datapath_caps(
 	uint32_t tso2nc;
 	efx_rc_t rc;
 
-	if ((rc = efx_mcdi_get_capabilities(enp, &flags, &flags2,
-					    &tso2nc)) != 0)
+	if ((rc = efx_mcdi_get_capabilities(enp, &flags, NULL, NULL,
+					    &flags2, &tso2nc)) != 0)
 		goto fail1;
 
 	if ((rc = ef10_mcdi_get_pf_count(enp, &encp->enc_hw_pf_count)) != 0)
@@ -1110,7 +1057,7 @@ ef10_get_datapath_caps(
 	 * and version 2 of MC_CMD_NVRAM_UPDATE_FINISH (to verify the updated
 	 * partition and report the result).
 	 */
-	encp->enc_fw_verified_nvram_update_required =
+	encp->enc_nvram_update_verify_result_supported =
 	    CAP_FLAG2(flags2, NVRAM_UPDATE_REPORT_VERIFY_RESULT) ?
 	    B_TRUE : B_FALSE;
 
@@ -1127,6 +1074,16 @@ ef10_get_datapath_caps(
 	 */
 	encp->enc_mac_stats_40g_tx_size_bins =
 	    CAP_FLAG2(flags2, MAC_STATS_40G_TX_SIZE_BINS) ? B_TRUE : B_FALSE;
+
+	/*
+	 * Check if firmware supports VXLAN and NVGRE tunnels.
+	 * The capability indicates Geneve protocol support as well.
+	 */
+	if (CAP_FLAG(flags, VXLAN_NVGRE))
+		encp->enc_tunnel_encapsulations_supported =
+		    (1u << EFX_TUNNEL_PROTOCOL_VXLAN) |
+		    (1u << EFX_TUNNEL_PROTOCOL_GENEVE) |
+		    (1u << EFX_TUNNEL_PROTOCOL_NVGRE);
 
 #undef CAP_FLAG
 #undef CAP_FLAG2

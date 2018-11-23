@@ -70,7 +70,7 @@ efx_mcdi_init_txq(
 	    EFX_TXQ_NBUFS(enp->en_nic_cfg.enc_txq_max_ndescs));
 
 	npages = EFX_TXQ_NBUFS(size);
-	if (npages > MC_CMD_INIT_TXQ_IN_DMA_ADDR_MAXNUM) {
+	if (MC_CMD_INIT_TXQ_IN_LEN(npages) > sizeof (payload)) {
 		rc = EINVAL;
 		goto fail1;
 	}
@@ -151,7 +151,7 @@ efx_mcdi_fini_txq(
 
 	efx_mcdi_execute_quiet(enp, &req);
 
-	if ((req.emr_rc != 0) && (req.emr_rc != MC_CMD_ERR_EALREADY)) {
+	if (req.emr_rc != 0) {
 		rc = req.emr_rc;
 		goto fail1;
 	}
@@ -159,7 +159,12 @@ efx_mcdi_fini_txq(
 	return (0);
 
 fail1:
-	EFSYS_PROBE1(fail1, efx_rc_t, rc);
+	/*
+	 * EALREADY is not an error, but indicates that the MC has rebooted and
+	 * that the TXQ has already been destroyed.
+	 */
+	if (rc != EALREADY)
+		EFSYS_PROBE1(fail1, efx_rc_t, rc);
 
 	return (rc);
 }
@@ -285,9 +290,9 @@ ef10_tx_qpio_enable(
 fail3:
 	EFSYS_PROBE(fail3);
 	ef10_nic_pio_free(enp, etp->et_pio_bufnum, etp->et_pio_blknum);
-	etp->et_pio_size = 0;
 fail2:
 	EFSYS_PROBE(fail2);
+	etp->et_pio_size = 0;
 fail1:
 	EFSYS_PROBE1(fail1, efx_rc_t, rc);
 
@@ -690,7 +695,14 @@ ef10_tx_qpace(
 	return (0);
 
 fail1:
-	EFSYS_PROBE1(fail1, efx_rc_t, rc);
+	/*
+	 * EALREADY is not an error, but indicates that the MC has rebooted and
+	 * that the TXQ has already been destroyed. Callers need to know that
+	 * the TXQ flush has completed to avoid waiting until timeout for a
+	 * flush done event that will not be delivered.
+	 */
+	if (rc != EALREADY)
+		EFSYS_PROBE1(fail1, efx_rc_t, rc);
 
 	return (rc);
 }

@@ -156,11 +156,17 @@ typedef struct efx_rx_ops_s {
 	efx_rc_t	(*erxo_scatter_enable)(efx_nic_t *, unsigned int);
 #endif
 #if EFSYS_OPT_RX_SCALE
-	efx_rc_t	(*erxo_scale_mode_set)(efx_nic_t *, efx_rx_hash_alg_t,
+	efx_rc_t	(*erxo_scale_context_alloc)(efx_nic_t *,
+						    efx_rx_scale_context_type_t,
+						    uint32_t, uint32_t *);
+	efx_rc_t	(*erxo_scale_context_free)(efx_nic_t *, uint32_t);
+	efx_rc_t	(*erxo_scale_mode_set)(efx_nic_t *, uint32_t,
+					       efx_rx_hash_alg_t,
 					       efx_rx_hash_type_t, boolean_t);
-	efx_rc_t	(*erxo_scale_key_set)(efx_nic_t *, uint8_t *, size_t);
-	efx_rc_t	(*erxo_scale_tbl_set)(efx_nic_t *, unsigned int *,
-					      size_t);
+	efx_rc_t	(*erxo_scale_key_set)(efx_nic_t *, uint32_t,
+					      uint8_t *, size_t);
+	efx_rc_t	(*erxo_scale_tbl_set)(efx_nic_t *, uint32_t,
+					      unsigned int *, size_t);
 	uint32_t	(*erxo_prefix_hash)(efx_nic_t *, efx_rx_hash_alg_t,
 					    uint8_t *);
 #endif /* EFSYS_OPT_RX_SCALE */
@@ -202,6 +208,7 @@ typedef struct efx_mac_ops_s {
 #endif	/* EFSYS_OPT_LOOPBACK */
 #if EFSYS_OPT_MAC_STATS
 	efx_rc_t	(*emo_stats_get_mask)(efx_nic_t *, uint32_t *, size_t);
+	efx_rc_t	(*emo_stats_clear)(efx_nic_t *);
 	efx_rc_t	(*emo_stats_upload)(efx_nic_t *, efsys_mem_t *);
 	efx_rc_t	(*emo_stats_periodic)(efx_nic_t *, efsys_mem_t *,
 					      uint16_t, boolean_t);
@@ -450,6 +457,10 @@ typedef struct efx_mcdi_s {
 #endif /* EFSYS_OPT_MCDI */
 
 #if EFSYS_OPT_NVRAM
+
+/* Invalid partition ID for en_nvram_partn_locked field of efx_nc_t */
+#define	EFX_NVRAM_PARTN_INVALID		(0xffffffffu)
+
 typedef struct efx_nvram_ops_s {
 #if EFSYS_OPT_DIAG
 	efx_rc_t	(*envo_test)(efx_nic_t *);
@@ -460,11 +471,14 @@ typedef struct efx_nvram_ops_s {
 	efx_rc_t	(*envo_partn_rw_start)(efx_nic_t *, uint32_t, size_t *);
 	efx_rc_t	(*envo_partn_read)(efx_nic_t *, uint32_t,
 					    unsigned int, caddr_t, size_t);
+	efx_rc_t	(*envo_partn_read_backup)(efx_nic_t *, uint32_t,
+					    unsigned int, caddr_t, size_t);
 	efx_rc_t	(*envo_partn_erase)(efx_nic_t *, uint32_t,
 					    unsigned int, size_t);
 	efx_rc_t	(*envo_partn_write)(efx_nic_t *, uint32_t,
 					    unsigned int, caddr_t, size_t);
-	efx_rc_t	(*envo_partn_rw_finish)(efx_nic_t *, uint32_t);
+	efx_rc_t	(*envo_partn_rw_finish)(efx_nic_t *, uint32_t,
+					    uint32_t *);
 	efx_rc_t	(*envo_partn_get_version)(efx_nic_t *, uint32_t,
 					    uint32_t *, uint16_t *);
 	efx_rc_t	(*envo_partn_set_version)(efx_nic_t *, uint32_t,
@@ -553,7 +567,7 @@ efx_mcdi_nvram_update_finish(
 	__in			efx_nic_t *enp,
 	__in			uint32_t partn,
 	__in			boolean_t reboot,
-	__out_opt		uint32_t *resultp);
+	__out_opt		uint32_t *verify_resultp);
 
 #if EFSYS_OPT_DIAG
 
@@ -636,16 +650,16 @@ struct efx_nic_s {
 	efx_mcdi_t		en_mcdi;
 #endif	/* EFSYS_OPT_MCDI */
 #if EFSYS_OPT_NVRAM
-	efx_nvram_type_t	en_nvram_locked;
+	uint32_t		en_nvram_partn_locked;
 	const efx_nvram_ops_t	*en_envop;
 #endif	/* EFSYS_OPT_NVRAM */
 #if EFSYS_OPT_VPD
 	const efx_vpd_ops_t	*en_evpdop;
 #endif	/* EFSYS_OPT_VPD */
 #if EFSYS_OPT_RX_SCALE
-	efx_rx_hash_support_t	en_hash_support;
-	efx_rx_scale_support_t	en_rss_support;
-	uint32_t		en_rss_context;
+	efx_rx_hash_support_t		en_hash_support;
+	efx_rx_scale_context_type_t	en_rss_context_type;
+	uint32_t			en_rss_context;
 #endif	/* EFSYS_OPT_RX_SCALE */
 	uint32_t		en_vport_id;
 #if EFSYS_OPT_LICENSING

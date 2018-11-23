@@ -140,6 +140,9 @@ siena_board_cfg(
 	/* Alignment for WPTR updates */
 	encp->enc_rx_push_align = 1;
 
+	/* There is one RSS context per function */
+	encp->enc_rx_scale_max_exclusive_contexts = 1;
+
 	encp->enc_tx_dma_desc_size_max = EFX_MASK32(FSF_AZ_TX_KER_BYTE_COUNT);
 	/* Fragments must not span 4k boundaries. */
 	encp->enc_tx_dma_desc_boundary = 4096;
@@ -176,7 +179,7 @@ siena_board_cfg(
 	encp->enc_required_pcie_bandwidth_mbps = 2 * 10000;
 	encp->enc_max_pcie_link_gen = EFX_PCIE_LINK_SPEED_GEN2;
 
-	encp->enc_fw_verified_nvram_update_required = B_FALSE;
+	encp->enc_nvram_update_verify_result_supported = B_FALSE;
 
 	return (0);
 
