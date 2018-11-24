@@ -1649,8 +1649,7 @@ sysctl_unprivileged_proc_debug(SYSCTL_HANDLER_ARGS)
 	struct prison *pr;
 	int error, val;
 
-	val = (req->td->td_ucred->cr_prison->pr_allow &
-	    PR_ALLOW_UNPRIV_DEBUG) == PR_ALLOW_UNPRIV_DEBUG;
+	val = prison_allow(req->td->td_ucred, PR_ALLOW_UNPRIV_DEBUG) != 0;
 	error = sysctl_handle_int(oidp, &val, 0, req);
 	if (error != 0 || req->newptr == NULL)
 		return (error);
@@ -1680,7 +1679,7 @@ sysctl_unprivileged_proc_debug(SYSCTL_HANDLER_ARGS)
  * systems.
  */
 SYSCTL_PROC(_security_bsd, OID_AUTO, unprivileged_proc_debug,
-    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_PRISON, 0, 0,
+    CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_PRISON | CTLFLAG_SECURE, 0, 0,
     sysctl_unprivileged_proc_debug, "I",
     "Unprivileged processes may use process debugging facilities");
 
@@ -1699,11 +1698,9 @@ p_candebug(struct thread *td, struct proc *p)
 
 	KASSERT(td == curthread, ("%s: td not curthread", __func__));
 	PROC_LOCK_ASSERT(p, MA_OWNED);
-	if (!(td->td_ucred->cr_prison->pr_allow & PR_ALLOW_UNPRIV_DEBUG)) {
-		error = priv_check(td, PRIV_DEBUG_UNPRIV);
-		if (error)
-			return (error);
-	}
+	error = priv_check(td, PRIV_DEBUG_UNPRIV);
+	if (error)
+		return (error);
 	if (td->td_proc == p)
 		return (0);
 	if ((error = prison_check(td->td_ucred, p->p_ucred)))
