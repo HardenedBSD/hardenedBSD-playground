@@ -120,6 +120,7 @@ NOASAN=	yes
 .if ${MK_ASAN} != "no"
 CFLAGS+=	-fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls
 CXXFLAGS+=	-fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls
+LDFLAGS+=	-fsanitize=address
 .if ${MK_ASAN_RECOVER} != "no"
 CFLAGS+=	-fsanitize-recover=address
 CXXFLAGS+=	-fsanitize-recover=address
