@@ -2006,14 +2006,25 @@ efx_pseudo_hdr_pkt_length_get(
 
 typedef enum efx_rxq_type_e {
 	EFX_RXQ_TYPE_DEFAULT,
-	EFX_RXQ_TYPE_SCATTER,
-	EFX_RXQ_TYPE_PACKED_STREAM_1M,
-	EFX_RXQ_TYPE_PACKED_STREAM_512K,
-	EFX_RXQ_TYPE_PACKED_STREAM_256K,
-	EFX_RXQ_TYPE_PACKED_STREAM_128K,
-	EFX_RXQ_TYPE_PACKED_STREAM_64K,
+	EFX_RXQ_TYPE_PACKED_STREAM,
 	EFX_RXQ_NTYPES
 } efx_rxq_type_t;
+
+/*
+ * Dummy flag to be used instead of 0 to make it clear that the argument
+ * is receive queue flags.
+ */
+#define	EFX_RXQ_FLAG_NONE		0x0
+#define	EFX_RXQ_FLAG_SCATTER		0x1
+/*
+ * If tunnels are supported and Rx event can provide information about
+ * either outer or inner packet classes (e.g. SFN8xxx adapters with
+ * full-feature firmware variant running), outer classes are requested by
+ * default. However, if the driver supports tunnels, the flag allows to
+ * request inner classes which are required to be able to interpret inner
+ * Rx checksum offload results.
+ */
+#define	EFX_RXQ_FLAG_INNER_CLASSES	0x2
 
 extern	__checkReturn	efx_rc_t
 efx_rx_qcreate(
@@ -2024,8 +2035,30 @@ efx_rx_qcreate(
 	__in		efsys_mem_t *esmp,
 	__in		size_t ndescs,
 	__in		uint32_t id,
+	__in		unsigned int flags,
 	__in		efx_evq_t *eep,
 	__deref_out	efx_rxq_t **erpp);
+
+#if EFSYS_OPT_RX_PACKED_STREAM
+
+#define	EFX_RXQ_PACKED_STREAM_BUF_SIZE_1M	(1U * 1024 * 1024)
+#define	EFX_RXQ_PACKED_STREAM_BUF_SIZE_512K	(512U * 1024)
+#define	EFX_RXQ_PACKED_STREAM_BUF_SIZE_256K	(256U * 1024)
+#define	EFX_RXQ_PACKED_STREAM_BUF_SIZE_128K	(128U * 1024)
+#define	EFX_RXQ_PACKED_STREAM_BUF_SIZE_64K	(64U * 1024)
+
+extern	__checkReturn	efx_rc_t
+efx_rx_qcreate_packed_stream(
+	__in		efx_nic_t *enp,
+	__in		unsigned int index,
+	__in		unsigned int label,
+	__in		uint32_t ps_buf_size,
+	__in		efsys_mem_t *esmp,
+	__in		size_t ndescs,
+	__in		efx_evq_t *eep,
+	__deref_out	efx_rxq_t **erpp);
+
+#endif
 
 typedef struct efx_buffer_s {
 	efsys_dma_addr_t	eb_addr;
