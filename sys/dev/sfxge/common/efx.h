@@ -631,7 +631,7 @@ efx_mon_init(
 #define	EFX_MON_STATS_PAGE_SIZE 0x100
 #define	EFX_MON_MASK_ELEMENT_SIZE 32
 
-/* START MKCONFIG GENERATED MonitorHeaderStatsBlock aa0233c80156308e */
+/* START MKCONFIG GENERATED MonitorHeaderStatsBlock fcc1b6748432e1ac */
 typedef enum efx_mon_stat_e {
 	EFX_MON_STAT_2_5V,
 	EFX_MON_STAT_VCCP1,
@@ -712,6 +712,8 @@ typedef enum efx_mon_stat_e {
 	EFX_MON_STAT_BOARD_BACK_TEMP,
 	EFX_MON_STAT_I1V8,
 	EFX_MON_STAT_I2V5,
+	EFX_MON_STAT_I3V3,
+	EFX_MON_STAT_I12V0,
 	EFX_MON_NSTATS
 } efx_mon_stat_t;
 
@@ -1209,6 +1211,11 @@ typedef struct efx_nic_cfg_s {
 	boolean_t		enc_pm_and_rxdp_counters;
 	boolean_t		enc_mac_stats_40g_tx_size_bins;
 	uint32_t		enc_tunnel_encapsulations_supported;
+	/*
+	 * NIC global maximum for unique UDP tunnel ports shared by all
+	 * functions.
+	 */
+	uint32_t		enc_tunnel_config_udp_entries_max;
 	/* External port identifier */
 	uint8_t			enc_external_port;
 	uint32_t		enc_mcdi_max_payload_length;
@@ -2635,6 +2642,52 @@ efx_lic_finish_partition(
 
 #endif	/* EFSYS_OPT_LICENSING */
 
+/* TUNNEL */
+
+#if EFSYS_OPT_TUNNEL
+
+extern	__checkReturn	efx_rc_t
+efx_tunnel_init(
+	__in		efx_nic_t *enp);
+
+extern			void
+efx_tunnel_fini(
+	__in		efx_nic_t *enp);
+
+/*
+ * For overlay network encapsulation using UDP, the firmware needs to know
+ * the configured UDP port for the overlay so it can decode encapsulated
+ * frames correctly.
+ * The UDP port/protocol list is global.
+ */
+
+extern	__checkReturn	efx_rc_t
+efx_tunnel_config_udp_add(
+	__in		efx_nic_t *enp,
+	__in		uint16_t port /* host/cpu-endian */,
+	__in		efx_tunnel_protocol_t protocol);
+
+extern	__checkReturn	efx_rc_t
+efx_tunnel_config_udp_remove(
+	__in		efx_nic_t *enp,
+	__in		uint16_t port /* host/cpu-endian */,
+	__in		efx_tunnel_protocol_t protocol);
+
+extern			void
+efx_tunnel_config_clear(
+	__in		efx_nic_t *enp);
+
+/**
+ * Apply tunnel UDP ports configuration to hardware.
+ *
+ * EAGAIN is returned if hardware will be reset (datapath and management CPU
+ * reboot).
+ */
+extern	__checkReturn	efx_rc_t
+efx_tunnel_reconfigure(
+	__in		efx_nic_t *enp);
+
+#endif /* EFSYS_OPT_TUNNEL */
 
 
 #ifdef	__cplusplus
