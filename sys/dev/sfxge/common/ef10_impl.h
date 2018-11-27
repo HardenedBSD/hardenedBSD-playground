@@ -37,13 +37,27 @@
 extern "C" {
 #endif
 
-#if (EFSYS_OPT_HUNTINGTON && EFSYS_OPT_MEDFORD)
-#define	EF10_MAX_PIOBUF_NBUFS	MAX(HUNT_PIOBUF_NBUFS, MEDFORD_PIOBUF_NBUFS)
-#elif EFSYS_OPT_HUNTINGTON
-#define	EF10_MAX_PIOBUF_NBUFS	HUNT_PIOBUF_NBUFS
-#elif EFSYS_OPT_MEDFORD
-#define	EF10_MAX_PIOBUF_NBUFS	MEDFORD_PIOBUF_NBUFS
-#endif
+
+/* Number of hardware PIO buffers (for compile-time resource dimensions) */
+#define	EF10_MAX_PIOBUF_NBUFS	(16)
+
+#if EFSYS_OPT_HUNTINGTON
+# if (EF10_MAX_PIOBUF_NBUFS < HUNT_PIOBUF_NBUFS)
+#  error "EF10_MAX_PIOBUF_NBUFS too small"
+# endif
+#endif /* EFSYS_OPT_HUNTINGTON */
+#if EFSYS_OPT_MEDFORD
+# if (EF10_MAX_PIOBUF_NBUFS < MEDFORD_PIOBUF_NBUFS)
+#  error "EF10_MAX_PIOBUF_NBUFS too small"
+# endif
+#endif /* EFSYS_OPT_MEDFORD */
+#if EFSYS_OPT_MEDFORD2
+# if (EF10_MAX_PIOBUF_NBUFS < MEDFORD2_PIOBUF_NBUFS)
+#  error "EF10_MAX_PIOBUF_NBUFS too small"
+# endif
+#endif /* EFSYS_OPT_MEDFORD2 */
+
+
 
 /*
  * FIXME: This is just a power of 2 which fits in an MCDI v1 message, and could
@@ -779,6 +793,11 @@ ef10_tx_qdesc_vlantci_create(
 	__in	uint16_t vlan_tci,
 	__out	efx_desc_t *edp);
 
+extern	void
+ef10_tx_qdesc_checksum_create(
+	__in	efx_txq_t *etp,
+	__in	uint16_t flags,
+	__out	efx_desc_t *edp);
 
 #if EFSYS_OPT_QSTATS
 
@@ -1157,6 +1176,11 @@ efx_mcdi_get_clock(
 
 
 extern	__checkReturn	efx_rc_t
+efx_mcdi_get_rxdp_config(
+	__in		efx_nic_t *enp,
+	__out		uint32_t *end_paddingp);
+
+extern	__checkReturn	efx_rc_t
 efx_mcdi_get_vector_cfg(
 	__in		efx_nic_t *enp,
 	__out_opt	uint32_t *vec_basep,
@@ -1166,6 +1190,11 @@ efx_mcdi_get_vector_cfg(
 extern	__checkReturn	efx_rc_t
 ef10_get_datapath_caps(
 	__in		efx_nic_t *enp);
+
+extern	__checkReturn	efx_rc_t
+ef10_get_vi_window_shift(
+	__in		efx_nic_t *enp,
+	__out		uint32_t *vi_window_shiftp);
 
 extern	__checkReturn		efx_rc_t
 ef10_get_privilege_mask(

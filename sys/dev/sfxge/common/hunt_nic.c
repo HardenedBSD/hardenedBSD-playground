@@ -119,6 +119,17 @@ hunt_board_cfg(
 	uint32_t bandwidth;
 	efx_rc_t rc;
 
+	/* Huntington has a fixed 8Kbyte VI window size */
+	EFX_STATIC_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP	== 8192);
+	EFX_STATIC_ASSERT(ER_DZ_EVQ_TMR_REG_STEP	== 8192);
+	EFX_STATIC_ASSERT(ER_DZ_RX_DESC_UPD_REG_STEP	== 8192);
+	EFX_STATIC_ASSERT(ER_DZ_TX_DESC_UPD_REG_STEP	== 8192);
+	EFX_STATIC_ASSERT(ER_DZ_TX_PIOBUF_STEP		== 8192);
+
+	EFX_STATIC_ASSERT(1U << EFX_VI_WINDOW_SHIFT_8K	== 8192);
+	encp->enc_vi_window_shift = EFX_VI_WINDOW_SHIFT_8K;
+
+
 	if ((rc = efx_mcdi_get_port_assignment(enp, &port)) != 0)
 		goto fail1;
 
@@ -333,6 +344,7 @@ hunt_board_cfg(
 
 	encp->enc_buftbl_limit = 0xFFFFFFFF;
 
+	EFX_STATIC_ASSERT(HUNT_PIOBUF_NBUFS <= EF10_MAX_PIOBUF_NBUFS);
 	encp->enc_piobuf_limit = HUNT_PIOBUF_NBUFS;
 	encp->enc_piobuf_size = HUNT_PIOBUF_SIZE;
 	encp->enc_piobuf_min_alloc_size = HUNT_MIN_PIO_ALLOC_SIZE;

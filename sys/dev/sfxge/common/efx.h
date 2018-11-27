@@ -68,6 +68,7 @@ typedef enum efx_family_e {
 	EFX_FAMILY_SIENA,
 	EFX_FAMILY_HUNTINGTON,
 	EFX_FAMILY_MEDFORD,
+	EFX_FAMILY_MEDFORD2,
 	EFX_FAMILY_NTYPES
 } efx_family_t;
 
@@ -75,7 +76,8 @@ extern	__checkReturn	efx_rc_t
 efx_family(
 	__in		uint16_t venid,
 	__in		uint16_t devid,
-	__out		efx_family_t *efp);
+	__out		efx_family_t *efp,
+	__out		unsigned int *membarp);
 
 
 #define	EFX_PCI_VENID_SFC			0x1924
@@ -97,7 +99,21 @@ efx_family(
 #define	EFX_PCI_DEVID_MEDFORD			0x0A03	/* SFC9240 PF */
 #define	EFX_PCI_DEVID_MEDFORD_VF		0x1A03	/* SFC9240 VF */
 
-#define	EFX_MEM_BAR	2
+#define	EFX_PCI_DEVID_MEDFORD2_PF_UNINIT	0x0B13
+#define	EFX_PCI_DEVID_MEDFORD2			0x0B03	/* SFC9250 PF */
+#define	EFX_PCI_DEVID_MEDFORD2_VF		0x1B03	/* SFC9250 VF */
+
+
+#define	EFX_MEM_BAR_SIENA			2
+
+#define	EFX_MEM_BAR_HUNTINGTON_PF		2
+#define	EFX_MEM_BAR_HUNTINGTON_VF		0
+
+#define	EFX_MEM_BAR_MEDFORD_PF			2
+#define	EFX_MEM_BAR_MEDFORD_VF			0
+
+#define	EFX_MEM_BAR_MEDFORD2			0
+
 
 /* Error codes */
 
@@ -199,7 +215,7 @@ efx_nic_check_pcie_link_speed(
 
 #if EFSYS_OPT_MCDI
 
-#if EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD
+#if EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD || EFSYS_OPT_MEDFORD2
 /* Huntington and Medford require MCDIv2 commands */
 #define	WITH_MCDI_V2 1
 #endif
@@ -335,7 +351,7 @@ efx_intr_fini(
 
 #if EFSYS_OPT_MAC_STATS
 
-/* START MKCONFIG GENERATED EfxHeaderMacBlock e323546097fd7c65 */
+/* START MKCONFIG GENERATED EfxHeaderMacBlock 7b5f45054a3b45bc */
 typedef enum efx_mac_stat_e {
 	EFX_MAC_RX_OCTETS,
 	EFX_MAC_RX_PKTS,
@@ -418,6 +434,12 @@ typedef enum efx_mac_stat_e {
 	EFX_MAC_VADAPTER_TX_BAD_PACKETS,
 	EFX_MAC_VADAPTER_TX_BAD_BYTES,
 	EFX_MAC_VADAPTER_TX_OVERFLOW,
+	EFX_MAC_FEC_UNCORRECTED_ERRORS,
+	EFX_MAC_FEC_CORRECTED_ERRORS,
+	EFX_MAC_FEC_CORRECTED_SYMBOLS_LANE0,
+	EFX_MAC_FEC_CORRECTED_SYMBOLS_LANE1,
+	EFX_MAC_FEC_CORRECTED_SYMBOLS_LANE2,
+	EFX_MAC_FEC_CORRECTED_SYMBOLS_LANE3,
 	EFX_MAC_NSTATS
 } efx_mac_stat_t;
 
@@ -436,6 +458,9 @@ typedef enum efx_link_mode_e {
 	EFX_LINK_1000FDX,
 	EFX_LINK_10000FDX,
 	EFX_LINK_40000FDX,
+	EFX_LINK_25000FDX,
+	EFX_LINK_50000FDX,
+	EFX_LINK_100000FDX,
 	EFX_LINK_NMODES
 } efx_link_mode_t;
 
@@ -564,7 +589,6 @@ efx_mac_stats_get_mask(
 	((_mask)[(_stat) / EFX_MAC_STATS_MASK_BITS_PER_PAGE] &	\
 	    (1ULL << ((_stat) & (EFX_MAC_STATS_MASK_BITS_PER_PAGE - 1))))
 
-#define	EFX_MAC_STATS_SIZE 0x400
 
 extern	__checkReturn			efx_rc_t
 efx_mac_stats_clear(
@@ -573,8 +597,8 @@ efx_mac_stats_clear(
 /*
  * Upload mac statistics supported by the hardware into the given buffer.
  *
- * The reference buffer must be at least %EFX_MAC_STATS_SIZE bytes,
- * and page aligned.
+ * The DMA buffer must be 4Kbyte aligned and sized to hold at least
+ * efx_nic_cfg_t::enc_mac_stats_nstats 64bit counters.
  *
  * The hardware will only DMA statistics that it understands (of course).
  * Drivers should not make any assumptions about which statistics are
@@ -818,6 +842,9 @@ typedef enum efx_loopback_type_e {
 	EFX_LOOPBACK_SD_FEP1_5_WS = 32,
 	EFX_LOOPBACK_SD_FEP_WS = 33,
 	EFX_LOOPBACK_SD_FES_WS = 34,
+	EFX_LOOPBACK_AOE_INT_NEAR = 35,
+	EFX_LOOPBACK_DATA_WS = 36,
+	EFX_LOOPBACK_FORCE_EXT_LINK = 37,
 	EFX_LOOPBACK_NTYPES
 } efx_loopback_type_t;
 
@@ -873,6 +900,10 @@ typedef enum efx_phy_cap_type_e {
 	EFX_PHY_CAP_ASYM,
 	EFX_PHY_CAP_AN,
 	EFX_PHY_CAP_40000FDX,
+	EFX_PHY_CAP_DDM,
+	EFX_PHY_CAP_100000FDX,
+	EFX_PHY_CAP_25000FDX,
+	EFX_PHY_CAP_50000FDX,
 	EFX_PHY_CAP_NTYPES
 } efx_phy_cap_type_t;
 
@@ -1110,6 +1141,13 @@ typedef enum efx_tunnel_protocol_e {
 	EFX_TUNNEL_NPROTOS
 } efx_tunnel_protocol_t;
 
+typedef enum efx_vi_window_shift_e {
+	EFX_VI_WINDOW_SHIFT_INVALID = 0,
+	EFX_VI_WINDOW_SHIFT_8K = 13,
+	EFX_VI_WINDOW_SHIFT_16K = 14,
+	EFX_VI_WINDOW_SHIFT_64K = 16,
+} efx_vi_window_shift_t;
+
 typedef struct efx_nic_cfg_s {
 	uint32_t		enc_board_type;
 	uint32_t		enc_phy_type;
@@ -1123,6 +1161,7 @@ typedef struct efx_nic_cfg_s {
 	uint32_t		enc_mon_stat_mask[(EFX_MON_NSTATS + 31) / 32];
 #endif
 	unsigned int		enc_features;
+	efx_vi_window_shift_t	enc_vi_window_shift;
 	uint8_t			enc_mac_addr[6];
 	uint8_t			enc_port;	/* PHY port number */
 	uint32_t		enc_intr_vec_base;
@@ -1167,11 +1206,11 @@ typedef struct efx_nic_cfg_s {
 #if EFSYS_OPT_BIST
 	uint32_t		enc_bist_mask;
 #endif	/* EFSYS_OPT_BIST */
-#if EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD
+#if EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD || EFSYS_OPT_MEDFORD2
 	uint32_t		enc_pf;
 	uint32_t		enc_vf;
 	uint32_t		enc_privilege_mask;
-#endif /* EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD */
+#endif /* EFSYS_OPT_HUNTINGTON || EFSYS_OPT_MEDFORD || EFSYS_OPT_MEDFORD2 */
 	boolean_t		enc_bug26807_workaround;
 	boolean_t		enc_bug35388_workaround;
 	boolean_t		enc_bug41750_workaround;
@@ -1226,6 +1265,9 @@ typedef struct efx_nic_cfg_s {
 	uint32_t		enc_max_pcie_link_gen;
 	/* Firmware verifies integrity of NVRAM updates */
 	uint32_t		enc_nvram_update_verify_result_supported;
+	/* Firmware support for extended MAC_STATS buffer */
+	uint32_t		enc_mac_stats_nstats;
+	boolean_t		enc_fec_counters;
 } efx_nic_cfg_t;
 
 #define	EFX_PCI_FUNCTION_IS_PF(_encp)	((_encp)->enc_vf == 0xffff)
@@ -2265,6 +2307,12 @@ extern	void
 efx_tx_qdesc_vlantci_create(
 	__in	efx_txq_t *etp,
 	__in	uint16_t tci,
+	__out	efx_desc_t *edp);
+
+extern	void
+efx_tx_qdesc_checksum_create(
+	__in	efx_txq_t *etp,
+	__in	uint16_t flags,
 	__out	efx_desc_t *edp);
 
 #if EFSYS_OPT_QSTATS

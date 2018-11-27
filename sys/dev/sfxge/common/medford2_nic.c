@@ -1,5 +1,7 @@
 /*-
- * Copyright (c) 2015-2016 Solarflare Communications Inc.
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
+ * Copyright (c) 2015-2018 Solarflare Communications Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,10 +37,10 @@ __FBSDID("$FreeBSD$");
 #include "efx_impl.h"
 
 
-#if EFSYS_OPT_MEDFORD
+#if EFSYS_OPT_MEDFORD2
 
 static	__checkReturn	efx_rc_t
-medford_nic_get_required_pcie_bandwidth(
+medford2_nic_get_required_pcie_bandwidth(
 	__in		efx_nic_t *enp,
 	__out		uint32_t *bandwidth_mbpsp)
 {
@@ -46,6 +48,8 @@ medford_nic_get_required_pcie_bandwidth(
 	uint32_t current_mode;
 	uint32_t bandwidth;
 	efx_rc_t rc;
+
+	/* FIXME: support new Medford2 dynamic port modes */
 
 	if ((rc = efx_mcdi_get_port_modes(enp, &port_modes,
 				    &current_mode)) != 0) {
@@ -70,7 +74,7 @@ fail1:
 }
 
 	__checkReturn	efx_rc_t
-medford_board_cfg(
+medford2_board_cfg(
 	__in		efx_nic_t *enp)
 {
 	efx_mcdi_iface_t *emip = &(enp->en_mcdi.em_emip);
@@ -87,6 +91,7 @@ medford_board_cfg(
 	uint32_t base, nvec;
 	uint32_t end_padding;
 	uint32_t bandwidth;
+	uint32_t vi_window_shift;
 	efx_rc_t rc;
 
 	/*
@@ -94,15 +99,12 @@ medford_board_cfg(
 	 * Parts of this should be shared with Huntington.
 	 */
 
-	/* Medford has a fixed 8Kbyte VI window size */
-	EFX_STATIC_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP	== 8192);
-	EFX_STATIC_ASSERT(ER_DZ_EVQ_TMR_REG_STEP	== 8192);
-	EFX_STATIC_ASSERT(ER_DZ_RX_DESC_UPD_REG_STEP	== 8192);
-	EFX_STATIC_ASSERT(ER_DZ_TX_DESC_UPD_REG_STEP	== 8192);
-	EFX_STATIC_ASSERT(ER_DZ_TX_PIOBUF_STEP		== 8192);
+	/* Medford2 has a variable VI window size (8K, 16K or 64K) */
+	if ((rc = ef10_get_vi_window_shift(enp, &vi_window_shift)) != 0)
+		goto fail1;
 
-	EFX_STATIC_ASSERT(1U << EFX_VI_WINDOW_SHIFT_8K	== 8192);
-	encp->enc_vi_window_shift = EFX_VI_WINDOW_SHIFT_8K;
+	EFSYS_ASSERT3U(vi_window_shift, <=, EFX_VI_WINDOW_SHIFT_64K);
+	encp->enc_vi_window_shift = vi_window_shift;
 
 
 	if ((rc = efx_mcdi_get_port_assignment(enp, &port)) != 0)
@@ -169,7 +171,7 @@ medford_board_cfg(
 	}
 
 	encp->enc_board_type = board_type;
-	encp->enc_clk_mult = 1; /* not used for Medford */
+	encp->enc_clk_mult = 1; /* not used for Medford2 */
 
 	/* Fill out fields in enp->en_port and enp->en_nic_cfg from MCDI */
 	if ((rc = efx_mcdi_get_phy_cfg(enp)) != 0)
@@ -200,13 +202,13 @@ medford_board_cfg(
 
 	if (EFX_PCI_FUNCTION_IS_VF(encp)) {
 		/*
-		 * Interrupt testing does not work for VFs. See bug50084 and
-		 * bug71432 comment 21.
+		 * Interrupt testing does not work for VFs on Medford2.
+		 * See bug50084 and bug71432 comment 21.
 		 */
 		encp->enc_bug41750_workaround = B_TRUE;
 	}
 
-	/* Chained multicast is always enabled on Medford */
+	/* Chained multicast is always enabled on Medford2 */
 	encp->enc_bug26807_workaround = B_TRUE;
 
 	/*
@@ -228,7 +230,7 @@ medford_board_cfg(
 		goto fail9;
 
 	/*
-	 * The Medford timer quantum is 1536 dpcpu_clk cycles, documented for
+	 * The Medford2 timer quantum is 1536 dpcpu_clk cycles, documented for
 	 * the EV_TMR_VAL field of EV_TIMER_TBL. Scale for MHz and ns units.
 	 */
 	encp->enc_evq_timer_quantum_ns = 1536000UL / dpcpu_clk; /* 1536 cycles */
@@ -285,10 +287,10 @@ medford_board_cfg(
 
 	encp->enc_buftbl_limit = 0xFFFFFFFF;
 
-	EFX_STATIC_ASSERT(MEDFORD_PIOBUF_NBUFS <= EF10_MAX_PIOBUF_NBUFS);
-	encp->enc_piobuf_limit = MEDFORD_PIOBUF_NBUFS;
-	encp->enc_piobuf_size = MEDFORD_PIOBUF_SIZE;
-	encp->enc_piobuf_min_alloc_size = MEDFORD_MIN_PIO_ALLOC_SIZE;
+	EFX_STATIC_ASSERT(MEDFORD2_PIOBUF_NBUFS <= EF10_MAX_PIOBUF_NBUFS);
+	encp->enc_piobuf_limit = MEDFORD2_PIOBUF_NBUFS;
+	encp->enc_piobuf_size = MEDFORD2_PIOBUF_SIZE;
+	encp->enc_piobuf_min_alloc_size = MEDFORD2_MIN_PIO_ALLOC_SIZE;
 
 	/*
 	 * Get the current privilege mask. Note that this may be modified
@@ -319,12 +321,12 @@ medford_board_cfg(
 	encp->enc_tx_tso_tcp_header_offset_limit = EF10_TCP_HEADER_OFFSET_LIMIT;
 
 	/*
-	 * Medford stores a single global copy of VPD, not per-PF as on
+	 * Medford2 stores a single global copy of VPD, not per-PF as on
 	 * Huntington.
 	 */
 	encp->enc_vpd_is_global = B_TRUE;
 
-	rc = medford_nic_get_required_pcie_bandwidth(enp, &bandwidth);
+	rc = medford2_nic_get_required_pcie_bandwidth(enp, &bandwidth);
 	if (rc != 0)
 		goto fail14;
 	encp->enc_required_pcie_bandwidth_mbps = bandwidth;
@@ -364,4 +366,4 @@ fail1:
 	return (rc);
 }
 
-#endif	/* EFSYS_OPT_MEDFORD */
+#endif	/* EFSYS_OPT_MEDFORD2 */
