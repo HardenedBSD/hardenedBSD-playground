@@ -1549,10 +1549,6 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 			}
 		}
 	}
-<<<<<<< HEAD
-
-=======
->>>>>>> origin/freebsd/current/master
 	pr_allow_diff = pr_allow & ~ppr->pr_allow;
 	if (pr_allow_diff & ~PR_ALLOW_DIFFERENCES) {
 		error = EPERM;

@@ -195,11 +195,8 @@ priv_check_cred(struct ucred *cred, int priv, int flags)
 
 	/*
 	 * Allow unprivileged process debugging on a per-jail basis.
-<<<<<<< HEAD
-=======
 	 * Do this here instead of prison_priv_check(), so it can also
 	 * apply to prison0.
->>>>>>> origin/freebsd/current/master
 	 */
 	if (priv == PRIV_DEBUG_UNPRIV) {
 		if (prison_allow(cred, PR_ALLOW_UNPRIV_DEBUG)) {

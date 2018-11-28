@@ -1698,12 +1698,7 @@ p_candebug(struct thread *td, struct proc *p)
 
 	KASSERT(td == curthread, ("%s: td not curthread", __func__));
 	PROC_LOCK_ASSERT(p, MA_OWNED);
-<<<<<<< HEAD
-	error = priv_check(td, PRIV_DEBUG_UNPRIV);
-	if (error)
-=======
 	if ((error = priv_check(td, PRIV_DEBUG_UNPRIV)))
->>>>>>> origin/freebsd/current/master
 		return (error);
 	if (td->td_proc == p)
 		return (0);
