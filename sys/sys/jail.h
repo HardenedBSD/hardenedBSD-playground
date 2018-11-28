@@ -234,16 +234,25 @@ struct prison_racct {
 #define	PR_ALLOW_SOCKET_AF		0x00000040
 #define	PR_ALLOW_MLOCK			0x00000080
 #define	PR_ALLOW_READ_MSGBUF		0x00000100
+#define	PR_ALLOW_UNPRIV_DEBUG		0x00000200
 #define	PR_ALLOW_RESERVED_PORTS		0x00008000
 #define	PR_ALLOW_KMEM_ACCESS		0x00010000	/* reserved, not used yet */
+<<<<<<< HEAD
 #define	PR_ALLOW_UNPRIV_DEBUG 		0x00020000
 #define	PR_ALLOW_ALL_STATIC		0x000381ff
+=======
+#define	PR_ALLOW_ALL_STATIC		0x000183ff
+>>>>>>> origin/freebsd/current/master
 
 /*
  * PR_ALLOW_DIFFERENCES determines which flags are able to be
  * different between the parent and child jail upon creation.
  */
+<<<<<<< HEAD
 #define	PR_ALLOW_DIFFERENCES 		(PR_ALLOW_UNPRIV_DEBUG)
+=======
+#define	PR_ALLOW_DIFFERENCES		(PR_ALLOW_UNPRIV_DEBUG)
+>>>>>>> origin/freebsd/current/master
 
 /*
  * OSD methods

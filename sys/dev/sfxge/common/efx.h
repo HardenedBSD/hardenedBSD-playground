@@ -351,7 +351,7 @@ efx_intr_fini(
 
 #if EFSYS_OPT_MAC_STATS
 
-/* START MKCONFIG GENERATED EfxHeaderMacBlock 7b5f45054a3b45bc */
+/* START MKCONFIG GENERATED EfxHeaderMacBlock 7d59c0d68431a5d1 */
 typedef enum efx_mac_stat_e {
 	EFX_MAC_RX_OCTETS,
 	EFX_MAC_RX_PKTS,
@@ -440,6 +440,22 @@ typedef enum efx_mac_stat_e {
 	EFX_MAC_FEC_CORRECTED_SYMBOLS_LANE1,
 	EFX_MAC_FEC_CORRECTED_SYMBOLS_LANE2,
 	EFX_MAC_FEC_CORRECTED_SYMBOLS_LANE3,
+	EFX_MAC_CTPIO_VI_BUSY_FALLBACK,
+	EFX_MAC_CTPIO_LONG_WRITE_SUCCESS,
+	EFX_MAC_CTPIO_MISSING_DBELL_FAIL,
+	EFX_MAC_CTPIO_OVERFLOW_FAIL,
+	EFX_MAC_CTPIO_UNDERFLOW_FAIL,
+	EFX_MAC_CTPIO_TIMEOUT_FAIL,
+	EFX_MAC_CTPIO_NONCONTIG_WR_FAIL,
+	EFX_MAC_CTPIO_FRM_CLOBBER_FAIL,
+	EFX_MAC_CTPIO_INVALID_WR_FAIL,
+	EFX_MAC_CTPIO_VI_CLOBBER_FALLBACK,
+	EFX_MAC_CTPIO_UNQUALIFIED_FALLBACK,
+	EFX_MAC_CTPIO_RUNT_FALLBACK,
+	EFX_MAC_CTPIO_SUCCESS,
+	EFX_MAC_CTPIO_FALLBACK,
+	EFX_MAC_CTPIO_POISON,
+	EFX_MAC_CTPIO_ERASE,
 	EFX_MAC_NSTATS
 } efx_mac_stat_t;
 
@@ -655,7 +671,7 @@ efx_mon_init(
 #define	EFX_MON_STATS_PAGE_SIZE 0x100
 #define	EFX_MON_MASK_ELEMENT_SIZE 32
 
-/* START MKCONFIG GENERATED MonitorHeaderStatsBlock fcc1b6748432e1ac */
+/* START MKCONFIG GENERATED MonitorHeaderStatsBlock 400fdb0517af1fca */
 typedef enum efx_mon_stat_e {
 	EFX_MON_STAT_2_5V,
 	EFX_MON_STAT_VCCP1,
@@ -738,6 +754,8 @@ typedef enum efx_mon_stat_e {
 	EFX_MON_STAT_I2V5,
 	EFX_MON_STAT_I3V3,
 	EFX_MON_STAT_I12V0,
+	EFX_MON_STAT_1_3V,
+	EFX_MON_STAT_I1V3,
 	EFX_MON_NSTATS
 } efx_mon_stat_t;
 
@@ -904,6 +922,12 @@ typedef enum efx_phy_cap_type_e {
 	EFX_PHY_CAP_100000FDX,
 	EFX_PHY_CAP_25000FDX,
 	EFX_PHY_CAP_50000FDX,
+	EFX_PHY_CAP_BASER_FEC,
+	EFX_PHY_CAP_BASER_FEC_REQUESTED,
+	EFX_PHY_CAP_RS_FEC,
+	EFX_PHY_CAP_RS_FEC_REQUESTED,
+	EFX_PHY_CAP_25G_BASER_FEC,
+	EFX_PHY_CAP_25G_BASER_FEC_REQUESTED,
 	EFX_PHY_CAP_NTYPES
 } efx_phy_cap_type_t;
 
@@ -1234,6 +1258,7 @@ typedef struct efx_nic_cfg_s {
 	uint32_t		enc_tx_tso_tcp_header_offset_limit;
 	boolean_t		enc_fw_assisted_tso_enabled;
 	boolean_t		enc_fw_assisted_tso_v2_enabled;
+	boolean_t		enc_fw_assisted_tso_v2_encap_enabled;
 	/* Number of TSO contexts on the NIC (FATSOv2) */
 	uint32_t		enc_fw_assisted_tso_v2_n_contexts;
 	boolean_t		enc_hw_tx_insert_vlan_enabled;
@@ -2298,6 +2323,7 @@ extern	void
 efx_tx_qdesc_tso2_create(
 	__in			efx_txq_t *etp,
 	__in			uint16_t ipv4_id,
+	__in			uint16_t outer_ipv4_id,
 	__in			uint32_t tcp_seq,
 	__in			uint16_t tcp_mss,
 	__out_ecount(count)	efx_desc_t *edp,

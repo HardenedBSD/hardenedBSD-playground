@@ -782,6 +782,7 @@ extern	void
 ef10_tx_qdesc_tso2_create(
 	__in			efx_txq_t *etp,
 	__in			uint16_t ipv4_id,
+	__in			uint16_t outer_ipv4_id,
 	__in			uint32_t tcp_seq,
 	__in			uint16_t tcp_mss,
 	__out_ecount(count)	efx_desc_t *edp,
@@ -1187,25 +1188,11 @@ efx_mcdi_get_vector_cfg(
 	__out_opt	uint32_t *pf_nvecp,
 	__out_opt	uint32_t *vf_nvecp);
 
-extern	__checkReturn	efx_rc_t
-ef10_get_datapath_caps(
-	__in		efx_nic_t *enp);
-
-extern	__checkReturn	efx_rc_t
-ef10_get_vi_window_shift(
-	__in		efx_nic_t *enp,
-	__out		uint32_t *vi_window_shiftp);
-
 extern	__checkReturn		efx_rc_t
 ef10_get_privilege_mask(
 	__in			efx_nic_t *enp,
 	__out			uint32_t *maskp);
 
-extern	__checkReturn	efx_rc_t
-ef10_external_port_mapping(
-	__in		efx_nic_t *enp,
-	__in		uint32_t port,
-	__out		uint8_t *external_portp);
 
 #if EFSYS_OPT_RX_PACKED_STREAM
 

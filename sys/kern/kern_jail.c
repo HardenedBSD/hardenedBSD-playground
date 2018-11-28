@@ -201,7 +201,9 @@ static struct bool_flags pr_flag_allow[NBBY * NBPW] = {
 };
 const size_t pr_flag_allow_size = sizeof(pr_flag_allow);
 
-#define	JAIL_DEFAULT_ALLOW		(PR_ALLOW_SET_HOSTNAME | PR_ALLOW_RESERVED_PORTS)
+#define	JAIL_DEFAULT_ALLOW		(PR_ALLOW_SET_HOSTNAME | \
+					 PR_ALLOW_RESERVED_PORTS | \
+					 PR_ALLOW_UNPRIV_DEBUG)
 #define	JAIL_DEFAULT_ENFORCE_STATFS	2
 #define	JAIL_DEFAULT_DEVFS_RSNUM	0
 static unsigned jail_default_allow = JAIL_DEFAULT_ALLOW;
@@ -1547,7 +1549,10 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 			}
 		}
 	}
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/freebsd/current/master
 	pr_allow_diff = pr_allow & ~ppr->pr_allow;
 	if (pr_allow_diff & ~PR_ALLOW_DIFFERENCES) {
 		error = EPERM;
