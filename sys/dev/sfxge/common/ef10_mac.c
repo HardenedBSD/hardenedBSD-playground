@@ -439,7 +439,7 @@ ef10_mac_filter_default_rxq_clear(
 
 	ef10_filter_default_rxq_clear(enp);
 
-	efx_filter_reconfigure(enp, epp->ep_mac_addr,
+	(void) efx_filter_reconfigure(enp, epp->ep_mac_addr,
 				    epp->ep_all_unicst, epp->ep_mulcst,
 				    epp->ep_all_mulcst, epp->ep_brdcst,
 				    epp->ep_mulcst_addr_list,
@@ -560,8 +560,32 @@ ef10_mac_stats_get_mask(
 			goto fail7;
 	}
 
+	if (encp->enc_mac_stats_nstats >= MC_CMD_MAC_NSTATS_V4) {
+		const struct efx_mac_stats_range ef10_rxdp_sdt[] = {
+			{ EFX_MAC_RXDP_SCATTER_DISABLED_TRUNC,
+			    EFX_MAC_RXDP_SCATTER_DISABLED_TRUNC },
+		};
+
+		if ((rc = efx_mac_stats_mask_add_ranges(maskp, mask_size,
+		    ef10_rxdp_sdt, EFX_ARRAY_SIZE(ef10_rxdp_sdt))) != 0)
+			goto fail8;
+	}
+
+	if (encp->enc_hlb_counters) {
+		const struct efx_mac_stats_range ef10_hlb[] = {
+			{ EFX_MAC_RXDP_HLB_IDLE, EFX_MAC_RXDP_HLB_TIMEOUT },
+		};
+		if ((rc = efx_mac_stats_mask_add_ranges(maskp, mask_size,
+		    ef10_hlb, EFX_ARRAY_SIZE(ef10_hlb))) != 0)
+			goto fail9;
+	}
+
 	return (0);
 
+fail9:
+	EFSYS_PROBE(fail9);
+fail8:
+	EFSYS_PROBE(fail8);
 fail7:
 	EFSYS_PROBE(fail7);
 fail6:
@@ -1004,6 +1028,21 @@ ef10_mac_stats_update(
 
 	EF10_MAC_STAT_READ(esmp, MC_CMD_MAC_CTPIO_ERASE, &value);
 	EFSYS_STAT_SET_QWORD(&(stat[EFX_MAC_CTPIO_ERASE]), &value);
+
+	if (encp->enc_mac_stats_nstats < MC_CMD_MAC_NSTATS_V4)
+		goto done;
+
+	EF10_MAC_STAT_READ(esmp, MC_CMD_MAC_RXDP_SCATTER_DISABLED_TRUNC,
+	    &value);
+	EFSYS_STAT_SET_QWORD(&(stat[EFX_MAC_RXDP_SCATTER_DISABLED_TRUNC]),
+	    &value);
+
+	/* Head-of-line blocking */
+	EF10_MAC_STAT_READ(esmp, MC_CMD_MAC_RXDP_HLB_IDLE, &value);
+	EFSYS_STAT_SET_QWORD(&(stat[EFX_MAC_RXDP_HLB_IDLE]), &value);
+
+	EF10_MAC_STAT_READ(esmp, MC_CMD_MAC_RXDP_HLB_TIMEOUT, &value);
+	EFSYS_STAT_SET_QWORD(&(stat[EFX_MAC_RXDP_HLB_TIMEOUT]), &value);
 
 done:
 	/* Read START generation counter */

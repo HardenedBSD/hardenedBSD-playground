@@ -157,6 +157,24 @@ typedef struct efx_tx_ops_s {
 #endif
 } efx_tx_ops_t;
 
+typedef union efx_rxq_type_data_u {
+	/* Dummy member to have non-empty union if no options are enabled */
+	uint32_t	ertd_dummy;
+#if EFSYS_OPT_RX_PACKED_STREAM
+	struct {
+		uint32_t	eps_buf_size;
+	} ertd_packed_stream;
+#endif
+#if EFSYS_OPT_RX_ES_SUPER_BUFFER
+	struct {
+		uint32_t	eessb_bufs_per_desc;
+		uint32_t	eessb_max_dma_len;
+		uint32_t	eessb_buf_stride;
+		uint32_t	eessb_hol_block_timeout;
+	} ertd_es_super_buffer;
+#endif
+} efx_rxq_type_data_t;
+
 typedef struct efx_rx_ops_s {
 	efx_rc_t	(*erxo_init)(efx_nic_t *);
 	void		(*erxo_fini)(efx_nic_t *);
@@ -193,7 +211,8 @@ typedef struct efx_rx_ops_s {
 	efx_rc_t	(*erxo_qflush)(efx_rxq_t *);
 	void		(*erxo_qenable)(efx_rxq_t *);
 	efx_rc_t	(*erxo_qcreate)(efx_nic_t *enp, unsigned int,
-					unsigned int, efx_rxq_type_t, uint32_t,
+					unsigned int, efx_rxq_type_t,
+					const efx_rxq_type_data_t *,
 					efsys_mem_t *, size_t, uint32_t,
 					unsigned int,
 					efx_evq_t *, efx_rxq_t *);
@@ -592,7 +611,7 @@ efx_mcdi_nvram_write(
 	__in			efx_nic_t *enp,
 	__in			uint32_t partn,
 	__in			uint32_t offset,
-	__out_bcount(size)	caddr_t data,
+	__in_bcount(size)	caddr_t data,
 	__in			size_t size);
 
 	__checkReturn		efx_rc_t
@@ -675,6 +694,7 @@ struct efx_nic_s {
 	const efx_ev_ops_t	*en_eevop;
 	const efx_tx_ops_t	*en_etxop;
 	const efx_rx_ops_t	*en_erxop;
+	efx_fw_variant_t	efv;
 #if EFSYS_OPT_FILTER
 	efx_filter_t		en_filter;
 	const efx_filter_ops_t	*en_efop;
@@ -751,9 +771,11 @@ typedef	boolean_t (*efx_ev_handler_t)(efx_evq_t *, efx_qword_t *,
 typedef struct efx_evq_rxq_state_s {
 	unsigned int			eers_rx_read_ptr;
 	unsigned int			eers_rx_mask;
-#if EFSYS_OPT_RX_PACKED_STREAM
+#if EFSYS_OPT_RX_PACKED_STREAM || EFSYS_OPT_RX_ES_SUPER_BUFFER
 	unsigned int			eers_rx_stream_npackets;
 	boolean_t			eers_rx_packed_stream;
+#endif
+#if EFSYS_OPT_RX_PACKED_STREAM
 	unsigned int			eers_rx_packed_stream_credits;
 #endif
 } efx_evq_rxq_state_t;

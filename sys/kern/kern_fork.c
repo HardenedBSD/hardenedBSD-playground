@@ -245,6 +245,7 @@ fork_findpid(int flags)
 	struct proc *p;
 	int trypid;
 	static int pidchecked = 0;
+	bool locked_zomb = false;
 
 	/*
 	 * Requires allproc_lock in order to iterate over the list
@@ -325,6 +326,10 @@ again:
 		}
 		if (!doingzomb) {
 			doingzomb = 1;
+			if (!locked_zomb) {
+				sx_slock(&zombproc_lock);
+				locked_zomb = true;
+			}
 			p = LIST_FIRST(&zombproc);
 			goto again;
 		}
@@ -337,6 +342,9 @@ again:
 		pidchecked = 0;
 	else
 		lastpid = trypid;
+
+	if (locked_zomb)
+		sx_sunlock(&zombproc_lock);
 
 	return (trypid);
 }

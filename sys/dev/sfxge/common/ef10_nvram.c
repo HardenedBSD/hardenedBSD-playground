@@ -1835,7 +1835,7 @@ ef10_nvram_partn_write_segment_tlv(
 		goto fail7;
 
 	/* Unlock the partition */
-	ef10_nvram_partn_unlock(enp, partn, NULL);
+	(void) ef10_nvram_partn_unlock(enp, partn, NULL);
 
 	EFSYS_KMEM_FREE(enp->en_esip, partn_size, partn_data);
 
@@ -1850,7 +1850,7 @@ fail5:
 fail4:
 	EFSYS_PROBE(fail4);
 
-	ef10_nvram_partn_unlock(enp, partn, NULL);
+	(void) ef10_nvram_partn_unlock(enp, partn, NULL);
 fail3:
 	EFSYS_PROBE(fail3);
 
@@ -2027,7 +2027,7 @@ ef10_nvram_partn_write(
 	__in			efx_nic_t *enp,
 	__in			uint32_t partn,
 	__in			unsigned int offset,
-	__out_bcount(size)	caddr_t data,
+	__in_bcount(size)	caddr_t data,
 	__in			size_t size)
 {
 	size_t chunk;
@@ -2195,6 +2195,8 @@ static ef10_parttbl_entry_t medford2_parttbl[] = {
 	PARTN_MAP_ENTRY(LICENSE,		ALL,	LICENSE),
 	PARTN_MAP_ENTRY(EXPANSION_UEFI,		ALL,	UEFIROM),
 	PARTN_MAP_ENTRY(MUM_FIRMWARE,		ALL,	MUM_FIRMWARE),
+	PARTN_MAP_ENTRY(DYNCONFIG_DEFAULTS,	ALL,	DYNCONFIG_DEFAULTS),
+	PARTN_MAP_ENTRY(ROMCONFIG_DEFAULTS,	ALL,	ROMCONFIG_DEFAULTS),
 };
 
 static	__checkReturn		efx_rc_t

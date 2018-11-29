@@ -319,7 +319,8 @@ fail1:
 
 	__checkReturn	efx_rc_t
 efx_nic_probe(
-	__in		efx_nic_t *enp)
+	__in		efx_nic_t *enp,
+	__in		efx_fw_variant_t efv)
 {
 	const efx_nic_ops_t *enop;
 	efx_rc_t rc;
@@ -330,7 +331,27 @@ efx_nic_probe(
 #endif	/* EFSYS_OPT_MCDI */
 	EFSYS_ASSERT(!(enp->en_mod_flags & EFX_MOD_PROBE));
 
+	/* Ensure FW variant codes match with MC_CMD_FW codes */
+	EFX_STATIC_ASSERT(EFX_FW_VARIANT_FULL_FEATURED ==
+	    MC_CMD_FW_FULL_FEATURED);
+	EFX_STATIC_ASSERT(EFX_FW_VARIANT_LOW_LATENCY ==
+	    MC_CMD_FW_LOW_LATENCY);
+	EFX_STATIC_ASSERT(EFX_FW_VARIANT_PACKED_STREAM ==
+	    MC_CMD_FW_PACKED_STREAM);
+	EFX_STATIC_ASSERT(EFX_FW_VARIANT_HIGH_TX_RATE ==
+	    MC_CMD_FW_HIGH_TX_RATE);
+	EFX_STATIC_ASSERT(EFX_FW_VARIANT_PACKED_STREAM_HASH_MODE_1 ==
+	    MC_CMD_FW_PACKED_STREAM_HASH_MODE_1);
+	EFX_STATIC_ASSERT(EFX_FW_VARIANT_RULES_ENGINE ==
+	    MC_CMD_FW_RULES_ENGINE);
+	EFX_STATIC_ASSERT(EFX_FW_VARIANT_DPDK ==
+	    MC_CMD_FW_DPDK);
+	EFX_STATIC_ASSERT(EFX_FW_VARIANT_DONT_CARE ==
+	    (int)MC_CMD_FW_DONT_CARE);
+
 	enop = enp->en_enop;
+	enp->efv = efv;
+
 	if ((rc = enop->eno_probe(enp)) != 0)
 		goto fail1;
 
@@ -614,6 +635,18 @@ efx_nic_get_fw_version(
 
 	EFSYS_ASSERT3U(enp->en_mod_flags, &, EFX_MOD_MCDI);
 	EFSYS_ASSERT3U(enp->en_features, &, EFX_FEATURE_MCDI);
+
+	/* Ensure RXDP_FW_ID codes match with MC_CMD_GET_CAPABILITIES codes */
+	EFX_STATIC_ASSERT(EFX_RXDP_FULL_FEATURED_FW_ID ==
+	    MC_CMD_GET_CAPABILITIES_OUT_RXDP);
+	EFX_STATIC_ASSERT(EFX_RXDP_LOW_LATENCY_FW_ID ==
+	    MC_CMD_GET_CAPABILITIES_OUT_RXDP_LOW_LATENCY);
+	EFX_STATIC_ASSERT(EFX_RXDP_PACKED_STREAM_FW_ID ==
+	    MC_CMD_GET_CAPABILITIES_OUT_RXDP_PACKED_STREAM);
+	EFX_STATIC_ASSERT(EFX_RXDP_RULES_ENGINE_FW_ID ==
+	    MC_CMD_GET_CAPABILITIES_OUT_RXDP_RULES_ENGINE);
+	EFX_STATIC_ASSERT(EFX_RXDP_DPDK_FW_ID ==
+	    MC_CMD_GET_CAPABILITIES_OUT_RXDP_DPDK);
 
 	rc = efx_mcdi_version(enp, mc_fw_version, NULL, NULL);
 	if (rc != 0)
@@ -943,6 +976,82 @@ fail1:
 	return (rc);
 }
 
+#if EFSYS_OPT_FW_SUBVARIANT_AWARE
+
+	__checkReturn	efx_rc_t
+efx_nic_get_fw_subvariant(
+	__in		efx_nic_t *enp,
+	__out		efx_nic_fw_subvariant_t *subvariantp)
+{
+	efx_rc_t rc;
+	uint32_t value;
+
+	rc = efx_mcdi_get_nic_global(enp,
+	    MC_CMD_SET_NIC_GLOBAL_IN_FIRMWARE_SUBVARIANT, &value);
+	if (rc != 0)
+		goto fail1;
+
+	/* Mapping is not required since values match MCDI */
+	EFX_STATIC_ASSERT(EFX_NIC_FW_SUBVARIANT_DEFAULT ==
+	    MC_CMD_SET_NIC_GLOBAL_IN_FW_SUBVARIANT_DEFAULT);
+	EFX_STATIC_ASSERT(EFX_NIC_FW_SUBVARIANT_NO_TX_CSUM ==
+	    MC_CMD_SET_NIC_GLOBAL_IN_FW_SUBVARIANT_NO_TX_CSUM);
+
+	switch (value) {
+	case MC_CMD_SET_NIC_GLOBAL_IN_FW_SUBVARIANT_DEFAULT:
+	case MC_CMD_SET_NIC_GLOBAL_IN_FW_SUBVARIANT_NO_TX_CSUM:
+		*subvariantp = value;
+		break;
+	default:
+		rc = EINVAL;
+		goto fail2;
+	}
+
+	return (0);
+
+fail2:
+	EFSYS_PROBE(fail2);
+
+fail1:
+	EFSYS_PROBE1(fail1, efx_rc_t, rc);
+
+	return (rc);
+}
+
+	__checkReturn	efx_rc_t
+efx_nic_set_fw_subvariant(
+	__in		efx_nic_t *enp,
+	__in		efx_nic_fw_subvariant_t subvariant)
+{
+	efx_rc_t rc;
+
+	switch (subvariant) {
+	case EFX_NIC_FW_SUBVARIANT_DEFAULT:
+	case EFX_NIC_FW_SUBVARIANT_NO_TX_CSUM:
+		/* Mapping is not required since values match MCDI */
+		break;
+	default:
+		rc = EINVAL;
+		goto fail1;
+	}
+
+	rc = efx_mcdi_set_nic_global(enp,
+	    MC_CMD_SET_NIC_GLOBAL_IN_FIRMWARE_SUBVARIANT, subvariant);
+	if (rc != 0)
+		goto fail2;
+
+	return (0);
+
+fail2:
+	EFSYS_PROBE(fail2);
+
+fail1:
+	EFSYS_PROBE1(fail1, efx_rc_t, rc);
+
+	return (rc);
+}
+
+#endif	/* EFSYS_OPT_FW_SUBVARIANT_AWARE */
 
 	__checkReturn	efx_rc_t
 efx_nic_check_pcie_link_speed(
