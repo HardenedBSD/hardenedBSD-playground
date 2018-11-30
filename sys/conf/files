@@ -1382,6 +1382,8 @@ dev/cxgb/sys/uipc_mvec.c	optional cxgb pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgb"
 dev/cxgb/cxgb_t3fw.c		optional cxgb cxgb_t3fw \
 	compile-with "${NORMAL_C} -I$S/dev/cxgb"
+dev/cxgbe/t4_clip.c		optional cxgbe pci \
+	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
 dev/cxgbe/t4_filter.c		optional cxgbe pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgbe"
 dev/cxgbe/t4_if.m		optional cxgbe pci
@@ -1734,6 +1736,8 @@ dev/extres/clk/clk_mux.c	optional ext_resources clk fdt
 dev/extres/phy/phy.c		optional ext_resources phy fdt
 dev/extres/phy/phydev_if.m	optional ext_resources phy fdt
 dev/extres/phy/phynode_if.m	optional ext_resources phy fdt
+dev/extres/phy/phy_usb.c	optional ext_resources phy fdt
+dev/extres/phy/phynode_usb_if.m	optional ext_resources phy fdt
 dev/extres/hwreset/hwreset.c	optional ext_resources hwreset fdt
 dev/extres/hwreset/hwreset_if.m	optional ext_resources hwreset fdt
 dev/extres/nvmem/nvmem.c	optional ext_resources nvmem fdt
@@ -3281,7 +3285,7 @@ dev/usb/net/if_urndis.c		optional urndis
 dev/usb/net/ruephy.c		optional rue
 dev/usb/net/usb_ethernet.c	optional uether | aue | axe | axge | cdce | \
 					 cue | ipheth | kue | mos | rue | \
-					 smsc | udav | ure | urndis
+					 smsc | udav | ure | urndis | muge
 dev/usb/net/uhso.c		optional uhso
 #
 # USB WLAN drivers
