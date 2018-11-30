@@ -87,6 +87,7 @@ extern "C" {
 #define	EFX_RESET_PHY		0x00000001
 #define	EFX_RESET_RXQ_ERR	0x00000002
 #define	EFX_RESET_TXQ_ERR	0x00000004
+#define	EFX_RESET_HW_UNAVAIL	0x00000008
 
 typedef enum efx_mac_type_e {
 	EFX_MAC_INVALID = 0,
@@ -251,6 +252,7 @@ typedef struct efx_phy_ops_s {
 	efx_rc_t	(*epo_reconfigure)(efx_nic_t *);
 	efx_rc_t	(*epo_verify)(efx_nic_t *);
 	efx_rc_t	(*epo_oui_get)(efx_nic_t *, uint32_t *);
+	efx_rc_t	(*epo_link_state_get)(efx_nic_t *, efx_phy_link_state_t *);
 #if EFSYS_OPT_PHY_STATS
 	efx_rc_t	(*epo_stats_update)(efx_nic_t *, efsys_mem_t *,
 					    uint32_t *);
@@ -345,6 +347,8 @@ typedef struct efx_mon_ops_s {
 #if EFSYS_OPT_MON_STATS
 	efx_rc_t	(*emo_stats_update)(efx_nic_t *, efsys_mem_t *,
 					    efx_mon_stat_value_t *);
+	efx_rc_t	(*emo_limits_update)(efx_nic_t *,
+					     efx_mon_stat_limits_t *);
 #endif	/* EFSYS_OPT_MON_STATS */
 } efx_mon_ops_t;
 
@@ -382,6 +386,8 @@ typedef struct efx_nic_ops_s {
 	efx_rc_t	(*eno_get_vi_pool)(efx_nic_t *, uint32_t *);
 	efx_rc_t	(*eno_get_bar_region)(efx_nic_t *, efx_nic_region_t,
 					uint32_t *, size_t *);
+	boolean_t	(*eno_hw_unavailable)(efx_nic_t *);
+	void		(*eno_set_hw_unavailable)(efx_nic_t *);
 #if EFSYS_OPT_DIAG
 	efx_rc_t	(*eno_register_test)(efx_nic_t *);
 #endif	/* EFSYS_OPT_DIAG */
@@ -535,7 +541,7 @@ typedef struct efx_nvram_ops_s {
 					    uint32_t *, uint16_t *);
 	efx_rc_t	(*envo_partn_set_version)(efx_nic_t *, uint32_t,
 					    uint16_t *);
-	efx_rc_t	(*envo_buffer_validate)(efx_nic_t *, uint32_t,
+	efx_rc_t	(*envo_buffer_validate)(uint32_t,
 					    caddr_t, size_t);
 } efx_nvram_ops_t;
 #endif /* EFSYS_OPT_NVRAM */
