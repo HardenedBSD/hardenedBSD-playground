@@ -61,9 +61,6 @@ static const char rcsid[] = "@(#)$Id$";
 #define CURVNET_SET(arg)
 #define CURVNET_RESTORE()
 #endif
-#if defined(__osf__)
-# include <netinet/tcp_timer.h>
-#endif
 #include <netinet/udp.h>
 #include <netinet/tcpip.h>
 #include <netinet/ip_icmp.h>
@@ -289,8 +286,7 @@ ipfdetach(softc)
  * Filter ioctl interface.
  */
 int
-ipfioctl(dev, cmd, data, mode
-, p)
+ipfioctl(dev, cmd, data, mode, p)
 	struct thread *p;
 #    define	p_cred	td_ucred
 #    define	p_uid	td_ucred->cr_ruid
