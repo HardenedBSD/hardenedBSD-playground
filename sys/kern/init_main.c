@@ -748,19 +748,6 @@ start_init(void *dummy)
 	/* Wipe GELI passphrase from the environment. */
 	kern_unsetenv("kern.geom.eli.passphrase");
 
-<<<<<<< HEAD
-	/*
-	 * Need just enough stack to hold the faked-up "execve()" arguments.
-	 */
-	addr = p->p_usrstack - PAGE_SIZE;
-	if (vm_map_find(&p->p_vmspace->vm_map, NULL, 0, &addr, PAGE_SIZE, 0,
-	    VMFS_NO_SPACE, VM_PROT_ALL, VM_PROT_ALL, 0) != 0)
-		panic("init: couldn't allocate argument space");
-	p->p_vmspace->vm_maxsaddr = (caddr_t)addr;
-	p->p_vmspace->vm_ssize = 1;
-
-=======
->>>>>>> origin/freebsd/current/master
 	if ((var = kern_getenv("init_path")) != NULL) {
 		strlcpy(init_path, var, sizeof(init_path));
 		freeenv(var);
@@ -787,13 +774,8 @@ start_init(void *dummy)
 			panic("%s: Can't add argv[0] %d", __func__, error);
 
 		options = 0;
-<<<<<<< HEAD
-		ucp = (char *)p->p_usrstack;
-		(void)subyte(--ucp, 0);		/* trailing zero */
-=======
 		flagp = &flags[0];
 		*flagp++ = '-';
->>>>>>> origin/freebsd/current/master
 		if (boothowto & RB_SINGLE) {
 			*flagp++ = 's';
 			options++;
