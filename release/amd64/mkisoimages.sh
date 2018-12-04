@@ -50,7 +50,10 @@ if [ "$1" = "-b" ]; then
 	mount -t msdosfs /dev/$device efi
 	mkdir -p efi/efi/boot
 	cp "$BASEBITSDIR/boot/loader.efi" efi/efi/boot/bootx64.efi
+<<<<<<< HEAD
 	chmod 0755 efi/efi/boot/bootx64.efi
+=======
+>>>>>>> origin/freebsd/current/master
 	umount efi
 	rmdir efi
 	mdconfig -d -u $device
