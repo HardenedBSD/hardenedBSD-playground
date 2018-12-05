@@ -786,10 +786,6 @@ start_init(void *dummy)
 			options++;
 		}
 #endif
-#ifdef BOOTCDROM
-		*flagp++ = 'C';
-		options++;
-#endif
 		if (options == 0)
 			*flagp++ = '-';
 		*flagp++ = 0;
