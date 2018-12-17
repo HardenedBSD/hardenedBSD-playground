@@ -14,12 +14,6 @@ CONFS=	DAEMON \
 	abi \
 	addswap \
 	adjkerntz \
-<<<<<<< HEAD
-	auditd \
-	auditdistd \
-=======
-	archdep \
->>>>>>> origin/freebsd/current/master
 	bgfsck \
 	${_blacklistd} \
 	${_bluetooth} \
