@@ -16,7 +16,10 @@ LDIRS=	BSD_daemon \
 	drivers \
 	etc \
 	find_interface \
+<<<<<<< HEAD
 	hardenedbsd \
+=======
+>>>>>>> origin/freebsd/current/master
 	indent \
 	ipfw \
 	jails \
