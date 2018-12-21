@@ -46,28 +46,12 @@ if [ "$1" = "-b" ]; then
 	bootable="-o bootimage=i386;$BASEBITSDIR/boot/cdboot -o no-emul-boot"
 
 	# Make EFI system partition (should be done with makefs in the future)
-<<<<<<< HEAD
-	dd if=/dev/zero of=efiboot.img bs=4k count=200
-	device=`mdconfig -a -t vnode -f efiboot.img`
-	newfs_msdos -F 12 -m 0xf8 /dev/$device
-	mkdir efi
-	mount -t msdosfs /dev/$device efi
-	mkdir -p efi/efi/boot
-	cp "$BASEBITSDIR/boot/loader.efi" efi/efi/boot/bootx64.efi
-	chmod 0755 efi/efi/boot/bootx64.efi
-	umount efi
-	rmdir efi
-	mdconfig -d -u $device
-	bootable="$bootable -o bootimage=i386;efiboot.img -o no-emul-boot -o platformid=efi"
-	
-=======
 	# The ISO file is a special case, in that it only has a maximum of
 	# 800 KB available for the boot code. So make an 800 KB ESP
 	espfilename=$(mktemp /tmp/efiboot.XXXXXX)
 	make_esp_file ${espfilename} 800 ${BASEBITSDIR}/boot/loader.efi
 	bootable="$bootable -o bootimage=i386;${espfilename} -o no-emul-boot -o platformid=efi"
 
->>>>>>> origin/freebsd/current/master
 	shift
 else
 	BASEBITSDIR="$3"
