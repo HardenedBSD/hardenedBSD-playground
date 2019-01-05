@@ -20,5 +20,10 @@ PACKAGE=	clang
 LIBADD+=	ncursesw
 LIBADD+=	pthread
 LIBADD+=	z
+<<<<<<< HEAD
+=======
+
+NOCFI=		yes
+>>>>>>> upstream.github/hardened/current/master
 
 .include <bsd.prog.mk>

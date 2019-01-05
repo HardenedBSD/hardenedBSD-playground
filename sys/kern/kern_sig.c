@@ -2849,6 +2849,8 @@ issignal(struct thread *td)
 			sig = ptracestop(td, sig, &ksi);
 			mtx_lock(&ps->ps_mtx);
 
+			td->td_si.si_signo = 0;
+
 			/* 
 			 * Keep looking if the debugger discarded or
 			 * replaced the signal.
@@ -3098,8 +3100,9 @@ killproc(struct proc *p, char *why)
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 	CTR3(KTR_PROC, "killproc: proc %p (pid %d, %s)", p, p->p_pid,
 	    p->p_comm);
-	log(LOG_ERR, "pid %d (%s), uid %d, was killed: %s\n", p->p_pid,
-	    p->p_comm, p->p_ucred ? p->p_ucred->cr_uid : -1, why);
+	log(LOG_ERR, "pid %d (%s), jid %d, uid %d, was killed: %s\n",
+	    p->p_pid, p->p_comm, p->p_ucred->cr_prison->pr_id,
+	    p->p_ucred->cr_uid, why);
 	proc_wkilled(p);
 	kern_psignal(p, SIGKILL);
 }
@@ -3142,9 +3145,10 @@ sigexit(struct thread *td, int sig)
 			sig |= WCOREFLAG;
 		if (kern_logsigexit)
 			log(LOG_INFO,
-			    "pid %d (%s), uid %d: exited on signal %d%s\n",
-			    p->p_pid, p->p_comm,
-			    td->td_ucred ? td->td_ucred->cr_uid : -1,
+			    "pid %d (%s), jid %d, uid %d: exited on "
+			    "signal %d%s\n", p->p_pid, p->p_comm,
+			    p->p_ucred->cr_prison->pr_id,
+			    td->td_ucred->cr_uid,
 			    sig &~ WCOREFLAG,
 			    sig & WCOREFLAG ? " (core dumped)" : "");
 #ifdef PAX_SEGVGUARD

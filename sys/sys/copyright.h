@@ -32,11 +32,11 @@
 
 /* Add a FreeBSD vendor copyright here */
 #define	COPYRIGHT_Vendor \
-	"Copyright (c) 2013-2018 The HardenedBSD Project.\n"
+	"Copyright (c) 2013-2019 The HardenedBSD Project.\n"
 
 /* FreeBSD */
 #define COPYRIGHT_FreeBSD \
-	"Copyright (c) 1992-2018 The FreeBSD Project.\n"
+	"Copyright (c) 1992-2019 The FreeBSD Project.\n"
 
 /* Foundation */
 #define	TRADEMARK_Foundation \

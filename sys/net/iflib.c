@@ -1617,7 +1617,7 @@ iflib_txsd_alloc(iflib_txq_t txq)
 		    (uintmax_t)sctx->isc_tx_maxsize, nsegments, (uintmax_t)sctx->isc_tx_maxsegsize);
 		goto fail;
 	}
-	if ((if_getcapabilities(ctx->ifc_ifp) & IFCAP_TSO) &
+	if ((if_getcapabilities(ctx->ifc_ifp) & IFCAP_TSO) &&
 	    (err = bus_dma_tag_create(bus_get_dma_tag(dev),
 			       1, 0,			/* alignment, bounds */
 			       BUS_SPACE_MAXADDR,	/* lowaddr */
@@ -3582,7 +3582,6 @@ _task_fn_tx(void *context)
 	 */
 	if (abdicate)
 		ifmp_ring_check_drainage(txq->ift_br, TX_BATCH_SIZE);
-	ifmp_ring_check_drainage(txq->ift_br, TX_BATCH_SIZE);
 	if (ctx->ifc_flags & IFC_LEGACY)
 		IFDI_INTR_ENABLE(ctx);
 	else {

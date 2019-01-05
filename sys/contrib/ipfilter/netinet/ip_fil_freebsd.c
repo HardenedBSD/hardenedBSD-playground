@@ -39,9 +39,6 @@ static const char rcsid[] = "@(#)$Id$";
 # include <sys/malloc.h>
 # include <sys/mbuf.h>
 # include <sys/sockopt.h>
-#if !defined(__hpux)
-# include <sys/mbuf.h>
-#endif
 #include <sys/socket.h>
 # include <sys/selinfo.h>
 # include <netinet/tcp_var.h>
@@ -85,7 +82,6 @@ static const char rcsid[] = "@(#)$Id$";
 #endif
 extern	int	ip_optcopy __P((struct ip *, struct ip *));
 
-
 # ifdef IPFILTER_M_IPFILTER
 MALLOC_DEFINE(M_IPFILTER, "ipfilter", "IP Filter packet filter data structures");
 # endif
@@ -100,9 +96,7 @@ VNET_DEFINE(ipf_main_softc_t, ipfmain) = {
 #define	V_ipfmain		VNET(ipfmain)
 
 # include <sys/conf.h>
-# if defined(NETBSD_PF)
 #  include <net/pfil.h>
-# endif /* NETBSD_PF */
 
 static eventhandler_tag ipf_arrivetag, ipf_departtag;
 #if 0
@@ -477,11 +471,7 @@ ipf_send_ip(fin, m)
 		IP_HL_A(ip, sizeof(*oip) >> 2);
 		ip->ip_tos = oip->ip_tos;
 		ip->ip_id = fin->fin_ip->ip_id;
-#if defined(FreeBSD) && (__FreeBSD_version > 460000)
-		ip->ip_off = htons(path_mtu_discovery ? IP_DF : 0);
-#else
-		ip->ip_off = 0;
-#endif
+		ip->ip_off = htons(V_path_mtu_discovery ? IP_DF : 0);
 		ip->ip_ttl = V_ip_defttl;
 		ip->ip_sum = 0;
 		break;
@@ -1343,14 +1333,11 @@ ipf_inject(fin, m)
 }
 
 int ipf_pfil_unhook(void) {
-#if defined(NETBSD_PF) && (__FreeBSD_version >= 500011)
 	struct pfil_head *ph_inet;
-#  ifdef USE_INET6
+#ifdef USE_INET6
 	struct pfil_head *ph_inet6;
-#  endif
 #endif
 
-#ifdef NETBSD_PF
 	ph_inet = pfil_head_get(PFIL_TYPE_AF, AF_INET);
 	if (ph_inet != NULL)
 		pfil_remove_hook((void *)ipf_check_wrapper, NULL,
@@ -1361,20 +1348,16 @@ int ipf_pfil_unhook(void) {
 		pfil_remove_hook((void *)ipf_check_wrapper6, NULL,
 		    PFIL_IN|PFIL_OUT|PFIL_WAITOK, ph_inet6);
 # endif
-#endif
 
 	return (0);
 }
 
 int ipf_pfil_hook(void) {
-#if defined(NETBSD_PF) && (__FreeBSD_version >= 500011)
 	struct pfil_head *ph_inet;
-#  ifdef USE_INET6
+#ifdef USE_INET6
 	struct pfil_head *ph_inet6;
-#  endif
 #endif
 
-# ifdef NETBSD_PF
 	ph_inet = pfil_head_get(PFIL_TYPE_AF, AF_INET);
 #    ifdef USE_INET6
 	ph_inet6 = pfil_head_get(PFIL_TYPE_AF, AF_INET6);
@@ -1395,7 +1378,6 @@ int ipf_pfil_hook(void) {
 		pfil_add_hook((void *)ipf_check_wrapper6, NULL,
 				      PFIL_IN|PFIL_OUT|PFIL_WAITOK, ph_inet6);
 #  endif
-# endif
 	return (0);
 }
 
