@@ -38,9 +38,7 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
-<<<<<<< HEAD
 # 2018mmdd: new clang import which bumps version from 6.0.1 to 7.0.1.
-=======
 # 20181219: ibcs removal
 OLD_FILES+=usr/share/examples/ibcs2/hello.uu
 OLD_FILES+=usr/share/examples/ibcs2/README
@@ -62,7 +60,6 @@ OLD_FILES+=usr/sbin/timedc
 OLD_FILES+=usr/share/man/man8/timed.8.gz
 OLD_FILES+=usr/share/man/man8/timedc.8.gz
 # 20181211: new clang import which bumps version from 6.0.1 to 7.0.1.
->>>>>>> upstream.github/hardened/current/master
 OLD_FILES+=usr/lib/clang/6.0.1/include/sanitizer/allocator_interface.h
 OLD_FILES+=usr/lib/clang/6.0.1/include/sanitizer/asan_interface.h
 OLD_FILES+=usr/lib/clang/6.0.1/include/sanitizer/common_interface_defs.h
