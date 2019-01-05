@@ -306,17 +306,10 @@ else
 fi
 
 if [ -z "${include_metadata}" ]; then
-<<<<<<< HEAD
-	VERINFO="${VERSION}${hbsdv}${svn}${git}${hg}${p4version} ${i}"
+	VERINFO="${VERSION}${hbsdv}${svn}${git}${hg} ${i}"
 	VERSTR="${VERINFO}\\n"
 else
-	VERINFO="${VERSION} #${v}${hbsdv}${svn}${git}${hg}${p4version}: ${t}"
-=======
-	VERINFO="${VERSION}${svn}${git}${hg} ${i}"
-	VERSTR="${VERINFO}\\n"
-else
-	VERINFO="${VERSION} #${v}${svn}${git}${hg}: ${t}"
->>>>>>> origin/freebsd/current/master
+	VERINFO="${VERSION} #${v}${hbsdv}${svn}${git}${hg}: ${t}"
 	VERSTR="${VERINFO}\\n    ${u}@${h}:${d}\\n"
 fi
 
