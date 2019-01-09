@@ -100,7 +100,8 @@ int old_mlock = 0;
 SYSCTL_INT(_vm, OID_AUTO, old_mlock, CTLFLAG_RWTUN, &old_mlock, 0,
     "Do not apply RLIMIT_MEMLOCK on mlockall");
 static int mincore_mapped = 1;
-SYSCTL_INT(_vm, OID_AUTO, mincore_mapped, CTLFLAG_RWTUN, &mincore_mapped, 0,
+SYSCTL_INT(_vm, OID_AUTO, mincore_mapped,
+    CTLFLAG_RWTUN | CTLFLAG_SECURE, &mincore_mapped, 0,
     "mincore reports mappings, not residency");
 
 #ifdef MAP_32BIT
