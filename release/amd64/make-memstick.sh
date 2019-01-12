@@ -11,6 +11,8 @@
 #
 
 set -e
+# XXXOP - be more verbose
+set -x
 
 scriptdir=$(dirname $(realpath $0))
 . ${scriptdir}/../../tools/boot/install-boot.sh

@@ -24,6 +24,8 @@
 # into base-bits-dir as part of making the image.
 
 set -e
+# XXXOP - be more verbose
+set -x
 
 scriptdir=$(dirname $(realpath $0))
 . ${scriptdir}/../../tools/boot/install-boot.sh
