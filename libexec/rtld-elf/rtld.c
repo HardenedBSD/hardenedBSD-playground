@@ -101,8 +101,8 @@ static void digest_dynamic(Obj_Entry *, int);
 static Obj_Entry *digest_phdr(const Elf_Phdr *, int, caddr_t, const char *);
 static Obj_Entry *dlcheck(void *);
 static int dlclose_locked(void *, RtldLockState *);
-static Obj_Entry *dlopen_object(const char *name, int fd, Obj_Entry *refobj,
-    int lo_flags, int mode, RtldLockState *lockstate);
+static Obj_Entry *dlopen_object(int, const char *name, int fd,
+    Obj_Entry *refobj, int lo_flags, int mode, RtldLockState *lockstate);
 static Obj_Entry *do_load_object(int, const char *, char *, struct stat *, int);
 static int do_search_info(const Obj_Entry *obj, int, struct dl_serinfo *);
 static bool donelist_check(DoneList *, const Obj_Entry *);
@@ -129,7 +129,7 @@ static void randomize_neededs(Obj_Entry *obj, int flags);
 #endif
 static int load_needed_objects(Obj_Entry *, int);
 static int load_preload_objects(void);
-static Obj_Entry *load_object(const char *, int fd, const Obj_Entry *, int);
+static Obj_Entry *load_object(int, const char *, int, const Obj_Entry *, int);
 static void map_stacks_exec(RtldLockState *);
 static int obj_disable_relro(Obj_Entry *);
 static int obj_enforce_relro(Obj_Entry *);
@@ -158,7 +158,7 @@ static int relocate_objects(Obj_Entry *, bool, Obj_Entry *, int,
 static int resolve_object_ifunc(Obj_Entry *, bool, int, RtldLockState *);
 static int rtld_dirname(const char *, char *);
 static int rtld_dirname_abs(const char *, char *);
-static void *rtld_dlopen(const char *name, int fd, int mode);
+static void *rtld_dlopen(int, const char *name, int fd, int mode);
 static void rtld_exit(void);
 static char *search_library_path(const char *, const char *, const char *,
     int *);
@@ -246,6 +246,7 @@ extern Elf_Dyn _DYNAMIC;
 int dlclose(void *) __exported;
 char *dlerror(void) __exported;
 void *dlopen(const char *, int) __exported;
+void *dlopenat(int, const char *, int) __exported;
 void *fdlopen(int, int) __exported;
 void *dlsym(void *, const char *) __exported;
 dlfunc_t dlfunc(void *, const char *) __exported;
@@ -2318,8 +2319,8 @@ load_filtee1(Obj_Entry *obj, Needed_Entry *needed, int flags,
 {
 
     for (; needed != NULL; needed = needed->next) {
-	needed->obj = dlopen_object(obj->strtab + needed->name, -1, obj,
-	  flags, ((ld_loadfltr || obj->z_loadfltr) ? RTLD_NOW : RTLD_LAZY) |
+	needed->obj = dlopen_object(AT_FDCWD, obj->strtab + needed->name, -1,
+	  obj, flags, ((ld_loadfltr || obj->z_loadfltr) ? RTLD_NOW : RTLD_LAZY) |
 	  RTLD_LOCAL, lockstate);
     }
 }
@@ -2342,8 +2343,8 @@ process_needed(Obj_Entry *obj, Needed_Entry *needed, int flags)
     Obj_Entry *obj1;
 
     for (; needed != NULL; needed = needed->next) {
-	obj1 = needed->obj = load_object(obj->strtab + needed->name, -1, obj,
-	  flags & ~RTLD_LO_NOLOAD);
+	obj1 = needed->obj = load_object(AT_FDCWD, obj->strtab + needed->name,
+	-1, obj, flags & ~RTLD_LO_NOLOAD);
 	if (obj1 == NULL && !ld_tracing && (flags & RTLD_LO_FILTEES) == 0)
 	    return (-1);
     }
@@ -2441,7 +2442,7 @@ load_preload_objects(void)
 
 	savech = p[len];
 	p[len] = '\0';
-	obj = load_object(p, -1, NULL, 0);
+	obj = load_object(AT_FDCWD, p, -1, NULL, 0);
 	if (obj == NULL)
 	    return -1;	/* XXX - cleanup */
 	obj->z_interpose = true;
@@ -2470,7 +2471,8 @@ printable_path(const char *path)
  * on failure.
  */
 static Obj_Entry *
-load_object(const char *name, int fd_u, const Obj_Entry *refobj, int flags)
+load_object(int atfd, const char *name, int fd_u, const Obj_Entry *refobj,
+    int flags)
 {
     Obj_Entry *obj;
     int fd;
@@ -2507,7 +2509,7 @@ load_object(const char *name, int fd_u, const Obj_Entry *refobj, int flags)
 	 * To avoid a race, we open the file and use fstat() rather than
 	 * using stat().
 	 */
-	if ((fd = open(path, O_RDONLY | O_CLOEXEC | O_VERIFY)) == -1) {
+	if ((fd = openat(atfd, path, O_RDONLY | O_CLOEXEC | O_VERIFY)) == -1) {
 	    _rtld_error("Cannot open \"%s\"", path);
 	    free(path);
 	    return (NULL);
@@ -3362,21 +3364,28 @@ dllockinit(void *context,
 }
 
 void *
+dlopenat(int fd, const char *name, int mode)
+{
+
+	return (rtld_dlopen(fd, name, -1, mode));
+}
+
+void *
 dlopen(const char *name, int mode)
 {
 
-	return (rtld_dlopen(name, -1, mode));
+	return (rtld_dlopen(AT_FDCWD, name, -1, mode));
 }
 
 void *
 fdlopen(int fd, int mode)
 {
 
-	return (rtld_dlopen(NULL, fd, mode));
+	return (rtld_dlopen(AT_FDCWD, NULL, fd, mode));
 }
 
 static void *
-rtld_dlopen(const char *name, int fd, int mode)
+rtld_dlopen(int atfd, const char *name, int fd, int mode)
 {
     RtldLockState lockstate;
     int lo_flags;
@@ -3398,7 +3407,7 @@ rtld_dlopen(const char *name, int fd, int mode)
     if (ld_tracing != NULL)
 	    lo_flags |= RTLD_LO_TRACE;
 
-    return (dlopen_object(name, fd, obj_main, lo_flags,
+    return (dlopen_object(atfd, name, fd, obj_main, lo_flags,
       mode & (RTLD_MODEMASK | RTLD_GLOBAL), NULL));
 }
 
@@ -3413,8 +3422,8 @@ dlopen_cleanup(Obj_Entry *obj, RtldLockState *lockstate)
 }
 
 static Obj_Entry *
-dlopen_object(const char *name, int fd, Obj_Entry *refobj, int lo_flags,
-    int mode, RtldLockState *lockstate)
+dlopen_object(int atfd, const char *name, int fd, Obj_Entry *refobj,
+    int lo_flags, int mode, RtldLockState *lockstate)
 {
     Obj_Entry *old_obj_tail;
     Obj_Entry *obj;
@@ -3436,7 +3445,7 @@ dlopen_object(const char *name, int fd, Obj_Entry *refobj, int lo_flags,
 	obj = obj_main;
 	obj->refcount++;
     } else {
-	obj = load_object(name, fd, refobj, lo_flags);
+	obj = load_object(atfd, name, fd, refobj, lo_flags);
     }
 
     if (obj) {
