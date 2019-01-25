@@ -222,7 +222,8 @@ vm_page_init_cache_zones(void *dummy __unused)
 		vmd->vmd_pgcache = uma_zcache_create("vm pgcache",
 		    sizeof(struct vm_page), NULL, NULL, NULL, NULL,
 		    vm_page_import, vm_page_release, vmd,
-		    UMA_ZONE_NOBUCKETCACHE | UMA_ZONE_MAXBUCKET | UMA_ZONE_VM);
+		    UMA_ZONE_MAXBUCKET | UMA_ZONE_VM);
+		(void )uma_zone_set_maxcache(vmd->vmd_pgcache, 0);
 	}
 }
 SYSINIT(vm_page2, SI_SUB_VM_CONF, SI_ORDER_ANY, vm_page_init_cache_zones, NULL);
@@ -553,6 +554,9 @@ vm_page_startup(vm_offset_t vaddr)
 	vm_paddr_t biggestsize, last_pa, pa;
 	u_long pagecount;
 	int biggestone, i, segind;
+#ifdef WITNESS
+	int witness_size;
+#endif
 #if defined(__i386__) && defined(VM_PHYSSEG_DENSE)
 	long ii;
 #endif
@@ -620,11 +624,11 @@ vm_page_startup(vm_offset_t vaddr)
 	uma_startup((void *)mapped, boot_pages);
 
 #ifdef WITNESS
-	end = new_end;
-	new_end = end - round_page(witness_startup_count());
-	mapped = pmap_map(&vaddr, new_end, end,
+	witness_size = round_page(witness_startup_count());
+	new_end -= witness_size;
+	mapped = pmap_map(&vaddr, new_end, new_end + witness_size,
 	    VM_PROT_READ | VM_PROT_WRITE);
-	bzero((void *)mapped, end - new_end);
+	bzero((void *)mapped, witness_size);
 	witness_startup((void *)mapped);
 #endif
 
@@ -656,9 +660,9 @@ vm_page_startup(vm_offset_t vaddr)
 #endif
 #if defined(__aarch64__) || defined(__amd64__) || defined(__mips__)
 	/*
-	 * Include the UMA bootstrap pages and vm_page_dump in a crash dump.
-	 * When pmap_map() uses the direct map, they are not automatically 
-	 * included.
+	 * Include the UMA bootstrap pages, witness pages and vm_page_dump
+	 * in a crash dump.  When pmap_map() uses the direct map, they are
+	 * not automatically included.
 	 */
 	for (pa = new_end; pa < end; pa += PAGE_SIZE)
 		dump_add_page(pa);
@@ -4493,7 +4497,7 @@ DB_SHOW_COMMAND(pageq, vm_page_print_pageq_info)
 DB_SHOW_COMMAND(pginfo, vm_page_print_pginfo)
 {
 	vm_page_t m;
-	boolean_t phys;
+	boolean_t phys, virt;
 
 	if (!have_addr) {
 		db_printf("show pginfo addr\n");
@@ -4501,7 +4505,10 @@ DB_SHOW_COMMAND(pginfo, vm_page_print_pginfo)
 	}
 
 	phys = strchr(modif, 'p') != NULL;
-	if (phys)
+	virt = strchr(modif, 'v') != NULL;
+	if (virt)
+		m = PHYS_TO_VM_PAGE(pmap_kextract(addr));
+	else if (phys)
 		m = PHYS_TO_VM_PAGE(addr);
 	else
 		m = (vm_page_t)addr;

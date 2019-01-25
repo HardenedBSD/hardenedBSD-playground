@@ -3480,9 +3480,13 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct ieee80211vap *vap = ifp->if_softc;
 	struct ieee80211com *ic = vap->iv_ic;
-	int error = 0, wait = 0;
+	int error = 0, wait = 0, ic_used;
 	struct ifreq *ifr;
 	struct ifaddr *ifa;			/* XXX */
+
+	ic_used = (cmd != SIOCSIFMTU && cmd != SIOCG80211STATS);
+	if (ic_used && (error = ieee80211_com_vincref(vap)) != 0)
+		return (error);
 
 	switch (cmd) {
 	case SIOCSIFFLAGS:
@@ -3537,9 +3541,13 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			/*
 			 * Check if the MAC address was changed
 			 * via SIOCSIFLLADDR ioctl.
+			 *
+			 * NB: device may be detached during initialization;
+			 * use if_ioctl for existence check.
 			 */
 			if_addr_rlock(ifp);
-			if ((ifp->if_flags & IFF_UP) == 0 &&
+			if (ifp->if_ioctl == ieee80211_ioctl &&
+			    (ifp->if_flags & IFF_UP) == 0 &&
 			    !IEEE80211_ADDR_EQ(vap->iv_myaddr, IF_LLADDR(ifp)))
 				IEEE80211_ADDR_COPY(vap->iv_myaddr,
 				    IF_LLADDR(ifp));
@@ -3616,5 +3624,9 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		error = ether_ioctl(ifp, cmd, data);
 		break;
 	}
+
+	if (ic_used)
+		ieee80211_com_vdecref(vap);
+
 	return (error);
 }

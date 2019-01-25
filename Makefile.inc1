@@ -979,6 +979,14 @@ _cleanobj_fast_depend_hack: .PHONY
 		rm -f ${OBJTOP}/usr.sbin/ntp/libntpevent/.depend.*; \
 	fi
 
+# 20181209  r341759 track migration across wpa update
+	@if [ -e "${OBJTOP}/usr.sbin/wpa/wpa_supplicant/.depend.rrm.o" ] && \
+	    egrep -q 'src/ap/rrm.c' \
+	    ${OBJTOP}/usr.sbin/wpa/wpa_supplicant/.depend.rrm.o; then \
+		echo "Removing stale wpa dependencies"; \
+		rm -f ${OBJTOP}/usr.sbin/wpa/*/.depend*; \
+	fi
+
 _worldtmp: .PHONY
 	@echo
 	@echo "--------------------------------------------------------------"
@@ -1445,7 +1453,6 @@ packageworld: .PHONY
 
 _sysent_dirs=	sys/kern
 _sysent_dirs+=	sys/compat/freebsd32
-_sysent_dirs+=	sys/i386/ibcs2
 _sysent_dirs+=	sys/amd64/linux		\
 		sys/amd64/linux32	\
 		sys/arm64/linux		\
@@ -2217,6 +2224,8 @@ _basic_bootstrap_tools+=usr.bin/ldd
 _basic_bootstrap_tools+=usr.sbin/services_mkdb usr.sbin/pwd_mkdb
 # sysctl/chflags are required for installkernel:
 _basic_bootstrap_tools+=sbin/sysctl bin/chflags
+# mkfifo is used by sys/conf/newvers.sh
+_basic_bootstrap_tools+=usr.bin/mkfifo
 
 .if ${MK_AMD} != "no"
 # unifdef is only used by usr.sbin/amd/libamu/Makefile
@@ -2690,8 +2699,10 @@ _prereq_libs+= gnu/lib/libssp/libssp_nonshared
 # gnu/lib/csu, gnu/lib/libgcc, lib/csu and lib/libc must be built before
 # all shared libraries for ELF.
 #
-_startup_libs=	gnu/lib/csu
-_startup_libs+=	lib/csu
+_startup_libs=	lib/csu
+.if ${MK_BSD_CRTBEGIN} == "no"
+_startup_libs+=	gnu/lib/csu
+.endif
 _startup_libs+=	lib/libcompiler_rt
 _startup_libs+=	lib/libc
 _startup_libs+=	lib/libc_nonshared

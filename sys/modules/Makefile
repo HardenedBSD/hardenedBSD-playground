@@ -247,8 +247,8 @@ SUBDIR=	\
 	${_mly} \
 	mmc \
 	mmcsd \
-	mpr \
-	mps \
+	${_mpr} \
+	${_mps} \
 	mpt \
 	mqueue \
 	mrsas \
@@ -518,6 +518,13 @@ _rtwnfw=	rtwnfw
 	${MACHINE_ARCH} != "powerpc" && ${MACHINE_ARCH} != "powerpcspe" && \
 	${MACHINE_CPUARCH} != "riscv"
 _cxgbe=		cxgbe
+.endif
+
+# These rely on 64bit atomics
+.if ${MACHINE_ARCH} != "powerpc" && ${MACHINE_ARCH} != "powerpcspe" && \
+	${MACHINE_CPUARCH} != "mips"
+_mps=		mps
+_mpr=		mpr
 .endif
 
 .if ${MK_TESTS} != "no" || defined(ALL_MODULES)

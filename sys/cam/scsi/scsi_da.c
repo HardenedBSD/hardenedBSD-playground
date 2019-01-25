@@ -861,6 +861,14 @@ static struct da_quirk_entry da_quirk_table[] =
 		{T_DIRECT, SIP_MEDIA_REMOVABLE, "I-O DATA", "USB Flash Disk*",
 		 "*"}, /*quirks*/ DA_Q_NO_RC16
 	},
+	{
+		/*
+		 * 16GB SLC CHIPFANCIER
+		 * PR: usb/234503
+		 */
+		{T_DIRECT, SIP_MEDIA_REMOVABLE, "16G SLC", "CHIPFANCIER",
+		 "1.00"}, /*quirks*/ DA_Q_NO_RC16
+       },
 	/* ATA/SATA devices over SAS/USB/... */
 	{
 		/* Hitachi Advanced Format (4k) drives */
@@ -1087,6 +1095,14 @@ static struct da_quirk_entry da_quirk_table[] =
 		 * Olympus FE-210 camera
 		 */
 		{T_DIRECT, SIP_MEDIA_REMOVABLE, "OLYMPUS", "FE210*",
+		"*"}, /*quirks*/ DA_Q_NO_SYNC_CACHE
+	},
+	{
+		/*
+		* Pentax Digital Camera
+		* PR: usb/93389
+		*/
+		{T_DIRECT, SIP_MEDIA_REMOVABLE, "PENTAX", "DIGITAL CAMERA",
 		"*"}, /*quirks*/ DA_Q_NO_SYNC_CACHE
 	},
 	{
@@ -1469,6 +1485,7 @@ static int da_retry_count = DA_DEFAULT_RETRY;
 static int da_default_timeout = DA_DEFAULT_TIMEOUT;
 static sbintime_t da_default_softtimeout = DA_DEFAULT_SOFTTIMEOUT;
 static int da_send_ordered = DA_DEFAULT_SEND_ORDERED;
+static int da_disable_wp_detection = 0;
 
 static SYSCTL_NODE(_kern_cam, OID_AUTO, da, CTLFLAG_RD, 0,
             "CAM Direct Access Disk driver");
@@ -1480,6 +1497,9 @@ SYSCTL_INT(_kern_cam_da, OID_AUTO, default_timeout, CTLFLAG_RWTUN,
            &da_default_timeout, 0, "Normal I/O timeout (in seconds)");
 SYSCTL_INT(_kern_cam_da, OID_AUTO, send_ordered, CTLFLAG_RWTUN,
            &da_send_ordered, 0, "Send Ordered Tags");
+SYSCTL_INT(_kern_cam_da, OID_AUTO, disable_wp_detection, CTLFLAG_RWTUN,
+           &da_disable_wp_detection, 0,
+	   "Disable detection of write-protected disks");
 
 SYSCTL_PROC(_kern_cam_da, OID_AUTO, default_softtimeout,
     CTLTYPE_UINT | CTLFLAG_RW, NULL, 0, dasysctlsofttimeout, "I",
@@ -2472,6 +2492,11 @@ daprobedone(struct cam_periph *periph, union ccb *ccb)
 		printf("%s%d: %s\n", periph->periph_name,
 		    periph->unit_number, buf);
 	}
+	if ((softc->disk->d_flags & DISKFLAG_WRITE_PROTECT) != 0 &&
+	    (softc->flags & DA_FLAG_ANNOUNCED) == 0) {
+		printf("%s%d: Write Protected\n", periph->periph_name,
+		    periph->unit_number);
+	}
 
 	/*
 	 * Since our peripheral may be invalidated by an error
@@ -3331,12 +3356,22 @@ out:
 		void  *mode_buf;
 		int    mode_buf_len;
 
+		if (da_disable_wp_detection) {
+			if ((softc->flags & DA_FLAG_CAN_RC16) != 0)
+				softc->state = DA_STATE_PROBE_RC16;
+			else
+				softc->state = DA_STATE_PROBE_RC;
+			goto skipstate;
+		}
 		mode_buf_len = 192;
 		mode_buf = malloc(mode_buf_len, M_SCSIDA, M_NOWAIT);
 		if (mode_buf == NULL) {
 			xpt_print(periph->path, "Unable to send mode sense - "
 			    "malloc failure\n");
-			softc->state = DA_STATE_PROBE_RC;
+			if ((softc->flags & DA_FLAG_CAN_RC16) != 0)
+				softc->state = DA_STATE_PROBE_RC16;
+			else
+				softc->state = DA_STATE_PROBE_RC;
 			goto skipstate;
 		}
 		scsi_mode_sense_len(&start_ccb->csio,

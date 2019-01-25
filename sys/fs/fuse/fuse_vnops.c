@@ -201,7 +201,7 @@ static int fuse_reclaim_revoked = 0;
 SYSCTL_INT(_vfs_fuse, OID_AUTO, reclaim_revoked, CTLFLAG_RW,
     &fuse_reclaim_revoked, 0, "");
 
-int	fuse_pbuf_freecnt = -1;
+uma_zone_t fuse_pbuf_zone;
 
 #define fuse_vm_page_lock(m)		vm_page_lock((m));
 #define fuse_vm_page_unlock(m)		vm_page_unlock((m));
@@ -242,7 +242,7 @@ fuse_vnop_access(struct vop_access_args *ap)
 	}
 	if (!(data->dataflags & FSESS_INITED)) {
 		if (vnode_isvroot(vp)) {
-			if (priv_check_cred(cred, PRIV_VFS_ADMIN, 0) ||
+			if (priv_check_cred(cred, PRIV_VFS_ADMIN) ||
 			    (fuse_match_cred(data->daemoncred, cred) == 0)) {
 				return 0;
 			}
@@ -1824,7 +1824,7 @@ fuse_vnop_getpages(struct vop_getpages_args *ap)
 	 * We use only the kva address for the buffer, but this is extremely
 	 * convenient and fast.
 	 */
-	bp = getpbuf(&fuse_pbuf_freecnt);
+	bp = uma_zalloc(fuse_pbuf_zone, M_WAITOK);
 
 	kva = (vm_offset_t)bp->b_data;
 	pmap_qenter(kva, pages, npages);
@@ -1845,7 +1845,7 @@ fuse_vnop_getpages(struct vop_getpages_args *ap)
 	error = fuse_io_dispatch(vp, &uio, IO_DIRECT, cred);
 	pmap_qremove(kva, npages);
 
-	relpbuf(bp, &fuse_pbuf_freecnt);
+	uma_zfree(fuse_pbuf_zone, bp);
 
 	if (error && (uio.uio_resid == count)) {
 		FS_DEBUG("error %d\n", error);
@@ -1958,7 +1958,7 @@ fuse_vnop_putpages(struct vop_putpages_args *ap)
 	 * We use only the kva address for the buffer, but this is extremely
 	 * convenient and fast.
 	 */
-	bp = getpbuf(&fuse_pbuf_freecnt);
+	bp = uma_zalloc(fuse_pbuf_zone, M_WAITOK);
 
 	kva = (vm_offset_t)bp->b_data;
 	pmap_qenter(kva, pages, npages);
@@ -1978,7 +1978,7 @@ fuse_vnop_putpages(struct vop_putpages_args *ap)
 	error = fuse_io_dispatch(vp, &uio, IO_DIRECT, cred);
 
 	pmap_qremove(kva, npages);
-	relpbuf(bp, &fuse_pbuf_freecnt);
+	uma_zfree(fuse_pbuf_zone, bp);
 
 	if (!error) {
 		int nwritten = round_page(count - uio.uio_resid) / PAGE_SIZE;

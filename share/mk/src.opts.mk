@@ -191,6 +191,7 @@ __DEFAULT_YES_OPTIONS = \
     WIRELESS \
     WPA_SUPPLICANT_EAPOL \
     ZFS \
+    LOADER_ZFS \
     ZONEINFO
 
 __DEFAULT_NO_OPTIONS = \
@@ -207,6 +208,7 @@ __DEFAULT_NO_OPTIONS = \
     LIBSOFT \
     LOADER_FIREWIRE \
     LOADER_FORCE_LE \
+    LOADER_VERBOSE \
     NAND \
     OFED \
     OFED_EXTRA \
@@ -277,6 +279,10 @@ __LLVM_TARGET_FILT=	C/(amd64|i386)/x86/:S/sparc64/sparc/:S/arm64/aarch64/
 # Default the given TARGET's LLVM_TARGET support to the value of MK_CLANG.
 .if ${__TT:${__LLVM_TARGET_FILT}} == ${__llt}
 __DEFAULT_DEPENDENT_OPTIONS+=	LLVM_TARGET_${__llt:${__LLVM_TARGET_FILT}:tu}/CLANG
+# Disable other targets for arm and armv6, to work around "relocation truncated
+# to fit" errors with BFD ld, since libllvm.a will get too large to link.
+.elif ${__T} == "arm" || ${__T} == "armv6"
+__DEFAULT_NO_OPTIONS+=LLVM_TARGET_${__llt:tu}
 # aarch64 needs arm for -m32 support.
 .elif ${__TT} == "arm64" && ${__llt} == "arm"
 __DEFAULT_DEPENDENT_OPTIONS+=	LLVM_TARGET_ARM/LLVM_TARGET_AARCH64
@@ -431,6 +437,11 @@ BROKEN_OPTIONS+=HYPERV
 BROKEN_OPTIONS+=NVME
 .endif
 
+# PowerPC and Sparc64 need extra crt*.o files
+.if ${__T:Mpowerpc*} || ${__T:Msparc64}
+BROKEN_OPTIONS+=BSD_CRTBEGIN
+.endif
+
 .include <bsd.mkopt.mk>
 
 #
@@ -487,6 +498,7 @@ MK_SOURCELESS_UCODE:= no
 
 .if ${MK_CDDL} == "no"
 MK_ZFS:=	no
+MK_LOADER_ZFS:=	no
 MK_CTF:=	no
 .endif
 
