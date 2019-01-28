@@ -38,15 +38,11 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
-<<<<<<< HEAD
-# 2018mmdd: new clang import which bumps version from 6.0.1 to 7.0.1.
-=======
 # 20190126: adv(4) / adw(4) removal
 OLD_FILES+=usr/share/man/man4/adv.4.gz
 OLD_FILES+=usr/share/man/man4/adw.4.gz
 # 20190114: old pbuf allocator removed
 OLD_FILES+=usr/share/man/man9/pbuf.9.gz
->>>>>>> upstream.github/hardened/current/master
 # 20181219: ibcs removal
 OLD_FILES+=usr/share/examples/ibcs2/hello.uu
 OLD_FILES+=usr/share/examples/ibcs2/README
