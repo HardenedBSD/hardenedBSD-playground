@@ -886,6 +886,8 @@ solisten_wakeup(struct socket *sol)
 	}
 	SOLISTEN_UNLOCK(sol);
 	wakeup_one(&sol->sol_comp);
+	if ((sol->so_state & SS_ASYNC) && sol->so_sigio != NULL)
+		pgsigio(&sol->so_sigio, SIGIO, 0);
 }
 
 /*
@@ -2755,12 +2757,10 @@ sosetopt(struct socket *so, struct sockopt *sopt)
 	CURVNET_SET(so->so_vnet);
 	error = 0;
 	if (sopt->sopt_level != SOL_SOCKET) {
-		if (so->so_proto->pr_ctloutput != NULL) {
+		if (so->so_proto->pr_ctloutput != NULL)
 			error = (*so->so_proto->pr_ctloutput)(so, sopt);
-			CURVNET_RESTORE();
-			return (error);
-		}
-		error = ENOPROTOOPT;
+		else
+			error = ENOPROTOOPT;
 	} else {
 		switch (sopt->sopt_name) {
 		case SO_ACCEPTFILTER:

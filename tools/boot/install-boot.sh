@@ -11,7 +11,7 @@
 # insert code here to guess what you have -- yikes!
 
 # Minimum size of FAT filesystems, in KB.
-fat32min=33292
+fat32min=65525
 fat16min=2100
 
 die() {

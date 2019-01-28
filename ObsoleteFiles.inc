@@ -38,7 +38,15 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+<<<<<<< HEAD
 # 2018mmdd: new clang import which bumps version from 6.0.1 to 7.0.1.
+=======
+# 20190126: adv(4) / adw(4) removal
+OLD_FILES+=usr/share/man/man4/adv.4.gz
+OLD_FILES+=usr/share/man/man4/adw.4.gz
+# 20190114: old pbuf allocator removed
+OLD_FILES+=usr/share/man/man9/pbuf.9.gz
+>>>>>>> upstream.github/hardened/current/master
 # 20181219: ibcs removal
 OLD_FILES+=usr/share/examples/ibcs2/hello.uu
 OLD_FILES+=usr/share/examples/ibcs2/README
@@ -828,7 +836,7 @@ OLD_FILES+=tests/sys/geom/class/eli/integrity_hmac_test.sh
 OLD_FILES+=tests/sys/geom/class/eli/onetime_a_test.sh
 OLD_FILES+=tests/sys/geom/class/eli/onetime_d_test.sh
 # 20171230: Remove /etc/skel from mtree
-OLD_DIRS+=/etc/skel
+OLD_DIRS+=etc/skel
 # 20171208: Remove basename_r(3)
 OLD_FILES+=usr/share/man/man3/basename_r.3.gz
 # 20171204: Move fdformat man page from volume 1 to volume 8.

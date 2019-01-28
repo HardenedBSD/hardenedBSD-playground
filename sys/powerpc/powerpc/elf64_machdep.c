@@ -128,6 +128,9 @@ struct sysentvec elf64_freebsd_sysvec_v2 = {
 	.sv_shared_page_len = PAGE_SIZE,
 	.sv_schedtail	= NULL,
 	.sv_thread_detach = NULL,
+	.sv_trap	= NULL,
+	.sv_hwcap	= &cpu_features,
+	.sv_hwcap2	= &cpu_features2,
 	.sv_pax_aslr_init = pax_aslr_init_vmspace,
 };
 INIT_SYSENTVEC(elf64_sysvec_v2, &elf64_freebsd_sysvec_v2);

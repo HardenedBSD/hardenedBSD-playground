@@ -25,7 +25,7 @@ options		HZ=100
 
 makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
 #makeoptions	WITH_CTF=1		# Run ctfconvert(1) for DTrace support
-makeoptions	MODULES_OVERRIDE="usb/umodem usb/u3g usb/umass usb/ucom usb/uplcom urtwn urtwnfw drm2/drm2 drm2/i915kms vmm nmdm if_bridge bridgestp ipfw_nat libalias tmpfs if_tap hwpmc wlan_xauth cd9660"
+makeoptions	MODULES_OVERRIDE="usb/umodem usb/u3g usb/umass usb/ucom usb/uplcom drm2/drm2 drm2/i915kms drm2/radeonkms drm2/radeonkmsfw/CEDAR_me drm2/radeonkmsfw/CEDAR_pfp drm2/radeonkmsfw/CEDAR_rlc vmm nmdm if_bridge bridgestp ipfw_nat libalias tmpfs if_tap hwpmc wlan_xauth cd9660"
 
 options 	SCHED_ULE		# ULE scheduler
 options 	NUMA			# Non-Uniform Memory Architecture support
@@ -57,7 +57,6 @@ options 	MSDOSFS			# MSDOS Filesystem
 options 	CD9660			# ISO 9660 Filesystem
 #options 	PROCFS			# Process filesystem (requires PSEUDOFS)
 options 	PSEUDOFS		# Pseudo-filesystem framework
-options 	GEOM_PART_GPT		# GUID Partition Tables.
 options 	GEOM_RAID		# Soft RAID functionality.
 options 	GEOM_LABEL		# Provides labelization
 options 	GEOM_ELI		# Disk encryption.
@@ -106,11 +105,11 @@ options 	KDB_TRACE		# Print a stack trace for a panic.
 # For full debugger support use (turn off in stable branch):
 options 	DDB			# Support DDB.
 options 	GDB			# Support remote GDB.
-options 	DEADLKRES		# Enable the deadlock resolver
+#options 	DEADLKRES		# Enable the deadlock resolver
 options 	INVARIANTS		# Enable calls of extra sanity checking
 options 	INVARIANT_SUPPORT	# Extra sanity checks of internal structures, required by INVARIANTS
-options 	WITNESS			# Enable checks to detect deadlocks and cycles
-options 	WITNESS_SKIPSPIN	# Don't run witness on spinlocks for speed
+#options 	WITNESS			# Enable checks to detect deadlocks and cycles
+#options 	WITNESS_SKIPSPIN	# Don't run witness on spinlocks for speed
 options 	MALLOC_DEBUG_MAXZONES=8	# Separate malloc(9) zones
 
 # Kernel dump features.
