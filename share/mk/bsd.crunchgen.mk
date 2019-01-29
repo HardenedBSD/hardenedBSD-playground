@@ -48,6 +48,13 @@ CLEANFILES+= ${CONF} *.o *.lo *.c *.mk *.cache *.a *.h
 
 # Don't try to extract debug info from ${PROG}.
 MK_DEBUG_FILES= no
+MK_CFI=		no
+MK_CROSS_DSO_CFI=	no
+MK_RELRO=		no
+MK_RETPOLINE=		no
+MK_PIE=			no
+MK_RELRO=		no
+MK_BIND_NOW=		no
 
 # Set a default SRCDIR for each for simpler handling below.
 .for D in ${CRUNCH_SRCDIRS}
@@ -113,7 +120,7 @@ CRUNCHGEN?= crunchgen
 CRUNCHENV+= MK_TESTS=no \
 	    UPDATE_DEPENDFILE=no \
 	    _RECURSING_CRUNCH=1
-CRUNCHENV+= MK_SAFESTACK=no MK_CFI=no
+CRUNCHENV+= MK_SAFESTACK=no MK_CFI=no MK_CROSS_DSO_CFI=no MK_RETPOLINE=no MK_RELRO=no MK_PIE=no MK_BIND_NOW=no
 .ORDER: ${OUTPUTS} objs
 ${OUTPUTS:[1]}: .META
 ${OUTPUTS:[2..-1]}: .NOMETA

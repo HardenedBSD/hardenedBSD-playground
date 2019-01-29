@@ -1,6 +1,6 @@
 # $FreeBSD$
 
-.include <bsd.init.mk>
+.include <src.opts.mk>
 
 .PATH: ${.CURDIR:H}/common
 
@@ -11,6 +11,7 @@ CFLAGS+=	-I${.CURDIR} -I${.CURDIR:H}/common \
 		-I${SRCTOP}/lib/libc/include
 CFLAGS+=	-fno-omit-frame-pointer -DCRT_IRELOC_RELA
 
+NOCFI=			yes
 MK_CFI=			no
 MK_CROSS_DSO_CFI=	no
 

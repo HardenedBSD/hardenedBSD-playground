@@ -103,9 +103,17 @@ CFLAGS+= ${PICFLAG}
 
 .if !defined(NOCFI)
 .if defined(MK_CROSS_DSO_CFI) && ${MK_CROSS_DSO_CFI} != "no"
-CFLAGS+=	-flto
-CXXFLAGS+=	-flto
-LDFLAGS+=	-flto
+#CFLAGS+=	-flto -fvisibility=hidden -fsanitize=cfi -fsanitize-cfi-cross-dso
+#CXXFLAGS+=	-flto -fvisibility=hidden -fsanitize=cfi -fsanitize-cfi-cross-dso
+#LDFLAGS+=	-flto -fvisibility=hidden -fsanitize=cfi -fsanitize-cfi-cross-dso
+
+CFLAGS+=	-flto -fsanitize-cfi-cross-dso
+CXXFLAGS+=	-flto -fsanitize-cfi-cross-dso
+LDFLAGS+=	-flto -fsanitize-cfi-cross-dso
+
+#CFLAGS+=	-flto
+#CXXFLAGS+=	-flto
+#LDFLAGS+=	-flto
 .endif
 .endif
 .endif

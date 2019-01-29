@@ -7,6 +7,7 @@ PACKAGE=rescue
 MAN=
 MK_SSP=	no
 MK_CFI=	no
+MK_CROSS_DSO_CFI=	no
 
 PROG=	rescue
 BINDIR?=/rescue
