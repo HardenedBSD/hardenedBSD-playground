@@ -7,8 +7,6 @@ SRCS=	file.c sm_inter_svc.c sm_inter.h statd.c procs.c
 CFLAGS+= -I.
 WARNS?= 2
 
-CFI_OVERRIDE=	-fno-sanitize=cfi-icall
-
 LIBADD=	rpcsvc
 
 CLEANFILES= sm_inter_svc.c sm_inter.h

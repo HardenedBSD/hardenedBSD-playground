@@ -7,6 +7,4 @@ SRCS=	rpc.umntall.c mounttab.c
 
 WARNS?= 3
 
-CFI_OVERRIDE=	-fno-sanitize=cfi-icall
-
 .include <bsd.prog.mk>
