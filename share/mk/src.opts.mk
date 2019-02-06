@@ -85,7 +85,6 @@ __DEFAULT_YES_OPTIONS = \
     CPP \
     CROSS_COMPILER \
     CRYPT \
-    CTM \
     CUSE \
     CXX \
     CXGBETOOL \
