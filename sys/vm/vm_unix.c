@@ -184,19 +184,11 @@ kern_break(struct thread *td, uintptr_t *addr)
 		}
 #endif
 		prot = VM_PROT_RW;
-<<<<<<< HEAD
 		maxprot = VM_PROT_ALL;
 #ifdef PAX_NOEXEC
 		pax_noexec_nx(td->td_proc, &prot, &maxprot);
 #endif
 		rv = vm_map_insert(map, NULL, 0, old, new, prot, maxprot, 0);
-=======
-#if (defined(COMPAT_FREEBSD32) && defined(__amd64__)) || defined(__i386__)
-		if (i386_read_exec && SV_PROC_FLAG(td->td_proc, SV_ILP32))
-			prot |= VM_PROT_EXECUTE;
-#endif
-		rv = vm_map_insert(map, NULL, 0, old, new, prot, VM_PROT_ALL, 0);
->>>>>>> origin/freebsd/current/master
 		if (rv != KERN_SUCCESS) {
 #ifdef RACCT
 			if (racct_enable) {
