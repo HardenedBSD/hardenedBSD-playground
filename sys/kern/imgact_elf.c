@@ -133,36 +133,6 @@ SYSCTL_INT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO,
     nxstack, CTLFLAG_RW, &__elfN(nxstack), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": enable non-executable stack");
 
-<<<<<<< HEAD
-=======
-#if __ELF_WORD_SIZE == 32 && (defined(__amd64__) || defined(__i386__))
-int i386_read_exec = 0;
-SYSCTL_INT(_kern_elf32, OID_AUTO, read_exec, CTLFLAG_RW, &i386_read_exec, 0,
-    "enable execution from readable segments");
-#endif
-
-SYSCTL_NODE(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO, aslr, CTLFLAG_RW, 0,
-    "");
-#define	ASLR_NODE_OID	__CONCAT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), _aslr)
-
-static int __elfN(aslr_enabled) = 0;
-SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, enable, CTLFLAG_RWTUN,
-    &__elfN(aslr_enabled), 0,
-    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
-    ": enable address map randomization");
-
-static int __elfN(pie_aslr_enabled) = 0;
-SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, pie_enable, CTLFLAG_RWTUN,
-    &__elfN(pie_aslr_enabled), 0,
-    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
-    ": enable address map randomization for PIE binaries");
-
-static int __elfN(aslr_honor_sbrk) = 1;
-SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, honor_sbrk, CTLFLAG_RW,
-    &__elfN(aslr_honor_sbrk), 0,
-    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": assume sbrk is used");
-
->>>>>>> freebsd/current/master
 static Elf_Brandinfo *elf_brand_list[MAX_BRANDS];
 
 #define	trunc_page_ps(va, ps)	rounddown2(va, ps)
@@ -970,32 +940,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		goto ret;
 	}
 	sv = brand_info->sysvec;
-<<<<<<< HEAD
-=======
-	et_dyn_addr = 0;
-	if (hdr->e_type == ET_DYN) {
-		if ((brand_info->flags & BI_CAN_EXEC_DYN) == 0) {
-			uprintf("Cannot execute shared object\n");
-			error = ENOEXEC;
-			goto ret;
-		}
-		/*
-		 * Honour the base load address from the dso if it is
-		 * non-zero for some reason.
-		 */
-		if (baddr == 0) {
-			if ((sv->sv_flags & SV_ASLR) == 0 ||
-			    (fctl0 & NT_FREEBSD_FCTL_ASLR_DISABLE) != 0)
-				et_dyn_addr = ET_DYN_LOAD_ADDR;
-			else if ((__elfN(pie_aslr_enabled) &&
-			    (imgp->proc->p_flag2 & P2_ASLR_DISABLE) == 0) ||
-			    (imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0)
-				et_dyn_addr = ET_DYN_ADDR_RAND;
-			else
-				et_dyn_addr = ET_DYN_LOAD_ADDR;
-		}
-	}
->>>>>>> freebsd/current/master
 	if (interp != NULL && brand_info->interp_newpath != NULL)
 		newinterp = brand_info->interp_newpath;
 
@@ -1050,7 +994,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 
 	imgp->proc->p_sysent = sv;
 
-<<<<<<< HEAD
 	et_dyn_addr = 0;
 	if (hdr->e_type == ET_DYN) {
 		if ((brand_info->flags & BI_CAN_EXEC_DYN) == 0) {
@@ -1068,16 +1011,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 			pax_aslr_execbase(imgp->proc, &et_dyn_addr);
 #endif
 		}
-=======
-	maxv = vm_map_max(map) - lim_max(td, RLIMIT_STACK);
-	if (et_dyn_addr == ET_DYN_ADDR_RAND) {
-		KASSERT((map->flags & MAP_ASLR) != 0,
-		    ("ET_DYN_ADDR_RAND but !MAP_ASLR"));
-		et_dyn_addr = __CONCAT(rnd_, __elfN(base))(map,
-		    vm_map_min(map) + mapsz + lim_max(td, RLIMIT_DATA),
-		    /* reserve half of the address space to interpreter */
-		    maxv / 2, 1UL << flsl(maxalign));
->>>>>>> freebsd/current/master
 	}
 
 	vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
@@ -1184,20 +1117,9 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	 */
 	addr = round_page((vm_offset_t)vmspace->vm_daddr + lim_max(td,
 	    RLIMIT_DATA));
-<<<<<<< HEAD
 #ifdef PAX_ASLR
 	pax_aslr_rtld(imgp->proc, &addr);
 #endif
-=======
-	if ((map->flags & MAP_ASLR) != 0) {
-		maxv1 = maxv / 2 + addr / 2;
-		MPASS(maxv1 >= addr);	/* No overflow */
-		map->anon_loc = __CONCAT(rnd_, __elfN(base))(map, addr, maxv1,
-		    MAXPAGESIZES > 1 ? pagesizes[1] : pagesizes[0]);
-	} else {
-		map->anon_loc = addr;
-	}
->>>>>>> freebsd/current/master
 	PROC_UNLOCK(imgp->proc);
 
 	imgp->entry_addr = entry;
