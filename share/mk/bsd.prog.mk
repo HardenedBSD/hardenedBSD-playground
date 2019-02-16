@@ -55,7 +55,7 @@ TAGS+=		package=${PACKAGE:Uruntime}
 TAG_ARGS=	-T ${TAGS:[*]:S/ /,/g}
 .endif
 
-.if defined(NO_SHARED) && ${NO_SHARED:tl} != "no"
+.if defined(NO_SHARED) && (${NO_SHARED:tl} != "no"
 LDFLAGS+= -static
 .endif
 
