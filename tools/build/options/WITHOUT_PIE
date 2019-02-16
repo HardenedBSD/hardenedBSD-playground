@@ -1,1 +1,7 @@
+<<<<<<< HEAD
 Disable building of Position-Independent Executables (PIEs).
+=======
+.\" $FreeBSD$
+Do not build dynamically linked binaries as
+Position-Independent Executable (PIE).
+>>>>>>> origin/freebsd/current/master

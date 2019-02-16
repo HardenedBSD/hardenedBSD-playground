@@ -34,6 +34,27 @@ PROG=	${PROG_CXX}
 MK_DEBUG_FILES=	no
 .endif
 
+<<<<<<< HEAD
+=======
+# ELF hardening knobs
+.if ${MK_BIND_NOW} != "no"
+LDFLAGS+= -Wl,-znow
+.endif
+.if ${MK_PIE} != "no" && (!defined(NO_SHARED) || ${NO_SHARED:tl} == "no")
+CFLAGS+= -fPIE
+CXXFLAGS+= -fPIE
+LDFLAGS+= -pie
+.endif
+.if ${MK_RETPOLINE} != "no"
+CFLAGS+= -mretpoline
+CXXFLAGS+= -mretpoline
+# retpolineplt is broken with static linking (PR 233336)
+.if !defined(NO_SHARED) || ${NO_SHARED:tl} == "no"
+LDFLAGS+= -Wl,-zretpolineplt
+.endif
+.endif
+
+>>>>>>> origin/freebsd/current/master
 .if defined(CRUNCH_CFLAGS)
 CFLAGS+=${CRUNCH_CFLAGS}
 .else
@@ -55,7 +76,7 @@ TAGS+=		package=${PACKAGE:Uruntime}
 TAG_ARGS=	-T ${TAGS:[*]:S/ /,/g}
 .endif
 
-.if defined(NO_SHARED) && (${NO_SHARED} != "no" && ${NO_SHARED} != "NO")
+.if defined(NO_SHARED) && ${NO_SHARED:tl} != "no"
 LDFLAGS+= -static
 .endif
 
