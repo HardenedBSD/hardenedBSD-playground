@@ -7939,18 +7939,16 @@ OLD_FILES+=usr/share/man/man5/nscd.conf.5.gz
 OLD_FILES+=usr/share/man/man8/nscd.8.gz
 .endif
 
-<<<<<<< HEAD
 .if ${MK_NTP} == no || ${MK_OPENNTPD} == yes
 OLD_FILES+=etc/ntp.conf
 OLD_FILES+=etc/periodic/daily/480.status-ntpd
-=======
+.endif
 .if ${MK_NTP} == no
 OLD_FILES+=etc/ntp/leap-seconds
 OLD_DIRS+=etc/ntp
 OLD_FILES+=etc/ntp.conf
 OLD_FILES+=etc/periodic/daily/480.status-ntpd
 OLD_FILES+=etc/periodic/daily/480.leapfile-ntpd
->>>>>>> origin/freebsd/current/master
 OLD_FILES+=etc/rc.d/ntpd
 OLD_FILES+=usr/bin/ntpq
 OLD_FILES+=usr/sbin/ntp-keygen
@@ -8250,7 +8248,6 @@ OLD_FILES+=usr/share/man/man8/ntpq.8.gz
 OLD_FILES+=usr/share/man/man8/ntptime.8.gz
 .endif
 
-<<<<<<< HEAD
 .if ${MK_OPENNTPD} == no
 OLD_FILES+=etc/ntpd.conf
 OLD_FILES+=etc/rc.d/openntpd
@@ -8258,7 +8255,7 @@ OLD_FILES+=usr/man/man5/ntpd.conf.5.gz
 OLD_FILES+=usr/man/man8/ntpctl.8.gz
 OLD_FILES+=usr/man/man8/ntpd.8.gz
 OLD_FILES+=usr/sbin/ntpctl
-=======
+.endif
 .if ${MK_OFED} == no
 OLD_FILES+=etc/newsyslog.conf.d/opensm.conf
 OLD_FILES+=etc/rc.d/opensm
@@ -8634,7 +8631,6 @@ OLD_FILES+=usr/share/man/man8/sminfo.8.gz
 OLD_FILES+=usr/share/man/man8/smpdump.8.gz
 OLD_FILES+=usr/share/man/man8/smpquery.8.gz
 OLD_FILES+=usr/share/man/man8/vendstat.8.gz
->>>>>>> origin/freebsd/current/master
 .endif
 
 .if ${MK_OPENSSH} == no

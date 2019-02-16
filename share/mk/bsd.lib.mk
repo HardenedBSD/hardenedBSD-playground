@@ -86,13 +86,10 @@ CTFFLAGS+= -g
 
 .if !defined(PICFLAG)
 PICFLAG=-fPIC
-<<<<<<< HEAD
-=======
 PIEFLAG=-fPIE
 .else
 PICFLAG=-fpic
 PIEFLAG=-fpie
->>>>>>> origin/freebsd/current/master
 .endif
 
 .if defined(MK_RETPOLINE) && ${MK_RETPOLINE} != "no"

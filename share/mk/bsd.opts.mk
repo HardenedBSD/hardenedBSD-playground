@@ -72,11 +72,6 @@ __DEFAULT_NO_OPTIONS = \
     CCACHE_BUILD \
     CTF \
     INSTALL_AS_USER \
-<<<<<<< HEAD
-=======
-    PIE \
-    RETPOLINE \
->>>>>>> origin/freebsd/current/master
     STALE_STAGED
 
 __DEFAULT_DEPENDENT_OPTIONS = \
