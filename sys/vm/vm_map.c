@@ -3479,8 +3479,6 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 	locked = vm_map_trylock(new_map); /* trylock to silence WITNESS */
 	KASSERT(locked, ("vmspace_fork: lock failed"));
 
-<<<<<<< HEAD
-=======
 	error = pmap_vmspace_copy(new_map->pmap, old_map->pmap);
 	if (error != 0) {
 		sx_xunlock(&old_map->lock);
@@ -3492,7 +3490,6 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 
 	new_map->anon_loc = old_map->anon_loc;
 
->>>>>>> origin/freebsd/current/master
 	old_entry = old_map->header.next;
 
 	while (old_entry != &old_map->header) {
