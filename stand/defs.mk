@@ -28,7 +28,7 @@ LUASRC=		${SRCTOP}/contrib/lua/src
 SASRC=		${BOOTSRC}/libsa
 SYSDIR=		${SRCTOP}/sys
 UBOOTSRC=	${BOOTSRC}/uboot
-ZFSSRC=		${BOOTSRC}/zfs
+ZFSSRC=		${SASRC}/zfs
 
 BOOTOBJ=	${OBJTOP}/stand
 
@@ -67,8 +67,7 @@ MK_LOADER_GELI=yes
 .endif
 .if ${MK_LOADER_GELI} == "yes"
 CFLAGS+=	-DLOADER_GELI_SUPPORT
-CFLAGS+=	-I${BOOTSRC}/geli
-LIBGELIBOOT=	${BOOTOBJ}/geli/libgeliboot.a
+CFLAGS+=	-I${SASRC}/geli
 .endif # MK_LOADER_GELI
 .endif # HAVE_GELI
 

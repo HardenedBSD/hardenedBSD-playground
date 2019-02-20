@@ -26,7 +26,6 @@ SRCS=	autoload.c \
 	vers.c
 
 .if ${MK_ZFS} != "no"
-LIBZFSBOOT=	${BOOTOBJ}/zfs/libzfsboot.a
 CFLAGS+=	-I${ZFSSRC}
 CFLAGS+=	-DEFI_ZFS_BOOT
 HAVE_ZFS=	yes
@@ -121,8 +120,7 @@ loader.efi: ${PROG}
 
 LIBEFI=		${BOOTOBJ}/efi/libefi/libefi.a
 
-DPADD=		${LDR_INTERP} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBZFSBOOT} ${LIBSA} \
-		${LDSCRIPT}
-LDADD=		${LDR_INTERP} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBZFSBOOT} ${LIBSA}
+DPADD=		${LDR_INTERP} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBSA} ${LDSCRIPT}
+LDADD=		${LDR_INTERP} ${LIBEFI} ${LIBFDT} ${LIBEFI_FDT} ${LIBSA}
 
 .include <bsd.prog.mk>

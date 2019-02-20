@@ -28,11 +28,13 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
+#include <stand.h>
+
 #include <sys/disk.h>
 #include <sys/param.h>
 #include <sys/reboot.h>
+#include <sys/boot.h>
 #include <stdint.h>
-#include <stand.h>
 #include <string.h>
 #include <setjmp.h>
 #include <disk.h>
@@ -47,7 +49,6 @@ __FBSDID("$FreeBSD$");
 
 #ifdef EFI_ZFS_BOOT
 #include <libzfs.h>
-
 #include "efizfs.h"
 #endif
 
@@ -73,8 +74,6 @@ EFI_GUID debugimg = DEBUG_IMAGE_INFO_TABLE_GUID;
 EFI_GUID fdtdtb = FDT_TABLE_GUID;
 EFI_GUID inputid = SIMPLE_TEXT_INPUT_PROTOCOL;
 
-static EFI_LOADED_IMAGE *img;
-
 /*
  * Number of seconds to wait for a keystroke before exiting with failure
  * in the event no currdev is found. -2 means always break, -1 means
@@ -84,22 +83,14 @@ static EFI_LOADED_IMAGE *img;
  */
 static int fail_timeout = 5;
 
-#ifdef	EFI_ZFS_BOOT
-bool
-efi_zfs_is_preferred(EFI_HANDLE *h)
-{
-        return (h == img->DeviceHandle);
-}
-#endif
-
-static int
+static bool
 has_keyboard(void)
 {
 	EFI_STATUS status;
 	EFI_DEVICE_PATH *path;
 	EFI_HANDLE *hin, *hin_end, *walker;
 	UINTN sz;
-	int retval = 0;
+	bool retval = false;
 
 	/*
 	 * Find all the handles that support the SIMPLE_TEXT_INPUT_PROTOCOL and
@@ -146,7 +137,7 @@ has_keyboard(void)
 				acpi = (ACPI_HID_DEVICE_PATH *)(void *)path;
 				if ((EISA_ID_TO_NUM(acpi->HID) & 0xff00) == 0x300 &&
 				    (acpi->HID & 0xffff) == PNP_EISA_ID_CONST) {
-					retval = 1;
+					retval = true;
 					goto out;
 				}
 			/*
@@ -162,7 +153,7 @@ has_keyboard(void)
 				if (usb->DeviceClass == 3 && /* HID */
 				    usb->DeviceSubClass == 1 && /* Boot devices */
 				    usb->DeviceProtocol == 1) { /* Boot keyboards */
-					retval = 1;
+					retval = true;
 					goto out;
 				}
 			}
@@ -231,7 +222,8 @@ sanity_check_currdev(void)
 {
 	struct stat st;
 
-	return (stat("/boot/defaults/loader.conf", &st) == 0);
+	return (stat("/boot/defaults/loader.conf", &st) == 0 ||
+	    stat("/boot/kernel/kernel", &st) == 0);
 }
 
 #ifdef EFI_ZFS_BOOT
@@ -408,15 +400,43 @@ interactive_interrupt(const char *msg)
 	return (false);
 }
 
+int
+parse_args(int argc, CHAR16 *argv[], bool has_kbd)
+{
+	int i, j, howto;
+	bool vargood;
+	char var[128];
+
+	/*
+	 * Parse the args to set the console settings, etc
+	 * boot1.efi passes these in, if it can read /boot.config or /boot/config
+	 * or iPXE may be setup to pass these in. Or the optional argument in the
+	 * boot environment was used to pass these arguments in (in which case
+	 * neither /boot.config nor /boot/config are consulted).
+	 *
+	 * Loop through the args, and for each one that contains an '=' that is
+	 * not the first character, add it to the environment.  This allows
+	 * loader and kernel env vars to be passed on the command line.  Convert
+	 * args from UCS-2 to ASCII (16 to 8 bit) as they are copied (though this
+	 * method is flawed for non-ASCII characters).
+	 */
+	howto = 0;
+	for (i = 1; i < argc; i++) {
+		cpy16to8(argv[i], var, sizeof(var));
+		howto |= boot_parse_arg(var);
+	}
+
+	return (howto);
+}
+
+
 EFI_STATUS
 main(int argc, CHAR16 *argv[])
 {
-	char var[128];
 	EFI_GUID *guid;
-	int i, j, howto;
-	bool vargood;
+	int howto, i;
 	UINTN k;
-	int has_kbd;
+	bool has_kbd;
 	char *s;
 	EFI_DEVICE_PATH *imgpath;
 	CHAR16 *text;
@@ -424,9 +444,7 @@ main(int argc, CHAR16 *argv[])
 	UINT16 boot_current;
 	size_t sz;
 	UINT16 boot_order[100];
-#if !defined(__arm__)
-	char buf[40];
-#endif
+	EFI_LOADED_IMAGE *img;
 
 	archsw.arch_autoload = efi_autoload;
 	archsw.arch_getdev = efi_getdev;
@@ -441,6 +459,10 @@ main(int argc, CHAR16 *argv[])
         /* Get our loaded image protocol interface structure. */
 	BS->HandleProtocol(IH, &imgid, (VOID**)&img);
 
+#ifdef EFI_ZFS_BOOT
+	/* Tell ZFS probe code where we booted from */
+	efizfs_set_preferred(img->DeviceHandle);
+#endif
 	/* Init the time source */
 	efi_time_init();
 
@@ -459,96 +481,9 @@ main(int argc, CHAR16 *argv[])
 	 */
 	bcache_init(32768, 512);
 
-	/*
-	 * Parse the args to set the console settings, etc
-	 * boot1.efi passes these in, if it can read /boot.config or /boot/config
-	 * or iPXE may be setup to pass these in. Or the optional argument in the
-	 * boot environment was used to pass these arguments in (in which case
-	 * neither /boot.config nor /boot/config are consulted).
-	 *
-	 * Loop through the args, and for each one that contains an '=' that is
-	 * not the first character, add it to the environment.  This allows
-	 * loader and kernel env vars to be passed on the command line.  Convert
-	 * args from UCS-2 to ASCII (16 to 8 bit) as they are copied (though this
-	 * method is flawed for non-ASCII characters).
-	 */
-	howto = 0;
-	for (i = 1; i < argc; i++) {
-		if (argv[i][0] == '-') {
-			for (j = 1; argv[i][j] != 0; j++) {
-				int ch;
+	howto = parse_args(argc, argv, has_kbd);
 
-				ch = argv[i][j];
-				switch (ch) {
-				case 'a':
-					howto |= RB_ASKNAME;
-					break;
-				case 'd':
-					howto |= RB_KDB;
-					break;
-				case 'D':
-					howto |= RB_MULTIPLE;
-					break;
-				case 'h':
-					howto |= RB_SERIAL;
-					break;
-				case 'm':
-					howto |= RB_MUTE;
-					break;
-				case 'p':
-					howto |= RB_PAUSE;
-					break;
-				case 'P':
-					if (!has_kbd)
-						howto |= RB_SERIAL | RB_MULTIPLE;
-					break;
-				case 'r':
-					howto |= RB_DFLTROOT;
-					break;
-				case 's':
-					howto |= RB_SINGLE;
-					break;
-				case 'S':
-					if (argv[i][j + 1] == 0) {
-						if (i + 1 == argc) {
-							setenv("comconsole_speed", "115200", 1);
-						} else {
-							cpy16to8(&argv[i + 1][0], var,
-							    sizeof(var));
-							setenv("comconsole_speed", var, 1);
-						}
-						i++;
-						break;
-					} else {
-						cpy16to8(&argv[i][j + 1], var,
-						    sizeof(var));
-						setenv("comconsole_speed", var, 1);
-						break;
-					}
-				case 'v':
-					howto |= RB_VERBOSE;
-					break;
-				}
-			}
-		} else {
-			vargood = false;
-			for (j = 0; argv[i][j] != 0; j++) {
-				if (j == sizeof(var)) {
-					vargood = false;
-					break;
-				}
-				if (j > 0 && argv[i][j] == '=')
-					vargood = true;
-				var[j] = (char)argv[i][j];
-			}
-			if (vargood) {
-				var[j] = 0;
-				putenv(var);
-			}
-		}
-	}
-
-	bootenv_set(howto);
+	boot_howto_to_env(howto);
 
 	/*
 	 * XXX we need fallback to this stuff after looking at the ConIn, ConOut and ConErr variables
@@ -651,18 +586,20 @@ main(int argc, CHAR16 *argv[])
 	efi_init_environment();
 	setenv("LINES", "24", 1);	/* optional */
 
+#if !defined(__arm__)
 	for (k = 0; k < ST->NumberOfTableEntries; k++) {
 		guid = &ST->ConfigurationTable[k].VendorGuid;
-#if !defined(__arm__)
 		if (!memcmp(guid, &smbios, sizeof(EFI_GUID))) {
+			char buf[40];
+
 			snprintf(buf, sizeof(buf), "%p",
 			    ST->ConfigurationTable[k].VendorTable);
 			setenv("hint.smbios.0.mem", buf, 1);
 			smbios_detect(ST->ConfigurationTable[k].VendorTable);
 			break;
 		}
-#endif
 	}
+#endif
 
 	interact();			/* doesn't return */
 
