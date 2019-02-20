@@ -3450,7 +3450,7 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 	vm_map_t new_map, old_map;
 	vm_map_entry_t new_entry, old_entry;
 	vm_object_t object;
-	int error, locked;
+	int locked;
 	vm_inherit_t inh;
 
 	old_map = &vm1->vm_map;
