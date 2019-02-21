@@ -73,8 +73,13 @@ SRCS+=	aeabi_memcmp.S aeabi_memcpy.S aeabi_memmove.S aeabi_memset.S
 
 .if ${MACHINE_CPUARCH} == "powerpc"
 .PATH: ${LIBC_SRC}/quad
-SRCS+=	ashldi3.c ashrdi3.c
+SRCS+=	ashldi3.c ashrdi3.c lshrdi3.c
 SRCS+=	syncicache.c
+.endif
+
+.if ${MACHINE_CPUARCH} == "mips"
+.PATH: ${LIBC_SRC}/quad
+SRCS+=	ashldi3.c ashrdi3.c lshrdi3.c
 .endif
 
 # uuid functions from libc
@@ -156,7 +161,7 @@ SRCS+=  explicit_bzero.c
 .endif
 
 # Maybe ZFS
-.if ${MK_ZFS} == "yes"
+.if ${MK_LOADER_ZFS} == "yes"
 .include "${SASRC}/zfs/Makefile.inc"
 .endif
 

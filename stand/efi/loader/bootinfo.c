@@ -56,6 +56,10 @@ __FBSDID("$FreeBSD$");
 #include <fdt_platform.h>
 #endif
 
+#ifdef LOADER_GELI_SUPPORT
+#include "geliboot.h"
+#endif
+
 int bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp);
 
 extern EFI_SYSTEM_TABLE	*ST;
@@ -63,10 +67,11 @@ extern EFI_SYSTEM_TABLE	*ST;
 static int
 bi_getboothowto(char *kargs)
 {
-	const char *sw;
+	const char *sw, *tmp;
 	char *opts;
 	char *console;
-	int howto;
+	int howto, speed, port;
+	char buf[50];
 
 	howto = boot_parse_cmdline(kargs);
 	howto |= boot_env_to_howto();
@@ -77,6 +82,45 @@ bi_getboothowto(char *kargs)
 			howto |= RB_SERIAL;
 		if (strcmp(console, "nullconsole") == 0)
 			howto |= RB_MUTE;
+#if defined(__i386__) || defined(__amd64__)
+		if (strcmp(console, "efi") == 0 &&
+		    getenv("efi_8250_uid") != NULL &&
+		    getenv("hw.uart.console") == NULL) {
+			/*
+			 * If we found a 8250 com port and com speed, we need to
+			 * tell the kernel where the serial port is, and how
+			 * fast. Ideally, we'd get the port from ACPI, but that
+			 * isn't running in the loader. Do the next best thing
+			 * by allowing it to be set by a loader.conf variable,
+			 * either a EFI specific one, or the compatible
+			 * comconsole_port if not. PCI support is needed, but
+			 * for that we'd ideally refactor the
+			 * libi386/comconsole.c code to have identical behavior.
+			 * We only try to set the port for cases where we saw
+			 * the Serial(x) node when parsing, otherwise
+			 * specialized hardware that has Uart nodes will have a
+			 * bogus address set.
+			 * But if someone specifically setup hw.uart.console,
+			 * don't override that.
+			 */
+			speed = -1;
+			port = -1;
+			tmp = getenv("efi_com_speed");
+			if (tmp != NULL)
+				speed = strtol(tmp, NULL, 0);
+			tmp = getenv("efi_com_port");
+			if (tmp == NULL)
+				tmp = getenv("comconsole_port");
+			if (tmp != NULL)
+				port = strtol(tmp, NULL, 0);
+			if (speed != -1 && port != -1) {
+				snprintf(buf, sizeof(buf), "io:%d,br:%d", port,
+				    speed);
+				env_setenv("hw.uart.console", EV_VOLATILE, buf,
+				    NULL, NULL);
+			}
+		}
+#endif
 	}
 
 	return (howto);
@@ -452,7 +496,9 @@ bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp)
 #endif
 	file_addmetadata(kfp, MODINFOMD_KERNEND, sizeof kernend, &kernend);
 	file_addmetadata(kfp, MODINFOMD_FW_HANDLE, sizeof ST, &ST);
-
+#ifdef LOADER_GELI_SUPPORT
+	geli_export_key_metadata(kfp);
+#endif
 	bi_load_efi_data(kfp);
 
 	/* Figure out the size and location of the metadata. */

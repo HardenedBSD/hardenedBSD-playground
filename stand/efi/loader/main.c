@@ -166,16 +166,21 @@ out:
 }
 
 static void
+set_currdev(const char *devname)
+{
+
+	env_setenv("currdev", EV_VOLATILE, devname, efi_setcurrdev, env_nounset);
+	env_setenv("loaddev", EV_VOLATILE, devname, env_noset, env_nounset);
+}
+
+static void
 set_currdev_devdesc(struct devdesc *currdev)
 {
 	const char *devname;
 
 	devname = efi_fmtdev(currdev);
-
 	printf("Setting currdev to %s\n", devname);
-
-	env_setenv("currdev", EV_VOLATILE, devname, efi_setcurrdev, env_nounset);
-	env_setenv("loaddev", EV_VOLATILE, devname, env_noset, env_nounset);
+	set_currdev(devname);
 }
 
 static void
@@ -279,6 +284,14 @@ find_currdev(EFI_LOADED_IMAGE *img)
 	struct devsw *dev;
 	int unit;
 	uint64_t extra;
+	char *rootdev;
+
+	rootdev = getenv("rootdev");
+	if (rootdev != NULL) {
+		printf("Setting currdev to configured rootdev %s\n", rootdev);
+		set_currdev(rootdev);
+		return (0);
+	}
 
 #ifdef EFI_ZFS_BOOT
 	/*
@@ -316,11 +329,6 @@ find_currdev(EFI_LOADED_IMAGE *img)
 		if (dp->pd_parent != NULL) {
 			dp = dp->pd_parent;
 			STAILQ_FOREACH(pp, &dp->pd_part, pd_link) {
-				text = efi_devpath_name(pp->pd_devpath);
-				if (text != NULL) {
-					printf("And now the part: %S\n", text);
-					efi_free_devpath_name(text);
-				}
 				/*
 				 * Roll up the ZFS special case
 				 * for those partitions that have
@@ -330,8 +338,6 @@ find_currdev(EFI_LOADED_IMAGE *img)
 					return (0);
 			}
 		}
-	} else {
-		printf("Can't find device by handle\n");
 	}
 
 	/*
@@ -400,8 +406,8 @@ interactive_interrupt(const char *msg)
 	return (false);
 }
 
-int
-parse_args(int argc, CHAR16 *argv[], bool has_kbd)
+static int
+parse_args(int argc, CHAR16 *argv[])
 {
 	int i, j, howto;
 	bool vargood;
@@ -429,12 +435,106 @@ parse_args(int argc, CHAR16 *argv[], bool has_kbd)
 	return (howto);
 }
 
+static void
+setenv_int(const char *key, int val)
+{
+	char buf[20];
+
+	snprintf(buf, sizeof(buf), "%d", val);
+	setenv(key, buf, 1);
+}
+
+/*
+ * Parse ConOut (the list of consoles active) and see if we can find a
+ * serial port and/or a video port. It would be nice to also walk the
+ * ACPI name space to map the UID for the serial port to a port. The
+ * latter is especially hard.
+ */
+static int
+parse_uefi_con_out(void)
+{
+	int how, rv;
+	int vid_seen = 0, com_seen = 0, seen = 0;
+	size_t sz;
+	char buf[4096], *ep;
+	EFI_DEVICE_PATH *node;
+	ACPI_HID_DEVICE_PATH  *acpi;
+	UART_DEVICE_PATH  *uart;
+	bool pci_pending;
+
+	how = 0;
+	sz = sizeof(buf);
+	rv = efi_global_getenv("ConOut", buf, &sz);
+	if (rv != EFI_SUCCESS)
+		goto out;
+	ep = buf + sz;
+	node = (EFI_DEVICE_PATH *)buf;
+	while ((char *)node < ep) {
+		pci_pending = false;
+		if (DevicePathType(node) == ACPI_DEVICE_PATH &&
+		    DevicePathSubType(node) == ACPI_DP) {
+			/* Check for Serial node */
+			acpi = (void *)node;
+			if (EISA_ID_TO_NUM(acpi->HID) == 0x501) {
+				setenv_int("efi_8250_uid", acpi->UID);
+				com_seen = ++seen;
+			}
+		} else if (DevicePathType(node) == MESSAGING_DEVICE_PATH &&
+		    DevicePathSubType(node) == MSG_UART_DP) {
+
+			uart = (void *)node;
+			setenv_int("efi_com_speed", uart->BaudRate);
+		} else if (DevicePathType(node) == ACPI_DEVICE_PATH &&
+		    DevicePathSubType(node) == ACPI_ADR_DP) {
+			/* Check for AcpiAdr() Node for video */
+			vid_seen = ++seen;
+		} else if (DevicePathType(node) == HARDWARE_DEVICE_PATH &&
+		    DevicePathSubType(node) == HW_PCI_DP) {
+			/*
+			 * Note, vmware fusion has a funky console device
+			 *	PciRoot(0x0)/Pci(0xf,0x0)
+			 * which we can only detect at the end since we also
+			 * have to cope with:
+			 *	PciRoot(0x0)/Pci(0x1f,0x0)/Serial(0x1)
+			 * so only match it if it's last.
+			 */
+			pci_pending = true;
+		}
+		node = NextDevicePathNode(node); /* Skip the end node */
+	}
+	if (pci_pending && vid_seen == 0)
+		vid_seen = ++seen;
+
+	/*
+	 * Truth table for RB_MULTIPLE | RB_SERIAL
+	 * Value		Result
+	 * 0			Use only video console
+	 * RB_SERIAL		Use only serial console
+	 * RB_MULTIPLE		Use both video and serial console
+	 *			(but video is primary so gets rc messages)
+	 * both			Use both video and serial console
+	 *			(but serial is primary so gets rc messages)
+	 *
+	 * Try to honor this as best we can. If only one of serial / video
+	 * found, then use that. Otherwise, use the first one we found.
+	 * This also implies if we found nothing, default to video.
+	 */
+	how = 0;
+	if (vid_seen && com_seen) {
+		how |= RB_MULTIPLE;
+		if (com_seen < vid_seen)
+			how |= RB_SERIAL;
+	} else if (com_seen)
+		how |= RB_SERIAL;
+out:
+	return (how);
+}
 
 EFI_STATUS
 main(int argc, CHAR16 *argv[])
 {
 	EFI_GUID *guid;
-	int howto, i;
+	int howto, i, uhowto;
 	UINTN k;
 	bool has_kbd;
 	char *s;
@@ -474,6 +574,7 @@ main(int argc, CHAR16 *argv[])
 	 * eg. the boot device, which we can't do yet.  We can use
 	 * printf() etc. once this is done.
 	 */
+	setenv("console", "efi", 1);
 	cons_probe();
 
 	/*
@@ -481,22 +582,60 @@ main(int argc, CHAR16 *argv[])
 	 */
 	bcache_init(32768, 512);
 
-	howto = parse_args(argc, argv, has_kbd);
-
-	boot_howto_to_env(howto);
+	howto = parse_args(argc, argv);
+	if (!has_kbd && (howto & RB_PROBE))
+		howto |= RB_SERIAL | RB_MULTIPLE;
+	howto &= ~RB_PROBE;
+	uhowto = parse_uefi_con_out();
 
 	/*
-	 * XXX we need fallback to this stuff after looking at the ConIn, ConOut and ConErr variables
+	 * We now have two notions of console. howto should be viewed as
+	 * overrides. If console is already set, don't set it again.
 	 */
-	if (howto & RB_MULTIPLE) {
-		if (howto & RB_SERIAL)
-			setenv("console", "comconsole efi" , 1);
-		else
-			setenv("console", "efi comconsole" , 1);
-	} else if (howto & RB_SERIAL) {
-		setenv("console", "comconsole" , 1);
-	} else
-		setenv("console", "efi", 1);
+#define	VIDEO_ONLY	0
+#define	SERIAL_ONLY	RB_SERIAL
+#define	VID_SER_BOTH	RB_MULTIPLE
+#define	SER_VID_BOTH	(RB_SERIAL | RB_MULTIPLE)
+#define	CON_MASK	(RB_SERIAL | RB_MULTIPLE)
+	if (strcmp(getenv("console"), "efi") == 0) {
+		if ((howto & CON_MASK) == 0) {
+			/* No override, uhowto is controlling and efi cons is perfect */
+			howto = howto | (uhowto & CON_MASK);
+			setenv("console", "efi", 1);
+		} else if ((howto & CON_MASK) == (uhowto & CON_MASK)) {
+			/* override matches what UEFI told us, efi console is perfect */
+			setenv("console", "efi", 1);
+		} else if ((uhowto & (CON_MASK)) != 0) {
+			/*
+			 * We detected a serial console on ConOut. All possible
+			 * overrides include serial. We can't really override what efi
+			 * gives us, so we use it knowing it's the best choice.
+			 */
+			setenv("console", "efi", 1);
+		} else {
+			/*
+			 * We detected some kind of serial in the override, but ConOut
+			 * has no serial, so we have to sort out which case it really is.
+			 */
+			switch (howto & CON_MASK) {
+			case SERIAL_ONLY:
+				setenv("console", "comconsole", 1);
+				break;
+			case VID_SER_BOTH:
+				setenv("console", "efi comconsole", 1);
+				break;
+			case SER_VID_BOTH:
+				setenv("console", "comconsole efi", 1);
+				break;
+				/* case VIDEO_ONLY can't happen -- it's the first if above */
+			}
+		}
+	}
+	/*
+	 * howto is set now how we want to export the flags to the kernel, so
+	 * set the env based on it.
+	 */
+	boot_howto_to_env(howto);
 
 	if (efi_copy_init()) {
 		printf("failed to allocate staging area\n");
@@ -510,25 +649,27 @@ main(int argc, CHAR16 *argv[])
 	 * Scan the BLOCK IO MEDIA handles then
 	 * march through the device switch probing for things.
 	 */
-	if ((i = efipart_inithandles()) == 0) {
-		for (i = 0; devsw[i] != NULL; i++)
-			if (devsw[i]->dv_init != NULL)
-				(devsw[i]->dv_init)();
-	} else
-		printf("efipart_inithandles failed %d, expect failures", i);
+	i = efipart_inithandles();
+	if (i != 0 && i != ENOENT) {
+		printf("efipart_inithandles failed with ERRNO %d, expect "
+		    "failures\n", i);
+	}
 
-	printf("Command line arguments:");
+	for (i = 0; devsw[i] != NULL; i++)
+		if (devsw[i]->dv_init != NULL)
+			(devsw[i]->dv_init)();
+
+	printf("%s\n", bootprog_info);
+	printf("   Command line arguments:");
 	for (i = 0; i < argc; i++)
 		printf(" %S", argv[i]);
 	printf("\n");
 
-	printf("Image base: 0x%lx\n", (u_long)img->ImageBase);
-	printf("EFI version: %d.%02d\n", ST->Hdr.Revision >> 16,
+	printf("   EFI version: %d.%02d\n", ST->Hdr.Revision >> 16,
 	    ST->Hdr.Revision & 0xffff);
-	printf("EFI Firmware: %S (rev %d.%02d)\n", ST->FirmwareVendor,
+	printf("   EFI Firmware: %S (rev %d.%02d)\n", ST->FirmwareVendor,
 	    ST->FirmwareRevision >> 16, ST->FirmwareRevision & 0xffff);
 
-	printf("\n%s", bootprog_info);
 
 	/* Determine the devpath of our image so we can prefer it. */
 	text = efi_devpath_name(img->FilePath);
@@ -584,7 +725,6 @@ main(int argc, CHAR16 *argv[])
 			return (EFI_NOT_FOUND);
 
 	efi_init_environment();
-	setenv("LINES", "24", 1);	/* optional */
 
 #if !defined(__arm__)
 	for (k = 0; k < ST->NumberOfTableEntries; k++) {
