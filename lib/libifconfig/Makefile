@@ -2,7 +2,11 @@
 
 PACKAGE=	lib${LIB}
 LIB=		ifconfig
+<<<<<<< HEAD
 PRIVATELIB=	true
+=======
+INTERNALLIB=	true
+>>>>>>> origin/freebsd/current/master
 
 SHLIBDIR?=	/lib
 SHLIB_MAJOR=	1
