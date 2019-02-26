@@ -456,7 +456,7 @@ LIBSLDIR=	${OBJTOP}/kerberos5/lib/libsl
 LIBSL?=		${LIBSLDIR}/libsl.a
 
 LIBIFCONFIGDIR=	${OBJTOP}/lib/libifconfig
-LIBIFCONFIG?=	${LIBIFCONFIGDIR}/libifconfig${PIE_SUFFIX}.a
+LIBIFCONFIG?=	${LIBIFCONFIGDIR}/libifconfig.a
 
 LIBIPFDIR=	${OBJTOP}/sbin/ipf/libipf
 LIBIPF?=	${LIBIPFDIR}/libipf.a
