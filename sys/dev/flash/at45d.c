@@ -60,7 +60,6 @@ static struct ofw_compat_data compat_data[] = {
 	{ "atmel,dataflash",	1 },
 	{ NULL,			0 },
 };
-SPIBUS_PNP_INFO(compat_data);
 #endif
 
 /* This is the information returned by the MANUFACTURER_ID command. */
@@ -119,6 +118,7 @@ static device_probe_t at45d_probe;
 /* disk routines */
 static int at45d_close(struct disk *dp);
 static int at45d_open(struct disk *dp);
+static int at45d_getattr(struct bio *bp);
 static void at45d_strategy(struct bio *bp);
 static void at45d_task(void *arg);
 
@@ -338,6 +338,7 @@ at45d_delayed_attach(void *xsc)
 	sc->disk->d_open = at45d_open;
 	sc->disk->d_close = at45d_close;
 	sc->disk->d_strategy = at45d_strategy;
+	sc->disk->d_getattr = at45d_getattr;
 	sc->disk->d_name = "flash/at45d";
 	sc->disk->d_drv1 = sc;
 	sc->disk->d_maxsize = DFLTPHYS;
@@ -365,6 +366,22 @@ static int
 at45d_close(struct disk *dp)
 {
 
+	return (0);
+}
+
+static int
+at45d_getattr(struct bio *bp)
+{
+	struct at45d_softc *sc;
+
+	if (bp->bio_disk == NULL || bp->bio_disk->d_drv1 == NULL)
+		return (ENXIO);
+	if (strcmp(bp->bio_attribute, "SPI::device") != 0)
+		return (-1);
+	sc = bp->bio_disk->d_drv1;
+	if (bp->bio_length != sizeof(sc->dev))
+		return (EFAULT);
+	bcopy(&sc->dev, bp->bio_data, sizeof(sc->dev));
 	return (0);
 }
 
@@ -538,3 +555,8 @@ static driver_t at45d_driver = {
 
 DRIVER_MODULE(at45d, spibus, at45d_driver, at45d_devclass, NULL, NULL);
 MODULE_DEPEND(at45d, spibus, 1, 1, 1);
+#ifdef FDT
+MODULE_DEPEND(at45d, fdt_slicer, 1, 1, 1);
+SPIBUS_PNP_INFO(compat_data);
+#endif
+
