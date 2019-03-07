@@ -661,3 +661,11 @@ options 	VM_KMEM_SIZE_SCALE
 options 	NDISAPI
 device		ndis
 
+<<<<<<< HEAD
+=======
+
+# GCOV (code coverage) support
+
+options		LINDEBUGFS
+options		GCOV
+>>>>>>> origin/freebsd/current/master
