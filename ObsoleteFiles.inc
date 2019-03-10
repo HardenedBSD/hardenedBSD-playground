@@ -38,6 +38,8 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20190311: libexecinfo move to /lib
+OLD_LIBS+=usr/lib/libexecinfo.so.1
 # 20190304: new libc++ import which bumps version from 7.0.1 to 8.0.0.
 OLD_FILES+=usr/include/c++/v1/experimental/dynarray
 # 20190304: new clang import which bumps version from 7.0.1 to 8.0.0.
