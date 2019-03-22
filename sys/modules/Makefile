@@ -481,6 +481,7 @@ SUBDIR+=	fdt
     ${MACHINE_CPUARCH} == "i386"
 SUBDIR+=	linprocfs
 SUBDIR+=	linsysfs
+_ena=		ena
 .endif
 
 .if ${MK_NAND} != "no" || defined(ALL_MODULES)
@@ -585,7 +586,6 @@ _cs=		cs
 _dpms=		dpms
 _ed=		ed
 _em=		em
-_ena=		ena
 _ep=		ep
 _et=		et
 _exca=		exca
