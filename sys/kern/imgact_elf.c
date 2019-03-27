@@ -772,6 +772,116 @@ fail:
 	return (error);
 }
 
+<<<<<<< HEAD
+=======
+static u_long
+__CONCAT(rnd_, __elfN(base))(vm_map_t map __unused, u_long minv, u_long maxv,
+    u_int align)
+{
+	u_long rbase, res;
+
+	MPASS(vm_map_min(map) <= minv);
+	MPASS(maxv <= vm_map_max(map));
+	MPASS(minv < maxv);
+	MPASS(minv + align < maxv);
+	arc4rand(&rbase, sizeof(rbase), 0);
+	res = roundup(minv, (u_long)align) + rbase % (maxv - minv);
+	res &= ~((u_long)align - 1);
+	if (res >= maxv)
+		res -= align;
+	KASSERT(res >= minv,
+	    ("res %#lx < minv %#lx, maxv %#lx rbase %#lx",
+	    res, minv, maxv, rbase));
+	KASSERT(res < maxv,
+	    ("res %#lx > maxv %#lx, minv %#lx rbase %#lx",
+	    res, maxv, minv, rbase));
+	return (res);
+}
+
+static int
+__elfN(enforce_limits)(struct image_params *imgp, const Elf_Ehdr *hdr,
+    const Elf_Phdr *phdr, u_long et_dyn_addr)
+{
+	struct vmspace *vmspace;
+	const char *err_str;
+	u_long text_size, data_size, total_size, text_addr, data_addr;
+	u_long seg_size, seg_addr;
+	int i;
+
+	err_str = NULL;
+	text_size = data_size = total_size = text_addr = data_addr = 0;
+
+	for (i = 0; i < hdr->e_phnum; i++) {
+		if (phdr[i].p_type != PT_LOAD || phdr[i].p_memsz == 0)
+			continue;
+
+		seg_addr = trunc_page(phdr[i].p_vaddr + et_dyn_addr);
+		seg_size = round_page(phdr[i].p_memsz +
+		    phdr[i].p_vaddr + et_dyn_addr - seg_addr);
+
+		/*
+		 * Make the largest executable segment the official
+		 * text segment and all others data.
+		 *
+		 * Note that obreak() assumes that data_addr + data_size == end
+		 * of data load area, and the ELF file format expects segments
+		 * to be sorted by address.  If multiple data segments exist,
+		 * the last one will be used.
+		 */
+
+		if ((phdr[i].p_flags & PF_X) != 0 && text_size < seg_size) {
+			text_size = seg_size;
+			text_addr = seg_addr;
+		} else {
+			data_size = seg_size;
+			data_addr = seg_addr;
+		}
+		total_size += seg_size;
+	}
+	
+	if (data_addr == 0 && data_size == 0) {
+		data_addr = text_addr;
+		data_size = text_size;
+	}
+
+	/*
+	 * Check limits.  It should be safe to check the
+	 * limits after loading the segments since we do
+	 * not actually fault in all the segments pages.
+	 */
+	PROC_LOCK(imgp->proc);
+	if (data_size > lim_cur_proc(imgp->proc, RLIMIT_DATA))
+		err_str = "Data segment size exceeds process limit";
+	else if (text_size > maxtsiz)
+		err_str = "Text segment size exceeds system limit";
+	else if (total_size > lim_cur_proc(imgp->proc, RLIMIT_VMEM))
+		err_str = "Total segment size exceeds process limit";
+	else if (racct_set(imgp->proc, RACCT_DATA, data_size) != 0)
+		err_str = "Data segment size exceeds resource limit";
+	else if (racct_set(imgp->proc, RACCT_VMEM, total_size) != 0)
+		err_str = "Total segment size exceeds resource limit";
+	PROC_UNLOCK(imgp->proc);
+	if (err_str != NULL) {
+		uprintf("%s\n", err_str);
+		return (ENOMEM);
+	}
+
+	vmspace = imgp->proc->p_vmspace;
+	vmspace->vm_tsize = text_size >> PAGE_SHIFT;
+	vmspace->vm_taddr = (caddr_t)(uintptr_t)text_addr;
+	vmspace->vm_dsize = data_size >> PAGE_SHIFT;
+	vmspace->vm_daddr = (caddr_t)(uintptr_t)data_addr;
+
+	return (0);
+}
+
+/*
+ * Impossible et_dyn_addr initial value indicating that the real base
+ * must be calculated later with some randomization applied.
+ */
+#define	ET_DYN_ADDR_RAND	1
+
+>>>>>>> origin/freebsd/current/master
 static int
 __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 {
@@ -780,13 +890,23 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	const Elf_Phdr *phdr;
 	Elf_Auxargs *elf_auxargs;
 	struct vmspace *vmspace;
+<<<<<<< HEAD
 	const char *err_str, *newinterp;
+=======
+	vm_map_t map;
+	const char *newinterp;
+>>>>>>> origin/freebsd/current/master
 	char *interp, *interp_buf, *path;
 	Elf_Brandinfo *brand_info;
 	struct sysentvec *sv;
 	vm_prot_t prot;
+<<<<<<< HEAD
 	u_long text_size, data_size, total_size, text_addr, data_addr;
 	u_long seg_size, seg_addr, addr, baddr, et_dyn_addr, entry, proghdr;
+=======
+	u_long addr, baddr, et_dyn_addr, entry, proghdr;
+	u_long maxalign, mapsz, maxv, maxv1;
+>>>>>>> origin/freebsd/current/master
 	uint32_t fctl0;
 	int32_t osrel;
 	int error, i, n, interp_name_len, have_interp;
@@ -824,10 +944,9 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	baddr = 0;
 	osrel = 0;
 	fctl0 = 0;
-	text_size = data_size = total_size = text_addr = data_addr = 0;
 	entry = proghdr = 0;
 	interp_name_len = 0;
-	err_str = newinterp = NULL;
+	newinterp = NULL;
 	interp = interp_buf = NULL;
 	td = curthread;
 
@@ -962,30 +1081,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 				<= phdr[i].p_filesz)
 				proghdr = phdr[i].p_vaddr + hdr->e_phoff +
 				    et_dyn_addr;
-
-			seg_addr = trunc_page(phdr[i].p_vaddr + et_dyn_addr);
-			seg_size = round_page(phdr[i].p_memsz +
-			    phdr[i].p_vaddr + et_dyn_addr - seg_addr);
-
-			/*
-			 * Make the largest executable segment the official
-			 * text segment and all others data.
-			 *
-			 * Note that obreak() assumes that data_addr + 
-			 * data_size == end of data load area, and the ELF
-			 * file format expects segments to be sorted by
-			 * address.  If multiple data segments exist, the
-			 * last one will be used.
-			 */
-
-			if (phdr[i].p_flags & PF_X && text_size < seg_size) {
-				text_size = seg_size;
-				text_addr = seg_addr;
-			} else {
-				data_size = seg_size;
-				data_addr = seg_addr;
-			}
-			total_size += seg_size;
 			break;
 		case PT_PHDR: 	/* Program header table info */
 			proghdr = phdr[i].p_vaddr + et_dyn_addr;
@@ -994,42 +1089,20 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 			break;
 		}
 	}
-	
-	if (data_addr == 0 && data_size == 0) {
-		data_addr = text_addr;
-		data_size = text_size;
-	}
 
-	entry = (u_long)hdr->e_entry + et_dyn_addr;
-
-	/*
-	 * Check limits.  It should be safe to check the
-	 * limits after loading the segments since we do
-	 * not actually fault in all the segments pages.
-	 */
-	PROC_LOCK(imgp->proc);
-	if (data_size > lim_cur_proc(imgp->proc, RLIMIT_DATA))
-		err_str = "Data segment size exceeds process limit";
-	else if (text_size > maxtsiz)
-		err_str = "Text segment size exceeds system limit";
-	else if (total_size > lim_cur_proc(imgp->proc, RLIMIT_VMEM))
-		err_str = "Total segment size exceeds process limit";
-	else if (racct_set(imgp->proc, RACCT_DATA, data_size) != 0)
-		err_str = "Data segment size exceeds resource limit";
-	else if (racct_set(imgp->proc, RACCT_VMEM, total_size) != 0)
-		err_str = "Total segment size exceeds resource limit";
-	if (err_str != NULL) {
-		PROC_UNLOCK(imgp->proc);
-		uprintf("%s\n", err_str);
-		error = ENOMEM;
+	error = __elfN(enforce_limits)(imgp, hdr, phdr, et_dyn_addr);
+	if (error != 0)
 		goto ret;
-	}
 
+<<<<<<< HEAD
 	vmspace = imgp->proc->p_vmspace;
 	vmspace->vm_tsize = text_size >> PAGE_SHIFT;
 	vmspace->vm_taddr = (caddr_t)(uintptr_t)text_addr;
 	vmspace->vm_dsize = data_size >> PAGE_SHIFT;
 	vmspace->vm_daddr = (caddr_t)(uintptr_t)data_addr;
+=======
+	entry = (u_long)hdr->e_entry + et_dyn_addr;
+>>>>>>> origin/freebsd/current/master
 
 	/*
 	 * We load the dynamic linker where a userland call
@@ -1039,10 +1112,21 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	 */
 	addr = round_page((vm_offset_t)vmspace->vm_daddr + lim_max(td,
 	    RLIMIT_DATA));
+<<<<<<< HEAD
 #ifdef PAX_ASLR
 	pax_aslr_rtld(imgp->proc, &addr);
 #endif
 	PROC_UNLOCK(imgp->proc);
+=======
+	if ((map->flags & MAP_ASLR) != 0) {
+		maxv1 = maxv / 2 + addr / 2;
+		MPASS(maxv1 >= addr);	/* No overflow */
+		map->anon_loc = __CONCAT(rnd_, __elfN(base))(map, addr, maxv1,
+		    MAXPAGESIZES > 1 ? pagesizes[1] : pagesizes[0]);
+	} else {
+		map->anon_loc = addr;
+	}
+>>>>>>> origin/freebsd/current/master
 
 	imgp->entry_addr = entry;
 

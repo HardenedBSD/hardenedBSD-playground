@@ -37,6 +37,11 @@ LIBADD+=	crypto
 CFLAGS+= -DXAUTH_PATH=\"${LOCALBASE}/bin/xauth\"
 .endif
 
+<<<<<<< HEAD
+=======
+# Workaround VMware Workstation NAT bug
+CFLAGS+=-DVMWARE_GUEST_WORKAROUND
+>>>>>>> origin/freebsd/current/master
 
 .include <bsd.prog.mk>
 
