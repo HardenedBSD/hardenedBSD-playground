@@ -6,11 +6,6 @@
 
 .include <src.opts.mk>
 PACKAGE=	clibs
-<<<<<<< HEAD
-MK_BIND_NOW=	no
-=======
-MK_PIE=		no # Always position independent using local rules
->>>>>>> origin/freebsd/current/master
 MK_SSP=		no
 MK_CFI=		no
 
