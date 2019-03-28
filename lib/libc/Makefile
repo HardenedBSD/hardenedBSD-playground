@@ -6,8 +6,11 @@ SHLIBDIR?= /lib
 
 .include <src.opts.mk>
 
+<<<<<<< HEAD
 # BIND_NOW in libc results in segfault at startup (PR 233333)
 #MK_BIND_NOW=	no
+=======
+>>>>>>> origin/freebsd/current/master
 # Force building of libc_pic.a
 MK_TOOLCHAIN=	yes
 
