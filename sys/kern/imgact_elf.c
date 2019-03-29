@@ -91,7 +91,7 @@ __FBSDID("$FreeBSD$");
 
 static int __elfN(check_header)(const Elf_Ehdr *hdr);
 static Elf_Brandinfo *__elfN(get_brandinfo)(struct image_params *imgp,
-    const char *interp, int interp_name_len, int32_t *osrel, uint32_t *fctl0);
+    const char *interp, int32_t *osrel, uint32_t *fctl0);
 static int __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
     u_long *entry);
 static int __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
@@ -248,12 +248,14 @@ __elfN(brand_inuse)(Elf_Brandinfo *entry)
 
 static Elf_Brandinfo *
 __elfN(get_brandinfo)(struct image_params *imgp, const char *interp,
-    int interp_name_len, int32_t *osrel, uint32_t *fctl0)
+    int32_t *osrel, uint32_t *fctl0)
 {
 	const Elf_Ehdr *hdr = (const Elf_Ehdr *)imgp->image_header;
 	Elf_Brandinfo *bi, *bi_m;
 	boolean_t ret;
-	int i;
+	int i, interp_name_len;
+
+	interp_name_len = interp != NULL ? strlen(interp) : 0;
 
 	/*
 	 * We support four types of branding -- (1) the ELF EI_OSABI field
@@ -849,6 +851,69 @@ __elfN(enforce_limits)(struct image_params *imgp, const Elf_Ehdr *hdr,
 	return (0);
 }
 
+<<<<<<< HEAD
+=======
+static int
+__elfN(get_interp)(struct image_params *imgp, const Elf_Phdr *phdr,
+    char **interpp, bool *free_interpp)
+{
+	struct thread *td;
+	char *interp;
+	int error, interp_name_len;
+
+	KASSERT(phdr->p_type == PT_INTERP,
+	    ("%s: p_type %u != PT_INTERP", __func__, phdr->p_type));
+	KASSERT(VOP_ISLOCKED(imgp->vp),
+	    ("%s: vp %p is not locked", __func__, imgp->vp));
+
+	td = curthread;
+
+	/* Path to interpreter */
+	if (phdr->p_filesz < 2 || phdr->p_filesz > MAXPATHLEN) {
+		uprintf("Invalid PT_INTERP\n");
+		return (ENOEXEC);
+	}
+
+	interp_name_len = phdr->p_filesz;
+	if (phdr->p_offset > PAGE_SIZE ||
+	    interp_name_len > PAGE_SIZE - phdr->p_offset) {
+		VOP_UNLOCK(imgp->vp, 0);
+		interp = malloc(interp_name_len + 1, M_TEMP, M_WAITOK);
+		vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
+		error = vn_rdwr(UIO_READ, imgp->vp, interp,
+		    interp_name_len, phdr->p_offset,
+		    UIO_SYSSPACE, IO_NODELOCKED, td->td_ucred,
+		    NOCRED, NULL, td);
+		if (error != 0) {
+			free(interp, M_TEMP);
+			uprintf("i/o error PT_INTERP %d\n", error);
+			return (error);
+		}
+		interp[interp_name_len] = '\0';
+
+		*interpp = interp;
+		*free_interpp = true;
+		return (0);
+	}
+
+	interp = __DECONST(char *, imgp->image_header) + phdr->p_offset;
+	if (interp[interp_name_len - 1] != '\0') {
+		uprintf("Invalid PT_INTERP\n");
+		return (ENOEXEC);
+	}
+
+	*interpp = interp;
+	*free_interpp = false;
+	return (0);
+}
+
+/*
+ * Impossible et_dyn_addr initial value indicating that the real base
+ * must be calculated later with some randomization applied.
+ */
+#define	ET_DYN_ADDR_RAND	1
+
+>>>>>>> origin/freebsd/current/master
 static int
 __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 {
@@ -858,14 +923,15 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	Elf_Auxargs *elf_auxargs;
 	struct vmspace *vmspace;
 	const char *newinterp;
-	char *interp, *interp_buf, *path;
+	char *interp, *path;
 	Elf_Brandinfo *brand_info;
 	struct sysentvec *sv;
 	vm_prot_t prot;
 	u_long addr, baddr, et_dyn_addr, entry, proghdr;
 	uint32_t fctl0;
 	int32_t osrel;
-	int error, i, n, interp_name_len, have_interp;
+	bool free_interp;
+	int error, i, n, have_interp;
 
 	hdr = (const Elf_Ehdr *)imgp->image_header;
 
@@ -901,9 +967,8 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	osrel = 0;
 	fctl0 = 0;
 	entry = proghdr = 0;
-	interp_name_len = 0;
-	newinterp = NULL;
-	interp = interp_buf = NULL;
+	newinterp = interp = NULL;
+	free_interp = false;
 	td = curthread;
 
 	for (i = 0; i < hdr->e_phnum; i++) {
@@ -915,44 +980,15 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 			break;
 		case PT_INTERP:
 			/* Path to interpreter */
-			if (phdr[i].p_filesz < 2 ||
-			    phdr[i].p_filesz > MAXPATHLEN) {
-				uprintf("Invalid PT_INTERP\n");
-				error = ENOEXEC;
-				goto ret;
-			}
 			if (interp != NULL) {
 				uprintf("Multiple PT_INTERP headers\n");
 				error = ENOEXEC;
 				goto ret;
 			}
-			interp_name_len = phdr[i].p_filesz;
-			if (phdr[i].p_offset > PAGE_SIZE ||
-			    interp_name_len > PAGE_SIZE - phdr[i].p_offset) {
-				VOP_UNLOCK(imgp->vp, 0);
-				interp_buf = malloc(interp_name_len + 1, M_TEMP,
-				    M_WAITOK);
-				vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
-				error = vn_rdwr(UIO_READ, imgp->vp, interp_buf,
-				    interp_name_len, phdr[i].p_offset,
-				    UIO_SYSSPACE, IO_NODELOCKED, td->td_ucred,
-				    NOCRED, NULL, td);
-				if (error != 0) {
-					uprintf("i/o error PT_INTERP %d\n",
-					    error);
-					goto ret;
-				}
-				interp_buf[interp_name_len] = '\0';
-				interp = interp_buf;
-			} else {
-				interp = __DECONST(char *, imgp->image_header) +
-				    phdr[i].p_offset;
-				if (interp[interp_name_len - 1] != '\0') {
-					uprintf("Invalid PT_INTERP\n");
-					error = ENOEXEC;
-					goto ret;
-				}
-			}
+			error = __elfN(get_interp)(imgp, &phdr[i], &interp,
+			    &free_interp);
+			if (error != 0)
+				goto ret;
 			break;
 		case PT_GNU_STACK:
 			if (__elfN(nxstack))
@@ -963,8 +999,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		}
 	}
 
-	brand_info = __elfN(get_brandinfo)(imgp, interp, interp_name_len,
-	    &osrel, &fctl0);
+	brand_info = __elfN(get_brandinfo)(imgp, interp, &osrel, &fctl0);
 	if (brand_info == NULL) {
 		uprintf("ELF binary type \"%u\" not known.\n",
 		    hdr->e_ident[EI_OSABI]);
@@ -1128,7 +1163,8 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	imgp->proc->p_elf_flags = hdr->e_flags;
 
 ret:
-	free(interp_buf, M_TEMP);
+	if (free_interp)
+		free(interp, M_TEMP);
 	return (error);
 }
 
