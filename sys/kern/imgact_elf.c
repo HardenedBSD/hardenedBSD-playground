@@ -851,8 +851,6 @@ __elfN(enforce_limits)(struct image_params *imgp, const Elf_Ehdr *hdr,
 	return (0);
 }
 
-<<<<<<< HEAD
-=======
 static int
 __elfN(get_interp)(struct image_params *imgp, const Elf_Phdr *phdr,
     char **interpp, bool *free_interpp)
@@ -907,13 +905,6 @@ __elfN(get_interp)(struct image_params *imgp, const Elf_Phdr *phdr,
 	return (0);
 }
 
-/*
- * Impossible et_dyn_addr initial value indicating that the real base
- * must be calculated later with some randomization applied.
- */
-#define	ET_DYN_ADDR_RAND	1
-
->>>>>>> origin/freebsd/current/master
 static int
 __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 {
