@@ -593,7 +593,6 @@ MK_LLVM_COV:= no
 MK_SAFESTACK:=	no
 .endif
 
-<<<<<<< HEAD
 .if ${MK_LLD_IS_LD} == "no" || ${MK_LLD_BOOTSTRAP} == "no"
 MK_CFI:=	no
 MK_RETPOLINE:=	no
@@ -611,13 +610,10 @@ MK_NTP:=	no
 MK_OPENNTPD:=	no
 .endif
 
-
-=======
 .if ${MK_LOADER_VERIEXEC} == "no"
 MK_LOADER_VERIEXEC_PASS_MANIFEST := no
 .endif
 
->>>>>>> origin/freebsd/current/master
 #
 # MK_* options whose default value depends on another option.
 #
