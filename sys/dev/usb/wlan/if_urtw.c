@@ -1883,11 +1883,13 @@ static void
 urtw_watchdog(void *arg)
 {
 	struct urtw_softc *sc = arg;
+	struct ieee80211com *ic = &sc->sc_ic;
 
 	if (sc->sc_txtimer > 0) {
 		if (--sc->sc_txtimer == 0) {
 			device_printf(sc->sc_dev, "device timeout\n");
-			counter_u64_add(sc->sc_ic.ic_oerrors, 1);
+			counter_u64_add(ic->ic_oerrors, 1);
+			ieee80211_restart_all(ic);
 			return;
 		}
 		callout_reset(&sc->sc_watchdog_ch, hz, urtw_watchdog, sc);
@@ -3937,6 +3939,7 @@ urtw_rxeof(struct usb_xfer *xfer, struct urtw_data *data, int *rssi_p,
 	struct urtw_softc *sc = data->sc;
 	struct ieee80211com *ic = &sc->sc_ic;
 	uint8_t noise = 0, rate;
+	uint64_t mactime;
 
 	usbd_xfer_status(xfer, &actlen, NULL, NULL, NULL);
 
@@ -3956,6 +3959,9 @@ urtw_rxeof(struct usb_xfer *xfer, struct urtw_data *data, int *rssi_p,
 		/* XXX correct? */
 		rssi = rx->rssi & URTW_RX_RSSI_MASK;
 		noise = rx->noise;
+
+		if (ieee80211_radiotap_active(ic))
+			mactime = rx->mactime;
 	} else {
 		struct urtw_8187l_rxhdr *rx;
 
@@ -3972,6 +3978,9 @@ urtw_rxeof(struct usb_xfer *xfer, struct urtw_data *data, int *rssi_p,
 		/* XXX correct? */
 		rssi = rx->rssi & URTW_RX_8187L_RSSI_MASK;
 		noise = rx->noise;
+
+		if (ieee80211_radiotap_active(ic))
+			mactime = rx->mactime;
 	}
 
 	if (flen < IEEE80211_ACK_LEN)
@@ -3991,6 +4000,7 @@ urtw_rxeof(struct usb_xfer *xfer, struct urtw_data *data, int *rssi_p,
 	if (ieee80211_radiotap_active(ic)) {
 		struct urtw_rx_radiotap_header *tap = &sc->sc_rxtap;
 
+		tap->wr_tsf = mactime;
 		tap->wr_flags = 0;
 		tap->wr_dbm_antsignal = (int8_t)rssi;
 	}
