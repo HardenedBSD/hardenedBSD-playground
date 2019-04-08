@@ -905,6 +905,50 @@ __elfN(get_interp)(struct image_params *imgp, const Elf_Phdr *phdr,
 	return (0);
 }
 
+<<<<<<< HEAD
+=======
+static int
+__elfN(load_interp)(struct image_params *imgp, const Elf_Brandinfo *brand_info,
+    const char *interp, u_long *addr, u_long *entry)
+{
+	char *path;
+	int error;
+
+	if (brand_info->emul_path != NULL &&
+	    brand_info->emul_path[0] != '\0') {
+		path = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
+		snprintf(path, MAXPATHLEN, "%s%s",
+		    brand_info->emul_path, interp);
+		error = __elfN(load_file)(imgp->proc, path, addr, entry);
+		free(path, M_TEMP);
+		if (error == 0)
+			return (0);
+	}
+
+	if (brand_info->interp_newpath != NULL &&
+	    (brand_info->interp_path == NULL ||
+	    strcmp(interp, brand_info->interp_path) == 0)) {
+		error = __elfN(load_file)(imgp->proc,
+		    brand_info->interp_newpath, addr, entry);
+		if (error == 0)
+			return (0);
+	}
+
+	error = __elfN(load_file)(imgp->proc, interp, addr, entry);
+	if (error == 0)
+		return (0);
+
+	uprintf("ELF interpreter %s not found, error %d\n", interp, error);
+	return (error);
+}
+
+/*
+ * Impossible et_dyn_addr initial value indicating that the real base
+ * must be calculated later with some randomization applied.
+ */
+#define	ET_DYN_ADDR_RAND	1
+
+>>>>>>> origin/freebsd/current/master
 static int
 __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 {
@@ -913,8 +957,13 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	const Elf_Phdr *phdr;
 	Elf_Auxargs *elf_auxargs;
 	struct vmspace *vmspace;
+<<<<<<< HEAD
 	const char *newinterp;
 	char *interp, *path;
+=======
+	vm_map_t map;
+	char *interp;
+>>>>>>> origin/freebsd/current/master
 	Elf_Brandinfo *brand_info;
 	struct sysentvec *sv;
 	vm_prot_t prot;
@@ -922,7 +971,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	uint32_t fctl0;
 	int32_t osrel;
 	bool free_interp;
-	int error, i, n, have_interp;
+	int error, i, n;
 
 	hdr = (const Elf_Ehdr *)imgp->image_header;
 
@@ -958,7 +1007,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	osrel = 0;
 	fctl0 = 0;
 	entry = proghdr = 0;
-	newinterp = interp = NULL;
+	interp = NULL;
 	free_interp = false;
 	td = curthread;
 
@@ -998,8 +1047,34 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		goto ret;
 	}
 	sv = brand_info->sysvec;
+<<<<<<< HEAD
 	if (interp != NULL && brand_info->interp_newpath != NULL)
 		newinterp = brand_info->interp_newpath;
+=======
+	et_dyn_addr = 0;
+	if (hdr->e_type == ET_DYN) {
+		if ((brand_info->flags & BI_CAN_EXEC_DYN) == 0) {
+			uprintf("Cannot execute shared object\n");
+			error = ENOEXEC;
+			goto ret;
+		}
+		/*
+		 * Honour the base load address from the dso if it is
+		 * non-zero for some reason.
+		 */
+		if (baddr == 0) {
+			if ((sv->sv_flags & SV_ASLR) == 0 ||
+			    (fctl0 & NT_FREEBSD_FCTL_ASLR_DISABLE) != 0)
+				et_dyn_addr = ET_DYN_LOAD_ADDR;
+			else if ((__elfN(pie_aslr_enabled) &&
+			    (imgp->proc->p_flag2 & P2_ASLR_DISABLE) == 0) ||
+			    (imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0)
+				et_dyn_addr = ET_DYN_ADDR_RAND;
+			else
+				et_dyn_addr = ET_DYN_LOAD_ADDR;
+		}
+	}
+>>>>>>> origin/freebsd/current/master
 
 	/*
 	 * Avoid a possible deadlock if the current address space is destroyed
@@ -1096,8 +1171,8 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	imgp->entry_addr = entry;
 
 	if (interp != NULL) {
-		have_interp = FALSE;
 		VOP_UNLOCK(imgp->vp, 0);
+<<<<<<< HEAD
 		if (brand_info->emul_path != NULL &&
 		    brand_info->emul_path[0] != '\0') {
 			path = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
@@ -1121,12 +1196,20 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 			error = __elfN(load_file)(imgp->proc, interp, &addr,
 			    &imgp->entry_addr);
 		}
-		vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
-		if (error != 0) {
-			uprintf("ELF interpreter %s not found, error %d\n",
-			    interp, error);
-			goto ret;
+=======
+		if ((map->flags & MAP_ASLR) != 0) {
+			/* Assume that interpeter fits into 1/4 of AS */
+			maxv1 = maxv / 2 + addr / 2;
+			MPASS(maxv1 >= addr);	/* No overflow */
+			addr = __CONCAT(rnd_, __elfN(base))(map, addr,
+			    maxv1, PAGE_SIZE);
 		}
+		error = __elfN(load_interp)(imgp, brand_info, interp, &addr,
+		    &imgp->entry_addr);
+>>>>>>> origin/freebsd/current/master
+		vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
+		if (error != 0)
+			goto ret;
 	} else
 		addr = et_dyn_addr;
 
