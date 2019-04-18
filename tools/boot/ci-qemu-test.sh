@@ -68,6 +68,9 @@ echo "Hello world."
 /sbin/shutdown -p now
 EOF
 
+	# Entropy needed to boot, see r346250 and followup commits/discussion.
+	dd if=/dev/random of=${ROOTDIR}/boot/entropy bs=4k count=1
+
 	# Remove unnecessary files to keep FAT filesystem size down.
 	rm -rf ${ROOTDIR}/METALOG ${ROOTDIR}/usr/lib
 }
@@ -92,7 +95,7 @@ trap tempdir_cleanup EXIT SIGINT SIGHUP SIGTERM SIGQUIT
 ( cd ${SRCTOP} && tempdir_setup )
 
 # And, boot in QEMU.
-: ${BOOTLOG:=${TMPDIR}/ci-qemu-test-boot.log}
+: ${BOOTLOG:=${TMPDIR:-/tmp}/ci-qemu-test-boot.log}
 timeout 300 \
     qemu-system-x86_64 -m 256M -bios ${OVMF} \
         -serial stdio -vga none -nographic -monitor none \
