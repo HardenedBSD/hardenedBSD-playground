@@ -239,7 +239,8 @@ rip6_input(struct mbuf **mp, int *offp, int proto)
 		}
 		if (in6p->in6p_cksum != -1) {
 			RIP6STAT_INC(rip6s_isum);
-			if (in6_cksum(m, proto, *offp,
+			if (m->m_pkthdr.len - (*offp + in6p->in6p_cksum) < 2 ||
+			    in6_cksum(m, proto, *offp,
 			    m->m_pkthdr.len - *offp)) {
 				RIP6STAT_INC(rip6s_badsum);
 				goto skip_2;
@@ -495,7 +496,7 @@ rip6_output(struct mbuf *m, struct socket *so, ...)
 			off = offsetof(struct icmp6_hdr, icmp6_cksum);
 		else
 			off = in6p->in6p_cksum;
-		if (plen < off + 1) {
+		if (plen < off + 2) {
 			error = EINVAL;
 			goto bad;
 		}
