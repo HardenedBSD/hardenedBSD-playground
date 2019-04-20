@@ -1659,7 +1659,7 @@ vm_map_fixed(vm_map_t map, vm_object_t object, vm_ooffset_t offset,
 static const int aslr_pages_rnd_64[2] = {0x1000, 0x10};
 static const int aslr_pages_rnd_32[2] = {0x100, 0x4};
 
-static int cluster_anon = 1;
+static int cluster_anon = 0;
 SYSCTL_INT(_vm, OID_AUTO, cluster_anon, CTLFLAG_RW,
     &cluster_anon, 0,
     "Cluster anonymous mappings");
