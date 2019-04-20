@@ -1057,9 +1057,10 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	uint32_t fctl0;
 	int32_t osrel;
 	bool free_interp;
-	int error, i, n;
+	int do_asr, error, i, n, interp_name_len, have_interp;
 
 	hdr = (const Elf_Ehdr *)imgp->image_header;
+	do_asr = 0;
 
 	/*
 	 * Do we have a valid ELF header ?
@@ -1166,13 +1167,13 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		if (baddr == 0) {
 			if ((sv->sv_flags & SV_ASLR) == 0 ||
 			    (fctl0 & NT_FREEBSD_FCTL_ASLR_DISABLE) != 0)
-				et_dyn_addr = ET_DYN_LOAD_ADDR;
+				do_asr = 1;
 			else if ((__elfN(pie_aslr_enabled) &&
 			    (imgp->proc->p_flag2 & P2_ASLR_DISABLE) == 0) ||
 			    (imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0)
-				et_dyn_addr = ET_DYN_ADDR_RAND;
-			else
-				et_dyn_addr = ET_DYN_LOAD_ADDR;
+				do_asr = 1;
+
+			et_dyn_addr = ET_DYN_LOAD_ADDR;
 		}
 	}
 	if (interp != NULL && brand_info->interp_newpath != NULL)
@@ -1206,7 +1207,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 
 	if ((imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0 ||
 	    (__elfN(aslr_enabled) && hdr->e_type == ET_EXEC) ||
-	    et_dyn_addr == ET_DYN_ADDR_RAND) {
+	    do_asr) {
 		imgp->map_flags |= MAP_ASLR;
 		/*
 		 * If user does not care about sbrk, utilize the bss
@@ -1228,17 +1229,15 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 
 #ifdef PAX_ASLR
 	/*
-	 * The meaning of et_dyn_addr has changed due to FreeBSD's ASR
-	 * implementation. In addition to the base execution address,
-	 * it now toggles whether FreeBSD's ASR is enabled for the
-	 * image.
+	 * Only use HardenedBSD's PaX ASLR implementation when
+	 * FreeBSD's ASR is disabled.
 	 */
-	if (hdr->e_type == ET_DYN && baddr == 0) {
-		et_dyn_addr = ET_DYN_LOAD_ADDR;
+	if (!do_asr && (hdr->e_type == ET_DYN && baddr == 0)) {
 		pax_aslr_execbase(imgp->proc, &et_dyn_addr);
 	}
-#else
-	if (et_dyn_addr == ET_DYN_ADDR_RAND) {
+#endif
+
+	if (do_asr) {
 		KASSERT((map->flags & MAP_ASLR) != 0,
 		    ("ET_DYN_ADDR_RAND but !MAP_ASLR"));
 		et_dyn_addr = __CONCAT(rnd_, __elfN(base))(map,
@@ -1246,7 +1245,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		    /* reserve half of the address space to interpreter */
 		    maxv / 2, 1UL << flsl(maxalign));
 	}
-#endif
 
 	vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
 	if (error != 0)
@@ -1272,15 +1270,15 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	vmspace = imgp->proc->p_vmspace;
 	addr = round_page((vm_offset_t)vmspace->vm_daddr + lim_max(td,
 	    RLIMIT_DATA));
-#ifdef PAX_ASLR
-	pax_aslr_rtld(imgp->proc, &addr);
-#else
 	if ((map->flags & MAP_ASLR) != 0) {
 		maxv1 = maxv / 2 + addr / 2;
 		MPASS(maxv1 >= addr);	/* No overflow */
 		map->anon_loc = __CONCAT(rnd_, __elfN(base))(map, addr, maxv1,
 		    MAXPAGESIZES > 1 ? pagesizes[1] : pagesizes[0]);
 	}
+#ifdef PAX_ASLR
+	else
+		pax_aslr_rtld(imgp->proc, &addr);
 #endif
 	map->anon_loc = addr;
 	PROC_UNLOCK(imgp->proc);
