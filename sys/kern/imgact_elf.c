@@ -132,6 +132,27 @@ SYSCTL_INT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO,
     nxstack, CTLFLAG_RW, &__elfN(nxstack), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": enable non-executable stack");
 
+SYSCTL_NODE(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO, aslr, CTLFLAG_RW, 0,
+    "");
+#define	ASLR_NODE_OID	__CONCAT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), _aslr)
+
+static int __elfN(aslr_enabled) = 0;
+SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, enable, CTLFLAG_RWTUN,
+    &__elfN(aslr_enabled), 0,
+    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
+    ": enable address map randomization");
+
+static int __elfN(pie_aslr_enabled) = 0;
+SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, pie_enable, CTLFLAG_RWTUN,
+    &__elfN(pie_aslr_enabled), 0,
+    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
+    ": enable address map randomization for PIE binaries");
+
+static int __elfN(aslr_honor_sbrk) = 1;
+SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, honor_sbrk, CTLFLAG_RW,
+    &__elfN(aslr_honor_sbrk), 0,
+    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": assume sbrk is used");
+
 static Elf_Brandinfo *elf_brand_list[MAX_BRANDS];
 
 #define	aligned(a, t)	(rounddown2((u_long)(a), sizeof(t)) == (u_long)(a))
@@ -1131,6 +1152,31 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		goto ret;
 	}
 	sv = brand_info->sysvec;
+	et_dyn_addr = 0;
+	if (hdr->e_type == ET_DYN) {
+		if ((brand_info->flags & BI_CAN_EXEC_DYN) == 0) {
+			uprintf("Cannot execute shared object\n");
+			error = ENOEXEC;
+			goto ret;
+		}
+		/*
+		 * Honour the base load address from the dso if it is
+		 * non-zero for some reason.
+		 */
+		if (baddr == 0) {
+			if ((sv->sv_flags & SV_ASLR) == 0 ||
+			    (fctl0 & NT_FREEBSD_FCTL_ASLR_DISABLE) != 0)
+				et_dyn_addr = ET_DYN_LOAD_ADDR;
+			else if ((__elfN(pie_aslr_enabled) &&
+			    (imgp->proc->p_flag2 & P2_ASLR_DISABLE) == 0) ||
+			    (imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0)
+				et_dyn_addr = ET_DYN_ADDR_RAND;
+			else
+				et_dyn_addr = ET_DYN_LOAD_ADDR;
+		}
+	}
+	if (interp != NULL && brand_info->interp_newpath != NULL)
+		newinterp = brand_info->interp_newpath;
 
 	/*
 	 * Avoid a possible deadlock if the current address space is destroyed
@@ -1157,12 +1203,8 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		imgp->proc->p_flag2 &= ~(P2_ASLR_ENABLE | P2_ASLR_DISABLE);
 		PROC_UNLOCK(imgp->proc);
 	}
-	if ((sv->sv_flags & SV_ASLR) == 0 ||
-	    (imgp->proc->p_flag2 & P2_ASLR_DISABLE) != 0 ||
-	    (fctl0 & NT_FREEBSD_FCTL_ASLR_DISABLE) != 0) {
-		KASSERT(et_dyn_addr != ET_DYN_ADDR_RAND,
-		    ("et_dyn_addr == RAND and !ASLR"));
-	} else if ((imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0 ||
+
+	if ((imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0 ||
 	    (__elfN(aslr_enabled) && hdr->e_type == ET_EXEC) ||
 	    et_dyn_addr == ET_DYN_ADDR_RAND) {
 		imgp->map_flags |= MAP_ASLR;
@@ -1182,25 +1224,29 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	map = &vmspace->vm_map;
 
 	imgp->proc->p_sysent = sv;
+	maxv = vm_map_max(map) - lim_max(td, RLIMIT_STACK);
 
-	et_dyn_addr = 0;
-	if (hdr->e_type == ET_DYN) {
-		if ((brand_info->flags & BI_CAN_EXEC_DYN) == 0) {
-			uprintf("Cannot execute shared object\n");
-			error = ENOEXEC;
-			goto ret;
-		}
-		/*
-		 * Honour the base load address from the dso if it is
-		 * non-zero for some reason.
-		 */
-		if (baddr == 0) {
-			et_dyn_addr = ET_DYN_LOAD_ADDR;
 #ifdef PAX_ASLR
-			pax_aslr_execbase(imgp->proc, &et_dyn_addr);
-#endif
-		}
+	/*
+	 * The meaning of et_dyn_addr has changed due to FreeBSD's ASR
+	 * implementation. In addition to the base execution address,
+	 * it now toggles whether FreeBSD's ASR is enabled for the
+	 * image.
+	 */
+	if (hdr->e_type == ET_DYN && baddr == 0) {
+		et_dyn_addr = ET_DYN_LOAD_ADDR;
+		pax_aslr_execbase(imgp->proc, &et_dyn_addr);
 	}
+#else
+	if (et_dyn_addr == ET_DYN_ADDR_RAND) {
+		KASSERT((map->flags & MAP_ASLR) != 0,
+		    ("ET_DYN_ADDR_RAND but !MAP_ASLR"));
+		et_dyn_addr = __CONCAT(rnd_, __elfN(base))(map,
+		    vm_map_min(map) + mapsz + lim_max(td, RLIMIT_DATA),
+		    /* reserve half of the address space to interpreter */
+		    maxv / 2, 1UL << flsl(maxalign));
+	}
+#endif
 
 	vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
 	if (error != 0)
@@ -1228,7 +1274,15 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	    RLIMIT_DATA));
 #ifdef PAX_ASLR
 	pax_aslr_rtld(imgp->proc, &addr);
+#else
+	if ((map->flags & MAP_ASLR) != 0) {
+		maxv1 = maxv / 2 + addr / 2;
+		MPASS(maxv1 >= addr);	/* No overflow */
+		map->anon_loc = __CONCAT(rnd_, __elfN(base))(map, addr, maxv1,
+		    MAXPAGESIZES > 1 ? pagesizes[1] : pagesizes[0]);
+	}
 #endif
+	map->anon_loc = addr;
 	PROC_UNLOCK(imgp->proc);
 
 	imgp->entry_addr = entry;
