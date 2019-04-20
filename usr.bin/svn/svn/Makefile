@@ -26,6 +26,8 @@ CFLAGS+=-I${SVNDIR}/include -I${SVNDIR} -I${.CURDIR:H} \
 	-I${APRU}/include/private \
 	-I${APRU}/include
 
+CFI_OVERRIDE=	-fno-sanitize=cfi-icall
+
 LDADD=	-L${LIBSVN_CLIENTDIR} -lsvn_client \
 	-L${LIBSVN_WCDIR} -lsvn_wc \
 	-L${LIBSVN_RADIR} -lsvn_ra \
