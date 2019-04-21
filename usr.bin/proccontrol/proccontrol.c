@@ -39,6 +39,7 @@ __FBSDID("$FreeBSD$");
 #include <unistd.h>
 
 enum {
+	MODE_ASLR,
 	MODE_INVALID,
 	MODE_TRACE,
 	MODE_TRAPCAP,
@@ -71,8 +72,12 @@ static void __dead2
 usage(void)
 {
 
+<<<<<<< HEAD
 	fprintf(stderr, "Usage: proccontrol -m (trace|trapcap"
 	    KPTI_USAGE") [-q] "
+=======
+	fprintf(stderr, "Usage: proccontrol -m (aslr|trace|trapcap) [-q] "
+>>>>>>> parent of 3768debb7977... HBSD: Revert "Implement Address Space Layout Randomization (ASLR)"
 	    "[-s (enable|disable)] [-p pid | command]\n");
 	exit(1);
 }
@@ -91,7 +96,9 @@ main(int argc, char *argv[])
 	while ((ch = getopt(argc, argv, "m:qs:p:")) != -1) {
 		switch (ch) {
 		case 'm':
-			if (strcmp(optarg, "trace") == 0)
+			if (strcmp(optarg, "aslr") == 0)
+				mode = MODE_ASLR;
+			else if (strcmp(optarg, "trace") == 0)
 				mode = MODE_TRACE;
 			else if (strcmp(optarg, "trapcap") == 0)
 				mode = MODE_TRAPCAP;
@@ -135,6 +142,9 @@ main(int argc, char *argv[])
 
 	if (query) {
 		switch (mode) {
+		case MODE_ASLR:
+			error = procctl(P_PID, pid, PROC_ASLR_STATUS, &arg);
+			break;
 		case MODE_TRACE:
 			error = procctl(P_PID, pid, PROC_TRACE_STATUS, &arg);
 			break;
@@ -153,6 +163,23 @@ main(int argc, char *argv[])
 		if (error != 0)
 			err(1, "procctl status");
 		switch (mode) {
+		case MODE_ASLR:
+			switch (arg & ~PROC_ASLR_ACTIVE) {
+			case PROC_ASLR_FORCE_ENABLE:
+				printf("force enabled");
+				break;
+			case PROC_ASLR_FORCE_DISABLE:
+				printf("force disabled");
+				break;
+			case PROC_ASLR_NOFORCE:
+				printf("not forced");
+				break;
+			}
+			if ((arg & PROC_ASLR_ACTIVE) != 0)
+				printf(", active\n");
+			else
+				printf(", not active\n");
+			break;
 		case MODE_TRACE:
 			if (arg == -1)
 				printf("disabled\n");
@@ -190,6 +217,11 @@ main(int argc, char *argv[])
 		}
 	} else {
 		switch (mode) {
+		case MODE_ASLR:
+			arg = enable ? PROC_ASLR_FORCE_ENABLE :
+			    PROC_ASLR_FORCE_DISABLE;
+			error = procctl(P_PID, pid, PROC_ASLR_CTL, &arg);
+			break;
 		case MODE_TRACE:
 			arg = enable ? PROC_TRACE_CTL_ENABLE :
 			    PROC_TRACE_CTL_DISABLE;
