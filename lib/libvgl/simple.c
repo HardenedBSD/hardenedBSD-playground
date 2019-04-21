@@ -33,9 +33,12 @@ __FBSDID("$FreeBSD$");
 
 #include <signal.h>
 #include <sys/fbio.h>
+#include <sys/kbio.h>
 #include <sys/endian.h>
 #include "vgl.h"
 
+static int VGLBlank;
+static byte VGLBorderColor;
 static byte VGLSavePaletteRed[256];
 static byte VGLSavePaletteGreen[256];
 static byte VGLSavePaletteBlue[256];
@@ -52,6 +55,8 @@ VGLSetXY(VGLBitmap *object, int x, int y, u_long color)
 
   VGLCheckSwitch();
   if (x>=0 && x<object->VXsize && y>=0 && y<object->VYsize) {
+    if (object == VGLDisplay)
+      VGLSetXY(&VGLVDisplay, x, y, color);
     if (object->Type == MEMBUF ||
         !VGLMouseFreeze(x, y, 1, 1, 0x80000000 | color)) {
       offset = (y * object->VXsize + x) * object->PixelBytes;
@@ -110,78 +115,37 @@ static u_long
 __VGLGetXY(VGLBitmap *object, int x, int y)
 {
   int offset;
-  int i;
   u_long color;
-  byte mask;
 
   offset = (y * object->VXsize + x) * object->PixelBytes;
-  switch (object->Type) {
-    case VIDBUF8S:
-    case VIDBUF16S:
-    case VIDBUF24S:
-    case VIDBUF32S:
-      offset = VGLSetSegment(offset);
-      /* FALLTHROUGH */
-    case MEMBUF:
-    case VIDBUF8:
-    case VIDBUF16:
-    case VIDBUF24:
-    case VIDBUF32:
-      switch (object->PixelBytes) {
-      case 1:
-        memcpy(&color, &object->Bitmap[offset], 1);
-        return le32toh(color) & 0xff;
-      case 2:
-        memcpy(&color, &object->Bitmap[offset], 2);
-        return le32toh(color) & 0xffff;
-      case 3:
-        memcpy(&color, &object->Bitmap[offset], 3);
-        return le32toh(color) & 0xffffff;
-      case 4:
-        memcpy(&color, &object->Bitmap[offset], 4);
-        return le32toh(color);
-      }
-      break;
-    case VIDBUF8X:
-      outb(0x3ce, 0x04); outb(0x3cf, x & 0x3);
-      return object->Bitmap[(unsigned)(VGLAdpInfo.va_line_width*y)+(x/4)];
-    case VIDBUF4S:
-      offset = VGLSetSegment(y*VGLAdpInfo.va_line_width + x/8);
-      goto get_planar;
-    case VIDBUF4:
-      offset = y*VGLAdpInfo.va_line_width + x/8;
-get_planar:
-      color = 0;
-      mask = 0x80 >> (x%8);
-      for (i = 0; i < VGLModeInfo.vi_planes; i++) {
-	outb(0x3ce, 0x04); outb(0x3cf, i);
-	color |= (((volatile VGLBitmap *)object)->Bitmap[offset] & mask) ?
-		 (1 << i) : 0;
-      }
-      return color;
+  switch (object->PixelBytes) {
+  case 1:
+    memcpy(&color, &object->Bitmap[offset], 1);
+    return le32toh(color) & 0xff;
+  case 2:
+    memcpy(&color, &object->Bitmap[offset], 2);
+    return le32toh(color) & 0xffff;
+  case 3:
+    memcpy(&color, &object->Bitmap[offset], 3);
+    return le32toh(color) & 0xffffff;
+  case 4:
+    memcpy(&color, &object->Bitmap[offset], 4);
+    return le32toh(color);
   }
-  return 0;		/* XXX black? */
+  return 0;		/* invalid */
 }
 
 u_long
 VGLGetXY(VGLBitmap *object, int x, int y)
 {
-  u_long color;
-
   VGLCheckSwitch();
   if (x<0 || x>=object->VXsize || y<0 || y>=object->VYsize)
     return 0;
-  if (object->Type != MEMBUF) {
-    color = VGLMouseFreeze(x, y, 1, 1, 0x40000000);
-    if (color & 0x40000000) {
-      VGLMouseUnFreeze();
-      return color & 0xffffff;
-    }
-  }
-  color = __VGLGetXY(object, x, y);
+  if (object == VGLDisplay)
+    object = &VGLVDisplay;
   if (object->Type != MEMBUF)
-    VGLMouseUnFreeze();
-  return color;
+    return 0;		/* invalid */
+  return __VGLGetXY(object, x, y);
 }
 
  /*
@@ -490,8 +454,11 @@ VGLClear(VGLBitmap *object, u_long color)
   int i;
 
   VGLCheckSwitch();
-  if (object->Type != MEMBUF)
+  if (object == VGLDisplay) {
     VGLMouseFreeze(0, 0, object->Xsize, object->Ysize, color);
+    VGLClear(&VGLVDisplay, color);
+  } else if (object->Type != MEMBUF)
+    return;		/* invalid */
   switch (object->Type) {
   case MEMBUF:
   case VIDBUF8:
@@ -542,7 +509,7 @@ VGLClear(VGLBitmap *object, u_long color)
     outb(0x3ce, 0x05); outb(0x3cf, 0x00);
     break;
   }
-  if (object->Type != MEMBUF)
+  if (object == VGLDisplay)
     VGLMouseUnFreeze();
 }
 
@@ -551,6 +518,8 @@ VGLRestorePalette()
 {
   int i;
 
+  if (VGLModeInfo.vi_mem_model == V_INFO_MM_DIRECT)
+    return;
   outb(0x3C6, 0xFF);
   inb(0x3DA); 
   outb(0x3C8, 0x00);
@@ -571,6 +540,8 @@ VGLSavePalette()
 {
   int i;
 
+  if (VGLModeInfo.vi_mem_model == V_INFO_MM_DIRECT)
+    return;
   outb(0x3C6, 0xFF);
   inb(0x3DA);
   outb(0x3C7, 0x00);
@@ -591,6 +562,8 @@ VGLSetPalette(byte *red, byte *green, byte *blue)
 {
   int i;
   
+  if (VGLModeInfo.vi_mem_model == V_INFO_MM_DIRECT)
+    return;
   for (i=0; i<256; i++) {
     VGLSavePaletteRed[i] = red[i];
     VGLSavePaletteGreen[i] = green[i];
@@ -615,6 +588,8 @@ VGLSetPalette(byte *red, byte *green, byte *blue)
 void
 VGLSetPaletteIndex(byte color, byte red, byte green, byte blue)
 {
+  if (VGLModeInfo.vi_mem_model == V_INFO_MM_DIRECT)
+    return;
   VGLSavePaletteRed[color] = red;
   VGLSavePaletteGreen[color] = green;
   VGLSavePaletteBlue[color] = blue;
@@ -628,13 +603,30 @@ VGLSetPaletteIndex(byte color, byte red, byte green, byte blue)
 }
 
 void
+VGLRestoreBorder(void)
+{
+  VGLSetBorder(VGLBorderColor);
+}
+
+void
 VGLSetBorder(byte color)
 {
+  if (VGLModeInfo.vi_mem_model == V_INFO_MM_DIRECT && ioctl(0, KDENABIO, 0))
+    return;
   VGLCheckSwitch();
   inb(0x3DA);
   outb(0x3C0,0x11); outb(0x3C0, color); 
   inb(0x3DA);
   outb(0x3C0, 0x20);
+  VGLBorderColor = color;
+  if (VGLModeInfo.vi_mem_model == V_INFO_MM_DIRECT)
+    ioctl(0, KDDISABIO, 0);
+}
+
+void
+VGLRestoreBlank(void)
+{
+  VGLBlankDisplay(VGLBlank);
 }
 
 void
@@ -642,7 +634,12 @@ VGLBlankDisplay(int blank)
 {
   byte val;
 
+  if (VGLModeInfo.vi_mem_model == V_INFO_MM_DIRECT && ioctl(0, KDENABIO, 0))
+    return;
   VGLCheckSwitch();
   outb(0x3C4, 0x01); val = inb(0x3C5); outb(0x3C4, 0x01);
   outb(0x3C5, ((blank) ? (val |= 0x20) : (val &= 0xDF)));
+  VGLBlank = blank;
+  if (VGLModeInfo.vi_mem_model == V_INFO_MM_DIRECT)
+    ioctl(0, KDDISABIO, 0);
 }
