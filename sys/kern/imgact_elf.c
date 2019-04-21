@@ -1041,23 +1041,16 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	const Elf_Phdr *phdr;
 	Elf_Auxargs *elf_auxargs;
 	struct vmspace *vmspace;
+	vm_map_t map;
 	char *interp;
 	Elf_Brandinfo *brand_info;
 	struct sysentvec *sv;
 	u_long addr, baddr, et_dyn_addr, entry, proghdr;
-	vm_map_t map;
-	const char *err_str, *newinterp;
-	char *interp, *interp_buf, *path;
-	Elf_Brandinfo *brand_info;
-	struct sysentvec *sv;
-	vm_prot_t prot;
-	u_long text_size, data_size, total_size, text_addr, data_addr;
-	u_long seg_size, seg_addr, addr, baddr, et_dyn_addr, entry, proghdr;
 	u_long maxalign, mapsz, maxv, maxv1;
 	uint32_t fctl0;
 	int32_t osrel;
 	bool free_interp;
-	int do_asr, error, i, n, interp_name_len, have_interp;
+	int do_asr, error, i, n;
 
 	hdr = (const Elf_Ehdr *)imgp->image_header;
 	do_asr = 0;
@@ -1176,8 +1169,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 			et_dyn_addr = ET_DYN_LOAD_ADDR;
 		}
 	}
-	if (interp != NULL && brand_info->interp_newpath != NULL)
-		newinterp = brand_info->interp_newpath;
 
 	/*
 	 * Avoid a possible deadlock if the current address space is destroyed

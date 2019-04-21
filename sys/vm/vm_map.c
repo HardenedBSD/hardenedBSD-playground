@@ -1662,7 +1662,22 @@ static const int aslr_pages_rnd_32[2] = {0x100, 0x4};
 static int cluster_anon = 0;
 SYSCTL_INT(_vm, OID_AUTO, cluster_anon, CTLFLAG_RW,
     &cluster_anon, 0,
-    "Cluster anonymous mappings");
+    "Cluster anonymous mappings: 0 = no, 1 = yes if no hint, 2 = always");
+
+static bool
+clustering_anon_allowed(vm_offset_t addr)
+{
+
+	switch (cluster_anon) {
+	case 0:
+		return (false);
+	case 1:
+		return (addr == 0);
+	case 2:
+	default:
+		return (true);
+	}
+}
 
 static long aslr_restarts;
 SYSCTL_LONG(_vm, OID_AUTO, aslr_restarts, CTLFLAG_RD,
@@ -1771,7 +1786,7 @@ vm_map_find(vm_map_t map, vm_object_t object, vm_ooffset_t offset,
 	} else
 		alignment = 0;
 	en_aslr = (map->flags & MAP_ASLR) != 0;
-	update_anon = cluster = cluster_anon != 0 &&
+	update_anon = cluster = clustering_anon_allowed(*addr) &&
 	    (map->flags & MAP_IS_SUB_MAP) == 0 && max_addr == 0 &&
 	    find_space != VMFS_NO_SPACE && object == NULL &&
 	    (cow & (MAP_INHERIT_SHARE | MAP_STACK_GROWS_UP |
@@ -1835,21 +1850,27 @@ again:
 			gap = vm_map_max(map) > MAP_32BIT_MAX_ADDR &&
 			    (max_addr == 0 || max_addr > MAP_32BIT_MAX_ADDR) ?
 			    aslr_pages_rnd_64[pidx] : aslr_pages_rnd_32[pidx];
-			if (vm_map_findspace(map, curr_min_addr, length +
-			    gap * pagesizes[pidx], addr) ||
-			    (max_addr != 0 && *addr + length > max_addr))
+			*addr = vm_map_findspace(map, curr_min_addr,
+			    length + gap * pagesizes[pidx]);
+			if (*addr + length + gap * pagesizes[pidx] >
+			    vm_map_max(map))
 				goto again;
 			/* And randomize the start address. */
 			*addr += (arc4random() % gap) * pagesizes[pidx];
-		} else if (vm_map_findspace(map, curr_min_addr, length, addr) ||
-		    (max_addr != 0 && *addr + length > max_addr)) {
-			if (cluster) {
-				cluster = false;
-				MPASS(try == 1);
+			if (max_addr != 0 && *addr + length > max_addr)
 				goto again;
+		} else {
+			*addr = vm_map_findspace(map, curr_min_addr, length);
+			if (*addr + length > vm_map_max(map) ||
+			    (max_addr != 0 && *addr + length > max_addr)) {
+				if (cluster) {
+					cluster = false;
+					MPASS(try == 1);
+					goto again;
+				}
+				rv = KERN_NO_SPACE;
+				goto done;
 			}
-			rv = KERN_NO_SPACE;
-			goto done;
 		}
 
 		if (find_space != VMFS_ANY_SPACE &&
@@ -3709,7 +3730,7 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 	vm_map_t new_map, old_map;
 	vm_map_entry_t new_entry, old_entry;
 	vm_object_t object;
-	int locked;
+	int error, locked;
 	vm_inherit_t inh;
 
 	old_map = &vm1->vm_map;
@@ -3737,6 +3758,15 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 	new_map = &vm2->vm_map;
 	locked = vm_map_trylock(new_map); /* trylock to silence WITNESS */
 	KASSERT(locked, ("vmspace_fork: lock failed"));
+
+	error = pmap_vmspace_copy(new_map->pmap, old_map->pmap);
+	if (error != 0) {
+		sx_xunlock(&old_map->lock);
+		sx_xunlock(&new_map->lock);
+		vm_map_process_deferred();
+		vmspace_free(vm2);
+		return (NULL);
+	}
 
 	new_map->anon_loc = old_map->anon_loc;
 	old_entry = old_map->header.next;
