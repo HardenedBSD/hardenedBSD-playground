@@ -1794,10 +1794,6 @@ vm_map_find(vm_map_t map, vm_object_t object, vm_ooffset_t offset,
 		    find_space == VMFS_SUPER_SPACE ||
 		    alignment != 0, ("unexpected VMFS flag"));
 again:
-<<<<<<< HEAD
-		*addr = vm_map_findspace(map, min_addr, length);
-		if (max_addr != 0 && *addr + length > max_addr) {
-=======
 		/*
 		 * When creating an anonymous mapping, try clustering
 		 * with an existing anonymous mapping first.
@@ -1852,7 +1848,6 @@ again:
 				MPASS(try == 1);
 				goto again;
 			}
->>>>>>> parent of 3768debb7977... HBSD: Revert "Implement Address Space Layout Randomization (ASLR)"
 			rv = KERN_NO_SPACE;
 			goto done;
 		}

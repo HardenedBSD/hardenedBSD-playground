@@ -1020,12 +1020,10 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	const Elf_Phdr *phdr;
 	Elf_Auxargs *elf_auxargs;
 	struct vmspace *vmspace;
-<<<<<<< HEAD
 	char *interp;
 	Elf_Brandinfo *brand_info;
 	struct sysentvec *sv;
 	u_long addr, baddr, et_dyn_addr, entry, proghdr;
-=======
 	vm_map_t map;
 	const char *err_str, *newinterp;
 	char *interp, *interp_buf, *path;
@@ -1035,7 +1033,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	u_long text_size, data_size, total_size, text_addr, data_addr;
 	u_long seg_size, seg_addr, addr, baddr, et_dyn_addr, entry, proghdr;
 	u_long maxalign, mapsz, maxv, maxv1;
->>>>>>> parent of 3768debb7977... HBSD: Revert "Implement Address Space Layout Randomization (ASLR)"
 	uint32_t fctl0;
 	int32_t osrel;
 	bool free_interp;
@@ -1217,14 +1214,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	if (error != 0)
 		goto ret;
 
-<<<<<<< HEAD
 	entry = (u_long)hdr->e_entry + et_dyn_addr;
-=======
-	vmspace->vm_tsize = text_size >> PAGE_SHIFT;
-	vmspace->vm_taddr = (caddr_t)(uintptr_t)text_addr;
-	vmspace->vm_dsize = data_size >> PAGE_SHIFT;
-	vmspace->vm_daddr = (caddr_t)(uintptr_t)data_addr;
->>>>>>> parent of 3768debb7977... HBSD: Revert "Implement Address Space Layout Randomization (ASLR)"
 
 	/*
 	 * We load the dynamic linker where a userland call
@@ -1245,41 +1235,8 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 
 	if (interp != NULL) {
 		VOP_UNLOCK(imgp->vp, 0);
-<<<<<<< HEAD
 		error = __elfN(load_interp)(imgp, brand_info, interp, &addr,
 		    &imgp->entry_addr);
-=======
-		if ((map->flags & MAP_ASLR) != 0) {
-			/* Assume that interpeter fits into 1/4 of AS */
-			maxv1 = maxv / 2 + addr / 2;
-			MPASS(maxv1 >= addr);	/* No overflow */
-			addr = __CONCAT(rnd_, __elfN(base))(map, addr,
-			    maxv1, PAGE_SIZE);
-		}
-		if (brand_info->emul_path != NULL &&
-		    brand_info->emul_path[0] != '\0') {
-			path = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
-			snprintf(path, MAXPATHLEN, "%s%s",
-			    brand_info->emul_path, interp);
-			error = __elfN(load_file)(imgp->proc, path, &addr,
-			    &imgp->entry_addr, sv->sv_pagesize);
-			free(path, M_TEMP);
-			if (error == 0)
-				have_interp = TRUE;
-		}
-		if (!have_interp && newinterp != NULL &&
-		    (brand_info->interp_path == NULL ||
-		    strcmp(interp, brand_info->interp_path) == 0)) {
-			error = __elfN(load_file)(imgp->proc, newinterp, &addr,
-			    &imgp->entry_addr, sv->sv_pagesize);
-			if (error == 0)
-				have_interp = TRUE;
-		}
-		if (!have_interp) {
-			error = __elfN(load_file)(imgp->proc, interp, &addr,
-			    &imgp->entry_addr, sv->sv_pagesize);
-		}
->>>>>>> parent of 3768debb7977... HBSD: Revert "Implement Address Space Layout Randomization (ASLR)"
 		vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
 		if (error != 0)
 			goto ret;

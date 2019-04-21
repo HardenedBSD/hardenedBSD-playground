@@ -72,12 +72,8 @@ static void __dead2
 usage(void)
 {
 
-<<<<<<< HEAD
-	fprintf(stderr, "Usage: proccontrol -m (trace|trapcap"
+	fprintf(stderr, "Usage: proccontrol -m (aslr|trace|trapcap"
 	    KPTI_USAGE") [-q] "
-=======
-	fprintf(stderr, "Usage: proccontrol -m (aslr|trace|trapcap) [-q] "
->>>>>>> parent of 3768debb7977... HBSD: Revert "Implement Address Space Layout Randomization (ASLR)"
 	    "[-s (enable|disable)] [-p pid | command]\n");
 	exit(1);
 }
