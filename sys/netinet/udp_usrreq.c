@@ -1275,17 +1275,16 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct sockaddr *addr,
 	 */
 	pr = inp->inp_socket->so_proto->pr_protocol;
 	pcbinfo = udp_get_inpcbinfo(pr);
-	sin = (struct sockaddr_in *)addr;
 	if (sin != NULL &&
 	    (inp->inp_laddr.s_addr == INADDR_ANY && inp->inp_lport == 0)) {
 		INP_HASH_WLOCK(pcbinfo);
 		unlock_udbinfo = UH_WLOCKED;
-	} else if ((sin != NULL && (
-	    (sin->sin_addr.s_addr == INADDR_ANY) ||
-	    (sin->sin_addr.s_addr == INADDR_BROADCAST) ||
-	    (inp->inp_laddr.s_addr == INADDR_ANY) ||
-	    (inp->inp_lport == 0))) ||
-	    (src.sin_family == AF_INET)) {
+	} else if ((sin != NULL &&
+		(sin->sin_addr.s_addr == INADDR_ANY ||
+		sin->sin_addr.s_addr == INADDR_BROADCAST ||
+		inp->inp_laddr.s_addr == INADDR_ANY ||
+		inp->inp_lport == 0)) ||
+	    src.sin_family == AF_INET) {
 		INP_HASH_RLOCK_ET(pcbinfo, et);
 		unlock_udbinfo = UH_RLOCKED;
 	} else
