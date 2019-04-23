@@ -346,7 +346,12 @@ __DEFAULT_YES_OPTIONS+=OFED
 __DEFAULT_NO_OPTIONS+=OFED
 .endif
 
-<<<<<<< HEAD
+.if ${COMPILER_FEATURES:Mc++11} && (${__T} == "amd64" || ${__T} == "i386")
+__DEFAULT_YES_OPTIONS+=OPENMP
+.else
+__DEFAULT_NO_OPTIONS+=OPENMP
+.endif
+
 # HardenedBSD options
 .if ${__T} == "amd64" || ${__T} == "i386" || ${__T} == "aarch64"
 __DEFAULT_YES_OPTIONS+=PIE
@@ -358,12 +363,6 @@ __DEFAULT_NO_OPTIONS+=PIE
 __DEFAULT_YES_OPTIONS+=SAFESTACK
 .else
 __DEFAULT_NO_OPTIONS+=SAFESTACK
-=======
-.if ${COMPILER_FEATURES:Mc++11} && (${__T} == "amd64" || ${__T} == "i386")
-__DEFAULT_YES_OPTIONS+=OPENMP
-.else
-__DEFAULT_NO_OPTIONS+=OPENMP
->>>>>>> origin/freebsd/11-stable/master
 .endif
 
 .include <bsd.mkopt.mk>

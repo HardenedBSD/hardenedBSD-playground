@@ -479,14 +479,12 @@ LIBBSNMPTOOLS?=	${LIBBSNMPTOOLSDIR}/libbsnmptools.a
 LIBAMUDIR=	${OBJTOP}/usr.sbin/amd/libamu
 LIBAMU?=	${LIBAMUDIR}/libamu.a
 
-<<<<<<< HEAD
+LIBBE?=		${LIBBEDIR}/libbe.a
+
 .if ${MK_HBSDCONTROL} != "no"
 LIBHBSDCONTROLDIR=	${OBJTOP}/lib/libhbsdcontrol
 LIBHBSDCONTROL?=	${LIBHBSDCONTROLDIR}/libhbsdcontrol.a
 .endif
-=======
-LIBBE?=		${LIBBEDIR}/libbe.a
->>>>>>> origin/freebsd/11-stable/master
 
 # Define a directory for each library.  This is useful for adding -L in when
 # not using a --sysroot or for meta mode bootstrapping when there is no
