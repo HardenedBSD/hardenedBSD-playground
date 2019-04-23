@@ -1330,7 +1330,7 @@ OLD_FILES+=usr/bin/ztest
 OLD_FILES+=usr/lib/libbe.a
 OLD_FILES+=usr/lib/libbe_p.a
 OLD_FILES+=usr/lib/libbe.so
-OLD_LIBS+=usr/lib/libbe.so.1
+OLD_LIBS+=lib/libbe.so.1
 OLD_FILES+=usr/lib/libzfs.a
 OLD_LIBS+=usr/lib/libzfs.so
 OLD_FILES+=usr/lib/libzfs_core.a
@@ -2429,7 +2429,9 @@ OLD_FILES+=usr/include/gcc/4.2/altivec.h
 OLD_FILES+=usr/include/gcc/4.2/ppc-asm.h
 OLD_FILES+=usr/include/gcc/4.2/spe.h
 .endif
+.if ${MK_OPENMP} == no
 OLD_FILES+=usr/include/omp.h
+.endif
 OLD_FILES+=usr/lib/libgcov.a
 OLD_FILES+=usr/lib/libgomp.a
 OLD_FILES+=usr/lib/libgomp.so
@@ -7449,6 +7451,13 @@ OLD_FILES+=usr/share/man/man8/ntpdate.8.gz
 OLD_FILES+=usr/share/man/man8/ntpdc.8.gz
 OLD_FILES+=usr/share/man/man8/ntpq.8.gz
 OLD_FILES+=usr/share/man/man8/ntptime.8.gz
+.endif
+
+.if ${MK_OPENSSH} == no
+.if ${MK_GCC} == no
+OLD_FILES+=usr/include/omp.h
+.endif
+OLD_LIBS+=usr/lib/libomp.so
 .endif
 
 .if ${MK_OPENSSH} == no
