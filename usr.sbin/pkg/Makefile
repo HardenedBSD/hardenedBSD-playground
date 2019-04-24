@@ -1,6 +1,12 @@
 # $FreeBSD$
 
+<<<<<<< HEAD
 CONFS=	FreeBSD.conf HardenedBSD.conf
+=======
+PKGCONFBRANCH?=	latest
+CONFS=		FreeBSD.conf.${PKGCONFBRANCH}
+CONFSNAME=	FreeBSD.conf
+>>>>>>> origin/freebsd/current/master
 CONFSDIR=	/etc/pkg
 CONFSMODE=	644
 PROG=	pkg
