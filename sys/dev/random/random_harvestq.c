@@ -290,7 +290,6 @@ random_print_harvestmask(SYSCTL_HANDLER_ARGS)
 	return (error);
 }
 
-<<<<<<< HEAD
 static const char *random_source_descr[ENTROPYSOURCE] = {
 	[RANDOM_CACHED] = "CACHED",
 	[RANDOM_ATTACH] = "ATTACH",
@@ -312,29 +311,7 @@ static const char *random_source_descr[ENTROPYSOURCE] = {
 	[RANDOM_PURE_NEHEMIAH] = "PURE_NEHEMIAH",
 	[RANDOM_PURE_RNDTEST] = "PURE_RNDTEST",
 	[RANDOM_PURE_VIRTIO] = "PURE_VIRTIO",
-=======
-static const char *(random_source_descr[]) = {
-	"CACHED",
-	"ATTACH",
-	"KEYBOARD",
-	"MOUSE",
-	"NET_TUN",
-	"NET_ETHER",
-	"NET_NG",
-	"INTERRUPT",
-	"SWI",
-	"FS_ATIME",
-	"UMA", /* ENVIRONMENTAL_END */
-	"PURE_OCTEON",
-	"PURE_SAFE",
-	"PURE_GLXSB",
-	"PURE_UBSEC",
-	"PURE_HIFN",
-	"PURE_RDRAND",
-	"PURE_NEHEMIAH",
-	"PURE_RNDTEST",
 	[RANDOM_PURE_TPM] = "PURE_TPM",
->>>>>>> origin/freebsd/11-stable/master
 	/* "ENTROPYSOURCE" */
 };
 
