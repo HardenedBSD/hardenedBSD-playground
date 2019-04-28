@@ -51,7 +51,7 @@ static byte VGLSavePaletteBlue[256];
 void
 VGLSetXY(VGLBitmap *object, int x, int y, u_long color)
 {
-  int offset, undermouse;
+  int offset, soffset, undermouse;
 
   VGLCheckSwitch();
   if (x>=0 && x<object->VXsize && y>=0 && y<object->VYsize) {
@@ -67,7 +67,6 @@ VGLSetXY(VGLBitmap *object, int x, int y, u_long color)
       switch (object->Type) {
       case VIDBUF8S:
       case VIDBUF16S:
-      case VIDBUF24S:
       case VIDBUF32S:
         offset = VGLSetSegment(offset);
         /* FALLTHROUGH */
@@ -89,6 +88,25 @@ VGLSetXY(VGLBitmap *object, int x, int y, u_long color)
           break;
         case 4:
           memcpy(&object->Bitmap[offset], &color, 4);
+          break;
+        }
+        break;
+      case VIDBUF24S:
+        soffset = VGLSetSegment(offset);
+        color = htole32(color);
+        switch (VGLAdpInfo.va_window_size - soffset) {
+        case 1:
+          memcpy(&object->Bitmap[soffset], &color, 1);
+          soffset = VGLSetSegment(offset + 1);
+          memcpy(&object->Bitmap[soffset], (byte *)&color + 1, 2);
+          break;
+        case 2:
+          memcpy(&object->Bitmap[soffset], &color, 2);
+          soffset = VGLSetSegment(offset + 2);
+          memcpy(&object->Bitmap[soffset], (byte *)&color + 2, 1);
+          break;
+        default:
+          memcpy(&object->Bitmap[soffset], &color, 3);
           break;
         }
         break;
@@ -115,12 +133,19 @@ set_planar:
   }
 }
 
-static u_long
-__VGLGetXY(VGLBitmap *object, int x, int y)
+u_long
+VGLGetXY(VGLBitmap *object, int x, int y)
 {
-  int offset;
   u_long color;
+  int offset;
 
+  VGLCheckSwitch();
+  if (x<0 || x>=object->VXsize || y<0 || y>=object->VYsize)
+    return 0;
+  if (object == VGLDisplay)
+    object = &VGLVDisplay;
+  else if (object->Type != MEMBUF)
+    return 0;		/* invalid */
   offset = (y * object->VXsize + x) * object->PixelBytes;
   switch (object->PixelBytes) {
   case 1:
@@ -137,19 +162,6 @@ __VGLGetXY(VGLBitmap *object, int x, int y)
     return le32toh(color);
   }
   return 0;		/* invalid */
-}
-
-u_long
-VGLGetXY(VGLBitmap *object, int x, int y)
-{
-  VGLCheckSwitch();
-  if (x<0 || x>=object->VXsize || y<0 || y>=object->VYsize)
-    return 0;
-  if (object == VGLDisplay)
-    object = &VGLVDisplay;
-  else if (object->Type != MEMBUF)
-    return 0;		/* invalid */
-  return __VGLGetXY(object, x, y);
 }
 
  /*
@@ -458,7 +470,7 @@ VGLClear(VGLBitmap *object, u_long color)
   VGLCheckSwitch();
   if (object == VGLDisplay) {
     VGLMouseFreeze();
-    mouseoverlap = VGLMouseOverlap(0, 0, object->Xsize, object->Ysize);
+    mouseoverlap = VGLMouseOverlap(0, 0, object->VXsize, object->VYsize);
     if (mouseoverlap)
       VGLMousePointerHide();
     VGLClear(&VGLVDisplay, color);
