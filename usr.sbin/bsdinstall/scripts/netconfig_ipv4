@@ -49,12 +49,8 @@ esac
 dialog --backtitle 'HardenedBSD Installer' --title 'Network Configuration' --yesno 'Would you like to use DHCP to configure this interface?' 0 0
 if [ $? -eq $DIALOG_OK ]; then
 	if [ ! -z $BSDINSTALL_CONFIGCURRENT ]; then
-<<<<<<< HEAD
-		dialog --backtitle 'HardenedBSD Installer' --infobox "Acquiring DHCP lease..." 0 0
-=======
 		ifconfig $INTERFACE up
-		dialog --backtitle 'FreeBSD Installer' --infobox "Acquiring DHCP lease..." 0 0
->>>>>>> origin/freebsd/current/master
+		dialog --backtitle 'HardenedBSD Installer' --infobox "Acquiring DHCP lease..." 0 0
 		err=$( dhclient $INTERFACE 2>&1 )
 		if [ $? -ne 0 ]; then
 			f_dprintf "%s" "$err"
