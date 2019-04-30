@@ -628,7 +628,6 @@ select_ntuple(struct vi_info *vi, struct l2t_entry *e)
 {
 	struct adapter *sc = vi->pi->adapter;
 	struct tp_params *tp = &sc->params.tp;
-	uint16_t viid = vi->viid;
 	uint64_t ntuple = 0;
 
 	/*
@@ -645,12 +644,9 @@ select_ntuple(struct vi_info *vi, struct l2t_entry *e)
 		ntuple |= (uint64_t)IPPROTO_TCP << tp->protocol_shift;
 
 	if (tp->vnic_shift >= 0 && tp->ingress_config & F_VNIC) {
-		uint32_t vf = G_FW_VIID_VIN(viid);
-		uint32_t pf = G_FW_VIID_PFN(viid);
-		uint32_t vld = G_FW_VIID_VIVLD(viid);
-
-		ntuple |= (uint64_t)(V_FT_VNID_ID_VF(vf) | V_FT_VNID_ID_PF(pf) |
-		    V_FT_VNID_ID_VLD(vld)) << tp->vnic_shift;
+		ntuple |= (uint64_t)(V_FT_VNID_ID_VF(vi->vin) |
+		    V_FT_VNID_ID_PF(sc->pf) | V_FT_VNID_ID_VLD(vi->vfvld)) <<
+		    tp->vnic_shift;
 	}
 
 	if (is_t4(sc))
@@ -1015,9 +1011,9 @@ reclaim_wr_resources(void *arg, int count)
 	struct tom_data *td = arg;
 	STAILQ_HEAD(, wrqe) twr_list = STAILQ_HEAD_INITIALIZER(twr_list);
 	struct cpl_act_open_req *cpl;
-	u_int opcode, atid;
+	u_int opcode, atid, tid;
 	struct wrqe *wr;
-	struct adapter *sc;
+	struct adapter *sc = td_adapter(td);
 
 	mtx_lock(&td->unsent_wr_lock);
 	STAILQ_SWAP(&td->unsent_wr_list, &twr_list, wrqe);
@@ -1033,10 +1029,14 @@ reclaim_wr_resources(void *arg, int count)
 		case CPL_ACT_OPEN_REQ:
 		case CPL_ACT_OPEN_REQ6:
 			atid = G_TID_TID(be32toh(OPCODE_TID(cpl)));
-			sc = td_adapter(td);
-
 			CTR2(KTR_CXGBE, "%s: atid %u ", __func__, atid);
 			act_open_failure_cleanup(sc, atid, EHOSTUNREACH);
+			free(wr, M_CXGBE);
+			break;
+		case CPL_PASS_ACCEPT_RPL:
+			tid = GET_TID(cpl);
+			CTR2(KTR_CXGBE, "%s: tid %u ", __func__, tid);
+			synack_failure_cleanup(sc, tid);
 			free(wr, M_CXGBE);
 			break;
 		default:
