@@ -63,6 +63,7 @@ __FBSDID("$FreeBSD$");
 #include <compat/linux/linux_misc.h>
 #include <compat/linux/linux_util.h>
 
+#ifdef LINUX_LEGACY_SYSCALLS
 int
 linux_fork(struct thread *td, struct linux_fork_args *args)
 {
@@ -134,6 +135,7 @@ linux_vfork(struct thread *td, struct linux_vfork_args *args)
 
 	return (0);
 }
+#endif
 
 static int
 linux_clone_proc(struct thread *td, struct linux_clone_args *args)
@@ -350,7 +352,7 @@ linux_clone_thread(struct thread *td, struct linux_clone_args *args)
 	thread_unlock(td);
 	if (P_SHOULDSTOP(p))
 		newtd->td_flags |= TDF_ASTPENDING | TDF_NEEDSUSPCHK;
-	
+
 	if (p->p_ptevents & PTRACE_LWP)
 		newtd->td_dbgflags |= TDB_BORN;
 	PROC_UNLOCK(p);

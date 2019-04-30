@@ -241,7 +241,7 @@ update_tx_rate_limit(struct adapter *sc, struct toepcb *toep, u_int Bps)
 		if (toep->tx_credits < flowclen16 || toep->txsd_avail == 0 ||
 		    (wr = alloc_wrqe(roundup2(flowclen, 16), toep->ofld_txq)) == NULL) {
 			if (tc_idx >= 0)
-				t4_release_cl_rl_kbps(sc, port_id, tc_idx);
+				t4_release_cl_rl(sc, port_id, tc_idx);
 			return (ENOMEM);
 		}
 
@@ -269,7 +269,7 @@ update_tx_rate_limit(struct adapter *sc, struct toepcb *toep, u_int Bps)
 	}
 
 	if (toep->tc_idx >= 0)
-		t4_release_cl_rl_kbps(sc, port_id, toep->tc_idx);
+		t4_release_cl_rl(sc, port_id, toep->tc_idx);
 	toep->tc_idx = tc_idx;
 
 	return (0);
@@ -1735,30 +1735,6 @@ do_rx_data(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	return (0);
 }
 
-#define S_CPL_FW4_ACK_OPCODE    24
-#define M_CPL_FW4_ACK_OPCODE    0xff
-#define V_CPL_FW4_ACK_OPCODE(x) ((x) << S_CPL_FW4_ACK_OPCODE)
-#define G_CPL_FW4_ACK_OPCODE(x) \
-    (((x) >> S_CPL_FW4_ACK_OPCODE) & M_CPL_FW4_ACK_OPCODE)
-
-#define S_CPL_FW4_ACK_FLOWID    0
-#define M_CPL_FW4_ACK_FLOWID    0xffffff
-#define V_CPL_FW4_ACK_FLOWID(x) ((x) << S_CPL_FW4_ACK_FLOWID)
-#define G_CPL_FW4_ACK_FLOWID(x) \
-    (((x) >> S_CPL_FW4_ACK_FLOWID) & M_CPL_FW4_ACK_FLOWID)
-
-#define S_CPL_FW4_ACK_CR        24
-#define M_CPL_FW4_ACK_CR        0xff
-#define V_CPL_FW4_ACK_CR(x)     ((x) << S_CPL_FW4_ACK_CR)
-#define G_CPL_FW4_ACK_CR(x)     (((x) >> S_CPL_FW4_ACK_CR) & M_CPL_FW4_ACK_CR)
-
-#define S_CPL_FW4_ACK_SEQVAL    0
-#define M_CPL_FW4_ACK_SEQVAL    0x1
-#define V_CPL_FW4_ACK_SEQVAL(x) ((x) << S_CPL_FW4_ACK_SEQVAL)
-#define G_CPL_FW4_ACK_SEQVAL(x) \
-    (((x) >> S_CPL_FW4_ACK_SEQVAL) & M_CPL_FW4_ACK_SEQVAL)
-#define F_CPL_FW4_ACK_SEQVAL    V_CPL_FW4_ACK_SEQVAL(1U)
-
 static int
 do_fw4_ack(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 {
@@ -1912,44 +1888,6 @@ do_fw4_ack(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	return (0);
 }
 
-int
-do_set_tcb_rpl(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
-{
-	struct adapter *sc = iq->adapter;
-	const struct cpl_set_tcb_rpl *cpl = (const void *)(rss + 1);
-	unsigned int tid = GET_TID(cpl);
-	struct toepcb *toep;
-#ifdef INVARIANTS
-	unsigned int opcode = G_CPL_OPCODE(be32toh(OPCODE_TID(cpl)));
-#endif
-
-	KASSERT(opcode == CPL_SET_TCB_RPL,
-	    ("%s: unexpected opcode 0x%x", __func__, opcode));
-	KASSERT(m == NULL, ("%s: wasn't expecting payload", __func__));
-	MPASS(iq != &sc->sge.fwq);
-
-	toep = lookup_tid(sc, tid);
-	if (toep->ulp_mode == ULP_MODE_TCPDDP) {
-		handle_ddp_tcb_rpl(toep, cpl);
-		return (0);
-	}
-
-	/*
-	 * TOM and/or other ULPs don't request replies for CPL_SET_TCB or
-	 * CPL_SET_TCB_FIELD requests.  This can easily change and when it does
-	 * the dispatch code will go here.
-	 */
-#ifdef INVARIANTS
-	panic("%s: Unexpected CPL_SET_TCB_RPL for tid %u on iq %p", __func__,
-	    tid, iq);
-#else
-	log(LOG_ERR, "%s: Unexpected CPL_SET_TCB_RPL for tid %u on iq %p\n",
-	    __func__, tid, iq);
-#endif
-
-	return (0);
-}
-
 void
 t4_set_tcb_field(struct adapter *sc, struct sge_wrq *wrq, struct toepcb *toep,
     uint16_t word, uint64_t mask, uint64_t val, int reply, int cookie)
@@ -1959,6 +1897,9 @@ t4_set_tcb_field(struct adapter *sc, struct sge_wrq *wrq, struct toepcb *toep,
 	struct ofld_tx_sdesc *txsd;
 
 	MPASS((cookie & ~M_COOKIE) == 0);
+	if (reply) {
+		MPASS(cookie != CPL_COOKIE_RESERVED);
+	}
 
 	wr = alloc_wrqe(sizeof(*req), wrq);
 	if (wr == NULL) {
@@ -1998,9 +1939,10 @@ t4_init_cpl_io_handlers(void)
 	t4_register_cpl_handler(CPL_PEER_CLOSE, do_peer_close);
 	t4_register_cpl_handler(CPL_CLOSE_CON_RPL, do_close_con_rpl);
 	t4_register_cpl_handler(CPL_ABORT_REQ_RSS, do_abort_req);
-	t4_register_cpl_handler(CPL_ABORT_RPL_RSS, do_abort_rpl);
+	t4_register_shared_cpl_handler(CPL_ABORT_RPL_RSS, do_abort_rpl,
+	    CPL_COOKIE_TOM);
 	t4_register_cpl_handler(CPL_RX_DATA, do_rx_data);
-	t4_register_cpl_handler(CPL_FW4_ACK, do_fw4_ack);
+	t4_register_shared_cpl_handler(CPL_FW4_ACK, do_fw4_ack, CPL_COOKIE_TOM);
 }
 
 void
@@ -2010,9 +1952,9 @@ t4_uninit_cpl_io_handlers(void)
 	t4_register_cpl_handler(CPL_PEER_CLOSE, NULL);
 	t4_register_cpl_handler(CPL_CLOSE_CON_RPL, NULL);
 	t4_register_cpl_handler(CPL_ABORT_REQ_RSS, NULL);
-	t4_register_cpl_handler(CPL_ABORT_RPL_RSS, NULL);
+	t4_register_shared_cpl_handler(CPL_ABORT_RPL_RSS, NULL, CPL_COOKIE_TOM);
 	t4_register_cpl_handler(CPL_RX_DATA, NULL);
-	t4_register_cpl_handler(CPL_FW4_ACK, NULL);
+	t4_register_shared_cpl_handler(CPL_FW4_ACK, NULL, CPL_COOKIE_TOM);
 }
 
 /*

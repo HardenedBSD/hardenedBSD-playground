@@ -133,7 +133,7 @@ linux_ipc(struct thread *td, struct linux_ipc_args *args)
 		struct linux_semop_args a;
 
 		a.semid = args->arg1;
-		a.tsops = args->ptr;
+		a.tsops = PTRIN(args->ptr);
 		a.nsops = args->arg2;
 		return (linux_semop(td, &a));
 	}
@@ -152,7 +152,7 @@ linux_ipc(struct thread *td, struct linux_ipc_args *args)
 		a.semid = args->arg1;
 		a.semnum = args->arg2;
 		a.cmd = args->arg3;
-		error = copyin(args->ptr, &a.arg, sizeof(a.arg));
+		error = copyin(PTRIN(args->ptr), &a.arg, sizeof(a.arg));
 		if (error)
 			return (error);
 		return (linux_semctl(td, &a));
@@ -161,7 +161,7 @@ linux_ipc(struct thread *td, struct linux_ipc_args *args)
 		struct linux_msgsnd_args a;
 
 		a.msqid = args->arg1;
-		a.msgp = args->ptr;
+		a.msgp = PTRIN(args->ptr);
 		a.msgsz = args->arg2;
 		a.msgflg = args->arg3;
 		return (linux_msgsnd(td, &a));
@@ -176,15 +176,15 @@ linux_ipc(struct thread *td, struct linux_ipc_args *args)
 			struct l_ipc_kludge tmp;
 			int error;
 
-			if (args->ptr == NULL)
+			if (args->ptr == 0)
 				return (EINVAL);
-			error = copyin(args->ptr, &tmp, sizeof(tmp));
+			error = copyin(PTRIN(args->ptr), &tmp, sizeof(tmp));
 			if (error)
 				return (error);
-			a.msgp = tmp.msgp;
+			a.msgp = PTRIN(tmp.msgp);
 			a.msgtyp = tmp.msgtyp;
 		} else {
-			a.msgp = args->ptr;
+			a.msgp = PTRIN(args->ptr);
 			a.msgtyp = args->arg5;
 		}
 		return (linux_msgrcv(td, &a));
@@ -201,22 +201,29 @@ linux_ipc(struct thread *td, struct linux_ipc_args *args)
 
 		a.msqid = args->arg1;
 		a.cmd = args->arg2;
-		a.buf = args->ptr;
+		a.buf = PTRIN(args->ptr);
 		return (linux_msgctl(td, &a));
 	}
 	case LINUX_SHMAT: {
 		struct linux_shmat_args a;
+		l_uintptr_t addr;
+		int error;
 
 		a.shmid = args->arg1;
-		a.shmaddr = args->ptr;
+		a.shmaddr = PTRIN(args->ptr);
 		a.shmflg = args->arg2;
-		a.raddr = (l_ulong *)args->arg3;
-		return (linux_shmat(td, &a));
+		error = linux_shmat(td, &a);
+		if (error != 0)
+			return (error);
+		addr = td->td_retval[0];
+		error = copyout(&addr, PTRIN(args->arg3), sizeof(addr));
+		td->td_retval[0] = 0;
+		return (error);
 	}
 	case LINUX_SHMDT: {
 		struct linux_shmdt_args a;
 
-		a.shmaddr = args->ptr;
+		a.shmaddr = PTRIN(args->ptr);
 		return (linux_shmdt(td, &a));
 	}
 	case LINUX_SHMGET: {
@@ -232,7 +239,7 @@ linux_ipc(struct thread *td, struct linux_ipc_args *args)
 
 		a.shmid = args->arg1;
 		a.cmd = args->arg2;
-		a.buf = args->ptr;
+		a.buf = PTRIN(args->ptr);
 		return (linux_shmctl(td, &a));
 	}
 	default:
@@ -650,20 +657,20 @@ linux_set_thread_area(struct thread *td, struct linux_set_thread_area_args *args
 
 	idx = info.entry_number;
 	/*
-	 * Semantics of linux version: every thread in the system has array of
+	 * Semantics of Linux version: every thread in the system has array of
 	 * 3 tls descriptors. 1st is GLIBC TLS, 2nd is WINE, 3rd unknown. This
 	 * syscall loads one of the selected tls decriptors with a value and
 	 * also loads GDT descriptors 6, 7 and 8 with the content of the
 	 * per-thread descriptors.
 	 *
-	 * Semantics of fbsd version: I think we can ignore that linux has 3
+	 * Semantics of FreeBSD version: I think we can ignore that Linux has 3
 	 * per-thread descriptors and use just the 1st one. The tls_array[]
 	 * is used only in set/get-thread_area() syscalls and for loading the
-	 * GDT descriptors. In fbsd we use just one GDT descriptor for TLS so
-	 * we will load just one.
+	 * GDT descriptors. In FreeBSD we use just one GDT descriptor for TLS
+	 * so we will load just one.
 	 *
 	 * XXX: this doesn't work when a user space process tries to use more
-	 * than 1 TLS segment. Comment in the linux sources says wine might do
+	 * than 1 TLS segment. Comment in the Linux sources says wine might do
 	 * this.
 	 */
 
@@ -775,7 +782,7 @@ int
 linux_mq_open(struct thread *td, struct linux_mq_open_args *args)
 {
 #ifdef P1003_1B_MQUEUE
-	return sys_kmq_open(td, (struct kmq_open_args *) args);
+	return (sys_kmq_open(td, (struct kmq_open_args *)args));
 #else
 	return (ENOSYS);
 #endif
@@ -785,7 +792,7 @@ int
 linux_mq_unlink(struct thread *td, struct linux_mq_unlink_args *args)
 {
 #ifdef P1003_1B_MQUEUE
-	return sys_kmq_unlink(td, (struct kmq_unlink_args *) args);
+	return (sys_kmq_unlink(td, (struct kmq_unlink_args *)args));
 #else
 	return (ENOSYS);
 #endif
@@ -795,7 +802,7 @@ int
 linux_mq_timedsend(struct thread *td, struct linux_mq_timedsend_args *args)
 {
 #ifdef P1003_1B_MQUEUE
-	return sys_kmq_timedsend(td, (struct kmq_timedsend_args *) args);
+	return (sys_kmq_timedsend(td, (struct kmq_timedsend_args *)args));
 #else
 	return (ENOSYS);
 #endif
@@ -805,7 +812,7 @@ int
 linux_mq_timedreceive(struct thread *td, struct linux_mq_timedreceive_args *args)
 {
 #ifdef P1003_1B_MQUEUE
-	return sys_kmq_timedreceive(td, (struct kmq_timedreceive_args *) args);
+	return (sys_kmq_timedreceive(td, (struct kmq_timedreceive_args *)args));
 #else
 	return (ENOSYS);
 #endif
@@ -815,7 +822,7 @@ int
 linux_mq_notify(struct thread *td, struct linux_mq_notify_args *args)
 {
 #ifdef P1003_1B_MQUEUE
-	return sys_kmq_notify(td, (struct kmq_notify_args *) args);
+	return (sys_kmq_notify(td, (struct kmq_notify_args *)args));
 #else
 	return (ENOSYS);
 #endif
@@ -825,7 +832,7 @@ int
 linux_mq_getsetattr(struct thread *td, struct linux_mq_getsetattr_args *args)
 {
 #ifdef P1003_1B_MQUEUE
-	return sys_kmq_setattr(td, (struct kmq_setattr_args *) args);
+	return (sys_kmq_setattr(td, (struct kmq_setattr_args *)args));
 #else
 	return (ENOSYS);
 #endif

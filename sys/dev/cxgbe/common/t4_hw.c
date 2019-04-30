@@ -5854,7 +5854,7 @@ int t4_set_sched_ipg(struct adapter *adap, int sched, unsigned int ipg)
  */
 static u64 chan_rate(struct adapter *adap, unsigned int bytes256)
 {
-	u64 v = bytes256 * adap->params.vpd.cclk;
+	u64 v = (u64)bytes256 * adap->params.vpd.cclk;
 
 	return v * 62 + v / 2;
 }
@@ -8685,6 +8685,7 @@ int t4_init_sge_params(struct adapter *adapter)
 static void read_filter_mode_and_ingress_config(struct adapter *adap,
     bool sleep_ok)
 {
+	uint32_t v;
 	struct tp_params *tpp = &adap->params.tp;
 
 	t4_tp_pio_read(adap, &tpp->vlan_pri_map, 1, A_TP_VLAN_PRI_MAP,
@@ -8708,12 +8709,12 @@ static void read_filter_mode_and_ingress_config(struct adapter *adap,
 	tpp->matchtype_shift = t4_filter_field_shift(adap, F_MPSHITTYPE);
 	tpp->frag_shift = t4_filter_field_shift(adap, F_FRAGMENTATION);
 
-	/*
-	 * If TP_INGRESS_CONFIG.VNID == 0, then TP_VLAN_PRI_MAP.VNIC_ID
-	 * represents the presence of an Outer VLAN instead of a VNIC ID.
-	 */
-	if ((tpp->ingress_config & F_VNIC) == 0)
-		tpp->vnic_shift = -1;
+	if (chip_id(adap) > CHELSIO_T4) {
+		v = t4_read_reg(adap, LE_HASH_MASK_GEN_IPV4T5(3));
+		adap->params.tp.hash_filter_mask = v;
+		v = t4_read_reg(adap, LE_HASH_MASK_GEN_IPV4T5(4));
+		adap->params.tp.hash_filter_mask |= (u64)v << 32;
+	}
 }
 
 /**
@@ -10033,7 +10034,7 @@ int t4_sched_config(struct adapter *adapter, int type, int minmaxen,
 int t4_sched_params(struct adapter *adapter, int type, int level, int mode,
 		    int rateunit, int ratemode, int channel, int cl,
 		    int minrate, int maxrate, int weight, int pktsize,
-		    int sleep_ok)
+		    int burstsize, int sleep_ok)
 {
 	struct fw_sched_cmd cmd;
 
@@ -10055,6 +10056,7 @@ int t4_sched_params(struct adapter *adapter, int type, int level, int mode,
 	cmd.u.params.max = cpu_to_be32(maxrate);
 	cmd.u.params.weight = cpu_to_be16(weight);
 	cmd.u.params.pktsize = cpu_to_be16(pktsize);
+	cmd.u.params.burstsize = cpu_to_be16(burstsize);
 
 	return t4_wr_mbox_meat(adapter,adapter->mbox, &cmd, sizeof(cmd),
 			       NULL, sleep_ok);

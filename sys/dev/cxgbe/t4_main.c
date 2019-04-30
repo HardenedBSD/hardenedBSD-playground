@@ -60,6 +60,8 @@ __FBSDID("$FreeBSD$");
 #ifdef RSS
 #include <net/rss_config.h>
 #endif
+#include <netinet/in.h>
+#include <netinet/ip.h>
 #if defined(__i386__) || defined(__amd64__)
 #include <machine/md_var.h>
 #include <machine/cputypes.h>
@@ -81,6 +83,7 @@ __FBSDID("$FreeBSD$");
 #include "t4_l2t.h"
 #include "t4_mp_ring.h"
 #include "t4_if.h"
+#include "t4_smt.h"
 
 /* T4 bus driver interface */
 static int t4_probe(device_t);
@@ -218,13 +221,11 @@ static driver_t vcc_driver = {
 	sizeof(struct vi_info)
 };
 
-/* ifnet + media interface */
+/* ifnet interface */
 static void cxgbe_init(void *);
 static int cxgbe_ioctl(struct ifnet *, unsigned long, caddr_t);
 static int cxgbe_transmit(struct ifnet *, struct mbuf *);
 static void cxgbe_qflush(struct ifnet *);
-static int cxgbe_media_change(struct ifnet *);
-static void cxgbe_media_status(struct ifnet *, struct ifmediareq *);
 
 MALLOC_DEFINE(M_CXGBE, "cxgbe", "Chelsio T4/T5 Ethernet driver and services");
 
@@ -498,7 +499,8 @@ static int t4_switchcaps_allowed = FW_CAPS_CONFIG_SWITCH_INGRESS |
 SYSCTL_INT(_hw_cxgbe, OID_AUTO, switchcaps_allowed, CTLFLAG_RDTUN,
     &t4_switchcaps_allowed, 0, "Default switch capabilities");
 
-static int t4_niccaps_allowed = FW_CAPS_CONFIG_NIC;
+static int t4_niccaps_allowed = FW_CAPS_CONFIG_NIC |
+	FW_CAPS_CONFIG_NIC_HASHFILTER;
 SYSCTL_INT(_hw_cxgbe, OID_AUTO, niccaps_allowed, CTLFLAG_RDTUN,
     &t4_niccaps_allowed, 0, "Default NIC capabilities");
 
@@ -542,6 +544,8 @@ SYSCTL_INT(_hw_cxgbe, OID_AUTO, pcie_relaxed_ordering, CTLFLAG_RDTUN,
     &pcie_relaxed_ordering, 0,
     "PCIe Relaxed Ordering: 0 = disable, 1 = enable, 2 = leave alone");
 
+static int t4_panic_on_fatal_err = 0;
+TUNABLE_INT("hw.cxgbe.panic_on_fatal_err", &t4_panic_on_fatal_err);
 
 #ifdef TCP_OFFLOAD
 /*
@@ -580,23 +584,8 @@ struct intrs_and_queues {
 	uint16_t nnmrxq_vi;	/* # of netmap rxq's */
 };
 
-struct filter_entry {
-        uint32_t valid:1;	/* filter allocated and valid */
-        uint32_t locked:1;	/* filter is administratively locked */
-        uint32_t pending:1;	/* filter action is pending firmware reply */
-	uint32_t smtidx:8;	/* Source MAC Table index for smac */
-	struct l2t_entry *l2t;	/* Layer Two Table entry for dmac */
-
-        struct t4_filter_specification fs;
-};
-
 static void setup_memwin(struct adapter *);
 static void position_memwin(struct adapter *, int, uint32_t);
-static int rw_via_memwin(struct adapter *, int, uint32_t, uint32_t *, int, int);
-static inline int read_via_memwin(struct adapter *, int, uint32_t, uint32_t *,
-    int);
-static inline int write_via_memwin(struct adapter *, int, uint32_t,
-    const uint32_t *, int);
 static int validate_mem_range(struct adapter *, uint32_t, uint32_t);
 static int fwmtype_to_hwmtype(int);
 static int validate_mt_off_len(struct adapter *, int, uint32_t, uint32_t,
@@ -628,10 +617,10 @@ static void get_regs(struct adapter *, struct t4_regdump *, uint8_t *);
 static void vi_refresh_stats(struct adapter *, struct vi_info *);
 static void cxgbe_refresh_stats(struct adapter *, struct port_info *);
 static void cxgbe_tick(void *);
-static void cxgbe_vlan_config(void *, struct ifnet *, uint16_t);
 static void cxgbe_sysctls(struct port_info *);
 static int sysctl_int_array(SYSCTL_HANDLER_ARGS);
-static int sysctl_bitfield(SYSCTL_HANDLER_ARGS);
+static int sysctl_bitfield_8b(SYSCTL_HANDLER_ARGS);
+static int sysctl_bitfield_16b(SYSCTL_HANDLER_ARGS);
 static int sysctl_btphy(SYSCTL_HANDLER_ARGS);
 static int sysctl_noflowq(SYSCTL_HANDLER_ARGS);
 static int sysctl_holdoff_tmr_idx(SYSCTL_HANDLER_ARGS);
@@ -643,7 +632,6 @@ static int sysctl_fec(SYSCTL_HANDLER_ARGS);
 static int sysctl_autoneg(SYSCTL_HANDLER_ARGS);
 static int sysctl_handle_t4_reg64(SYSCTL_HANDLER_ARGS);
 static int sysctl_temperature(SYSCTL_HANDLER_ARGS);
-#ifdef SBUF_DRAIN
 static int sysctl_loadavg(SYSCTL_HANDLER_ARGS);
 static int sysctl_cctrl(SYSCTL_HANDLER_ARGS);
 static int sysctl_cim_ibq_obq(SYSCTL_HANDLER_ARGS);
@@ -673,8 +661,7 @@ static int sysctl_tp_la(SYSCTL_HANDLER_ARGS);
 static int sysctl_tx_rate(SYSCTL_HANDLER_ARGS);
 static int sysctl_ulprx_la(SYSCTL_HANDLER_ARGS);
 static int sysctl_wcwr_stats(SYSCTL_HANDLER_ARGS);
-static int sysctl_tc_params(SYSCTL_HANDLER_ARGS);
-#endif
+static int sysctl_cpus(SYSCTL_HANDLER_ARGS);
 #ifdef TCP_OFFLOAD
 static int sysctl_tls_rx_ports(SYSCTL_HANDLER_ARGS);
 static int sysctl_tp_tick(SYSCTL_HANDLER_ARGS);
@@ -685,22 +672,6 @@ static int sysctl_tp_backoff(SYSCTL_HANDLER_ARGS);
 static int sysctl_holdoff_tmr_idx_ofld(SYSCTL_HANDLER_ARGS);
 static int sysctl_holdoff_pktc_idx_ofld(SYSCTL_HANDLER_ARGS);
 #endif
-static uint32_t fconf_iconf_to_mode(uint32_t, uint32_t);
-static uint32_t mode_to_fconf(uint32_t);
-static uint32_t mode_to_iconf(uint32_t);
-static int check_fspec_against_fconf_iconf(struct adapter *,
-    struct t4_filter_specification *);
-static int get_filter_mode(struct adapter *, uint32_t *);
-static int set_filter_mode(struct adapter *, uint32_t);
-static inline uint64_t get_filter_hits(struct adapter *, uint32_t);
-static int get_filter(struct adapter *, struct t4_filter *);
-static int set_filter(struct adapter *, struct t4_filter *);
-static int del_filter(struct adapter *, struct t4_filter *);
-static void clear_filter(struct filter_entry *);
-static int set_filter_wr(struct adapter *, int);
-static int del_filter_wr(struct adapter *, int);
-static int set_tcb_rpl(struct sge_iq *, const struct rss_header *,
-    struct mbuf *);
 static int get_sge_context(struct adapter *, struct t4_sge_context *);
 static int load_fw(struct adapter *, struct t4_data *);
 static int load_cfg(struct adapter *, struct t4_data *);
@@ -789,8 +760,8 @@ struct {
 
 #ifdef TCP_OFFLOAD
 /*
- * service_iq() has an iq and needs the fl.  Offset of fl from the iq should be
- * exactly the same for both rxq and ofld_rxq.
+ * service_iq_fl() has an iq and needs the fl.  Offset of fl from the iq should
+ * be exactly the same for both rxq and ofld_rxq.
  */
 CTASSERT(offsetof(struct sge_ofld_rxq, iq) == offsetof(struct sge_rxq, iq));
 CTASSERT(offsetof(struct sge_ofld_rxq, fl) == offsetof(struct sge_rxq, fl));
@@ -982,7 +953,7 @@ t4_attach(device_t dev)
 		v = pci_read_config(dev, i + PCIER_DEVICE_CTL, 2);
 		sc->params.pci.mps = 128 << ((v & PCIEM_CTL_MAX_PAYLOAD) >> 5);
 		if (pcie_relaxed_ordering == 0 &&
-		    (v | PCIEM_CTL_RELAXED_ORD_ENABLE) != 0) {
+		    (v & PCIEM_CTL_RELAXED_ORD_ENABLE) != 0) {
 			v &= ~PCIEM_CTL_RELAXED_ORD_ENABLE;
 			pci_write_config(dev, i + PCIER_DEVICE_CTL, v, 2);
 		} else if (pcie_relaxed_ordering == 1 &&
@@ -1181,7 +1152,7 @@ t4_attach(device_t dev)
 		s->ntxq += nports * (num_vis - 1) * iaq.ntxq_vi;
 	}
 	s->neq = s->ntxq + s->nrxq;	/* the free list in an rxq is an eq */
-	s->neq += nports + 1;/* ctrl queues: 1 per port + 1 mgmt */
+	s->neq += nports;		/* ctrl queues: 1 per port */
 	s->niq = s->nrxq + 1;		/* 1 extra for firmware event queue */
 #ifdef TCP_OFFLOAD
 	if (is_offload(sc)) {
@@ -1229,6 +1200,7 @@ t4_attach(device_t dev)
 	    M_ZERO | M_WAITOK);
 
 	t4_init_l2t(sc, M_WAITOK);
+	t4_init_smt(sc, M_WAITOK);
 	t4_init_tx_sched(sc);
 	if (sc->vres.key.size != 0)
 		sc->key_map = vmem_create("T4TLS key map", sc->vres.key.start,
@@ -1519,6 +1491,8 @@ t4_detach_common(device_t dev)
 		t4_free_l2t(sc->l2t);
 	if (sc->key_map)
 		vmem_destroy(sc->key_map);
+	if (sc->smt)
+		t4_free_smt(sc->smt);
 
 #ifdef TCP_OFFLOAD
 	free(sc->sge.ofld_rxq, M_CXGBE);
@@ -1535,6 +1509,10 @@ t4_detach_common(device_t dev)
 	free(sc->sge.iqmap, M_CXGBE);
 	free(sc->sge.eqmap, M_CXGBE);
 	free(sc->tids.ftid_tab, M_CXGBE);
+	free(sc->tids.hpftid_tab, M_CXGBE);
+	free_hftid_hash(&sc->tids);
+	free(sc->tids.atid_tab, M_CXGBE);
+	free(sc->tids.tid_tab, M_CXGBE);
 	free(sc->tt.tls_rx_ports, M_CXGBE);
 	t4_destroy_dma_tag(sc);
 	if (mtx_initialized(&sc->sc_lock)) {
@@ -1545,8 +1523,12 @@ t4_detach_common(device_t dev)
 	}
 
 	callout_drain(&sc->sfl_callout);
-	if (mtx_initialized(&sc->tids.ftid_lock))
+	if (mtx_initialized(&sc->tids.ftid_lock)) {
 		mtx_destroy(&sc->tids.ftid_lock);
+		cv_destroy(&sc->tids.ftid_cv);
+	}
+	if (mtx_initialized(&sc->tids.atid_lock))
+		mtx_destroy(&sc->tids.atid_lock);
 	if (mtx_initialized(&sc->sfl_lock))
 		mtx_destroy(&sc->sfl_lock);
 	if (mtx_initialized(&sc->ifp_lock))
@@ -1627,12 +1609,13 @@ cxgbe_vi_attach(device_t dev, struct vi_info *vi)
 	ifp->if_hwassist = CSUM_TCP | CSUM_UDP | CSUM_IP | CSUM_TSO |
 	    CSUM_UDP_IPV6 | CSUM_TCP_IPV6;
 
-	ifp->if_hw_tsomax = 65536 - (ETHER_HDR_LEN + ETHER_VLAN_ENCAP_LEN);
-	ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS;
+	ifp->if_hw_tsomax = IP_MAXPACKET;
+	ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS_TSO;
+#ifdef RATELIMIT
+	if (is_ethoffload(vi->pi->adapter) && vi->nofldtxq != 0)
+		ifp->if_hw_tsomaxsegcount = TX_SGL_SEGS_EO_TSO;
+#endif
 	ifp->if_hw_tsomaxsegsize = 65536;
-
-	vi->vlan_c = EVENTHANDLER_REGISTER(vlan_config, cxgbe_vlan_config, ifp,
-	    EVENTHANDLER_PRI_ANY);
 
 	ether_ifattach(ifp, vi->hw_addr);
 #ifdef DEV_NETMAP
@@ -1698,9 +1681,6 @@ cxgbe_vi_detach(struct vi_info *vi)
 	struct ifnet *ifp = vi->ifp;
 
 	ether_ifdetach(ifp);
-
-	if (vi->vlan_c)
-		EVENTHANDLER_DEREGISTER(vlan_config, vi->vlan_c);
 
 	/* Let detach proceed even if these fail. */
 #ifdef DEV_NETMAP
@@ -2174,7 +2154,7 @@ cxgbe_get_counter(struct ifnet *ifp, ift_counter c)
  * The kernel picks a media from the list we had provided but we still validate
  * the requeste.
  */
-static int
+int
 cxgbe_media_change(struct ifnet *ifp)
 {
 	struct vi_info *vi = ifp->if_softc;
@@ -2363,7 +2343,7 @@ port_mword(struct port_info *pi, uint32_t speed)
 	return (IFM_UNKNOWN);
 }
 
-static void
+void
 cxgbe_media_status(struct ifnet *ifp, struct ifmediareq *ifmr)
 {
 	struct vi_info *vi = ifp->if_softc;
@@ -2527,6 +2507,8 @@ t4_fatal_err(struct adapter *sc)
 	t4_intr_disable(sc);
 	log(LOG_EMERG, "%s: encountered fatal error, adapter stopped.\n",
 	    device_get_nameunit(sc->dev));
+	if (t4_panic_on_fatal_err)
+		panic("panic requested on fatal error");
 }
 
 void
@@ -2712,7 +2694,7 @@ position_memwin(struct adapter *sc, int idx, uint32_t addr)
 	t4_read_reg(sc, reg);	/* flush */
 }
 
-static int
+int
 rw_via_memwin(struct adapter *sc, int idx, uint32_t addr, uint32_t *val,
     int len, int rw)
 {
@@ -2760,20 +2742,105 @@ rw_via_memwin(struct adapter *sc, int idx, uint32_t addr, uint32_t *val,
 	return (0);
 }
 
-static inline int
-read_via_memwin(struct adapter *sc, int idx, uint32_t addr, uint32_t *val,
-    int len)
+int
+alloc_atid_tab(struct tid_info *t, int flags)
 {
+	int i;
 
-	return (rw_via_memwin(sc, idx, addr, val, len, 0));
+	MPASS(t->natids > 0);
+	MPASS(t->atid_tab == NULL);
+
+	t->atid_tab = malloc(t->natids * sizeof(*t->atid_tab), M_CXGBE,
+	    M_ZERO | flags);
+	if (t->atid_tab == NULL)
+		return (ENOMEM);
+	mtx_init(&t->atid_lock, "atid lock", NULL, MTX_DEF);
+	t->afree = t->atid_tab;
+	t->atids_in_use = 0;
+	for (i = 1; i < t->natids; i++)
+		t->atid_tab[i - 1].next = &t->atid_tab[i];
+	t->atid_tab[t->natids - 1].next = NULL;
+
+	return (0);
 }
 
-static inline int
-write_via_memwin(struct adapter *sc, int idx, uint32_t addr,
-    const uint32_t *val, int len)
+void
+free_atid_tab(struct tid_info *t)
 {
 
-	return (rw_via_memwin(sc, idx, addr, (void *)(uintptr_t)val, len, 1));
+	KASSERT(t->atids_in_use == 0,
+	    ("%s: %d atids still in use.", __func__, t->atids_in_use));
+
+	if (mtx_initialized(&t->atid_lock))
+		mtx_destroy(&t->atid_lock);
+	free(t->atid_tab, M_CXGBE);
+	t->atid_tab = NULL;
+}
+
+int
+alloc_atid(struct adapter *sc, void *ctx)
+{
+	struct tid_info *t = &sc->tids;
+	int atid = -1;
+
+	mtx_lock(&t->atid_lock);
+	if (t->afree) {
+		union aopen_entry *p = t->afree;
+
+		atid = p - t->atid_tab;
+		MPASS(atid <= M_TID_TID);
+		t->afree = p->next;
+		p->data = ctx;
+		t->atids_in_use++;
+	}
+	mtx_unlock(&t->atid_lock);
+	return (atid);
+}
+
+void *
+lookup_atid(struct adapter *sc, int atid)
+{
+	struct tid_info *t = &sc->tids;
+
+	return (t->atid_tab[atid].data);
+}
+
+void
+free_atid(struct adapter *sc, int atid)
+{
+	struct tid_info *t = &sc->tids;
+	union aopen_entry *p = &t->atid_tab[atid];
+
+	mtx_lock(&t->atid_lock);
+	p->next = t->afree;
+	t->afree = p;
+	t->atids_in_use--;
+	mtx_unlock(&t->atid_lock);
+}
+
+static void
+queue_tid_release(struct adapter *sc, int tid)
+{
+
+	CXGBE_UNIMPLEMENTED("deferred tid release");
+}
+
+void
+release_tid(struct adapter *sc, int tid, struct sge_wrq *ctrlq)
+{
+	struct wrqe *wr;
+	struct cpl_tid_release *req;
+
+	wr = alloc_wrqe(sizeof(*req), ctrlq);
+	if (wr == NULL) {
+		queue_tid_release(sc, tid);	/* defer */
+		return;
+	}
+	req = wrtod(wr);
+
+	INIT_TP_WR_MIT_CPL(req, CPL_TID_RELEASE, tid);
+
+	t4_wrq_tx(sc, wr);
 }
 
 static int
@@ -3738,6 +3805,20 @@ use_built_in_config:
 	LIMIT_CAPS(fcoecaps);
 #undef LIMIT_CAPS
 
+	if (caps.niccaps & htobe16(FW_CAPS_CONFIG_NIC_HASHFILTER)) {
+		/*
+		 * TOE and hashfilters are mutually exclusive.  It is a config
+		 * file or firmware bug if both are reported as available.  Try
+		 * to cope with the situation in non-debug builds by disabling
+		 * TOE.
+		 */
+		MPASS(caps.toecaps == 0);
+
+		caps.toecaps = 0;
+		caps.rdmacaps = 0;
+		caps.iscsicaps = 0;
+	}
+
 	caps.op_to_write = htobe32(V_FW_CMD_OP(FW_CAPS_CONFIG_CMD) |
 	    F_FW_CMD_REQUEST | F_FW_CMD_WRITE);
 	caps.cfvalid_to_len16 = htobe32(FW_LEN16(caps));
@@ -3842,16 +3923,58 @@ get_params__post_init(struct adapter *sc)
 
 	sc->sge.iq_start = val[0];
 	sc->sge.eq_start = val[1];
-	sc->tids.ftid_base = val[2];
-	sc->tids.nftids = val[3] - val[2] + 1;
-	sc->params.ftid_min = val[2];
-	sc->params.ftid_max = val[3];
+	if ((int)val[3] > (int)val[2]) {
+		sc->tids.ftid_base = val[2];
+		sc->tids.ftid_end = val[3];
+		sc->tids.nftids = val[3] - val[2] + 1;
+	}
 	sc->vres.l2t.start = val[4];
 	sc->vres.l2t.size = val[5] - val[4] + 1;
 	KASSERT(sc->vres.l2t.size <= L2T_SIZE,
 	    ("%s: L2 table size (%u) larger than expected (%u)",
 	    __func__, sc->vres.l2t.size, L2T_SIZE));
 	sc->params.core_vdd = val[6];
+
+	if (chip_id(sc) >= CHELSIO_T6) {
+
+#ifdef INVARIANTS
+		if (sc->params.fw_vers >=
+		    (V_FW_HDR_FW_VER_MAJOR(1) | V_FW_HDR_FW_VER_MINOR(20) |
+		    V_FW_HDR_FW_VER_MICRO(1) | V_FW_HDR_FW_VER_BUILD(0))) {
+			/*
+			 * Note that the code to enable the region should run
+			 * before t4_fw_initialize and not here.  This is just a
+			 * reminder to add said code.
+			 */
+			device_printf(sc->dev,
+			    "hpfilter region not enabled.\n");
+		}
+#endif
+
+		sc->tids.tid_base = t4_read_reg(sc,
+		    A_LE_DB_ACTIVE_TABLE_START_INDEX);
+
+		param[0] = FW_PARAM_PFVF(HPFILTER_START);
+		param[1] = FW_PARAM_PFVF(HPFILTER_END);
+		rc = -t4_query_params(sc, sc->mbox, sc->pf, 0, 2, param, val);
+		if (rc != 0) {
+			device_printf(sc->dev,
+			   "failed to query hpfilter parameters: %d.\n", rc);
+			return (rc);
+		}
+		if ((int)val[1] > (int)val[0]) {
+			sc->tids.hpftid_base = val[0];
+			sc->tids.hpftid_end = val[1];
+			sc->tids.nhpftids = val[1] - val[0] + 1;
+
+			/*
+			 * These should go off if the layout changes and the
+			 * driver needs to catch up.
+			 */
+			MPASS(sc->tids.hpftid_base == 0);
+			MPASS(sc->tids.tid_base == sc->tids.nhpftids);
+		}
+	}
 
 	/*
 	 * MPSBGMAP is queried separately because only recent firmwares support
@@ -3865,6 +3988,30 @@ get_params__post_init(struct adapter *sc)
 		sc->params.mps_bg_map = val[0];
 	else
 		sc->params.mps_bg_map = 0;
+
+	/*
+	 * Determine whether the firmware supports the filter2 work request.
+	 * This is queried separately for the same reason as MPSBGMAP above.
+	 */
+	param[0] = FW_PARAM_DEV(FILTER2_WR);
+	val[0] = 0;
+	rc = -t4_query_params(sc, sc->mbox, sc->pf, 0, 1, param, val);
+	if (rc == 0)
+		sc->params.filter2_wr_support = val[0] != 0;
+	else
+		sc->params.filter2_wr_support = 0;
+
+	/*
+	 * Find out whether we're allowed to use the ULPTX MEMWRITE DSGL.
+	 * This is queried separately for the same reason as other params above.
+	 */
+	param[0] = FW_PARAM_DEV(ULPTX_MEMWRITE_DSGL);
+	val[0] = 0;
+	rc = -t4_query_params(sc, sc->mbox, sc->pf, 0, 1, param, val);
+	if (rc == 0)
+		sc->params.ulptx_memwrite_dsgl = val[0] != 0;
+	else
+		sc->params.ulptx_memwrite_dsgl = false;
 
 	/* get capabilites */
 	bzero(&caps, sizeof(caps));
@@ -3891,18 +4038,28 @@ get_params__post_init(struct adapter *sc)
 	READ_CAPS(iscsicaps);
 	READ_CAPS(fcoecaps);
 
-	/*
-	 * The firmware attempts memfree TOE configuration for -SO cards and
-	 * will report toecaps=0 if it runs out of resources (this depends on
-	 * the config file).  It may not report 0 for other capabilities
-	 * dependent on the TOE in this case.  Set them to 0 here so that the
-	 * driver doesn't bother tracking resources that will never be used.
-	 */
-	if (sc->toecaps == 0) {
-		sc->iscsicaps = 0;
-		sc->rdmacaps = 0;
-	}
+	if (sc->niccaps & FW_CAPS_CONFIG_NIC_HASHFILTER) {
+		MPASS(chip_id(sc) > CHELSIO_T4);
+		MPASS(sc->toecaps == 0);
+		sc->toecaps = 0;
 
+		param[0] = FW_PARAM_DEV(NTID);
+		rc = -t4_query_params(sc, sc->mbox, sc->pf, 0, 1, param, val);
+		if (rc != 0) {
+			device_printf(sc->dev,
+			    "failed to query HASHFILTER parameters: %d.\n", rc);
+			return (rc);
+		}
+		sc->tids.ntids = val[0];
+		if (sc->params.fw_vers <
+		    (V_FW_HDR_FW_VER_MAJOR(1) | V_FW_HDR_FW_VER_MINOR(20) |
+		    V_FW_HDR_FW_VER_MICRO(5) | V_FW_HDR_FW_VER_BUILD(0))) {
+			MPASS(sc->tids.ntids >= sc->tids.nhpftids);
+			sc->tids.ntids -= sc->tids.nhpftids;
+		}
+		sc->tids.natids = min(sc->tids.ntids / 2, MAX_ATIDS);
+		sc->params.hash_filter = 1;
+	}
 	if (sc->niccaps & FW_CAPS_CONFIG_NIC_ETHOFLD) {
 		param[0] = FW_PARAM_PFVF(ETHOFLD_START);
 		param[1] = FW_PARAM_PFVF(ETHOFLD_END);
@@ -3913,14 +4070,14 @@ get_params__post_init(struct adapter *sc)
 			    "failed to query NIC parameters: %d.\n", rc);
 			return (rc);
 		}
-		sc->tids.etid_base = val[0];
-		sc->params.etid_min = val[0];
-		sc->tids.netids = val[1] - val[0] + 1;
-		sc->params.netids = sc->tids.netids;
-		sc->params.eo_wr_cred = val[2];
-		sc->params.ethoffload = 1;
+		if ((int)val[1] > (int)val[0]) {
+			sc->tids.etid_base = val[0];
+			sc->tids.etid_end = val[1];
+			sc->tids.netids = val[1] - val[0] + 1;
+			sc->params.eo_wr_cred = val[2];
+			sc->params.ethoffload = 1;
+		}
 	}
-
 	if (sc->toecaps) {
 		/* query offload-related parameters */
 		param[0] = FW_PARAM_DEV(NTID);
@@ -3936,13 +4093,32 @@ get_params__post_init(struct adapter *sc)
 			return (rc);
 		}
 		sc->tids.ntids = val[0];
+		if (sc->params.fw_vers <
+		    (V_FW_HDR_FW_VER_MAJOR(1) | V_FW_HDR_FW_VER_MINOR(20) |
+		    V_FW_HDR_FW_VER_MICRO(5) | V_FW_HDR_FW_VER_BUILD(0))) {
+			MPASS(sc->tids.ntids >= sc->tids.nhpftids);
+			sc->tids.ntids -= sc->tids.nhpftids;
+		}
 		sc->tids.natids = min(sc->tids.ntids / 2, MAX_ATIDS);
-		sc->tids.stid_base = val[1];
-		sc->tids.nstids = val[2] - val[1] + 1;
+		if ((int)val[2] > (int)val[1]) {
+			sc->tids.stid_base = val[1];
+			sc->tids.nstids = val[2] - val[1] + 1;
+		}
 		sc->vres.ddp.start = val[3];
 		sc->vres.ddp.size = val[4] - val[3] + 1;
 		sc->params.ofldq_wr_cred = val[5];
 		sc->params.offload = 1;
+	} else {
+		/*
+		 * The firmware attempts memfree TOE configuration for -SO cards
+		 * and will report toecaps=0 if it runs out of resources (this
+		 * depends on the config file).  It may not report 0 for other
+		 * capabilities dependent on the TOE in this case.  Set them to
+		 * 0 here so that the driver doesn't bother tracking resources
+		 * that will never be used.
+		 */
+		sc->iscsicaps = 0;
+		sc->rdmacaps = 0;
 	}
 	if (sc->rdmacaps) {
 		param[0] = FW_PARAM_PFVF(STAG_START);
@@ -4372,7 +4548,9 @@ apply_link_config(struct port_info *pi)
 #endif
 	rc = -t4_link_l1cfg(sc, sc->mbox, pi->tx_chan, lc);
 	if (rc != 0) {
-		device_printf(pi->dev, "l1cfg failed: %d\n", rc);
+		/* Don't complain if the VF driver gets back an EPERM. */
+		if (!(sc->flags & IS_VF) || rc != FW_EPERM)
+			device_printf(pi->dev, "l1cfg failed: %d\n", rc);
 	} else {
 		/*
 		 * An L1_CFG will almost always result in a link-change event if
@@ -4836,9 +5014,26 @@ t4_setup_intr_handlers(struct adapter *sc)
 #ifdef DEV_NETMAP
 					if (q < vi->nnmrxq)
 						irq->nm_rxq = nm_rxq++;
+
+					if (irq->nm_rxq != NULL &&
+					    irq->rxq == NULL) {
+						/* Netmap rx only */
+						rc = t4_alloc_irq(sc, irq, rid,
+						    t4_nm_intr, irq->nm_rxq, s);
+					}
+					if (irq->nm_rxq != NULL &&
+					    irq->rxq != NULL) {
+						/* NIC and Netmap rx */
+						rc = t4_alloc_irq(sc, irq, rid,
+						    t4_vi_intr, irq, s);
+					}
 #endif
-					rc = t4_alloc_irq(sc, irq, rid,
-					    t4_vi_intr, irq, s);
+					if (irq->rxq != NULL &&
+					    irq->nm_rxq == NULL) {
+						/* NIC rx only */
+						rc = t4_alloc_irq(sc, irq, rid,
+						    t4_intr, irq->rxq, s);
+					}
 					if (rc != 0)
 						return (rc);
 #ifdef RSS
@@ -5088,6 +5283,7 @@ vi_full_init(struct vi_info *vi)
 	rc = -t4_config_rss_range(sc, sc->mbox, vi->viid, 0, vi->rss_size, rss,
 	    vi->rss_size);
 	if (rc != 0) {
+		free(rss, M_CXGBE);
 		if_printf(ifp, "rss_config failed: %d\n", rc);
 		goto done;
 	}
@@ -5136,6 +5332,7 @@ vi_full_init(struct vi_info *vi)
 #endif
 	rc = -t4_config_vi_rss(sc, sc->mbox, vi->viid, hashen, rss[0], 0, 0);
 	if (rc != 0) {
+		free(rss, M_CXGBE);
 		if_printf(ifp, "rss hash/defaultq config failed: %d\n", rc);
 		goto done;
 	}
@@ -5462,18 +5659,6 @@ vi_tick(void *arg)
 	callout_schedule(&vi->tick, hz);
 }
 
-static void
-cxgbe_vlan_config(void *arg, struct ifnet *ifp, uint16_t vid)
-{
-	struct ifnet *vlan;
-
-	if (arg != ifp || ifp->if_type != IFT_ETHER)
-		return;
-
-	vlan = VLAN_DEVAT(ifp, vid);
-	VLAN_SETCOOKIE(vlan, ifp);
-}
-
 /*
  * Should match fw_caps_config_<foo> enums in t4fw_interface.h
  */
@@ -5519,8 +5704,8 @@ t4_sysctls(struct adapter *sc)
 	    sc->params.nports, "# of ports");
 
 	SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "doorbells",
-	    CTLTYPE_STRING | CTLFLAG_RD, doorbells, sc->doorbells,
-	    sysctl_bitfield, "A", "available doorbells");
+	    CTLTYPE_STRING | CTLFLAG_RD, doorbells, (uintptr_t)&sc->doorbells,
+	    sysctl_bitfield_8b, "A", "available doorbells");
 
 	SYSCTL_ADD_INT(ctx, children, OID_AUTO, "core_clock", CTLFLAG_RD, NULL,
 	    sc->params.vpd.cclk, "core clock frequency (in KHz)");
@@ -5591,8 +5776,8 @@ t4_sysctls(struct adapter *sc)
 
 #define SYSCTL_CAP(name, n, text) \
 	SYSCTL_ADD_PROC(ctx, children, OID_AUTO, #name, \
-	    CTLTYPE_STRING | CTLFLAG_RD, caps_decoder[n], sc->name, \
-	    sysctl_bitfield, "A", "available " text " capabilities")
+	    CTLTYPE_STRING | CTLFLAG_RD, caps_decoder[n], (uintptr_t)&sc->name, \
+	    sysctl_bitfield_16b, "A", "available " text " capabilities")
 
 	SYSCTL_CAP(nbmcaps, 0, "NBM");
 	SYSCTL_CAP(linkcaps, 1, "link");
@@ -5619,7 +5804,14 @@ t4_sysctls(struct adapter *sc)
 	SYSCTL_ADD_INT(ctx, children, OID_AUTO, "core_vdd", CTLFLAG_RD,
 	    &sc->params.core_vdd, 0, "core Vdd (in mV)");
 
-#ifdef SBUF_DRAIN
+	SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "local_cpus",
+	    CTLTYPE_STRING | CTLFLAG_RD, sc, LOCAL_CPUS,
+	    sysctl_cpus, "A", "local CPUs");
+
+	SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "intr_cpus",
+	    CTLTYPE_STRING | CTLFLAG_RD, sc, INTR_CPUS,
+	    sysctl_cpus, "A", "preferred CPUs for interrupts");
+
 	/*
 	 * dev.t4nex.X.misc.  Marked CTLFLAG_SKIP to avoid information overload.
 	 */
@@ -5731,6 +5923,10 @@ t4_sysctls(struct adapter *sc)
 	    CTLTYPE_STRING | CTLFLAG_RD, sc, 0,
 	    sysctl_l2t, "A", "hardware L2 table");
 
+	SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "smt",
+	    CTLTYPE_STRING | CTLFLAG_RD, sc, 0,
+	    sysctl_smt, "A", "hardware source MAC table");
+
 	SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "lb_stats",
 	    CTLTYPE_STRING | CTLFLAG_RD, sc, 0,
 	    sysctl_lb_stats, "A", "loopback statistics");
@@ -5789,7 +5985,6 @@ t4_sysctls(struct adapter *sc)
 		    CTLTYPE_STRING | CTLFLAG_RD, sc, 0,
 		    sysctl_wcwr_stats, "A", "write combined work requests");
 	}
-#endif
 
 #ifdef TCP_OFFLOAD
 	if (is_offload(sc)) {
@@ -5945,6 +6140,8 @@ vi_sysctls(struct vi_info *vi)
 	    &vi->first_rxq, 0, "index of first rx queue");
 	SYSCTL_ADD_INT(ctx, children, OID_AUTO, "first_txq", CTLFLAG_RD,
 	    &vi->first_txq, 0, "index of first tx queue");
+	SYSCTL_ADD_UINT(ctx, children, OID_AUTO, "rss_base", CTLFLAG_RD, NULL,
+	    vi->rss_base, "start of RSS indirection table");
 	SYSCTL_ADD_UINT(ctx, children, OID_AUTO, "rss_size", CTLFLAG_RD, NULL,
 	    vi->rss_size, "size of RSS indirection table");
 
@@ -6017,6 +6214,7 @@ cxgbe_sysctls(struct port_info *pi)
 	struct adapter *sc = pi->adapter;
 	int i;
 	char name[16];
+	static char *tc_flags = {"\20\1USER\2SYNC\3ASYNC\4ERR"};
 
 	ctx = device_get_sysctl_ctx(pi->dev);
 
@@ -6062,6 +6260,13 @@ cxgbe_sysctls(struct port_info *pi)
 	 */
 	oid = SYSCTL_ADD_NODE(ctx, children, OID_AUTO, "tc", CTLFLAG_RD, NULL,
 	    "Tx scheduler traffic classes (cl_rl)");
+	children2 = SYSCTL_CHILDREN(oid);
+	SYSCTL_ADD_UINT(ctx, children2, OID_AUTO, "pktsize",
+	    CTLFLAG_RW, &pi->sched_params->pktsize, 0,
+	    "pktsize for per-flow cl-rl (0 means up to the driver )");
+	SYSCTL_ADD_UINT(ctx, children2, OID_AUTO, "burstsize",
+	    CTLFLAG_RW, &pi->sched_params->burstsize, 0,
+	    "burstsize for per-flow cl-rl (0 means up to the driver)");
 	for (i = 0; i < sc->chip_params->nsched_cls; i++) {
 		struct tx_cl_rl_params *tc = &pi->sched_params->cl_rl[i];
 
@@ -6069,15 +6274,14 @@ cxgbe_sysctls(struct port_info *pi)
 		children2 = SYSCTL_CHILDREN(SYSCTL_ADD_NODE(ctx,
 		    SYSCTL_CHILDREN(oid), OID_AUTO, name, CTLFLAG_RD, NULL,
 		    "traffic class"));
-		SYSCTL_ADD_UINT(ctx, children2, OID_AUTO, "flags", CTLFLAG_RD,
-		    &tc->flags, 0, "flags");
+		SYSCTL_ADD_PROC(ctx, children2, OID_AUTO, "flags",
+		    CTLTYPE_STRING | CTLFLAG_RD, tc_flags, (uintptr_t)&tc->flags,
+		    sysctl_bitfield_8b, "A", "flags");
 		SYSCTL_ADD_UINT(ctx, children2, OID_AUTO, "refcount",
 		    CTLFLAG_RD, &tc->refcount, 0, "references to this class");
-#ifdef SBUF_DRAIN
 		SYSCTL_ADD_PROC(ctx, children2, OID_AUTO, "params",
 		    CTLTYPE_STRING | CTLFLAG_RD, sc, (pi->port_id << 16) | i,
 		    sysctl_tc_params, "A", "traffic class parameters");
-#endif
 	}
 
 	/*
@@ -6272,7 +6476,7 @@ sysctl_int_array(SYSCTL_HANDLER_ARGS)
 }
 
 static int
-sysctl_bitfield(SYSCTL_HANDLER_ARGS)
+sysctl_bitfield_8b(SYSCTL_HANDLER_ARGS)
 {
 	int rc;
 	struct sbuf *sb;
@@ -6285,7 +6489,28 @@ sysctl_bitfield(SYSCTL_HANDLER_ARGS)
 	if (sb == NULL)
 		return (ENOMEM);
 
-	sbuf_printf(sb, "%b", (int)arg2, (char *)arg1);
+	sbuf_printf(sb, "%b", *(uint8_t *)(uintptr_t)arg2, (char *)arg1);
+	rc = sbuf_finish(sb);
+	sbuf_delete(sb);
+
+	return (rc);
+}
+
+static int
+sysctl_bitfield_16b(SYSCTL_HANDLER_ARGS)
+{
+	int rc;
+	struct sbuf *sb;
+
+	rc = sysctl_wire_old_buffer(req, 0);
+	if (rc != 0)
+		return(rc);
+
+	sb = sbuf_new_for_sysctl(NULL, NULL, 128, req);
+	if (sb == NULL)
+		return (ENOMEM);
+
+	sbuf_printf(sb, "%b", *(uint16_t *)(uintptr_t)arg2, (char *)arg1);
 	rc = sbuf_finish(sb);
 	sbuf_delete(sb);
 
@@ -6698,7 +6923,6 @@ sysctl_temperature(SYSCTL_HANDLER_ARGS)
 	return (rc);
 }
 
-#ifdef SBUF_DRAIN
 static int
 sysctl_loadavg(SYSCTL_HANDLER_ARGS)
 {
@@ -8178,6 +8402,11 @@ sysctl_tids(SYSCTL_HANDLER_ARGS)
 		    t->atids_in_use);
 	}
 
+	if (t->nhpftids) {
+		sbuf_printf(sb, "HPFTID range: %u-%u, in use: %u\n",
+		    t->hpftid_base, t->hpftid_end, t->hpftids_in_use);
+	}
+
 	if (t->ntids) {
 		sbuf_printf(sb, "TID range: ");
 		if (t4_read_reg(sc, A_LE_DB_CONFIG) & F_HASHEN) {
@@ -8192,10 +8421,10 @@ sysctl_tids(SYSCTL_HANDLER_ARGS)
 			}
 
 			if (b)
-				sbuf_printf(sb, "0-%u, ", b - 1);
+				sbuf_printf(sb, "%u-%u, ", t->tid_base, b - 1);
 			sbuf_printf(sb, "%u-%u", hb, t->ntids - 1);
 		} else
-			sbuf_printf(sb, "0-%u", t->ntids - 1);
+			sbuf_printf(sb, "%u-%u", t->tid_base, t->ntids - 1);
 		sbuf_printf(sb, ", in use: %u\n",
 		    atomic_load_acq_int(&t->tids_in_use));
 	}
@@ -8206,8 +8435,8 @@ sysctl_tids(SYSCTL_HANDLER_ARGS)
 	}
 
 	if (t->nftids) {
-		sbuf_printf(sb, "FTID range: %u-%u\n", t->ftid_base,
-		    t->ftid_base + t->nftids - 1);
+		sbuf_printf(sb, "FTID range: %u-%u, in use: %u\n", t->ftid_base,
+		    t->ftid_end, t->ftids_in_use);
 	}
 
 	if (t->netids) {
@@ -8672,12 +8901,20 @@ sysctl_wcwr_stats(SYSCTL_HANDLER_ARGS)
 }
 
 static int
-sysctl_tc_params(SYSCTL_HANDLER_ARGS)
+sysctl_cpus(SYSCTL_HANDLER_ARGS)
 {
 	struct adapter *sc = arg1;
-	struct tx_cl_rl_params tc;
+	enum cpu_sets op = arg2;
+	cpuset_t cpuset;
 	struct sbuf *sb;
-	int i, rc, port_id, mbps, gbps;
+	int i, rc;
+
+	MPASS(op == LOCAL_CPUS || op == INTR_CPUS);
+
+	CPU_ZERO(&cpuset);
+	rc = bus_get_cpus(sc->dev, op, sizeof(cpuset), &cpuset);
+	if (rc != 0)
+		return (rc);
 
 	rc = sysctl_wire_old_buffer(req, 0);
 	if (rc != 0)
@@ -8687,66 +8924,14 @@ sysctl_tc_params(SYSCTL_HANDLER_ARGS)
 	if (sb == NULL)
 		return (ENOMEM);
 
-	port_id = arg2 >> 16;
-	MPASS(port_id < sc->params.nports);
-	MPASS(sc->port[port_id] != NULL);
-	i = arg2 & 0xffff;
-	MPASS(i < sc->chip_params->nsched_cls);
-
-	mtx_lock(&sc->tc_lock);
-	tc = sc->port[port_id]->sched_params->cl_rl[i];
-	mtx_unlock(&sc->tc_lock);
-
-	if (tc.flags & TX_CLRL_ERROR) {
-		sbuf_printf(sb, "error");
-		goto done;
-	}
-
-	if (tc.ratemode == SCHED_CLASS_RATEMODE_REL) {
-		/* XXX: top speed or actual link speed? */
-		gbps = port_top_speed(sc->port[port_id]);
-		sbuf_printf(sb, " %u%% of %uGbps", tc.maxrate, gbps);
-	} else if (tc.ratemode == SCHED_CLASS_RATEMODE_ABS) {
-		switch (tc.rateunit) {
-		case SCHED_CLASS_RATEUNIT_BITS:
-			mbps = tc.maxrate / 1000;
-			gbps = tc.maxrate / 1000000;
-			if (tc.maxrate == gbps * 1000000)
-				sbuf_printf(sb, " %uGbps", gbps);
-			else if (tc.maxrate == mbps * 1000)
-				sbuf_printf(sb, " %uMbps", mbps);
-			else
-				sbuf_printf(sb, " %uKbps", tc.maxrate);
-			break;
-		case SCHED_CLASS_RATEUNIT_PKTS:
-			sbuf_printf(sb, " %upps", tc.maxrate);
-			break;
-		default:
-			rc = ENXIO;
-			goto done;
-		}
-	}
-
-	switch (tc.mode) {
-	case SCHED_CLASS_MODE_CLASS:
-		sbuf_printf(sb, " aggregate");
-		break;
-	case SCHED_CLASS_MODE_FLOW:
-		sbuf_printf(sb, " per-flow");
-		break;
-	default:
-		rc = ENXIO;
-		goto done;
-	}
-
-done:
-	if (rc == 0)
-		rc = sbuf_finish(sb);
+	CPU_FOREACH(i)
+		sbuf_printf(sb, "%d ", i);
+	rc = sbuf_finish(sb);
 	sbuf_delete(sb);
 
 	return (rc);
+
 }
-#endif
 
 #ifdef TCP_OFFLOAD
 static int
@@ -8996,648 +9181,6 @@ sysctl_holdoff_pktc_idx_ofld(SYSCTL_HANDLER_ARGS)
 	return (rc);
 }
 #endif
-
-static uint32_t
-fconf_iconf_to_mode(uint32_t fconf, uint32_t iconf)
-{
-	uint32_t mode;
-
-	mode = T4_FILTER_IPv4 | T4_FILTER_IPv6 | T4_FILTER_IP_SADDR |
-	    T4_FILTER_IP_DADDR | T4_FILTER_IP_SPORT | T4_FILTER_IP_DPORT;
-
-	if (fconf & F_FRAGMENTATION)
-		mode |= T4_FILTER_IP_FRAGMENT;
-
-	if (fconf & F_MPSHITTYPE)
-		mode |= T4_FILTER_MPS_HIT_TYPE;
-
-	if (fconf & F_MACMATCH)
-		mode |= T4_FILTER_MAC_IDX;
-
-	if (fconf & F_ETHERTYPE)
-		mode |= T4_FILTER_ETH_TYPE;
-
-	if (fconf & F_PROTOCOL)
-		mode |= T4_FILTER_IP_PROTO;
-
-	if (fconf & F_TOS)
-		mode |= T4_FILTER_IP_TOS;
-
-	if (fconf & F_VLAN)
-		mode |= T4_FILTER_VLAN;
-
-	if (fconf & F_VNIC_ID) {
-		mode |= T4_FILTER_VNIC;
-		if (iconf & F_VNIC)
-			mode |= T4_FILTER_IC_VNIC;
-	}
-
-	if (fconf & F_PORT)
-		mode |= T4_FILTER_PORT;
-
-	if (fconf & F_FCOE)
-		mode |= T4_FILTER_FCoE;
-
-	return (mode);
-}
-
-static uint32_t
-mode_to_fconf(uint32_t mode)
-{
-	uint32_t fconf = 0;
-
-	if (mode & T4_FILTER_IP_FRAGMENT)
-		fconf |= F_FRAGMENTATION;
-
-	if (mode & T4_FILTER_MPS_HIT_TYPE)
-		fconf |= F_MPSHITTYPE;
-
-	if (mode & T4_FILTER_MAC_IDX)
-		fconf |= F_MACMATCH;
-
-	if (mode & T4_FILTER_ETH_TYPE)
-		fconf |= F_ETHERTYPE;
-
-	if (mode & T4_FILTER_IP_PROTO)
-		fconf |= F_PROTOCOL;
-
-	if (mode & T4_FILTER_IP_TOS)
-		fconf |= F_TOS;
-
-	if (mode & T4_FILTER_VLAN)
-		fconf |= F_VLAN;
-
-	if (mode & T4_FILTER_VNIC)
-		fconf |= F_VNIC_ID;
-
-	if (mode & T4_FILTER_PORT)
-		fconf |= F_PORT;
-
-	if (mode & T4_FILTER_FCoE)
-		fconf |= F_FCOE;
-
-	return (fconf);
-}
-
-static uint32_t
-mode_to_iconf(uint32_t mode)
-{
-
-	if (mode & T4_FILTER_IC_VNIC)
-		return (F_VNIC);
-	return (0);
-}
-
-static int check_fspec_against_fconf_iconf(struct adapter *sc,
-    struct t4_filter_specification *fs)
-{
-	struct tp_params *tpp = &sc->params.tp;
-	uint32_t fconf = 0;
-
-	if (fs->val.frag || fs->mask.frag)
-		fconf |= F_FRAGMENTATION;
-
-	if (fs->val.matchtype || fs->mask.matchtype)
-		fconf |= F_MPSHITTYPE;
-
-	if (fs->val.macidx || fs->mask.macidx)
-		fconf |= F_MACMATCH;
-
-	if (fs->val.ethtype || fs->mask.ethtype)
-		fconf |= F_ETHERTYPE;
-
-	if (fs->val.proto || fs->mask.proto)
-		fconf |= F_PROTOCOL;
-
-	if (fs->val.tos || fs->mask.tos)
-		fconf |= F_TOS;
-
-	if (fs->val.vlan_vld || fs->mask.vlan_vld)
-		fconf |= F_VLAN;
-
-	if (fs->val.ovlan_vld || fs->mask.ovlan_vld) {
-		fconf |= F_VNIC_ID;
-		if (tpp->ingress_config & F_VNIC)
-			return (EINVAL);
-	}
-
-	if (fs->val.pfvf_vld || fs->mask.pfvf_vld) {
-		fconf |= F_VNIC_ID;
-		if ((tpp->ingress_config & F_VNIC) == 0)
-			return (EINVAL);
-	}
-
-	if (fs->val.iport || fs->mask.iport)
-		fconf |= F_PORT;
-
-	if (fs->val.fcoe || fs->mask.fcoe)
-		fconf |= F_FCOE;
-
-	if ((tpp->vlan_pri_map | fconf) != tpp->vlan_pri_map)
-		return (E2BIG);
-
-	return (0);
-}
-
-static int
-get_filter_mode(struct adapter *sc, uint32_t *mode)
-{
-	struct tp_params *tpp = &sc->params.tp;
-
-	/*
-	 * We trust the cached values of the relevant TP registers.  This means
-	 * things work reliably only if writes to those registers are always via
-	 * t4_set_filter_mode.
-	 */
-	*mode = fconf_iconf_to_mode(tpp->vlan_pri_map, tpp->ingress_config);
-
-	return (0);
-}
-
-static int
-set_filter_mode(struct adapter *sc, uint32_t mode)
-{
-	struct tp_params *tpp = &sc->params.tp;
-	uint32_t fconf, iconf;
-	int rc;
-
-	iconf = mode_to_iconf(mode);
-	if ((iconf ^ tpp->ingress_config) & F_VNIC) {
-		/*
-		 * For now we just complain if A_TP_INGRESS_CONFIG is not
-		 * already set to the correct value for the requested filter
-		 * mode.  It's not clear if it's safe to write to this register
-		 * on the fly.  (And we trust the cached value of the register).
-		 */
-		return (EBUSY);
-	}
-
-	fconf = mode_to_fconf(mode);
-
-	rc = begin_synchronized_op(sc, NULL, HOLD_LOCK | SLEEP_OK | INTR_OK,
-	    "t4setfm");
-	if (rc)
-		return (rc);
-
-	if (sc->tids.ftids_in_use > 0) {
-		rc = EBUSY;
-		goto done;
-	}
-
-#ifdef TCP_OFFLOAD
-	if (uld_active(sc, ULD_TOM)) {
-		rc = EBUSY;
-		goto done;
-	}
-#endif
-
-	rc = -t4_set_filter_mode(sc, fconf, true);
-done:
-	end_synchronized_op(sc, LOCK_HELD);
-	return (rc);
-}
-
-static inline uint64_t
-get_filter_hits(struct adapter *sc, uint32_t fid)
-{
-	uint32_t tcb_addr;
-
-	tcb_addr = t4_read_reg(sc, A_TP_CMM_TCB_BASE) +
-	    (fid + sc->tids.ftid_base) * TCB_SIZE;
-
-	if (is_t4(sc)) {
-		uint64_t hits;
-
-		read_via_memwin(sc, 0, tcb_addr + 16, (uint32_t *)&hits, 8);
-		return (be64toh(hits));
-	} else {
-		uint32_t hits;
-
-		read_via_memwin(sc, 0, tcb_addr + 24, &hits, 4);
-		return (be32toh(hits));
-	}
-}
-
-static int
-get_filter(struct adapter *sc, struct t4_filter *t)
-{
-	int i, rc, nfilters = sc->tids.nftids;
-	struct filter_entry *f;
-
-	rc = begin_synchronized_op(sc, NULL, HOLD_LOCK | SLEEP_OK | INTR_OK,
-	    "t4getf");
-	if (rc)
-		return (rc);
-
-	if (sc->tids.ftids_in_use == 0 || sc->tids.ftid_tab == NULL ||
-	    t->idx >= nfilters) {
-		t->idx = 0xffffffff;
-		goto done;
-	}
-
-	f = &sc->tids.ftid_tab[t->idx];
-	for (i = t->idx; i < nfilters; i++, f++) {
-		if (f->valid) {
-			t->idx = i;
-			t->l2tidx = f->l2t ? f->l2t->idx : 0;
-			t->smtidx = f->smtidx;
-			if (f->fs.hitcnts)
-				t->hits = get_filter_hits(sc, t->idx);
-			else
-				t->hits = UINT64_MAX;
-			t->fs = f->fs;
-
-			goto done;
-		}
-	}
-
-	t->idx = 0xffffffff;
-done:
-	end_synchronized_op(sc, LOCK_HELD);
-	return (0);
-}
-
-static int
-set_filter(struct adapter *sc, struct t4_filter *t)
-{
-	unsigned int nfilters, nports;
-	struct filter_entry *f;
-	int i, rc;
-
-	rc = begin_synchronized_op(sc, NULL, SLEEP_OK | INTR_OK, "t4setf");
-	if (rc)
-		return (rc);
-
-	nfilters = sc->tids.nftids;
-	nports = sc->params.nports;
-
-	if (nfilters == 0) {
-		rc = ENOTSUP;
-		goto done;
-	}
-
-	if (t->idx >= nfilters) {
-		rc = EINVAL;
-		goto done;
-	}
-
-	/* Validate against the global filter mode and ingress config */
-	rc = check_fspec_against_fconf_iconf(sc, &t->fs);
-	if (rc != 0)
-		goto done;
-
-	if (t->fs.action == FILTER_SWITCH && t->fs.eport >= nports) {
-		rc = EINVAL;
-		goto done;
-	}
-
-	if (t->fs.val.iport >= nports) {
-		rc = EINVAL;
-		goto done;
-	}
-
-	/* Can't specify an iq if not steering to it */
-	if (!t->fs.dirsteer && t->fs.iq) {
-		rc = EINVAL;
-		goto done;
-	}
-
-	/* IPv6 filter idx must be 4 aligned */
-	if (t->fs.type == 1 &&
-	    ((t->idx & 0x3) || t->idx + 4 >= nfilters)) {
-		rc = EINVAL;
-		goto done;
-	}
-
-	if (!(sc->flags & FULL_INIT_DONE) &&
-	    ((rc = adapter_full_init(sc)) != 0))
-		goto done;
-
-	if (sc->tids.ftid_tab == NULL) {
-		KASSERT(sc->tids.ftids_in_use == 0,
-		    ("%s: no memory allocated but filters_in_use > 0",
-		    __func__));
-
-		sc->tids.ftid_tab = malloc(sizeof (struct filter_entry) *
-		    nfilters, M_CXGBE, M_NOWAIT | M_ZERO);
-		if (sc->tids.ftid_tab == NULL) {
-			rc = ENOMEM;
-			goto done;
-		}
-		mtx_init(&sc->tids.ftid_lock, "T4 filters", 0, MTX_DEF);
-	}
-
-	for (i = 0; i < 4; i++) {
-		f = &sc->tids.ftid_tab[t->idx + i];
-
-		if (f->pending || f->valid) {
-			rc = EBUSY;
-			goto done;
-		}
-		if (f->locked) {
-			rc = EPERM;
-			goto done;
-		}
-
-		if (t->fs.type == 0)
-			break;
-	}
-
-	f = &sc->tids.ftid_tab[t->idx];
-	f->fs = t->fs;
-
-	rc = set_filter_wr(sc, t->idx);
-done:
-	end_synchronized_op(sc, 0);
-
-	if (rc == 0) {
-		mtx_lock(&sc->tids.ftid_lock);
-		for (;;) {
-			if (f->pending == 0) {
-				rc = f->valid ? 0 : EIO;
-				break;
-			}
-
-			if (mtx_sleep(&sc->tids.ftid_tab, &sc->tids.ftid_lock,
-			    PCATCH, "t4setfw", 0)) {
-				rc = EINPROGRESS;
-				break;
-			}
-		}
-		mtx_unlock(&sc->tids.ftid_lock);
-	}
-	return (rc);
-}
-
-static int
-del_filter(struct adapter *sc, struct t4_filter *t)
-{
-	unsigned int nfilters;
-	struct filter_entry *f;
-	int rc;
-
-	rc = begin_synchronized_op(sc, NULL, SLEEP_OK | INTR_OK, "t4delf");
-	if (rc)
-		return (rc);
-
-	nfilters = sc->tids.nftids;
-
-	if (nfilters == 0) {
-		rc = ENOTSUP;
-		goto done;
-	}
-
-	if (sc->tids.ftid_tab == NULL || sc->tids.ftids_in_use == 0 ||
-	    t->idx >= nfilters) {
-		rc = EINVAL;
-		goto done;
-	}
-
-	if (!(sc->flags & FULL_INIT_DONE)) {
-		rc = EAGAIN;
-		goto done;
-	}
-
-	f = &sc->tids.ftid_tab[t->idx];
-
-	if (f->pending) {
-		rc = EBUSY;
-		goto done;
-	}
-	if (f->locked) {
-		rc = EPERM;
-		goto done;
-	}
-
-	if (f->valid) {
-		t->fs = f->fs;	/* extra info for the caller */
-		rc = del_filter_wr(sc, t->idx);
-	}
-
-done:
-	end_synchronized_op(sc, 0);
-
-	if (rc == 0) {
-		mtx_lock(&sc->tids.ftid_lock);
-		for (;;) {
-			if (f->pending == 0) {
-				rc = f->valid ? EIO : 0;
-				break;
-			}
-
-			if (mtx_sleep(&sc->tids.ftid_tab, &sc->tids.ftid_lock,
-			    PCATCH, "t4delfw", 0)) {
-				rc = EINPROGRESS;
-				break;
-			}
-		}
-		mtx_unlock(&sc->tids.ftid_lock);
-	}
-
-	return (rc);
-}
-
-static void
-clear_filter(struct filter_entry *f)
-{
-	if (f->l2t)
-		t4_l2t_release(f->l2t);
-
-	bzero(f, sizeof (*f));
-}
-
-static int
-set_filter_wr(struct adapter *sc, int fidx)
-{
-	struct filter_entry *f = &sc->tids.ftid_tab[fidx];
-	struct fw_filter_wr *fwr;
-	unsigned int ftid, vnic_vld, vnic_vld_mask;
-	struct wrq_cookie cookie;
-
-	ASSERT_SYNCHRONIZED_OP(sc);
-
-	if (f->fs.newdmac || f->fs.newvlan) {
-		/* This filter needs an L2T entry; allocate one. */
-		f->l2t = t4_l2t_alloc_switching(sc->l2t);
-		if (f->l2t == NULL)
-			return (EAGAIN);
-		if (t4_l2t_set_switching(sc, f->l2t, f->fs.vlan, f->fs.eport,
-		    f->fs.dmac)) {
-			t4_l2t_release(f->l2t);
-			f->l2t = NULL;
-			return (ENOMEM);
-		}
-	}
-
-	/* Already validated against fconf, iconf */
-	MPASS((f->fs.val.pfvf_vld & f->fs.val.ovlan_vld) == 0);
-	MPASS((f->fs.mask.pfvf_vld & f->fs.mask.ovlan_vld) == 0);
-	if (f->fs.val.pfvf_vld || f->fs.val.ovlan_vld)
-		vnic_vld = 1;
-	else
-		vnic_vld = 0;
-	if (f->fs.mask.pfvf_vld || f->fs.mask.ovlan_vld)
-		vnic_vld_mask = 1;
-	else
-		vnic_vld_mask = 0;
-
-	ftid = sc->tids.ftid_base + fidx;
-
-	fwr = start_wrq_wr(&sc->sge.mgmtq, howmany(sizeof(*fwr), 16), &cookie);
-	if (fwr == NULL)
-		return (ENOMEM);
-	bzero(fwr, sizeof(*fwr));
-
-	fwr->op_pkd = htobe32(V_FW_WR_OP(FW_FILTER_WR));
-	fwr->len16_pkd = htobe32(FW_LEN16(*fwr));
-	fwr->tid_to_iq =
-	    htobe32(V_FW_FILTER_WR_TID(ftid) |
-		V_FW_FILTER_WR_RQTYPE(f->fs.type) |
-		V_FW_FILTER_WR_NOREPLY(0) |
-		V_FW_FILTER_WR_IQ(f->fs.iq));
-	fwr->del_filter_to_l2tix =
-	    htobe32(V_FW_FILTER_WR_RPTTID(f->fs.rpttid) |
-		V_FW_FILTER_WR_DROP(f->fs.action == FILTER_DROP) |
-		V_FW_FILTER_WR_DIRSTEER(f->fs.dirsteer) |
-		V_FW_FILTER_WR_MASKHASH(f->fs.maskhash) |
-		V_FW_FILTER_WR_DIRSTEERHASH(f->fs.dirsteerhash) |
-		V_FW_FILTER_WR_LPBK(f->fs.action == FILTER_SWITCH) |
-		V_FW_FILTER_WR_DMAC(f->fs.newdmac) |
-		V_FW_FILTER_WR_SMAC(f->fs.newsmac) |
-		V_FW_FILTER_WR_INSVLAN(f->fs.newvlan == VLAN_INSERT ||
-		    f->fs.newvlan == VLAN_REWRITE) |
-		V_FW_FILTER_WR_RMVLAN(f->fs.newvlan == VLAN_REMOVE ||
-		    f->fs.newvlan == VLAN_REWRITE) |
-		V_FW_FILTER_WR_HITCNTS(f->fs.hitcnts) |
-		V_FW_FILTER_WR_TXCHAN(f->fs.eport) |
-		V_FW_FILTER_WR_PRIO(f->fs.prio) |
-		V_FW_FILTER_WR_L2TIX(f->l2t ? f->l2t->idx : 0));
-	fwr->ethtype = htobe16(f->fs.val.ethtype);
-	fwr->ethtypem = htobe16(f->fs.mask.ethtype);
-	fwr->frag_to_ovlan_vldm =
-	    (V_FW_FILTER_WR_FRAG(f->fs.val.frag) |
-		V_FW_FILTER_WR_FRAGM(f->fs.mask.frag) |
-		V_FW_FILTER_WR_IVLAN_VLD(f->fs.val.vlan_vld) |
-		V_FW_FILTER_WR_OVLAN_VLD(vnic_vld) |
-		V_FW_FILTER_WR_IVLAN_VLDM(f->fs.mask.vlan_vld) |
-		V_FW_FILTER_WR_OVLAN_VLDM(vnic_vld_mask));
-	fwr->smac_sel = 0;
-	fwr->rx_chan_rx_rpl_iq = htobe16(V_FW_FILTER_WR_RX_CHAN(0) |
-	    V_FW_FILTER_WR_RX_RPL_IQ(sc->sge.fwq.abs_id));
-	fwr->maci_to_matchtypem =
-	    htobe32(V_FW_FILTER_WR_MACI(f->fs.val.macidx) |
-		V_FW_FILTER_WR_MACIM(f->fs.mask.macidx) |
-		V_FW_FILTER_WR_FCOE(f->fs.val.fcoe) |
-		V_FW_FILTER_WR_FCOEM(f->fs.mask.fcoe) |
-		V_FW_FILTER_WR_PORT(f->fs.val.iport) |
-		V_FW_FILTER_WR_PORTM(f->fs.mask.iport) |
-		V_FW_FILTER_WR_MATCHTYPE(f->fs.val.matchtype) |
-		V_FW_FILTER_WR_MATCHTYPEM(f->fs.mask.matchtype));
-	fwr->ptcl = f->fs.val.proto;
-	fwr->ptclm = f->fs.mask.proto;
-	fwr->ttyp = f->fs.val.tos;
-	fwr->ttypm = f->fs.mask.tos;
-	fwr->ivlan = htobe16(f->fs.val.vlan);
-	fwr->ivlanm = htobe16(f->fs.mask.vlan);
-	fwr->ovlan = htobe16(f->fs.val.vnic);
-	fwr->ovlanm = htobe16(f->fs.mask.vnic);
-	bcopy(f->fs.val.dip, fwr->lip, sizeof (fwr->lip));
-	bcopy(f->fs.mask.dip, fwr->lipm, sizeof (fwr->lipm));
-	bcopy(f->fs.val.sip, fwr->fip, sizeof (fwr->fip));
-	bcopy(f->fs.mask.sip, fwr->fipm, sizeof (fwr->fipm));
-	fwr->lp = htobe16(f->fs.val.dport);
-	fwr->lpm = htobe16(f->fs.mask.dport);
-	fwr->fp = htobe16(f->fs.val.sport);
-	fwr->fpm = htobe16(f->fs.mask.sport);
-	if (f->fs.newsmac)
-		bcopy(f->fs.smac, fwr->sma, sizeof (fwr->sma));
-
-	f->pending = 1;
-	sc->tids.ftids_in_use++;
-
-	commit_wrq_wr(&sc->sge.mgmtq, fwr, &cookie);
-	return (0);
-}
-
-static int
-del_filter_wr(struct adapter *sc, int fidx)
-{
-	struct filter_entry *f = &sc->tids.ftid_tab[fidx];
-	struct fw_filter_wr *fwr;
-	unsigned int ftid;
-	struct wrq_cookie cookie;
-
-	ftid = sc->tids.ftid_base + fidx;
-
-	fwr = start_wrq_wr(&sc->sge.mgmtq, howmany(sizeof(*fwr), 16), &cookie);
-	if (fwr == NULL)
-		return (ENOMEM);
-	bzero(fwr, sizeof (*fwr));
-
-	t4_mk_filtdelwr(ftid, fwr, sc->sge.fwq.abs_id);
-
-	f->pending = 1;
-	commit_wrq_wr(&sc->sge.mgmtq, fwr, &cookie);
-	return (0);
-}
-
-int
-t4_filter_rpl(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
-{
-	struct adapter *sc = iq->adapter;
-	const struct cpl_set_tcb_rpl *rpl = (const void *)(rss + 1);
-	unsigned int idx = GET_TID(rpl);
-	unsigned int rc;
-	struct filter_entry *f;
-
-	KASSERT(m == NULL, ("%s: payload with opcode %02x", __func__,
-	    rss->opcode));
-	MPASS(iq == &sc->sge.fwq);
-	MPASS(is_ftid(sc, idx));
-
-	idx -= sc->tids.ftid_base;
-	f = &sc->tids.ftid_tab[idx];
-	rc = G_COOKIE(rpl->cookie);
-
-	mtx_lock(&sc->tids.ftid_lock);
-	if (rc == FW_FILTER_WR_FLT_ADDED) {
-		KASSERT(f->pending, ("%s: filter[%u] isn't pending.",
-		    __func__, idx));
-		f->smtidx = (be64toh(rpl->oldval) >> 24) & 0xff;
-		f->pending = 0;  /* asynchronous setup completed */
-		f->valid = 1;
-	} else {
-		if (rc != FW_FILTER_WR_FLT_DELETED) {
-			/* Add or delete failed, display an error */
-			log(LOG_ERR,
-			    "filter %u setup failed with error %u\n",
-			    idx, rc);
-		}
-
-		clear_filter(f);
-		sc->tids.ftids_in_use--;
-	}
-	wakeup(&sc->tids.ftid_tab);
-	mtx_unlock(&sc->tids.ftid_lock);
-
-	return (0);
-}
-
-static int
-set_tcb_rpl(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
-{
-
-	MPASS(iq->set_tcb_rpl != NULL);
-	return (iq->set_tcb_rpl(iq, rss, m));
-}
-
-static int
-l2t_write_rpl(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
-{
-
-	MPASS(iq->l2t_write_rpl != NULL);
-	return (iq->l2t_write_rpl(iq, rss, m));
-}
 
 static int
 get_sge_context(struct adapter *sc, struct t4_sge_context *cntxt)
@@ -10928,10 +10471,20 @@ mod_event(module_t mod, int cmd, void *arg)
 		sx_xlock(&mlu);
 		if (loaded++ == 0) {
 			t4_sge_modload();
-			t4_register_cpl_handler(CPL_SET_TCB_RPL, set_tcb_rpl);
-			t4_register_cpl_handler(CPL_L2T_WRITE_RPL, l2t_write_rpl);
+			t4_register_shared_cpl_handler(CPL_SET_TCB_RPL,
+			    t4_filter_rpl, CPL_COOKIE_FILTER);
+			t4_register_shared_cpl_handler(CPL_L2T_WRITE_RPL,
+			    do_l2t_write_rpl, CPL_COOKIE_FILTER);
+			t4_register_shared_cpl_handler(CPL_ACT_OPEN_RPL,
+			    t4_hashfilter_ao_rpl, CPL_COOKIE_HASHFILTER);
+			t4_register_shared_cpl_handler(CPL_SET_TCB_RPL,
+			    t4_hashfilter_tcb_rpl, CPL_COOKIE_HASHFILTER);
+			t4_register_shared_cpl_handler(CPL_ABORT_RPL_RSS,
+			    t4_del_hashfilter_rpl, CPL_COOKIE_HASHFILTER);
 			t4_register_cpl_handler(CPL_TRACE_PKT, t4_trace_pkt);
 			t4_register_cpl_handler(CPL_T5_TRACE_PKT, t5_trace_pkt);
+			t4_register_cpl_handler(CPL_SMT_WRITE_RPL,
+			    do_smt_write_rpl);
 			sx_init(&t4_list_lock, "T4/T5 adapters");
 			SLIST_INIT(&t4_list);
 #ifdef TCP_OFFLOAD

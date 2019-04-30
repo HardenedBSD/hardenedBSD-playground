@@ -36,6 +36,8 @@
 #include <compat/linux/linux.h>
 #include <i386/linux/linux_syscall.h>
 
+#define LINUX_LEGACY_SYSCALLS
+
 /*
  * debugging support
  */
@@ -108,7 +110,7 @@ typedef struct {
  */
 #define LINUX_AT_COUNT		20	/* Count of used aux entry types.
 					 * Keep this synchronized with
-					 * elf_linux_fixup() code.
+					 * linux_fixup_elf() code.
 					 */
 struct l___sysctl_args
 {
@@ -447,10 +449,10 @@ extern struct sysentvec linux_sysvec;
 
 union l_semun {
 	l_int		val;
-	struct l_semid_ds	*buf;
+	l_uintptr_t	buf;
 	l_ushort	*array;
-	struct l_seminfo	*__buf;
-	void		*__pad;
+	l_uintptr_t	__buf;
+	l_uintptr_t	__pad;
 };
 
 struct l_sockaddr {

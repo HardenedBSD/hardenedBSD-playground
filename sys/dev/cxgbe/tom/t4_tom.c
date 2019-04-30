@@ -93,7 +93,6 @@ static struct uld_info tom_uld_info = {
 	.deactivate = t4_tom_deactivate,
 };
 
-static void queue_tid_release(struct adapter *, int);
 static void release_offload_resources(struct toepcb *);
 static int alloc_tid_tabs(struct tid_info *);
 static void free_tid_tabs(struct tid_info *);
@@ -315,10 +314,9 @@ release_offload_resources(struct toepcb *toep)
 	if (toep->ce)
 		release_lip(td, toep->ce);
 
-#ifdef RATELIMIT
 	if (toep->tc_idx != -1)
-		t4_release_cl_rl_kbps(sc, toep->vi->pi->port_id, toep->tc_idx);
-#endif
+		t4_release_cl_rl(sc, toep->vi->pi->port_id, toep->tc_idx);
+
 	mtx_lock(&td->toep_list_lock);
 	TAILQ_REMOVE(&td->toep_list, toep, link);
 	mtx_unlock(&td->toep_list_lock);
@@ -396,6 +394,84 @@ t4_ctloutput(struct toedev *tod, struct tcpcb *tp, int dir, int name)
 	}
 }
 
+static inline int
+get_tcb_bit(u_char *tcb, int bit)
+{
+	int ix, shift;
+
+	ix = 127 - (bit >> 3);
+	shift = bit & 0x7;
+
+	return ((tcb[ix] >> shift) & 1);
+}
+
+static inline uint64_t
+get_tcb_bits(u_char *tcb, int hi, int lo)
+{
+	uint64_t rc = 0;
+
+	while (hi >= lo) {
+		rc = (rc << 1) | get_tcb_bit(tcb, hi);
+		--hi;
+	}
+
+	return (rc);
+}
+
+/*
+ * Called by the kernel to allow the TOE driver to "refine" values filled up in
+ * the tcp_info for an offloaded connection.
+ */
+static void
+t4_tcp_info(struct toedev *tod, struct tcpcb *tp, struct tcp_info *ti)
+{
+	int i, j, k, rc;
+	struct adapter *sc = tod->tod_softc;
+	struct toepcb *toep = tp->t_toe;
+	uint32_t addr, v;
+	uint32_t buf[TCB_SIZE / sizeof(uint32_t)];
+	u_char *tcb, tmp;
+
+	INP_WLOCK_ASSERT(tp->t_inpcb);
+	MPASS(ti != NULL);
+
+	addr = t4_read_reg(sc, A_TP_CMM_TCB_BASE) + toep->tid * TCB_SIZE;
+	rc = read_via_memwin(sc, 2, addr, &buf[0], TCB_SIZE);
+	if (rc != 0)
+		return;
+
+	tcb = (u_char *)&buf[0];
+	for (i = 0, j = TCB_SIZE - 16; i < j; i += 16, j -= 16) {
+		for (k = 0; k < 16; k++) {
+			tmp = tcb[i + k];
+			tcb[i + k] = tcb[j + k];
+			tcb[j + k] = tmp;
+		}
+	}
+
+	ti->tcpi_state = get_tcb_bits(tcb, 115, 112);
+
+	v = get_tcb_bits(tcb, 271, 256);
+	ti->tcpi_rtt = tcp_ticks_to_us(sc, v);
+
+	v = get_tcb_bits(tcb, 287, 272);
+	ti->tcpi_rttvar = tcp_ticks_to_us(sc, v);
+
+	ti->tcpi_snd_ssthresh = get_tcb_bits(tcb, 487, 460);
+	ti->tcpi_snd_cwnd = get_tcb_bits(tcb, 459, 432);
+	ti->tcpi_rcv_nxt = get_tcb_bits(tcb, 553, 522);
+
+	ti->tcpi_snd_nxt = get_tcb_bits(tcb, 319, 288) -
+	    get_tcb_bits(tcb, 375, 348);
+
+	/* Receive window being advertised by us. */
+	ti->tcpi_rcv_space = get_tcb_bits(tcb, 581, 554);
+
+	/* Send window ceiling. */
+	v = get_tcb_bits(tcb, 159, 144) << get_tcb_bits(tcb, 131, 128);
+	ti->tcpi_snd_wnd = min(v, ti->tcpi_snd_cwnd);
+}
+
 /*
  * The TOE driver will not receive any more CPLs for the tid associated with the
  * toepcb; release the hold on the inpcb.
@@ -431,7 +507,10 @@ insert_tid(struct adapter *sc, int tid, void *ctx, int ntids)
 {
 	struct tid_info *t = &sc->tids;
 
-	t->tid_tab[tid] = ctx;
+	MPASS(tid >= t->tid_base);
+	MPASS(tid - t->tid_base < t->ntids);
+
+	t->tid_tab[tid - t->tid_base] = ctx;
 	atomic_add_int(&t->tids_in_use, ntids);
 }
 
@@ -440,7 +519,7 @@ lookup_tid(struct adapter *sc, int tid)
 {
 	struct tid_info *t = &sc->tids;
 
-	return (t->tid_tab[tid]);
+	return (t->tid_tab[tid - t->tid_base]);
 }
 
 void
@@ -448,7 +527,7 @@ update_tid(struct adapter *sc, int tid, void *ctx)
 {
 	struct tid_info *t = &sc->tids;
 
-	t->tid_tab[tid] = ctx;
+	t->tid_tab[tid - t->tid_base] = ctx;
 }
 
 void
@@ -456,33 +535,8 @@ remove_tid(struct adapter *sc, int tid, int ntids)
 {
 	struct tid_info *t = &sc->tids;
 
-	t->tid_tab[tid] = NULL;
+	t->tid_tab[tid - t->tid_base] = NULL;
 	atomic_subtract_int(&t->tids_in_use, ntids);
-}
-
-void
-release_tid(struct adapter *sc, int tid, struct sge_wrq *ctrlq)
-{
-	struct wrqe *wr;
-	struct cpl_tid_release *req;
-
-	wr = alloc_wrqe(sizeof(*req), ctrlq);
-	if (wr == NULL) {
-		queue_tid_release(sc, tid);	/* defer */
-		return;
-	}
-	req = wrtod(wr);
-
-	INIT_TP_WR_MIT_CPL(req, CPL_TID_RELEASE, tid);
-
-	t4_wrq_tx(sc, wr);
-}
-
-static void
-queue_tid_release(struct adapter *sc, int tid)
-{
-
-	CXGBE_UNIMPLEMENTED("deferred tid release");
 }
 
 /*
@@ -601,7 +655,7 @@ select_ntuple(struct vi_info *vi, struct l2t_entry *e)
 	if (tp->protocol_shift >= 0)
 		ntuple |= (uint64_t)IPPROTO_TCP << tp->protocol_shift;
 
-	if (tp->vnic_shift >= 0) {
+	if (tp->vnic_shift >= 0 && tp->ingress_config & F_VNIC) {
 		uint32_t vf = G_FW_VIID_VIN(viid);
 		uint32_t pf = G_FW_VIID_PFN(viid);
 		uint32_t vld = G_FW_VIID_VIVLD(viid);
@@ -673,55 +727,94 @@ negative_advice(int status)
 }
 
 static int
-alloc_tid_tabs(struct tid_info *t)
+alloc_tid_tab(struct tid_info *t, int flags)
 {
-	size_t size;
-	unsigned int i;
 
-	size = t->ntids * sizeof(*t->tid_tab) +
-	    t->natids * sizeof(*t->atid_tab) +
-	    t->nstids * sizeof(*t->stid_tab);
+	MPASS(t->ntids > 0);
+	MPASS(t->tid_tab == NULL);
 
-	t->tid_tab = malloc(size, M_CXGBE, M_ZERO | M_NOWAIT);
+	t->tid_tab = malloc(t->ntids * sizeof(*t->tid_tab), M_CXGBE,
+	    M_ZERO | flags);
 	if (t->tid_tab == NULL)
 		return (ENOMEM);
-
-	mtx_init(&t->atid_lock, "atid lock", NULL, MTX_DEF);
-	t->atid_tab = (union aopen_entry *)&t->tid_tab[t->ntids];
-	t->afree = t->atid_tab;
-	t->atids_in_use = 0;
-	for (i = 1; i < t->natids; i++)
-		t->atid_tab[i - 1].next = &t->atid_tab[i];
-	t->atid_tab[t->natids - 1].next = NULL;
-
-	mtx_init(&t->stid_lock, "stid lock", NULL, MTX_DEF);
-	t->stid_tab = (struct listen_ctx **)&t->atid_tab[t->natids];
-	t->stids_in_use = 0;
-	TAILQ_INIT(&t->stids);
-	t->nstids_free_head = t->nstids;
-
 	atomic_store_rel_int(&t->tids_in_use, 0);
 
 	return (0);
 }
 
 static void
-free_tid_tabs(struct tid_info *t)
+free_tid_tab(struct tid_info *t)
 {
+
 	KASSERT(t->tids_in_use == 0,
 	    ("%s: %d tids still in use.", __func__, t->tids_in_use));
-	KASSERT(t->atids_in_use == 0,
-	    ("%s: %d atids still in use.", __func__, t->atids_in_use));
-	KASSERT(t->stids_in_use == 0,
-	    ("%s: %d tids still in use.", __func__, t->stids_in_use));
 
 	free(t->tid_tab, M_CXGBE);
 	t->tid_tab = NULL;
+}
 
-	if (mtx_initialized(&t->atid_lock))
-		mtx_destroy(&t->atid_lock);
+static int
+alloc_stid_tab(struct tid_info *t, int flags)
+{
+
+	MPASS(t->nstids > 0);
+	MPASS(t->stid_tab == NULL);
+
+	t->stid_tab = malloc(t->nstids * sizeof(*t->stid_tab), M_CXGBE,
+	    M_ZERO | flags);
+	if (t->stid_tab == NULL)
+		return (ENOMEM);
+	mtx_init(&t->stid_lock, "stid lock", NULL, MTX_DEF);
+	t->stids_in_use = 0;
+	TAILQ_INIT(&t->stids);
+	t->nstids_free_head = t->nstids;
+
+	return (0);
+}
+
+static void
+free_stid_tab(struct tid_info *t)
+{
+
+	KASSERT(t->stids_in_use == 0,
+	    ("%s: %d tids still in use.", __func__, t->stids_in_use));
+
 	if (mtx_initialized(&t->stid_lock))
 		mtx_destroy(&t->stid_lock);
+	free(t->stid_tab, M_CXGBE);
+	t->stid_tab = NULL;
+}
+
+static void
+free_tid_tabs(struct tid_info *t)
+{
+
+	free_tid_tab(t);
+	free_atid_tab(t);
+	free_stid_tab(t);
+}
+
+static int
+alloc_tid_tabs(struct tid_info *t)
+{
+	int rc;
+
+	rc = alloc_tid_tab(t, M_NOWAIT);
+	if (rc != 0)
+		goto failed;
+
+	rc = alloc_atid_tab(t, M_NOWAIT);
+	if (rc != 0)
+		goto failed;
+
+	rc = alloc_stid_tab(t, M_NOWAIT);
+	if (rc != 0)
+		goto failed;
+
+	return (0);
+failed:
+	free_tid_tabs(t);
+	return (rc);
 }
 
 static int
@@ -1170,6 +1263,7 @@ lookup_offload_policy(struct adapter *sc, int open_type, struct mbuf *m,
 	if (pkt == NULL || pktlen == 0 || buflen == 0)
 		return (&disallow_offloading_settings);
 
+	matched = 0;
 	r = &op->rule[0];
 	for (i = 0; i < op->nrules; i++, r++) {
 		if (r->open_type != open_type &&
@@ -1235,8 +1329,7 @@ t4_tom_activate(struct adapter *sc)
 	struct tom_data *td;
 	struct toedev *tod;
 	struct vi_info *vi;
-	struct sge_ofld_rxq *ofld_rxq;
-	int i, j, rc, v;
+	int i, rc, v;
 
 	ASSERT_SYNCHRONIZED_OP(sc);
 
@@ -1292,14 +1385,15 @@ t4_tom_activate(struct adapter *sc)
 	tod->tod_syncache_respond = t4_syncache_respond;
 	tod->tod_offload_socket = t4_offload_socket;
 	tod->tod_ctloutput = t4_ctloutput;
+#if 0
+	tod->tod_tcp_info = t4_tcp_info;
+#else
+	(void)&t4_tcp_info;
+#endif
 
 	for_each_port(sc, i) {
 		for_each_vi(sc->port[i], v, vi) {
 			TOEDEV(vi->ifp) = &td->tod;
-			for_each_ofld_rxq(vi, j, ofld_rxq) {
-				ofld_rxq->iq.set_tcb_rpl = do_set_tcb_rpl;
-				ofld_rxq->iq.l2t_write_rpl = do_l2t_write_rpl2;
-			}
 		}
 	}
 
@@ -1402,6 +1496,8 @@ t4_tom_mod_load(void)
 	struct protosw *tcp_protosw, *tcp6_protosw;
 
 	/* CPL handlers */
+	t4_register_shared_cpl_handler(CPL_L2T_WRITE_RPL, do_l2t_write_rpl2,
+	    CPL_COOKIE_TOM);
 	t4_init_connect_cpl_handlers();
 	t4_init_listen_cpl_handlers();
 	t4_init_cpl_io_handlers();
@@ -1466,6 +1562,7 @@ t4_tom_mod_unload(void)
 	t4_uninit_connect_cpl_handlers();
 	t4_uninit_listen_cpl_handlers();
 	t4_uninit_cpl_io_handlers();
+	t4_register_shared_cpl_handler(CPL_L2T_WRITE_RPL, NULL, CPL_COOKIE_TOM);
 
 	return (0);
 }
