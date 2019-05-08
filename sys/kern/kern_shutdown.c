@@ -43,11 +43,8 @@ __FBSDID("$FreeBSD$");
 #include "opt_ekcd.h"
 #include "opt_kdb.h"
 #include "opt_panic.h"
-<<<<<<< HEAD
 #include "opt_pax.h"
-=======
 #include "opt_printf.h"
->>>>>>> origin/freebsd/current/master
 #include "opt_sched.h"
 #include "opt_watchdog.h"
 
