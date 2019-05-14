@@ -278,6 +278,7 @@ initializecpu(void)
 	}
 	hw_ibrs_recalculate();
 	hw_ssb_recalculate(false);
+	hw_mds_recalculate();
 	switch (cpu_vendor_id) {
 	case CPU_VENDOR_INTEL:
 		init_intel();
