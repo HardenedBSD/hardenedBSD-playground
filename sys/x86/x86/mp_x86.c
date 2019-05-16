@@ -66,6 +66,7 @@ __FBSDID("$FreeBSD$");
 
 #include <x86/apicreg.h>
 #include <machine/clock.h>
+#include <machine/cpu.h>
 #include <machine/cputypes.h>
 #include <x86/mca.h>
 #include <machine/md_var.h>
@@ -73,7 +74,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/psl.h>
 #include <machine/smp.h>
 #include <machine/specialreg.h>
-#include <machine/cpu.h>
+#include <x86/ucode.h>
 
 /* lock region used by kernel profiling */
 int	mcount_lock;
@@ -1367,6 +1368,9 @@ cpususpend_handler(void)
 	/* Wait for resume directive */
 	while (!CPU_ISSET(cpu, &toresume_cpus))
 		ia32_pause();
+
+	/* Re-apply microcode updates. */
+	ucode_reload();
 
 	if (cpu_ops.cpu_resume)
 		cpu_ops.cpu_resume();
