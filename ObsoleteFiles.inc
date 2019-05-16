@@ -43,13 +43,10 @@ OLD_FILES+=lib/casper/libcap_sysctl.1
 # 20190509: tests/sys/opencrypto requires the net/py-dpkt package.
 OLD_FILES+=usr/tests/sys/opencrypto/dpkt.py
 OLD_FILES+=usr/tests/sys/opencrypto/dpkt.pyc
-<<<<<<< HEAD
 # 20190311: libexecinfo move to /lib
 OLD_LIBS+=usr/lib/libexecinfo.so.1
-=======
 # 20190326: tzdata 2019a import
 OLD_FILES+=usr/share/zoneinfo/Etc/UCT
->>>>>>> origin/freebsd/current/master
 # 20190304: new libc++ import which bumps version from 7.0.1 to 8.0.0.
 OLD_FILES+=usr/include/c++/v1/experimental/dynarray
 # 20190304: new clang import which bumps version from 7.0.1 to 8.0.0.

@@ -107,11 +107,8 @@ __FBSDID("$FreeBSD$");
  *	and to when physical maps must be made correct.
  */
 
-<<<<<<< HEAD
-#include "opt_pax.h"
-=======
 #include "opt_ddb.h"
->>>>>>> origin/freebsd/current/master
+#include "opt_pax.h"
 #include "opt_pmap.h"
 #include "opt_vm.h"
 
