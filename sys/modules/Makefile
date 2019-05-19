@@ -204,6 +204,7 @@ SUBDIR=	\
 	libalias \
 	libiconv \
 	libmchain \
+	lindebugfs \
 	${_linux} \
 	${_linux_common} \
 	${_linux64} \
