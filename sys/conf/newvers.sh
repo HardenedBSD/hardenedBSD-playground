@@ -312,29 +312,12 @@ if [ -n "$hg_cmd" ] ; then
 	fi
 fi
 
-<<<<<<< HEAD
-include_metadata=true
-while getopts rR opt; do
-	case "$opt" in
-	r)
-		include_metadata=
-		;;
-	R)
-		if [ -z "${modified}" ]; then
-			include_metadata=
-		fi
-	esac
-done
-shift $((OPTIND - 1))
-
 if [ -n "${HBSD_EXTRA}" ] ; then
 	hbsdv=" [${HBSD_EXTRA}]"
 else
 	hbsdv=" "
 fi
 
-=======
->>>>>>> origin/freebsd/current/master
 if [ -z "${include_metadata}" ]; then
 	VERINFO="${VERSION}${hbsdv}${svn}${git}${hg} ${i}"
 	VERSTR="${VERINFO}\\n"
