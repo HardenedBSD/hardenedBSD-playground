@@ -12,3 +12,5 @@ options 	PAX_HARDENING
 options		PAX_NOEXEC
 options		PAX_SEGVGUARD
 nooptions	COMPAT_FREEBSD32
+
+options 	NUMA
