@@ -379,3 +379,5 @@ device		coretemp
 device		cpuctl
 device		cryptodev		# /dev/crypto for access to h/w
 device		aesni
+options		TPM_HARVEST		# feed tpm's random generator as entropy source
+device		tpm
