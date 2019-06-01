@@ -313,20 +313,15 @@ if [ -n "$hg_cmd" ] ; then
 	fi
 fi
 
-<<<<<<< HEAD
 if [ -n "${HBSD_EXTRA}" ] ; then
 	hbsdv=" [${HBSD_EXTRA}]"
 else
 	hbsdv=" "
 fi
 
-if [ -z "${include_metadata}" ]; then
-	VERINFO="${VERSION}${hbsdv}${svn}${git}${hg} ${i}"
-=======
 [ ${include_metadata} = "if-modified" -a ${modified} = "yes" ] && include_metadata=yes
 if [ ${include_metadata} != "yes" ]; then
-	VERINFO="${VERSION}${svn}${git}${hg} ${i}"
->>>>>>> origin/freebsd/current/master
+	VERINFO="${VERSION}${hbsdv}${svn}${git}${hg} ${i}"
 	VERSTR="${VERINFO}\\n"
 else
 	VERINFO="${VERSION} #${v}${hbsdv}${svn}${git}${hg}: ${t}"
