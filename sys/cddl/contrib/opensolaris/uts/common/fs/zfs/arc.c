@@ -1233,6 +1233,12 @@ sysctl_vfs_zfs_arc_meta_limit(SYSCTL_HANDLER_ARGS)
 		return (EINVAL);
 
 	arc_meta_limit = val;
+
+	mutex_enter(&arc_adjust_lock);
+	arc_adjust_needed = B_TRUE;
+	mutex_exit(&arc_adjust_lock);
+	zthr_wakeup(arc_adjust_zthr);
+
 	return (0);
 }
 
@@ -1293,6 +1299,11 @@ sysctl_vfs_zfs_arc_max(SYSCTL_HANDLER_ARGS)
 		arc_c = arc_c / 2;
 
 	zfs_arc_max = arc_c;
+
+	mutex_enter(&arc_adjust_lock);
+	arc_adjust_needed = B_TRUE;
+	mutex_exit(&arc_adjust_lock);
+	zthr_wakeup(arc_adjust_zthr);
 
 	return (0);
 }
@@ -5129,7 +5140,7 @@ static boolean_t
 arc_is_overflowing(void)
 {
 	/* Always allow at least one block of overflow */
-	uint64_t overflow = MAX(SPA_MAXBLOCKSIZE,
+	int64_t overflow = MAX(SPA_MAXBLOCKSIZE,
 	    arc_c >> zfs_arc_overflow_shift);
 
 	/*
@@ -5141,7 +5152,7 @@ arc_is_overflowing(void)
 	 * in the ARC. In practice, that's in the tens of MB, which is low
 	 * enough to be safe.
 	 */
-	return (aggsum_lower_bound(&arc_size) >= arc_c + overflow);
+	return (aggsum_lower_bound(&arc_size) >= (int64_t)arc_c + overflow);
 }
 
 static abd_t *
