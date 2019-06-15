@@ -138,6 +138,7 @@ aw_pwm_attach(device_t dev)
 	struct aw_pwm_softc *sc;
 	uint64_t clk_freq;
 	uint32_t reg;
+	phandle_t node;
 	int error;
 
 	sc = device_get_softc(dev);
@@ -149,17 +150,22 @@ aw_pwm_attach(device_t dev)
 		goto fail;
 	}
 	error = clk_enable(sc->clk);
+	if (error != 0) {
+		device_printf(dev, "cannot enable clock\n");
+		goto fail;
+	}
 
 	error = clk_get_freq(sc->clk, &sc->clk_freq);
+	if (error != 0) {
+		device_printf(dev, "cannot get clock frequency\n");
+		goto fail;
+	}
 
 	if (bus_alloc_resources(dev, aw_pwm_spec, &sc->res) != 0) {
 		device_printf(dev, "cannot allocate resources for device\n");
 		error = ENXIO;
 		goto fail;
 	}
-
-	if ((sc->busdev = pwmbus_attach_bus(dev)) == NULL)
-		device_printf(dev, "Cannot attach pwm bus\n");
 
 	/* Read the configuration left by U-Boot */
 	reg = AW_PWM_READ(sc, AW_PWM_CTRL);
@@ -170,7 +176,7 @@ aw_pwm_attach(device_t dev)
 	reg &= AW_PWM_CTRL_PRESCALE_MASK;
 	if (reg > nitems(aw_pwm_clk_prescaler)) {
 		device_printf(dev, "Bad prescaler %x, cannot guess current settings\n", reg);
-		goto out;
+		goto skipcfg;
 	}
 	clk_freq = sc->clk_freq / aw_pwm_clk_prescaler[reg];
 
@@ -180,8 +186,17 @@ aw_pwm_attach(device_t dev)
 	sc->duty = NS_PER_SEC /
 		(clk_freq / ((reg >> AW_PWM_PERIOD_ACTIVE_SHIFT) & AW_PWM_PERIOD_ACTIVE_MASK));
 
-out:
-	return (0);
+skipcfg:
+	/*
+	 * Note that we don't check for failure to attach pwmbus -- even without
+	 * it we can still service clients who connect via fdt xref data.
+	 */
+	node = ofw_bus_get_node(dev);
+	OF_device_register_xref(OF_xref_from_node(node), dev);
+
+	sc->busdev = device_add_child(dev, "pwmbus", -1);
+
+	return (bus_generic_attach(dev));
 
 fail:
 	aw_pwm_detach(dev);
@@ -192,12 +207,20 @@ static int
 aw_pwm_detach(device_t dev)
 {
 	struct aw_pwm_softc *sc;
+	int error;
 
 	sc = device_get_softc(dev);
 
-	bus_generic_detach(sc->dev);
+	if ((error = bus_generic_detach(sc->dev)) != 0) {
+		device_printf(sc->dev, "cannot detach child devices\n");
+		return (error);
+	}
 
-	bus_release_resources(dev, aw_pwm_spec, &sc->res);
+	if (sc->busdev != NULL)
+		device_delete_child(dev, sc->busdev);
+
+	if (sc->res != NULL)
+		bus_release_resources(dev, aw_pwm_spec, &sc->res);
 
 	return (0);
 }
