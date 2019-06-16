@@ -313,7 +313,7 @@ parse_bdf(FILE *fp, unsigned int map_idx)
 	int bbw, bbh, bbox, bboy;		/* Glyph bounding box. */
 	int fbbw = 0, fbbh, fbbox, fbboy;	/* Font bounding box. */
 	int dwidth = 0, dwy = 0;
-	int rv;
+	int rv = -1;
 	char spc = '\0';
 
 	/*
@@ -379,11 +379,13 @@ parse_bdf(FILE *fp, unsigned int map_idx)
 			curchar = atoi(ln + 9);
 		} else if (strncmp(ln, "DWIDTH ", 7) == 0) {
 			dwidth = atoi(ln + 7);
-		} else if (strncmp(ln, "BBX ", 4) == 0 &&
-		    sscanf(ln + 4, "%d %d %d %d", &bbw, &bbh, &bbox,
-		     &bboy) == 4) {
+		} else if (strncmp(ln, "BBX ", 4) == 0) {
+			if (sscanf(ln + 4, "%d %d %d %d", &bbw, &bbh, &bbox,
+			     &bboy) != 4)
+				errx(1, "invalid BBX at line %u", linenum);
 			if (bbw < 1 || bbh < 1 || bbw > fbbw || bbh > fbbh ||
-			    bbox < fbbox || bboy < fbboy)
+			    bbox < fbbox || bboy < fbboy ||
+			    bbh + bboy > fbbh + fbboy)
 				errx(1, "broken bitmap with BBX %d %d %d %d at line %u",
 				    bbw, bbh, bbox, bboy, linenum);
 			bbwbytes = howmany(bbw, 8);
@@ -482,7 +484,7 @@ parse_hex(FILE *fp, unsigned int map_idx)
 				    "malformed input: broken bitmap, character %06x",
 				    curchar);
 			gwidth = width * 2;
-			gwbytes = howmany(width, 8);
+			gwbytes = howmany(gwidth, 8);
 			if (chars_per_row < gwbytes * 2 || gwidth <= 8) {
 				gwidth = width; /* Single-width character. */
 				gwbytes = wbytes;
