@@ -46,7 +46,7 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/pwm/pwmbus.h>
 
-#include "pwm_if.h"
+#include "pwmbus_if.h"
 
 #define	AW_PWM_CTRL			0x00
 #define	 AW_PWM_CTRL_PRESCALE_MASK	0xF
@@ -226,7 +226,7 @@ aw_pwm_detach(device_t dev)
 }
 
 static int
-aw_pwm_channel_max(device_t dev, int *nchannel)
+aw_pwm_channel_count(device_t dev, u_int *nchannel)
 {
 
 	*nchannel = 1;
@@ -235,7 +235,7 @@ aw_pwm_channel_max(device_t dev, int *nchannel)
 }
 
 static int
-aw_pwm_channel_config(device_t dev, int channel, unsigned int period, unsigned int duty)
+aw_pwm_channel_config(device_t dev, u_int channel, u_int period, u_int duty)
 {
 	struct aw_pwm_softc *sc;
 	uint64_t period_freq, duty_freq;
@@ -298,7 +298,7 @@ aw_pwm_channel_config(device_t dev, int channel, unsigned int period, unsigned i
 }
 
 static int
-aw_pwm_channel_get_config(device_t dev, int channel, unsigned int *period, unsigned int *duty)
+aw_pwm_channel_get_config(device_t dev, u_int channel, u_int *period, u_int *duty)
 {
 	struct aw_pwm_softc *sc;
 
@@ -311,7 +311,7 @@ aw_pwm_channel_get_config(device_t dev, int channel, unsigned int *period, unsig
 }
 
 static int
-aw_pwm_channel_enable(device_t dev, int channel, bool enable)
+aw_pwm_channel_enable(device_t dev, u_int channel, bool enable)
 {
 	struct aw_pwm_softc *sc;
 	uint32_t reg;
@@ -335,7 +335,7 @@ aw_pwm_channel_enable(device_t dev, int channel, bool enable)
 }
 
 static int
-aw_pwm_channel_is_enabled(device_t dev, int channel, bool *enabled)
+aw_pwm_channel_is_enabled(device_t dev, u_int channel, bool *enabled)
 {
 	struct aw_pwm_softc *sc;
 
@@ -346,28 +346,18 @@ aw_pwm_channel_is_enabled(device_t dev, int channel, bool *enabled)
 	return (0);
 }
 
-static device_t
-aw_pwm_get_bus(device_t dev)
-{
-	struct aw_pwm_softc *sc;
-
-	sc = device_get_softc(dev);
-
-	return (sc->busdev);
-}
 static device_method_t aw_pwm_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		aw_pwm_probe),
 	DEVMETHOD(device_attach,	aw_pwm_attach),
 	DEVMETHOD(device_detach,	aw_pwm_detach),
 
-	/* pwm interface */
-	DEVMETHOD(pwm_get_bus,			aw_pwm_get_bus),
-	DEVMETHOD(pwm_channel_max,		aw_pwm_channel_max),
-	DEVMETHOD(pwm_channel_config,		aw_pwm_channel_config),
-	DEVMETHOD(pwm_channel_get_config,	aw_pwm_channel_get_config),
-	DEVMETHOD(pwm_channel_enable,		aw_pwm_channel_enable),
-	DEVMETHOD(pwm_channel_is_enabled,	aw_pwm_channel_is_enabled),
+	/* pwmbus interface */
+	DEVMETHOD(pwmbus_channel_count,		aw_pwm_channel_count),
+	DEVMETHOD(pwmbus_channel_config,	aw_pwm_channel_config),
+	DEVMETHOD(pwmbus_channel_get_config,	aw_pwm_channel_get_config),
+	DEVMETHOD(pwmbus_channel_enable,	aw_pwm_channel_enable),
+	DEVMETHOD(pwmbus_channel_is_enabled,	aw_pwm_channel_is_enabled),
 
 	DEVMETHOD_END
 };
@@ -381,4 +371,5 @@ static driver_t aw_pwm_driver = {
 static devclass_t aw_pwm_devclass;
 
 DRIVER_MODULE(aw_pwm, simplebus, aw_pwm_driver, aw_pwm_devclass, 0, 0);
+MODULE_VERSION(aw_pwm, 1);
 SIMPLEBUS_PNP_INFO(compat_data);

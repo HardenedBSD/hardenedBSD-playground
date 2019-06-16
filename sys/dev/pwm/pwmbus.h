@@ -31,12 +31,10 @@
 #ifndef _PWMBUS_H_
 
 #include <dev/ofw/openfirm.h>
-#include <sys/pwm.h>
 
 struct pwm_channel {
 	device_t	dev;
-	device_t	busdev;
-	int		channel;
+	u_int		channel;
 	uint64_t	period;
 	uint64_t	duty;
 	uint32_t	flags;
@@ -44,21 +42,13 @@ struct pwm_channel {
 };
 typedef struct pwm_channel *pwm_channel_t;
 
-device_t pwmbus_attach_bus(device_t dev);
-int pwmbus_acquire_channel(device_t bus, int channel);
-int pwmbus_release_channel(device_t bus, int channel);
-
-int
-pwm_get_by_ofw_propidx(device_t consumer, phandle_t node,
+int pwm_get_by_ofw_propidx(device_t consumer, phandle_t node,
     const char *prop_name, int idx, pwm_channel_t *channel);
-int
-pwm_get_by_ofw_idx(device_t consumer, phandle_t node, int idx,
+int pwm_get_by_ofw_idx(device_t consumer, phandle_t node, int idx,
     pwm_channel_t *out_channel);
-int
-pwm_get_by_ofw_property(device_t consumer, phandle_t node,
+int pwm_get_by_ofw_property(device_t consumer, phandle_t node,
     const char *prop_name, pwm_channel_t *out_channel);
-int
-pwm_get_by_ofw_name(device_t consumer, phandle_t node, const char *name,
+int pwm_get_by_ofw_name(device_t consumer, phandle_t node, const char *name,
     pwm_channel_t *out_channel);
 
 #endif /* _PWMBUS_H_ */

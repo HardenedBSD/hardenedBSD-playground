@@ -37,14 +37,12 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/time.h>
 
-#include <sys/pwm.h>
+#include <dev/pwm/pwmc.h>
 
 #include "pwmbus_if.h"
-#include "pwm_if.h"
 
 struct pwmc_softc {
 	device_t	dev;
-	device_t	pdev;
 	struct cdev	*pwm_dev;
 	char		name[32];
 };
@@ -56,18 +54,16 @@ pwm_ioctl(struct cdev *dev, u_long cmd, caddr_t data,
 	struct pwmc_softc *sc;
 	struct pwm_state state;
 	device_t bus;
-	int nchannel;
+	u_int nchannel;
 	int rv = 0;
 
 	sc = dev->si_drv1;
-	bus = PWM_GET_BUS(sc->pdev);
-	if (bus == NULL)
-		return (EINVAL);
+	bus = device_get_parent(sc->dev);
 
 	switch (cmd) {
 	case PWMMAXCHANNEL:
-		nchannel = -1;
-		rv = PWM_CHANNEL_MAX(sc->pdev, &nchannel);
+		nchannel = 0;
+		rv = PWMBUS_CHANNEL_COUNT(bus, &nchannel);
 		bcopy(&nchannel, data, sizeof(nchannel));
 		break;
 	case PWMSETSTATE:
@@ -106,7 +102,7 @@ pwmc_probe(device_t dev)
 {
 
 	device_set_desc(dev, "PWM Controller");
-	return (0);
+	return (BUS_PROBE_NOWILDCARD);
 }
 
 static int
@@ -117,7 +113,6 @@ pwmc_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
-	sc->pdev = device_get_parent(dev);
 
 	snprintf(sc->name, sizeof(sc->name), "pwmc%d", device_get_unit(dev));
 	make_dev_args_init(&args);
@@ -137,6 +132,10 @@ pwmc_attach(device_t dev)
 static int
 pwmc_detach(device_t dev)
 {
+	struct pwmc_softc *sc;
+ 
+	sc = device_get_softc(dev);
+	destroy_dev(sc->pwm_dev);
 
 	return (0);
 }
@@ -150,12 +149,13 @@ static device_method_t pwmc_methods[] = {
 	DEVMETHOD_END
 };
 
-driver_t pwmc_driver = {
+static driver_t pwmc_driver = {
 	"pwmc",
 	pwmc_methods,
 	sizeof(struct pwmc_softc),
 };
-devclass_t pwmc_devclass;
+static devclass_t pwmc_devclass;
 
-DRIVER_MODULE(pwmc, pwm, pwmc_driver, pwmc_devclass, 0, 0);
+DRIVER_MODULE(pwmc, pwmbus, pwmc_driver, pwmc_devclass, 0, 0);
+MODULE_DEPEND(pwmc, pwmbus, 1, 1, 1);
 MODULE_VERSION(pwmc, 1);

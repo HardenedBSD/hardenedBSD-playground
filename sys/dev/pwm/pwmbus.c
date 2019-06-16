@@ -41,13 +41,9 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
-#include <dev/ofw/ofw_bus.h>
-#include <dev/ofw/ofw_bus_subr.h>
-
 #include <dev/pwm/pwmbus.h>
 
 #include "pwmbus_if.h"
-#include "pwm_if.h"
 
 struct pwmbus_channel_data {
 	int	reserved;
@@ -55,40 +51,11 @@ struct pwmbus_channel_data {
 };
 
 struct pwmbus_softc {
-	device_t	busdev;
 	device_t	dev;
+	device_t	parent;
 
-	int		nchannels;
+	u_int		nchannels;
 };
-
-device_t
-pwmbus_attach_bus(device_t dev)
-{
-	device_t busdev;
-#ifdef FDT
-	phandle_t node;
-#endif
-
-	busdev = device_add_child(dev, "pwmbus", -1);
-	if (busdev == NULL) {
-		device_printf(dev, "Cannot add child pwmbus\n");
-		return (NULL);
-	}
-	if (device_add_child(dev, "pwmc", -1) == NULL) {
-		device_printf(dev, "Cannot add pwmc\n");
-		device_delete_child(dev, busdev);
-		return (NULL);
-	}
-
-#ifdef FDT
-	node = ofw_bus_get_node(dev);
-	OF_device_register_xref(OF_xref_from_node(node), dev);
-#endif
-
-	bus_generic_attach(dev);
-
-	return (busdev);
-}
 
 static int
 pwmbus_probe(device_t dev)
@@ -104,15 +71,18 @@ pwmbus_attach(device_t dev)
 	struct pwmbus_softc *sc;
 
 	sc = device_get_softc(dev);
-	sc->busdev = dev;
-	sc->dev = device_get_parent(dev);
+	sc->dev = dev;
+	sc->parent = device_get_parent(dev);
 
-	if (PWM_CHANNEL_MAX(sc->dev, &sc->nchannels) != 0 ||
-	    sc->nchannels == 0)
+	if (PWMBUS_CHANNEL_COUNT(sc->parent, &sc->nchannels) != 0 ||
+	    sc->nchannels == 0) {
+		device_printf(sc->dev, "No channels on parent %s\n",
+		    device_get_nameunit(sc->parent));
 		return (ENXIO);
+	}
 
-	if (bootverbose)
-		device_printf(dev, "Registering %d channel(s)\n", sc->nchannels);
+	device_add_child(sc->dev, "pwmc", -1);
+
 	bus_generic_probe(dev);
 
 	return (bus_generic_attach(dev));
@@ -121,123 +91,80 @@ pwmbus_attach(device_t dev)
 static int
 pwmbus_detach(device_t dev)
 {
-	device_t *devlist;
-	int i, rv, ndevs;
+	int rv;
 
-	rv = bus_generic_detach(dev);
-	if (rv != 0)
-		return (rv);
+	if ((rv = bus_generic_detach(dev)) == 0)
+		rv = device_delete_children(dev);
 
-	rv = device_get_children(dev, &devlist, &ndevs);
-	if (rv != 0)
-		return (rv);
-	for (i = 0; i < ndevs; i++)
-		device_delete_child(dev, devlist[i]);
-
-	return (0);
+	return (rv);
 }
 
 static int
-pwmbus_channel_config(device_t bus, int channel, unsigned int period, unsigned int duty)
+pwmbus_channel_config(device_t dev, u_int chan, u_int period, u_int duty)
 {
-	struct pwmbus_softc *sc;
-
-	sc = device_get_softc(bus);
-
-	if (channel > sc->nchannels)
-		return (EINVAL);
-
-	return (PWM_CHANNEL_CONFIG(sc->dev, channel, period, duty));
+	return (PWMBUS_CHANNEL_CONFIG(device_get_parent(dev), chan, period, duty));
 }
 
 static int
-pwmbus_channel_get_config(device_t bus, int channel, unsigned int *period, unsigned int *duty)
+pwmbus_channel_get_config(device_t dev, u_int chan, u_int *period, u_int *duty)
 {
-	struct pwmbus_softc *sc;
-
-	sc = device_get_softc(bus);
-
-	if (channel > sc->nchannels)
-		return (EINVAL);
-
-	return (PWM_CHANNEL_GET_CONFIG(sc->dev, channel, period, duty));
+	return (PWMBUS_CHANNEL_GET_CONFIG(device_get_parent(dev), chan, period, duty));
 }
 
 static int
-pwmbus_channel_set_flags(device_t bus, int channel, uint32_t flags)
+pwmbus_channel_get_flags(device_t dev, u_int chan, uint32_t *flags)
 {
-	struct pwmbus_softc *sc;
-
-	sc = device_get_softc(bus);
-
-	if (channel > sc->nchannels)
-		return (EINVAL);
-
-	return (PWM_CHANNEL_SET_FLAGS(sc->dev, channel, flags));
+	return (PWMBUS_CHANNEL_GET_FLAGS(device_get_parent(dev), chan, flags));
 }
 
 static int
-pwmbus_channel_get_flags(device_t bus, int channel, uint32_t *flags)
+pwmbus_channel_enable(device_t dev, u_int chan, bool enable)
 {
-	struct pwmbus_softc *sc;
-
-	sc = device_get_softc(bus);
-
-	if (channel > sc->nchannels)
-		return (EINVAL);
-
-	return (PWM_CHANNEL_GET_FLAGS(sc->dev, channel, flags));
+	return (PWMBUS_CHANNEL_ENABLE(device_get_parent(dev), chan, enable));
 }
 
 static int
-pwmbus_channel_enable(device_t bus, int channel, bool enable)
+pwmbus_channel_set_flags(device_t dev, u_int chan, uint32_t flags)
 {
-	struct pwmbus_softc *sc;
-
-	sc = device_get_softc(bus);
-
-	if (channel > sc->nchannels)
-		return (EINVAL);
-
-	return (PWM_CHANNEL_ENABLE(sc->dev, channel, enable));
+	return (PWMBUS_CHANNEL_SET_FLAGS(device_get_parent(dev), chan, flags));
 }
 
 static int
-pwmbus_channel_is_enabled(device_t bus, int channel, bool *enable)
+pwmbus_channel_is_enabled(device_t dev, u_int chan, bool *enable)
 {
-	struct pwmbus_softc *sc;
+	return (PWMBUS_CHANNEL_IS_ENABLED(device_get_parent(dev), chan, enable));
+}
 
-	sc = device_get_softc(bus);
-
-	if (channel > sc->nchannels)
-		return (EINVAL);
-
-	return (PWM_CHANNEL_IS_ENABLED(sc->dev, channel, enable));
+static int
+pwmbus_channel_count(device_t dev, u_int *nchannel)
+{
+	return (PWMBUS_CHANNEL_COUNT(device_get_parent(dev), nchannel));
 }
 
 static device_method_t pwmbus_methods[] = {
 	/* device_if */
-	DEVMETHOD(device_probe, pwmbus_probe),
+	DEVMETHOD(device_probe,  pwmbus_probe),
 	DEVMETHOD(device_attach, pwmbus_attach),
 	DEVMETHOD(device_detach, pwmbus_detach),
 
-	/* pwm interface */
-	DEVMETHOD(pwmbus_channel_config, pwmbus_channel_config),
-	DEVMETHOD(pwmbus_channel_get_config, pwmbus_channel_get_config),
-	DEVMETHOD(pwmbus_channel_set_flags, pwmbus_channel_set_flags),
-	DEVMETHOD(pwmbus_channel_get_flags, pwmbus_channel_get_flags),
-	DEVMETHOD(pwmbus_channel_enable, pwmbus_channel_enable),
-	DEVMETHOD(pwmbus_channel_is_enabled, pwmbus_channel_is_enabled),
+        /* pwmbus_if  */
+	DEVMETHOD(pwmbus_channel_count,		pwmbus_channel_count),
+	DEVMETHOD(pwmbus_channel_config,	pwmbus_channel_config),
+	DEVMETHOD(pwmbus_channel_get_config,	pwmbus_channel_get_config),
+	DEVMETHOD(pwmbus_channel_set_flags,	pwmbus_channel_set_flags),
+	DEVMETHOD(pwmbus_channel_get_flags,	pwmbus_channel_get_flags),
+	DEVMETHOD(pwmbus_channel_enable,	pwmbus_channel_enable),
+	DEVMETHOD(pwmbus_channel_is_enabled,	pwmbus_channel_is_enabled),
 
 	DEVMETHOD_END
 };
 
-driver_t pwmbus_driver = {
+static driver_t pwmbus_driver = {
 	"pwmbus",
 	pwmbus_methods,
 	sizeof(struct pwmbus_softc),
 };
-devclass_t pwmbus_devclass;
+static devclass_t pwmbus_devclass;
 
 EARLY_DRIVER_MODULE(pwmbus, pwm, pwmbus_driver, pwmbus_devclass, 0, 0,
   BUS_PASS_SUPPORTDEV + BUS_PASS_ORDER_MIDDLE);
