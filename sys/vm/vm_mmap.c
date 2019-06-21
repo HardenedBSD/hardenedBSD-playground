@@ -421,6 +421,8 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t len, int prot, int flags,
 #ifdef PAX_NOEXEC
 		pax_pageexec(td->td_proc, (vm_prot_t *)&prot, &cap_maxprot);
 		pax_mprotect(td->td_proc, (vm_prot_t *)&prot, &cap_maxprot);
+		pax_pageexec(td->td_proc, (vm_prot_t *)&prot, &max_prot);
+		pax_mprotect(td->td_proc, (vm_prot_t *)&prot, &max_prot);
 #endif
 #ifdef PAX_ASLR
 		KASSERT((flags & MAP_FIXED) == MAP_FIXED || pax_aslr_done == 1,
