@@ -192,8 +192,8 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t len, int prot, int flags,
 	struct file *fp;
 	vm_offset_t addr;
 	vm_size_t pageoff, size;
-	vm_prot_t cap_maxprot;
-	int align, error, max_prot;
+	vm_prot_t cap_maxprot, max_prot;
+	int align, error;
 	cap_rights_t rights;
 #ifdef PAX_ASLR
 	vm_offset_t orig_addr;
@@ -384,17 +384,15 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t len, int prot, int flags,
 
 		pax_pageexec(td->td_proc, (vm_prot_t *)&prot, &cap_maxprot);
 		pax_mprotect(td->td_proc, (vm_prot_t *)&prot, &cap_maxprot);
+		pax_pageexec(td->td_proc, (vm_prot_t *)&prot, &max_prot);
+		pax_mprotect(td->td_proc, (vm_prot_t *)&prot, &max_prot);
 
 		error = vm_mmap_object(&vms->vm_map, &addr, size, prot,
 		    cap_maxprot, flags, NULL, pos, FALSE, td);
 #else
 		error = vm_mmap_object(&vms->vm_map, &addr, size, prot,
-<<<<<<< HEAD
-		    VM_PROT_ALL, flags, NULL, pos, FALSE, td);
-#endif
-=======
 		    max_prot, flags, NULL, pos, FALSE, td);
->>>>>>> origin/freebsd/current/master
+#endif
 	} else {
 		/*
 		 * Mapping file, get fp for validation and don't let the
