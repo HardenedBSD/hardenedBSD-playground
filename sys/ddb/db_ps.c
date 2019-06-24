@@ -486,10 +486,14 @@ DB_SHOW_COMMAND(proc, db_show_proc)
 		dump_args(p);
 		db_printf("\n");
 	}
+<<<<<<< HEAD
 #ifdef PAX
 	pax_db_printf_flags(p, PAX_LOG_DEFAULT);
 #endif
 	db_printf(" repear: %p reapsubtree: %d\n",
+=======
+	db_printf(" reaper: %p reapsubtree: %d\n",
+>>>>>>> origin/freebsd/current/master
 	    p->p_reaper, p->p_reapsubtree);
 	db_printf(" sigparent: %d\n", p->p_sigparent);
 	db_printf(" vmspace: %p\n", p->p_vmspace);
