@@ -210,11 +210,7 @@ __DEFAULT_NO_OPTIONS = \
     LOADER_FORCE_LE \
     LOADER_VERBOSE \
     LOADER_VERIEXEC_PASS_MANIFEST \
-<<<<<<< HEAD
-    NAND \
     OFED \
-=======
->>>>>>> origin/freebsd/current/master
     OFED_EXTRA \
     OPENLDAP \
     OPENNTPD \
