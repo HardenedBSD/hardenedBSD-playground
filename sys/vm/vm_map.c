@@ -2472,13 +2472,10 @@ vm_map_protect(vm_map_t map, vm_offset_t start, vm_offset_t end,
 	vm_object_t obj;
 	struct ucred *cred;
 	vm_prot_t old_prot;
-<<<<<<< HEAD
+	int rv;
 #ifdef PAX_NOEXEC
 	int ret;
 #endif
-=======
-	int rv;
->>>>>>> origin/freebsd/current/master
 
 	if (start == end)
 		return (KERN_SUCCESS);
