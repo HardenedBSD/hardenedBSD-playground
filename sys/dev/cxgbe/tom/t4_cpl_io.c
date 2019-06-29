@@ -650,6 +650,8 @@ write_tx_sgl(void *dst, struct mbuf *start, struct mbuf *stop, int nsegs, int n)
 		if (IS_AIOTX_MBUF(m))
 			rc = sglist_append_vmpages(&sg, aiotx_mbuf_pages(m),
 			    aiotx_mbuf_pgoff(m), m->m_len);
+		else if (m->m_flags & M_NOMAP)
+			rc = sglist_append_mb_ext_pgs(&sg, m);
 		else
 			rc = sglist_append(&sg, mtod(m, void *), m->m_len);
 		if (__predict_false(rc != 0))
@@ -724,8 +726,8 @@ t4_push_frames(struct adapter *sc, struct toepcb *toep, int drop)
 	    ("%s: ulp_mode %u for toep %p", __func__, toep->ulp_mode, toep));
 
 #ifdef VERBOSE_TRACES
-	CTR4(KTR_CXGBE, "%s: tid %d toep flags %#x tp flags %#x drop %d",
-	    __func__, toep->tid, toep->flags, tp->t_flags);
+	CTR5(KTR_CXGBE, "%s: tid %d toep flags %#x tp flags %#x drop %d",
+	    __func__, toep->tid, toep->flags, tp->t_flags, drop);
 #endif
 	if (__predict_false(toep->flags & TPF_ABORT_SHUTDOWN))
 		return;
@@ -771,6 +773,8 @@ t4_push_frames(struct adapter *sc, struct toepcb *toep, int drop)
 			if (IS_AIOTX_MBUF(m))
 				n = sglist_count_vmpages(aiotx_mbuf_pages(m),
 				    aiotx_mbuf_pgoff(m), m->m_len);
+			else if (m->m_flags & M_NOMAP)
+				n = sglist_count_mb_ext_pgs(m);
 			else
 				n = sglist_count(mtod(m, void *), m->m_len);
 
@@ -1244,8 +1248,10 @@ do_peer_close(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	INP_WLOCK(inp);
 	tp = intotcpcb(inp);
 
-	CTR5(KTR_CXGBE, "%s: tid %u (%s), toep_flags 0x%x, inp %p", __func__,
-	    tid, tp ? tcpstates[tp->t_state] : "no tp", toep->flags, inp);
+	CTR6(KTR_CXGBE,
+	    "%s: tid %u (%s), toep_flags 0x%x, ddp_flags 0x%x, inp %p",
+	    __func__, tid, tp ? tcpstates[tp->t_state] : "no tp", toep->flags,
+	    toep->ddp.flags, inp);
 
 	if (toep->flags & TPF_ABORT_SHUTDOWN)
 		goto done;
@@ -2227,7 +2233,7 @@ t4_aiotx_queue_toep(struct socket *so, struct toepcb *toep)
 	SOCKBUF_LOCK_ASSERT(&toep->inp->inp_socket->so_snd);
 #ifdef VERBOSE_TRACES
 	CTR3(KTR_CXGBE, "%s: queueing aiotx task for tid %d, active = %s",
-	    __func__, toep->tid, toep->aiotx_task_active ? "true" : "false");
+	    __func__, toep->tid, toep->aiotx_so != NULL ? "true" : "false");
 #endif
 	if (toep->aiotx_so != NULL)
 		return;
@@ -2283,7 +2289,7 @@ t4_aio_queue_aiotx(struct socket *so, struct kaiocb *job)
 
 	SOCKBUF_LOCK(&so->so_snd);
 #ifdef VERBOSE_TRACES
-	CTR2(KTR_CXGBE, "%s: queueing %p", __func__, job);
+	CTR3(KTR_CXGBE, "%s: queueing %p for tid %u", __func__, job, toep->tid);
 #endif
 	if (!aio_set_cancel_function(job, t4_aiotx_cancel))
 		panic("new job was cancelled");
