@@ -33,7 +33,8 @@ SRCS+=	reallocf.c realpath.c getenv.c merge.c reallocarray.c
 CFLAGS.merge.c+=-Wno-error=null-pointer-arithmetic
 .endif
 .PATH: ${LIBC_SRCTOP}/gen
-SRCS+=	errlst.c getcwd.c getprogname.c raise.c sigsetops.c sysctlnametomib.c \
+SRCS+=	errlst.c getcwd.c getprogname.c raise.c sigsetops.c \
+    sysctlbyname.c sysctlnametomib.c \
     __xuname.c
 # errlst.c needs the errlst.h header from libc:
 CFLAGS.errlst.c+=-I${LIBC_SRCTOP}/include
