@@ -1041,8 +1041,7 @@ exec_map_first_page(struct image_params *imgp)
 			vm_page_readahead_finish(ma[i]);
 	}
 	vm_page_lock(ma[0]);
-	vm_page_hold(ma[0]);
-	vm_page_activate(ma[0]);
+	vm_page_wire(ma[0]);
 	vm_page_unlock(ma[0]);
 	VM_OBJECT_WUNLOCK(object);
 
@@ -1062,7 +1061,7 @@ exec_unmap_first_page(struct image_params *imgp)
 		sf_buf_free(imgp->firstpage);
 		imgp->firstpage = NULL;
 		vm_page_lock(m);
-		vm_page_unhold(m);
+		vm_page_unwire(m, PQ_ACTIVE);
 		vm_page_unlock(m);
 	}
 }
