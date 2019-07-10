@@ -1655,7 +1655,7 @@ env_init(void)
 		|| (strncmp((char *)ep->value, "unix:", 5) == 0))) {
 		char hbuf[256+1];
 		char *cp2 = strchr((char *)ep->value, ':');
-                unsigned int buflen;
+                size_t buflen;
 
 		gethostname(hbuf, sizeof(hbuf));
 		hbuf[sizeof(hbuf)-1] = '\0';
