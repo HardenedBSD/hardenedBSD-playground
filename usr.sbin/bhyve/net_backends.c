@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2019 Vincenzo Maffione <vmaffione@FreeBSD.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,11 +34,13 @@
  * features) is exported by net_backends.h.
  */
 
+#include <sys/cdefs.h>
+__FBSDID("$FreeBSD$");
+
 #include <sys/types.h>		/* u_short etc */
 #ifndef WITHOUT_CAPSICUM
 #include <sys/capsicum.h>
 #endif
-#include <sys/cdefs.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
