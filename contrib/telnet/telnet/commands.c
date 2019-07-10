@@ -1655,9 +1655,10 @@ env_init(void)
 		|| (strncmp((char *)ep->value, "unix:", 5) == 0))) {
 		char hbuf[256+1];
 		char *cp2 = strchr((char *)ep->value, ':');
-                unsigned int buflen = strlen(hbuf) + strlen(cp2) + 1;
+                unsigned int buflen;
 
 		gethostname(hbuf, sizeof(hbuf));
+ 		buflen = strlen(hbuf) + strlen(cp2) + 1;
 		hbuf[sizeof(hbuf)-1] = '\0';
 		cp = (char *)malloc(sizeof(char)*buflen);
 		assert(cp != NULL);
