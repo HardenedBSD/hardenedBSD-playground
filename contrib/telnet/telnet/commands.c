@@ -1658,8 +1658,8 @@ env_init(void)
                 unsigned int buflen;
 
 		gethostname(hbuf, sizeof(hbuf));
- 		buflen = strlen(hbuf) + strlen(cp2) + 1;
 		hbuf[sizeof(hbuf)-1] = '\0';
+ 		buflen = strlen(hbuf) + strlen(cp2) + 1;
 		cp = (char *)malloc(sizeof(char)*buflen);
 		assert(cp != NULL);
 		snprintf((char *)cp, buflen, "%s%s", hbuf, cp2);
