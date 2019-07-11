@@ -55,6 +55,7 @@ __FBSDID("$FreeBSD$");
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sysexits.h>
 #include <unistd.h>
 
 #include <arpa/telnet.h>
@@ -1655,14 +1656,13 @@ env_init(void)
 		|| (strncmp((char *)ep->value, "unix:", 5) == 0))) {
 		char hbuf[256+1];
 		char *cp2 = strchr((char *)ep->value, ':');
-                size_t buflen;
 
 		gethostname(hbuf, sizeof(hbuf));
 		hbuf[sizeof(hbuf)-1] = '\0';
- 		buflen = strlen(hbuf) + strlen(cp2) + 1;
-		cp = (char *)malloc(sizeof(char)*buflen);
-		assert(cp != NULL);
-		snprintf((char *)cp, buflen, "%s%s", hbuf, cp2);
+		cp = NULL;
+		asprintf(&cp, "%s%s", hbuf, cp2);
+		if (cp == NULL)
+			errx(EX_OSERR, "Unable to allocate memory.");
 		free(ep->value);
 		ep->value = (unsigned char *)cp;
 	}
