@@ -1926,7 +1926,7 @@ do_lock_pi(struct thread *td, struct umutex *m, uint32_t flags,
 				if (error == 0) {
 					error = umtxq_check_susp(td, true);
 					if (error != 0)
-						return (error);
+						break;
 				}
 
 				/*
@@ -2456,7 +2456,8 @@ do_set_ceiling(struct thread *td, struct umutex *m, uint32_t ceiling,
 			break;
 		}
 
-		if (owner == UMUTEX_CONTESTED) {
+		if (rv == 0) {
+			MPASS(owner == UMUTEX_CONTESTED);
 			rv = suword32(&m->m_ceilings[0], ceiling);
 			rv1 = suword32(&m->m_owner, UMUTEX_CONTESTED);
 			error = (rv == 0 && rv1 == 0) ? 0: EFAULT;
