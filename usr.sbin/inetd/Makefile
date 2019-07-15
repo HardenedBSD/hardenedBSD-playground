@@ -24,11 +24,8 @@ CFLAGS+=	-DLIBWRAP
 LIBADD+=	wrap
 .endif
 
-# XXX for src/release/picobsd
-.if !defined(RELEASE_CRUNCH)
 CFLAGS+= -DIPSEC
 LIBADD+=	ipsec
-.endif
 
 
 .include <bsd.prog.mk>
