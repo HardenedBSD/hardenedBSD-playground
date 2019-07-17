@@ -100,6 +100,8 @@ struct ufsmount {
 	char	um_qflags[MAXQUOTAS];		/* (i) quota specific flags */
 	int64_t	um_savedmaxfilesize;		/* (c) track maxfilesize */
 	u_int	um_flags;			/* (i) filesystem flags */
+	struct	timeval um_last_fullmsg;	/* (i) last full msg time */
+	int	um_secs_fullmsg;		/* (i) seconds since full msg */
 	u_int	um_trim_inflight;		/* (i) outstanding trim count */
 	u_int	um_trim_inflight_blks;		/* (i) outstanding trim blks */
 	u_long	um_trim_total;			/* (i) total trim count */
@@ -130,11 +132,15 @@ struct ufsmount {
 /*
  * function prototypes
  */
-#define	UFS_BALLOC(aa, bb, cc, dd, ee, ff) VFSTOUFS((aa)->v_mount)->um_balloc(aa, bb, cc, dd, ee, ff)
-#define	UFS_BLKATOFF(aa, bb, cc, dd) VFSTOUFS((aa)->v_mount)->um_blkatoff(aa, bb, cc, dd)
-#define	UFS_TRUNCATE(aa, bb, cc, dd) VFSTOUFS((aa)->v_mount)->um_truncate(aa, bb, cc, dd)
+#define	UFS_BALLOC(aa, bb, cc, dd, ee, ff) \
+	VFSTOUFS((aa)->v_mount)->um_balloc(aa, bb, cc, dd, ee, ff)
+#define	UFS_BLKATOFF(aa, bb, cc, dd) \
+	VFSTOUFS((aa)->v_mount)->um_blkatoff(aa, bb, cc, dd)
+#define	UFS_TRUNCATE(aa, bb, cc, dd) \
+	VFSTOUFS((aa)->v_mount)->um_truncate(aa, bb, cc, dd)
 #define	UFS_UPDATE(aa, bb) VFSTOUFS((aa)->v_mount)->um_update(aa, bb)
-#define	UFS_VALLOC(aa, bb, cc, dd) VFSTOUFS((aa)->v_mount)->um_valloc(aa, bb, cc, dd)
+#define	UFS_VALLOC(aa, bb, cc, dd) \
+	VFSTOUFS((aa)->v_mount)->um_valloc(aa, bb, cc, dd)
 #define	UFS_VFREE(aa, bb, cc) VFSTOUFS((aa)->v_mount)->um_vfree(aa, bb, cc)
 #define	UFS_IFREE(aa, bb) ((aa)->um_ifree(aa, bb))
 #define	UFS_RDONLY(aa) (ITOUMP(aa)->um_rdonly(aa))
