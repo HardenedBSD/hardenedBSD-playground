@@ -92,11 +92,8 @@ static struct sysentvec elf64_freebsd_sysvec = {
 	.sv_schedtail	= NULL,
 	.sv_thread_detach = NULL,
 	.sv_trap	= NULL,
-<<<<<<< HEAD
-	.sv_pax_aslr_init = pax_aslr_init_vmspace,
-=======
 	.sv_hwcap	= &elf_hwcap,
->>>>>>> upstream/master
+	.sv_pax_aslr_init = pax_aslr_init_vmspace,
 };
 INIT_SYSENTVEC(elf64_sysvec, &elf64_freebsd_sysvec);
 
