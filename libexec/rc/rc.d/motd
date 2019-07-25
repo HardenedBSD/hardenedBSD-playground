@@ -4,27 +4,31 @@
 #
 
 # PROVIDE: motd
-# REQUIRE: mountcritremote
+# REQUIRE: mountcritremote FILESYSTEMS
 # BEFORE:  LOGIN
 
 . /etc/rc.subr
 
 name="motd"
-desc="Update /etc/motd"
+desc="Update /var/run/motd"
 rcvar="update_motd"
 start_cmd="motd_start"
 stop_cmd=":"
 
+COMPAT_MOTD="/etc/motd"
+TARGET="/var/run/motd"
+TEMPLATE="/etc/motd.template"
 PERMS="644"
 MOTD_FILE="/etc/motd"
 
 motd_start()
 {
-	#	Update kernel info in /etc/motd
+	#	Update kernel info in /var/run/motd
 	#	Must be done *before* interactive logins are possible
 	#	to prevent possible race conditions.
 	#
 	check_startmsgs && echo -n 'Updating motd:'
+<<<<<<< HEAD
 	if [ ! -f ${MOTD_FILE} ]; then
 		install -c -o root -g wheel -m ${PERMS} /dev/null ${MOTD_FILE}
 	fi
@@ -32,10 +36,28 @@ motd_start()
 	if [ ! -w ${MOTD_FILE} ]; then
 		echo ' /etc/motd is not writable, update failed.'
 		return
+=======
+	if [ ! -f "${TEMPLATE}" ]; then
+		# Create missing template from existing regular motd file, if
+		# one exists.
+		if [ -f "${COMPAT_MOTD}" ]; then
+			sed '1{/^FreeBSD.*/{d;};};' "${COMPAT_MOTD}" > "${TEMPLATE}"
+			chmod $PERMS "${TEMPLATE}"
+			rm -f "${COMPAT_MOTD}"
+		else
+			# Otherwise, create an empty template file.
+			install -c -o root -g wheel -m ${PERMS} /dev/null "${TEMPLATE}"
+		fi
+		# Provide compatibility symlink:
+		if [ ! -h "${COMPAT_MOTD}" ]; then
+			ln -sF "${TARGET}" "${COMPAT_MOTD}"
+		fi
+>>>>>>> upstream/master
 	fi
 
 	T=`mktemp -t motd`
 	uname -v | sed -e 's,^\([^#]*\) #\(.* [1-2][0-9][0-9][0-9]\).*/\([^\]*\) $,\1 (\3) #\2,' > ${T}
+<<<<<<< HEAD
 	awk '{if (NR == 1) {if ($1 == "FreeBSD" || $1 == "HardenedBSD") {next} else {print "\n"$0}} else {print}}' < ${MOTD_FILE} >> ${T}
 
 	if ! cmp -s $T /etc/motd; then
@@ -47,6 +69,12 @@ motd_start()
 	else
 		rm -f $T
 	fi
+=======
+	cat "${TEMPLATE}" >> ${T}
+
+	install -C -o root -g wheel -m "${PERMS}" "$T" "${TARGET}"
+	rm -f "$T"
+>>>>>>> upstream/master
 
 	check_startmsgs && echo '.'
 }
