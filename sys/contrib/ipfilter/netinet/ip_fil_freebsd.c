@@ -30,24 +30,24 @@ static const char rcsid[] = "@(#)$Id$";
 #include <sys/errno.h>
 #include <sys/types.h>
 #include <sys/file.h>
-# include <sys/fcntl.h>
-# include <sys/filio.h>
+#include <sys/fcntl.h>
+#include <sys/filio.h>
 #include <sys/time.h>
 #include <sys/systm.h>
 # include <sys/dirent.h>
 #if defined(__FreeBSD_version)
 #include <sys/jail.h>
 #endif
-# include <sys/malloc.h>
-# include <sys/mbuf.h>
-# include <sys/sockopt.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/sockopt.h>
 #include <sys/socket.h>
-# include <sys/selinfo.h>
-# include <netinet/tcp_var.h>
+#include <sys/selinfo.h>
+#include <netinet/tcp_var.h>
 
 #include <net/if.h>
-# include <net/if_var.h>
-#  include <net/netisr.h>
+#include <net/if_var.h>
+#include <net/netisr.h>
 #include <net/route.h>
 #include <netinet/in.h>
 #include <netinet/in_fib.h>
@@ -77,7 +77,7 @@ static const char rcsid[] = "@(#)$Id$";
 #include "netinet/ip_scan.h"
 #endif
 #include "netinet/ip_pool.h"
-# include <sys/malloc.h>
+#include <sys/malloc.h>
 #include <sys/kernel.h>
 #ifdef CSUM_DATA_VALID
 #include <machine/in_cksum.h>
@@ -964,7 +964,7 @@ ipf_ifpaddr(softc, v, atype, ifptr, inp, inpmask)
 	i6addr_t *inp, *inpmask;
 {
 #ifdef USE_INET6
-	struct in6_addr *inp6 = NULL;
+	struct in6_addr *ia6 = NULL;
 #endif
 	struct sockaddr *sock, *mask;
 	struct sockaddr_in *sin;
@@ -992,9 +992,9 @@ ipf_ifpaddr(softc, v, atype, ifptr, inp, inpmask)
 			break;
 #ifdef USE_INET6
 		if ((v == 6) && (sin->sin_family == AF_INET6)) {
-			inp6 = &((struct sockaddr_in6 *)sin)->sin6_addr;
-			if (!IN6_IS_ADDR_LINKLOCAL(inp6) &&
-			    !IN6_IS_ADDR_LOOPBACK(inp6))
+			ia6 = &((struct sockaddr_in6 *)sin)->sin6_addr;
+			if (!IN6_IS_ADDR_LINKLOCAL(ia6) &&
+			    !IN6_IS_ADDR_LOOPBACK(ia6))
 				break;
 		}
 #endif

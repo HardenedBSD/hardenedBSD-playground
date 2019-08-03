@@ -221,8 +221,11 @@ __FBSDID("$FreeBSD$");
  * The presence of this flag indicates that the mapping is writeable.
  * If the ATTR_AP_RO bit is also set, then the mapping is clean, otherwise it is
  * dirty.  This flag may only be set on managed mappings.
+ *
+ * The DBM bit is reserved on ARMv8.0 but it seems we can safely treat it
+ * as a software managed bit.
  */
-static pt_entry_t ATTR_SW_DBM;
+#define	ATTR_SW_DBM	ATTR_DBM
 
 struct pmap kernel_pmap_store;
 
@@ -783,15 +786,6 @@ pmap_bootstrap(vm_offset_t l0pt, vm_offset_t l1pt, vm_paddr_t kernstart,
 	vm_paddr_t start_pa, pa, min_pa;
 	uint64_t kern_delta;
 	int i;
-
-#ifdef notyet
-	/* Determine whether the hardware implements DBM management. */
-	uint64_t reg = READ_SPECIALREG(ID_AA64MMFR1_EL1);
-	ATTR_SW_DBM = ID_AA64MMFR1_HAFDBS(reg) == ID_AA64MMFR1_HAFDBS_AF_DBS ?
-	    ATTR_DBM : _ATTR_SW_DBM;
-#else
-	ATTR_SW_DBM = _ATTR_SW_DBM;
-#endif
 
 	kern_delta = KERNBASE - kernstart;
 
@@ -1531,6 +1525,16 @@ _pmap_alloc_l3(pmap_t pmap, vm_pindex_t ptepindex, struct rwlock **lockp)
 		pmap_zero_page(m);
 
 	/*
+	 * Because of AArch64's weak memory consistency model, we must have a
+	 * barrier here to ensure that the stores for zeroing "m", whether by
+	 * pmap_zero_page() or an earlier function, are visible before adding
+	 * "m" to the page table.  Otherwise, a page table walk by another
+	 * processor's MMU could see the mapping to "m" and a stale, non-zero
+	 * PTE within "m".
+	 */
+	dmb(ishst);
+
+	/*
 	 * Map the pagetable page into the process address space, if
 	 * it isn't already there.
 	 */
@@ -1781,12 +1785,14 @@ pmap_growkernel(vm_offset_t addr)
 				panic("pmap_growkernel: no memory to grow kernel");
 			if ((nkpg->flags & PG_ZERO) == 0)
 				pmap_zero_page(nkpg);
+			/* See the dmb() in _pmap_alloc_l3(). */
+			dmb(ishst);
 			paddr = VM_PAGE_TO_PHYS(nkpg);
 			pmap_store(l1, paddr | L1_TABLE);
 			continue; /* try again */
 		}
 		l2 = pmap_l1_to_l2(l1, kernel_vm_end);
-		if ((pmap_load(l2) & ATTR_AF) != 0) {
+		if (pmap_load(l2) != 0) {
 			kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
 			if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
 				kernel_vm_end = vm_map_max(kernel_map);
@@ -1802,9 +1808,10 @@ pmap_growkernel(vm_offset_t addr)
 			panic("pmap_growkernel: no memory to grow kernel");
 		if ((nkpg->flags & PG_ZERO) == 0)
 			pmap_zero_page(nkpg);
+		/* See the dmb() in _pmap_alloc_l3(). */
+		dmb(ishst);
 		paddr = VM_PAGE_TO_PHYS(nkpg);
-		pmap_load_store(l2, paddr | L2_TABLE);
-		pmap_invalidate_page(kernel_pmap, kernel_vm_end);
+		pmap_store(l2, paddr | L2_TABLE);
 
 		kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
 		if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
@@ -5537,6 +5544,10 @@ pmap_demote_l2_locked(pmap_t pmap, pt_entry_t *l2, vm_offset_t va,
 	/*
 	 * If the page table page is not leftover from an earlier promotion,
 	 * or the mapping attributes have changed, (re)initialize the L3 table.
+	 *
+	 * When pmap_update_entry() clears the old L2 mapping, it (indirectly)
+	 * performs a dsb().  That dsb() ensures that the stores for filling
+	 * "l3" are visible before "l3" is added to the page table.
 	 */
 	if (ml3->valid == 0 || (l3[0] & ATTR_MASK) != (newl3 & ATTR_MASK))
 		pmap_fill_l3(l3, newl3);

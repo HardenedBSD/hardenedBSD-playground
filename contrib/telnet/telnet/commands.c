@@ -1659,10 +1659,15 @@ env_init(void)
 
 		gethostname(hbuf, sizeof(hbuf));
 		hbuf[sizeof(hbuf)-1] = '\0';
+<<<<<<< HEAD
 		cp = NULL;
 		asprintf(&cp, "%s%s", hbuf, cp2);
 		if (cp == NULL)
 			errx(EX_OSERR, "Unable to allocate memory.");
+=======
+		asprintf(&cp, "%s%s", hbuf, cp2);
+		assert(cp != NULL);
+>>>>>>> origin/freebsd/current/master
 		free(ep->value);
 		ep->value = (unsigned char *)cp;
 	}

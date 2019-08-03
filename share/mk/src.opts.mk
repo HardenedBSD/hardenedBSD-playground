@@ -213,8 +213,11 @@ __DEFAULT_NO_OPTIONS = \
     OFED \
     OFED_EXTRA \
     OPENLDAP \
+<<<<<<< HEAD
     OPENNTPD \
     PORTSNAP \
+=======
+>>>>>>> origin/freebsd/current/master
     REPRODUCIBLE_BUILD \
     RPCBIND_WARMSTART_SUPPORT \
     SHARED_TOOLCHAIN \
