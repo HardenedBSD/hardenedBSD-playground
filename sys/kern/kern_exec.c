@@ -1178,7 +1178,6 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 	} else {
 		ssiz = maxssiz;
 	}
-<<<<<<< HEAD
 
 	stack_addr = sv->sv_usrstack;
 #ifdef PAX_ASLR
@@ -1194,13 +1193,9 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 #ifdef PAX_NOEXEC
 	pax_noexec_nx(p, &stackprot, &stackmaxprot);
 #endif
-	imgp->eff_stack_sz = ssiz;
-=======
 	imgp->eff_stack_sz = lim_cur(curthread, RLIMIT_STACK);
 	if (ssiz < imgp->eff_stack_sz)
 		imgp->eff_stack_sz = ssiz;
-	stack_addr = sv->sv_usrstack - ssiz;
->>>>>>> origin/freebsd/current/master
 	error = vm_map_stack(map, stack_addr, (vm_size_t)ssiz,
 	    stackprot, stackmaxprot, MAP_STACK_GROWS_DOWN);
 	if (error != KERN_SUCCESS) {
