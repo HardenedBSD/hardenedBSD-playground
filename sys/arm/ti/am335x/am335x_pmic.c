@@ -56,9 +56,6 @@ __FBSDID("$FreeBSD$");
 
 #include "iicbus_if.h"
 
-#define MAX_IIC_DATA_SIZE	2
-
-
 struct am335x_pmic_softc {
 	device_t		sc_dev;
 	uint32_t		sc_addr;
@@ -79,30 +76,13 @@ static void am335x_pmic_shutdown(void *, int);
 static int
 am335x_pmic_read(device_t dev, uint8_t addr, uint8_t *data, uint8_t size)
 {
-	struct am335x_pmic_softc *sc = device_get_softc(dev);
-	struct iic_msg msg[] = {
-		{ sc->sc_addr, IIC_M_WR, 1, &addr },
-		{ sc->sc_addr, IIC_M_RD, size, data },
-	};
-	return (iicbus_transfer(dev, msg, 2));
+	return (iicdev_readfrom(dev, addr, data, size, IIC_INTRWAIT));
 }
 
 static int
 am335x_pmic_write(device_t dev, uint8_t address, uint8_t *data, uint8_t size)
 {
-	uint8_t buffer[MAX_IIC_DATA_SIZE + 1];
-	struct am335x_pmic_softc *sc = device_get_softc(dev);
-	struct iic_msg msg[] = {
-		{ sc->sc_addr, IIC_M_WR, size + 1, buffer },
-	};
-
-	if (size > MAX_IIC_DATA_SIZE)
-		return (ENOMEM);
-
-	buffer[0] = address;
-	memcpy(buffer + 1, data, size);
-
-	return (iicbus_transfer(dev, msg, 1));
+	return (iicdev_writeto(dev, address, data, size, IIC_INTRWAIT));
 }
 
 static void
