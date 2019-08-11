@@ -43,6 +43,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/reboot.h>
 #include <sys/resource.h>
 #include <sys/rman.h>
+#include <sys/taskqueue.h>
 
 #include <dev/iicbus/iicbus.h>
 #include <dev/iicbus/iiconf.h>
@@ -59,9 +60,9 @@ __FBSDID("$FreeBSD$");
 struct am335x_pmic_softc {
 	device_t		sc_dev;
 	uint32_t		sc_addr;
-	struct intr_config_hook enum_hook;
 	struct resource		*sc_irq_res;
 	void			*sc_intrhand;
+	struct task 		intr_task;
 };
 
 static const char *tps65217_voreg_c[4] = {"4.10V", "4.15V", "4.20V", "4.25V"};
@@ -86,7 +87,7 @@ am335x_pmic_write(device_t dev, uint8_t address, uint8_t *data, uint8_t size)
 }
 
 static void
-am335x_pmic_intr(void *arg)
+am335x_pmic_intrtask(void *arg, int pending)
 {
 	struct am335x_pmic_softc *sc = (struct am335x_pmic_softc *)arg;
 	struct tps65217_status_reg status_reg;
@@ -94,20 +95,16 @@ am335x_pmic_intr(void *arg)
 	int rv;
 	char notify_buf[16];
 
-	THREAD_SLEEPING_OK();
 	rv = am335x_pmic_read(sc->sc_dev, TPS65217_INT_REG, (uint8_t *)&int_reg, 1);
 	if (rv != 0) {
 		device_printf(sc->sc_dev, "Cannot read interrupt register\n");
-		THREAD_NO_SLEEPING();
 		return;
 	}
 	rv = am335x_pmic_read(sc->sc_dev, TPS65217_STATUS_REG, (uint8_t *)&status_reg, 1);
 	if (rv != 0) {
 		device_printf(sc->sc_dev, "Cannot read status register\n");
-		THREAD_NO_SLEEPING();
 		return;
 	}
-	THREAD_NO_SLEEPING();
 
 	if (int_reg.pbi && status_reg.pb)
 		shutdown_nice(RB_POWEROFF);
@@ -116,6 +113,18 @@ am335x_pmic_intr(void *arg)
 		    status_reg.acpwr);
 		devctl_notify_f("ACPI", "ACAD", "power", notify_buf, M_NOWAIT);
 	}
+}
+
+static void
+am335x_pmic_intr(void *arg)
+{
+	struct am335x_pmic_softc *sc = arg;
+
+	/*
+	 * Handling the interrupt requires doing i2c IO, which sleeps while the
+	 * IO is in progress, so do the processing on a taskqueue thread.
+	 */
+	taskqueue_enqueue(taskqueue_thread, &sc->intr_task);
 }
 
 static int
@@ -200,10 +209,9 @@ am335x_pmic_setvo(device_t dev, uint8_t vo)
 }
 
 static void
-am335x_pmic_start(void *xdev)
+am335x_pmic_start(struct am335x_pmic_softc *sc)
 {
-	struct am335x_pmic_softc *sc;
-	device_t dev = (device_t)xdev;
+	device_t dev;
 	struct tps65217_status_reg status_reg;
 	struct tps65217_chipid_reg chipid_reg;
 	uint8_t reg, vo;
@@ -211,8 +219,7 @@ am335x_pmic_start(void *xdev)
 	char pwr[4][11] = {"Battery", "USB", "AC", "USB and AC"};
 	int rv;
 
-	sc = device_get_softc(dev);
-
+	dev = sc->sc_dev;
 	am335x_pmic_read(dev, TPS65217_CHIPID_REG, (uint8_t *)&chipid_reg, 1);
 	switch (chipid_reg.chip) {
 		case TPS65217A:
@@ -255,8 +262,6 @@ am335x_pmic_start(void *xdev)
 	EVENTHANDLER_REGISTER(shutdown_final, am335x_pmic_shutdown, dev,
 	    SHUTDOWN_PRI_LAST);
 
-	config_intrhook_disestablish(&sc->enum_hook);
-
 	/* Unmask all interrupts and clear pending status */
 	reg = 0;
 	am335x_pmic_write(dev, TPS65217_INT_REG, &reg, 1);
@@ -280,6 +285,8 @@ am335x_pmic_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 
+	TASK_INIT(&sc->intr_task, 0, am335x_pmic_intrtask, sc);
+
 	rid = 0;
 	sc->sc_irq_res = bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid,
 	    RF_ACTIVE);
@@ -288,11 +295,7 @@ am335x_pmic_attach(device_t dev)
 		/* return (ENXIO); */
 	}
 
-	sc->enum_hook.ich_func = am335x_pmic_start;
-	sc->enum_hook.ich_arg = dev;
-
-	if (config_intrhook_establish(&sc->enum_hook) != 0)
-		return (ENOMEM);
+	am335x_pmic_start(sc);
 
 	return (0);
 }
