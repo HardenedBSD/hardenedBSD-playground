@@ -1687,7 +1687,7 @@ mmu_booke_bootstrap(mmu_t mmu, vm_offset_t start, vm_offset_t kernelend)
 	mem_regions(&physmem_regions, &physmem_regions_sz,
 	    &availmem_regions, &availmem_regions_sz);
 
-	if (nitems(phys_avail) < availmem_regions_sz)
+	if (PHYS_AVAIL_ENTRIES < availmem_regions_sz)
 		panic("mmu_booke_bootstrap: phys_avail too small");
 
 	sz = 0;
@@ -1957,6 +1957,11 @@ mmu_booke_kextract(mmu_t mmu, vm_offset_t va)
 	tlb_entry_t e;
 	vm_paddr_t p = 0;
 	int i;
+
+#ifdef __powerpc64__
+	if (va >= DMAP_BASE_ADDRESS && va <= DMAP_MAX_ADDRESS)
+		return (DMAP_TO_PHYS(va));
+#endif
 
 	if (va >= VM_MIN_KERNEL_ADDRESS && va <= VM_MAX_KERNEL_ADDRESS)
 		p = pte_vatopa(mmu, kernel_pmap, va);

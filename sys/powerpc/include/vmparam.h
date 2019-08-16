@@ -133,6 +133,11 @@
 
 #else /* Book-E */
 
+/* Use the direct map for UMA small allocs on powerpc64. */
+#ifdef __powerpc64__
+#define UMA_MD_SMALL_ALLOC
+#endif
+
 #define	KERNBASE		0x04000100	/* start of kernel physical */
 #ifndef __powerpc64__
 #define	VM_MIN_KERNEL_ADDRESS	0xc0000000
@@ -149,7 +154,15 @@ struct pmap_physseg {
 };
 #endif
 
-#define	VM_PHYSSEG_MAX		16	/* 1? */
+#define	VM_PHYSSEG_MAX		16
+
+#define	PHYS_AVAIL_SZ	256	/* Allows up to 16GB Ram on pSeries with
+				 * logical memory block size of 64MB.
+				 * For more Ram increase the lmb or this value.
+				 */
+
+/* XXX This is non-sensical.  Phys avail should hold contiguous regions. */
+#define	PHYS_AVAIL_ENTRIES	PHYS_AVAIL_SZ
 
 /*
  * The physical address space is densely populated on 32-bit systems,
