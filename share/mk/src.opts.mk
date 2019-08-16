@@ -612,7 +612,6 @@ MK_NTP:=	no
 MK_OPENNTPD:=	no
 .endif
 
-<<<<<<< HEAD
 .if ${MK_CROSS_DSO_CFI} != "no"
 # XXX devd crashes when Cross-DSO CFI is enabled and devd is not built
 # as a PIE. I still need to figure this out. For now, force devd to
@@ -633,11 +632,9 @@ MK_DEVD_PIE:=	yes
 MK_PMC:=	no
 .endif
 
-=======
 .if ${MK_LOADER_VERIEXEC} == "no"
 MK_LOADER_VERIEXEC_PASS_MANIFEST := no
 .endif
->>>>>>> upstream.playground.github/hardened/current/master
 
 #
 # MK_* options whose default value depends on another option.
