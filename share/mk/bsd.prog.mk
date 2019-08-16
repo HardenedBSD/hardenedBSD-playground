@@ -35,31 +35,6 @@ PROG=	${PROG_CXX}
 MK_DEBUG_FILES=	no
 .endif
 
-<<<<<<< HEAD
-=======
-# ELF hardening knobs
-.if ${MK_BIND_NOW} != "no"
-LDFLAGS+= -Wl,-znow
-.endif
-.if ${MK_PIE} != "no" && (!defined(NO_SHARED) || ${NO_SHARED:tl} == "no")
-CFLAGS+= -fPIE
-CXXFLAGS+= -fPIE
-LDFLAGS+= -pie
-.endif
-.if ${MK_RETPOLINE} != "no"
-.if ${COMPILER_FEATURES:Mretpoline} && ${LINKER_FEATURES:Mretpoline}
-CFLAGS+= -mretpoline
-CXXFLAGS+= -mretpoline
-# retpolineplt is broken with static linking (PR 233336)
-.if !defined(NO_SHARED) || ${NO_SHARED:tl} == "no"
-LDFLAGS+= -Wl,-zretpolineplt
-.endif
-.else
-.warning Retpoline requested but not supported by compiler or linker
-.endif
-.endif
-
->>>>>>> origin/freebsd/current/master
 .if defined(CRUNCH_CFLAGS)
 CFLAGS+=${CRUNCH_CFLAGS}
 .else

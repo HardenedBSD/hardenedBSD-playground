@@ -71,23 +71,6 @@ TAGS+=		package=${PACKAGE:Uruntime}
 TAG_ARGS=	-T ${TAGS:[*]:S/ /,/g}
 .endif
 
-<<<<<<< HEAD
-=======
-# ELF hardening knobs
-.if ${MK_BIND_NOW} != "no"
-LDFLAGS+= -Wl,-znow
-.endif
-.if ${MK_RETPOLINE} != "no"
-.if ${COMPILER_FEATURES:Mretpoline} && ${LINKER_FEATURES:Mretpoline}
-CFLAGS+= -mretpoline
-CXXFLAGS+= -mretpoline
-LDFLAGS+= -Wl,-zretpolineplt
-.else
-.warning Retpoline requested but not supported by compiler or linker
-.endif
-.endif
-
->>>>>>> origin/freebsd/current/master
 .if ${MK_DEBUG_FILES} != "no" && empty(DEBUG_FLAGS:M-g) && \
     empty(DEBUG_FLAGS:M-gdwarf*)
 CFLAGS+= ${DEBUG_FILES_CFLAGS}
