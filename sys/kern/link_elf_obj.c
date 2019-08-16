@@ -62,7 +62,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/link_elf.h>
 
 #ifdef DDB_CTF
-#include <sys/zlib.h>
+#include <contrib/zlib/zlib.h>
 #endif
 
 #include "linker_if.h"
@@ -714,11 +714,6 @@ link_elf_load_file(linker_class_t cls, const char *filename,
 		goto out;
 	}
 
-	if (symstrindex == -1) {
-		link_elf_error(filename, "lost symbol string index");
-		error = ENOEXEC;
-		goto out;
-	}
 	/* Allocate space for and load the symbol strings */
 	ef->ddbstrcnt = shdr[symstrindex].sh_size;
 	ef->ddbstrtab = malloc(shdr[symstrindex].sh_size, M_LINKER, M_WAITOK);

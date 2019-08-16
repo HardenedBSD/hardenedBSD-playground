@@ -210,21 +210,6 @@ int cold = 1;
 long Maxmem = 0;
 long realmem = 0;
 
-/*
- * The number of PHYSMAP entries must be one less than the number of
- * PHYSSEG entries because the PHYSMAP entry that spans the largest
- * physical address that is accessible by ISA DMA is split into two
- * PHYSSEG entries.
- */
-#define	PHYSMAP_SIZE	(2 * (VM_PHYSSEG_MAX - 1))
-
-vm_paddr_t phys_avail[PHYSMAP_SIZE + 2];
-vm_paddr_t dump_avail[PHYSMAP_SIZE + 2];
-
-/* must be 2 less so 0 0 can signal end of chunks */
-#define	PHYS_AVAIL_ARRAY_END (nitems(phys_avail) - 2)
-#define	DUMP_AVAIL_ARRAY_END (nitems(dump_avail) - 2)
-
 struct kva_md_info kmi;
 
 static struct trapframe proc0_tf;
@@ -1036,7 +1021,7 @@ add_physmap_entry(uint64_t base, uint64_t length, vm_paddr_t *physmap,
 
 	physmap_idx += 2;
 	*physmap_idxp = physmap_idx;
-	if (physmap_idx == PHYSMAP_SIZE) {
+	if (physmap_idx == PHYS_AVAIL_ENTRIES) {
 		printf(
 		"Too many segments in the physical address map, giving up\n");
 		return (0);
@@ -1229,7 +1214,7 @@ static void
 getmemsize(caddr_t kmdp, u_int64_t first)
 {
 	int i, physmap_idx, pa_indx, da_indx;
-	vm_paddr_t pa, physmap[PHYSMAP_SIZE];
+	vm_paddr_t pa, physmap[PHYS_AVAIL_ENTRIES];
 	u_long physmem_start, physmem_tunable, memtest;
 	pt_entry_t *pte;
 	quad_t dcons_addr, dcons_size;
@@ -1446,7 +1431,7 @@ skip_memtest:
 				phys_avail[pa_indx] += PAGE_SIZE;
 			} else {
 				pa_indx++;
-				if (pa_indx == PHYS_AVAIL_ARRAY_END) {
+				if (pa_indx == PHYS_AVAIL_ENTRIES) {
 					printf(
 		"Too many holes in the physical address space, giving up\n");
 					pa_indx--;
@@ -1462,7 +1447,7 @@ do_dump_avail:
 				dump_avail[da_indx] += PAGE_SIZE;
 			} else {
 				da_indx++;
-				if (da_indx == DUMP_AVAIL_ARRAY_END) {
+				if (da_indx == PHYS_AVAIL_ENTRIES) {
 					da_indx--;
 					goto do_next;
 				}
@@ -1617,6 +1602,13 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	physfree += kstack0_sz;
 
 	/*
+	 * Initialize enough of thread0 for delayed invalidation to
+	 * work very early.  Rely on thread0.td_base_pri
+	 * zero-initialization, it is reset to PVM at proc0_init().
+	 */
+	pmap_thread_init_invl_gen(&thread0);
+
+	/*
 	 * make gdt memory segments
 	 */
 	for (x = 0; x < NGDT; x++) {
@@ -1732,6 +1724,7 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 	TUNABLE_INT_FETCH("hw.spec_store_bypass_disable", &hw_ssb_disable);
 	TUNABLE_INT_FETCH("machdep.syscall_ret_l1d_flush",
 	    &syscall_ret_l1d_flush_mode);
+	TUNABLE_INT_FETCH("hw.mds_disable", &hw_mds_disable);
 
 	finishidentcpu();	/* Final stage of CPU initialization */
 	initializecpu();	/* Initialize CPU registers */
@@ -2661,7 +2654,7 @@ set_pcb_flags_fsgsbase(struct pcb *pcb, const u_int flags)
 	}
 }
 
-DEFINE_IFUNC(, void, set_pcb_flags, (struct pcb *, const u_int), static)
+DEFINE_IFUNC(, void, set_pcb_flags, (struct pcb *, const u_int))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_FSGSBASE) != 0 ?
@@ -2708,7 +2701,7 @@ outb_(u_short port, u_char data)
 
 void	*memset_std(void *buf, int c, size_t len);
 void	*memset_erms(void *buf, int c, size_t len);
-DEFINE_IFUNC(, void *, memset, (void *, int, size_t), static)
+DEFINE_IFUNC(, void *, memset, (void *, int, size_t))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?
@@ -2720,7 +2713,7 @@ void    *memmove_std(void * _Nonnull dst, const void * _Nonnull src,
 void    *memmove_erms(void * _Nonnull dst, const void * _Nonnull src,
 	    size_t len);
 DEFINE_IFUNC(, void *, memmove, (void * _Nonnull, const void * _Nonnull,
-    size_t), static)
+    size_t))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?
@@ -2731,8 +2724,7 @@ void    *memcpy_std(void * _Nonnull dst, const void * _Nonnull src,
 	    size_t len);
 void    *memcpy_erms(void * _Nonnull dst, const void * _Nonnull src,
 	    size_t len);
-DEFINE_IFUNC(, void *, memcpy, (void * _Nonnull, const void * _Nonnull,size_t),
-    static)
+DEFINE_IFUNC(, void *, memcpy, (void * _Nonnull, const void * _Nonnull,size_t))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?
@@ -2741,7 +2733,7 @@ DEFINE_IFUNC(, void *, memcpy, (void * _Nonnull, const void * _Nonnull,size_t),
 
 void	pagezero_std(void *addr);
 void	pagezero_erms(void *addr);
-DEFINE_IFUNC(, void , pagezero, (void *), static)
+DEFINE_IFUNC(, void , pagezero, (void *))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?

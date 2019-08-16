@@ -285,26 +285,12 @@ options 	ACPI_DEBUG
 # The cpufreq(4) driver provides support for non-ACPI CPU frequency control
 device		cpufreq
 
-# Direct Rendering modules for 3D acceleration.
-device		drm		# DRM core module required by DRM drivers
-device		mach64drm	# ATI Rage Pro, Rage Mobility P/M, Rage XL
-device		mgadrm		# AGP Matrox G200, G400, G450, G550
-device		r128drm		# ATI Rage 128
-device		savagedrm	# S3 Savage3D, Savage4
-device		sisdrm		# SiS 300/305, 540, 630
-device		tdfxdrm		# 3dfx Voodoo 3/4/5 and Banshee
-device		viadrm		# VIA
-options 	DRM_DEBUG	# Include debug printfs (slow)
-
 #
 # Network interfaces:
 #
 
 # bxe:  Broadcom NetXtreme II (BCM5771X/BCM578XX) PCIe 10Gb Ethernet
 #       adapters.
-# ed:   Western Digital and SMC 80xx; Novell NE1000 and NE2000; 3Com 3C503
-#       HP PC Lan+, various PC Card devices
-#       (requires miibus)
 # ipw:	Intel PRO/Wireless 2100 IEEE 802.11 adapter
 #	Requires the ipw firmware module
 # iwi:	Intel PRO/Wireless 2200BG/2225BG/2915ABG IEEE 802.11 adapters
@@ -322,7 +308,6 @@ options 	DRM_DEBUG	# Include debug printfs (slow)
 #	Requires the wpi firmware module
 
 device		bxe		# Broadcom NetXtreme II BCM5771X/BCM578XX 10GbE
-device		ed		# NE[12]000, SMC Ultra, 3c503, DS8390 cards
 options 	ED_3C503
 options 	ED_HPP
 options 	ED_SIC
@@ -397,6 +382,7 @@ device		wpifw
 device		if_ntb		# Virtual NTB network interface
 device		ntb_transport	# NTB packet transport driver
 device		ntb		# NTB hardware interface
+device		ntb_hw_amd	# AMD NTB hardware driver
 device		ntb_hw_intel	# Intel NTB hardware driver
 device		ntb_hw_plx	# PLX NTB hardware driver
 
@@ -581,6 +567,11 @@ device		amdtemp
 device		cpuctl
 
 #
+# SuperIO driver.
+#
+device		superio
+
+#
 # System Management Bus (SMB)
 #
 options 	ENABLE_ALART		# Control alarm on Intel intpm driver
@@ -672,3 +663,8 @@ options 	VM_KMEM_SIZE_SCALE
 options 	NDISAPI
 device		ndis
 
+
+# GCOV (code coverage) support
+
+options		LINDEBUGFS
+options		GCOV

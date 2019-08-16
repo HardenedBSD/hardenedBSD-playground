@@ -61,6 +61,7 @@ struct class {
 };
 
 struct dev_pm_ops {
+	int (*prepare)(struct device *dev);
 	int (*suspend)(struct device *dev);
 	int (*suspend_late)(struct device *dev);
 	int (*resume)(struct device *dev);
@@ -105,12 +106,12 @@ struct device {
 	struct class	*class;
 	void		(*release)(struct device *dev);
 	struct kobject	kobj;
-	uint64_t	*dma_mask;
+	void		*dma_priv;
 	void		*driver_data;
 	unsigned int	irq;
 #define	LINUX_IRQ_INVALID	65535
-	unsigned int	msix;
-	unsigned int	msix_max;
+	unsigned int	irq_start;
+	unsigned int	irq_end;
 	const struct attribute_group **groups;
 	struct fwnode_handle *fwnode;
 
@@ -182,6 +183,14 @@ show_class_attr_string(struct class *class,
 #define	dev_dbg(dev, fmt, ...)	do { } while (0)
 #define	dev_printk(lvl, dev, fmt, ...)					\
 	    device_printf((dev)->bsddev, fmt, ##__VA_ARGS__)
+
+#define	dev_err_once(dev, ...) do {		\
+	static bool __dev_err_once;		\
+	if (!__dev_err_once) {			\
+		__dev_err_once = 1;		\
+		dev_err(dev, __VA_ARGS__);	\
+	}					\
+} while (0)
 
 #define	dev_err_ratelimited(dev, ...) do {	\
 	static linux_ratelimit_t __ratelimited;	\

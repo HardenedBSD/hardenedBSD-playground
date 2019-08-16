@@ -3,6 +3,8 @@
 #
 
 .include <bsd.init.mk>
+.include <bsd.compiler.mk>
+.include <bsd.linker.mk>
 
 .if defined(LIB_CXX) || defined(SHLIB_CXX)
 _LD=	${CXX}
@@ -85,6 +87,8 @@ CTFFLAGS+= -g
 
 .if !defined(PICFLAG)
 PICFLAG=-fPIC
+.else
+PICFLAG=-fpic
 .endif
 
 .if defined(MK_RETPOLINE) && ${MK_RETPOLINE} != "no"
@@ -127,6 +131,10 @@ LDFLAGS+=	-Wl,-z,relro
 .if ${MK_BIND_NOW} != "no"
 LDFLAGS+=	-Wl,-z,now
 .endif
+.endif
+
+.if defined(MK_SPECTREV1_FIX) && ${MK_SPECTREV1_FIX} != "no"
+CFLAGS+=	-mspeculative-load-hardening
 .endif
 
 .if defined(MK_LIBRESSL) && ${MK_LIBRESSL} != "no"

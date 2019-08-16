@@ -3,6 +3,7 @@
 
 .include <bsd.init.mk>
 .include <bsd.compiler.mk>
+.include <bsd.linker.mk>
 
 .SUFFIXES: .out .o .bc .c .cc .cpp .cxx .C .m .y .l .ll .ln .s .S .asm
 
@@ -116,6 +117,10 @@ LDFLAGS+=	-Wl,-z,retpolineplt
 
 .if defined(MK_BIND_NOW) && ${MK_BIND_NOW} != "no"
 LDFLAGS+=	-Wl,-z,now
+.endif
+
+.if defined(MK_SPECTREV1_FIX) && ${MK_SPECTREV1_FIX} != "no"
+CFLAGS+=	-mspeculative-load-hardening
 .endif
 
 .if defined(MK_LIBRESSL) && ${MK_LIBRESSL} != "no"

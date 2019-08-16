@@ -33,6 +33,7 @@
 #ifndef __T4_TOM_H__
 #define __T4_TOM_H__
 #include <sys/vmem.h>
+#include "common/t4_hw.h"
 #include "tom/t4_tls.h"
 
 #define LISTEN_HASH_SIZE 32
@@ -123,13 +124,7 @@ struct pageset {
 
 TAILQ_HEAD(pagesetq, pageset);
 
-#define	PS_WIRED		0x0001	/* Pages wired rather than held. */
-#define	PS_PPODS_WRITTEN	0x0002	/* Page pods written to the card. */
-
-#define	EXT_FLAG_AIOTX		EXT_FLAG_VENDOR1
-
-#define	IS_AIOTX_MBUF(m)						\
-	((m)->m_flags & M_EXT && (m)->m_ext.ext_flags & EXT_FLAG_AIOTX)
+#define	PS_PPODS_WRITTEN	0x0001	/* Page pods written to the card. */
 
 struct ddp_buffer {
 	struct pageset *ps;
@@ -150,12 +145,6 @@ struct ddp_pcb {
 	struct task requeue_task;
 	struct kaiocb *queueing;
 	struct mtx lock;
-};
-
-struct aiotx_buffer {
-	struct pageset ps;
-	struct kaiocb *job;
-	int refcount;
 };
 
 struct toepcb {
@@ -180,9 +169,10 @@ struct toepcb {
 	u_int tx_nocompl;	/* tx WR credits since last compl request */
 	u_int plen_nocompl;	/* payload since last compl request */
 
-	/* rx credit handling */
-	u_int sb_cc;		/* last noted value of so_rcv->sb_cc */
-	int rx_credits;		/* rx credits (in bytes) to be returned to hw */
+	uint16_t opt0_rcv_bufsize;	/* XXX: save full opt0/opt2 for later? */
+	uint16_t mtu_idx;
+	uint16_t emss;
+	uint16_t tcp_opt;
 
 	u_int ulp_mode;	/* ULP mode */
 	void *ulpcb;
@@ -195,7 +185,7 @@ struct toepcb {
 
 	TAILQ_HEAD(, kaiocb) aiotx_jobq;
 	struct task aiotx_task;
-	bool aiotx_task_active;
+	struct socket *aiotx_so;
 
 	/* Tx software descriptor */
 	uint8_t txsd_total;
@@ -254,6 +244,31 @@ struct listen_ctx {
 	struct clip_entry *ce;
 };
 
+/* tcb_histent flags */
+#define TE_RPL_PENDING	1
+#define TE_ACTIVE	2
+
+/* bits in one 8b tcb_histent sample. */
+#define TS_RTO			(1 << 0)
+#define TS_DUPACKS		(1 << 1)
+#define TS_FASTREXMT		(1 << 2)
+#define TS_SND_BACKLOGGED	(1 << 3)
+#define TS_CWND_LIMITED		(1 << 4)
+#define TS_ECN_ECE		(1 << 5)
+#define TS_ECN_CWR		(1 << 6)
+#define TS_RESERVED		(1 << 7)	/* Unused. */
+
+struct tcb_histent {
+	struct mtx te_lock;
+	struct callout te_callout;
+	uint64_t te_tcb[TCB_SIZE / sizeof(uint64_t)];
+	struct adapter *te_adapter;
+	u_int te_flags;
+	u_int te_tid;
+	uint8_t te_pidx;
+	uint8_t te_sample[100];
+};
+
 struct tom_data {
 	struct toedev tod;
 
@@ -267,6 +282,10 @@ struct tom_data {
 	int lctx_count;		/* # of lctx in the hash table */
 
 	struct ppod_region pr;
+
+	struct rwlock tcb_history_lock __aligned(CACHE_LINE_SIZE);
+	struct tcb_histent **tcb_history;
+	int dupack_threshold;
 
 	/* WRs that will not be sent to the chip because L2 resolution failed */
 	struct mtx unsent_wr_lock;
@@ -326,6 +345,7 @@ int select_ulp_mode(struct socket *, struct adapter *,
     struct offload_settings *);
 void set_ulp_mode(struct toepcb *, int);
 int negative_advice(int);
+int add_tid_to_history(struct adapter *, u_int);
 
 /* t4_connect.c */
 void t4_init_connect_cpl_handlers(void);

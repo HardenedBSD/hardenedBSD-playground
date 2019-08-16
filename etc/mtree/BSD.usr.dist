@@ -13,6 +13,18 @@
             ..
             event
             ..
+            gmock
+                internal
+                    custom
+                    ..
+                ..
+            ..
+            gtest
+                internal
+                    custom
+                    ..
+                ..
+            ..
             sqlite3
             ..
             ucl
@@ -23,7 +35,7 @@
     ..
     lib
         clang
-            7.0.1
+            8.0.1
                 include
                     sanitizer
                     ..
@@ -418,9 +430,9 @@
                 ..
             ..
             pkg
-                revoked
+                revoked tags=package=runtime
                 ..
-                trusted
+                trusted tags=package=runtime
                 ..
             ..
         ..

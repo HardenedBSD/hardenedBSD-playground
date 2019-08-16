@@ -1762,7 +1762,22 @@ int
 sys_unlink(struct thread *td, struct unlink_args *uap)
 {
 
-	return (kern_unlinkat(td, AT_FDCWD, uap->path, UIO_USERSPACE, 0, 0));
+	return (kern_funlinkat(td, AT_FDCWD, uap->path, FD_NONE, UIO_USERSPACE,
+	    0, 0));
+}
+
+static int
+kern_funlinkat_ex(struct thread *td, int dfd, const char *path, int fd,
+    int flag, enum uio_seg pathseg, ino_t oldinum)
+{
+
+	if ((flag & ~AT_REMOVEDIR) != 0)
+		return (EINVAL);
+
+	if ((flag & AT_REMOVEDIR) != 0)
+		return (kern_frmdirat(td, dfd, path, fd, UIO_USERSPACE, 0));
+
+	return (kern_funlinkat(td, dfd, path, fd, UIO_USERSPACE, 0, 0));
 }
 
 #ifndef _SYS_SYSPROTO_H_
@@ -1775,46 +1790,67 @@ struct unlinkat_args {
 int
 sys_unlinkat(struct thread *td, struct unlinkat_args *uap)
 {
-	int fd, flag;
-	const char *path;
 
-	flag = uap->flag;
-	fd = uap->fd;
-	path = uap->path;
+	return (kern_funlinkat_ex(td, uap->fd, uap->path, FD_NONE, uap->flag,
+	    UIO_USERSPACE, 0));
+}
 
-	if ((flag & ~(AT_REMOVEDIR | AT_BENEATH)) != 0)
-		return (EINVAL);
+#ifndef _SYS_SYSPROTO_H_
+struct funlinkat_args {
+	int		dfd;
+	const char	*path;
+	int		fd;
+	int		flag;
+};
+#endif
+int
+sys_funlinkat(struct thread *td, struct funlinkat_args *uap)
+{
 
-	if ((uap->flag & AT_REMOVEDIR) != 0)
-		return (kern_rmdirat(td, fd, path, UIO_USERSPACE, flag));
-	else
-		return (kern_unlinkat(td, fd, path, UIO_USERSPACE, flag, 0));
+	return (kern_funlinkat_ex(td, uap->dfd, uap->path, uap->fd, uap->flag,
+	    UIO_USERSPACE, 0));
 }
 
 int
-kern_unlinkat(struct thread *td, int fd, const char *path,
+kern_funlinkat(struct thread *td, int dfd, const char *path, int fd,
     enum uio_seg pathseg, int flag, ino_t oldinum)
 {
 	struct mount *mp;
+	struct file *fp;
 	struct vnode *vp;
 	struct nameidata nd;
 	struct stat sb;
 	int error;
 
+	fp = NULL;
+	if (fd != FD_NONE) {
+		error = getvnode(td, fd, &cap_no_rights, &fp);
+		if (error != 0)
+			return (error);
+	}
+
 restart:
 	bwillwrite();
 	NDINIT_ATRIGHTS(&nd, DELETE, LOCKPARENT | LOCKLEAF | AUDITVNODE1 |
 	    ((flag & AT_BENEATH) != 0 ? BENEATH : 0),
-	    pathseg, path, fd, &cap_unlinkat_rights, td);
-	if ((error = namei(&nd)) != 0)
-		return (error == EINVAL ? EPERM : error);
+	    pathseg, path, dfd, &cap_unlinkat_rights, td);
+	if ((error = namei(&nd)) != 0) {
+		if (error == EINVAL)
+			error = EPERM;
+		goto fdout;
+	}
 	vp = nd.ni_vp;
 	if (vp->v_type == VDIR && oldinum == 0) {
 		error = EPERM;		/* POSIX */
 	} else if (oldinum != 0 &&
 		  ((error = vn_stat(vp, &sb, td->td_ucred, NOCRED, td)) == 0) &&
 		  sb.st_ino != oldinum) {
-			error = EIDRM;	/* Identifier removed */
+		error = EIDRM;	/* Identifier removed */
+	} else if (fp != NULL && fp->f_vnode != vp) {
+		if ((fp->f_vnode->v_iflag & VI_DOOMED) != 0)
+			error = EBADF;
+		else
+			error = EDEADLK;
 	} else {
 		/*
 		 * The root of a mounted filesystem cannot be deleted.
@@ -1833,8 +1869,9 @@ restart:
 			else
 				vput(vp);
 			if ((error = vn_start_write(NULL, &mp,
-			    V_XSLEEP | PCATCH)) != 0)
-				return (error);
+			    V_XSLEEP | PCATCH)) != 0) {
+				goto fdout;
+			}
 			goto restart;
 		}
 #ifdef MAC
@@ -1859,6 +1896,9 @@ out:
 		vrele(vp);
 	else
 		vput(vp);
+fdout:
+	if (fp != NULL)
+		fdrop(fp, td);
 	return (error);
 }
 
@@ -3558,10 +3598,10 @@ again:
 			goto out;
 		}
 #ifdef CAPABILITIES
-		if (newfd != AT_FDCWD) {
+		if (newfd != AT_FDCWD && (tond.ni_resflags & NIRES_ABS) == 0) {
 			/*
 			 * If the target already exists we require CAP_UNLINKAT
-			 * from 'newfd'.
+			 * from 'newfd', when newfd was used for the lookup.
 			 */
 			error = cap_check(&tond.ni_filecaps.fc_rights,
 			    &cap_unlinkat_rights);
@@ -3718,25 +3758,36 @@ int
 sys_rmdir(struct thread *td, struct rmdir_args *uap)
 {
 
-	return (kern_rmdirat(td, AT_FDCWD, uap->path, UIO_USERSPACE, 0));
+	return (kern_frmdirat(td, AT_FDCWD, uap->path, FD_NONE, UIO_USERSPACE,
+	    0));
 }
 
 int
-kern_rmdirat(struct thread *td, int fd, const char *path, enum uio_seg pathseg,
-    int flag)
+kern_frmdirat(struct thread *td, int dfd, const char *path, int fd,
+    enum uio_seg pathseg, int flag)
 {
 	struct mount *mp;
 	struct vnode *vp;
+	struct file *fp;
 	struct nameidata nd;
+	cap_rights_t rights;
 	int error;
+
+	fp = NULL;
+	if (fd != FD_NONE) {
+		error = getvnode(td, fd, cap_rights_init(&rights, CAP_LOOKUP),
+		    &fp);
+		if (error != 0)
+			return (error);
+	}
 
 restart:
 	bwillwrite();
 	NDINIT_ATRIGHTS(&nd, DELETE, LOCKPARENT | LOCKLEAF | AUDITVNODE1 |
 	    ((flag & AT_BENEATH) != 0 ? BENEATH : 0),
-	    pathseg, path, fd, &cap_unlinkat_rights, td);
+	    pathseg, path, dfd, &cap_unlinkat_rights, td);
 	if ((error = namei(&nd)) != 0)
-		return (error);
+		goto fdout;
 	vp = nd.ni_vp;
 	if (vp->v_type != VDIR) {
 		error = ENOTDIR;
@@ -3756,6 +3807,15 @@ restart:
 		error = EBUSY;
 		goto out;
 	}
+
+	if (fp != NULL && fp->f_vnode != vp) {
+		if ((fp->f_vnode->v_iflag & VI_DOOMED) != 0)
+			error = EBADF;
+		else
+			error = EDEADLK;
+		goto out;
+	}
+
 #ifdef MAC
 	error = mac_vnode_check_unlink(td->td_ucred, nd.ni_dvp, vp,
 	    &nd.ni_cnd);
@@ -3770,7 +3830,7 @@ restart:
 		else
 			vput(nd.ni_dvp);
 		if ((error = vn_start_write(NULL, &mp, V_XSLEEP | PCATCH)) != 0)
-			return (error);
+			goto fdout;
 		goto restart;
 	}
 	vfs_notify_upper(vp, VFS_NOTIFY_UPPER_UNLINK);
@@ -3783,6 +3843,9 @@ out:
 		vrele(nd.ni_dvp);
 	else
 		vput(nd.ni_dvp);
+fdout:
+	if (fp != NULL)
+		fdrop(fp, td);
 	return (error);
 }
 
@@ -4764,4 +4827,123 @@ sys_posix_fadvise(struct thread *td, struct posix_fadvise_args *uap)
 	error = kern_posix_fadvise(td, uap->fd, uap->offset, uap->len,
 	    uap->advice);
 	return (kern_posix_error(td, error));
+}
+
+int
+kern_copy_file_range(struct thread *td, int infd, off_t *inoffp, int outfd,
+    off_t *outoffp, size_t len, unsigned int flags)
+{
+	struct file *infp, *outfp;
+	struct vnode *invp, *outvp;
+	int error;
+	size_t retlen;
+	void *rl_rcookie, *rl_wcookie;
+	off_t savinoff, savoutoff;
+
+	infp = outfp = NULL;
+	rl_rcookie = rl_wcookie = NULL;
+	savinoff = -1;
+	error = 0;
+	retlen = 0;
+
+	if (flags != 0) {
+		error = EINVAL;
+		goto out;
+	}
+	if (len > SSIZE_MAX)
+		/*
+		 * Although the len argument is size_t, the return argument
+		 * is ssize_t (which is signed).  Therefore a size that won't
+		 * fit in ssize_t can't be returned.
+		 */
+		len = SSIZE_MAX;
+
+	/* Get the file structures for the file descriptors. */
+	error = fget_read(td, infd, &cap_read_rights, &infp);
+	if (error != 0)
+		goto out;
+	error = fget_write(td, outfd, &cap_write_rights, &outfp);
+	if (error != 0)
+		goto out;
+
+	/* Set the offset pointers to the correct place. */
+	if (inoffp == NULL)
+		inoffp = &infp->f_offset;
+	if (outoffp == NULL)
+		outoffp = &outfp->f_offset;
+	savinoff = *inoffp;
+	savoutoff = *outoffp;
+
+	invp = infp->f_vnode;
+	outvp = outfp->f_vnode;
+	/* Sanity check the f_flag bits. */
+	if ((outfp->f_flag & (FWRITE | FAPPEND)) != FWRITE ||
+	    (infp->f_flag & FREAD) == 0 || invp == outvp) {
+		error = EBADF;
+		goto out;
+	}
+
+	/* If len == 0, just return 0. */
+	if (len == 0)
+		goto out;
+
+	/* Range lock the byte ranges for both invp and outvp. */
+	for (;;) {
+		rl_wcookie = vn_rangelock_wlock(outvp, *outoffp, *outoffp +
+		    len);
+		rl_rcookie = vn_rangelock_tryrlock(invp, *inoffp, *inoffp +
+		    len);
+		if (rl_rcookie != NULL)
+			break;
+		vn_rangelock_unlock(outvp, rl_wcookie);
+		rl_rcookie = vn_rangelock_rlock(invp, *inoffp, *inoffp + len);
+		vn_rangelock_unlock(invp, rl_rcookie);
+	}
+
+	retlen = len;
+	error = vn_copy_file_range(invp, inoffp, outvp, outoffp, &retlen,
+	    flags, infp->f_cred, outfp->f_cred, td);
+out:
+	if (rl_rcookie != NULL)
+		vn_rangelock_unlock(invp, rl_rcookie);
+	if (rl_wcookie != NULL)
+		vn_rangelock_unlock(outvp, rl_wcookie);
+	if (savinoff != -1 && (error == EINTR || error == ERESTART)) {
+		*inoffp = savinoff;
+		*outoffp = savoutoff;
+	}
+	if (outfp != NULL)
+		fdrop(outfp, td);
+	if (infp != NULL)
+		fdrop(infp, td);
+	td->td_retval[0] = retlen;
+	return (error);
+}
+
+int
+sys_copy_file_range(struct thread *td, struct copy_file_range_args *uap)
+{
+	off_t inoff, outoff, *inoffp, *outoffp;
+	int error;
+
+	inoffp = outoffp = NULL;
+	if (uap->inoffp != NULL) {
+		error = copyin(uap->inoffp, &inoff, sizeof(off_t));
+		if (error != 0)
+			return (error);
+		inoffp = &inoff;
+	}
+	if (uap->outoffp != NULL) {
+		error = copyin(uap->outoffp, &outoff, sizeof(off_t));
+		if (error != 0)
+			return (error);
+		outoffp = &outoff;
+	}
+	error = kern_copy_file_range(td, uap->infd, inoffp, uap->outfd,
+	    outoffp, uap->len, uap->flags);
+	if (error == 0 && uap->inoffp != NULL)
+		error = copyout(inoffp, uap->inoffp, sizeof(off_t));
+	if (error == 0 && uap->outoffp != NULL)
+		error = copyout(outoffp, uap->outoffp, sizeof(off_t));
+	return (error);
 }

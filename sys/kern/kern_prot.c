@@ -64,6 +64,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sx.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
+#include <sys/sysent.h>
 #include <sys/sysproto.h>
 #include <sys/jail.h>
 #include <sys/pioctl.h>
@@ -103,7 +104,8 @@ sys_getpid(struct thread *td, struct getpid_args *uap)
 
 	td->td_retval[0] = p->p_pid;
 #if defined(COMPAT_43)
-	td->td_retval[1] = kern_getppid(td);
+	if (SV_PROC_FLAG(p, SV_AOUT))
+		td->td_retval[1] = kern_getppid(td);
 #endif
 	return (0);
 }
@@ -1965,6 +1967,14 @@ cru2x(struct ucred *cr, struct xucred *xcr)
 	xcr->cr_ngroups = ngroups;
 	bcopy(cr->cr_groups, xcr->cr_groups,
 	    ngroups * sizeof(*cr->cr_groups));
+}
+
+void
+cru2xt(struct thread *td, struct xucred *xcr)
+{
+
+	cru2x(td->td_ucred, xcr);
+	xcr->cr_pid = td->td_proc->p_pid;
 }
 
 /*

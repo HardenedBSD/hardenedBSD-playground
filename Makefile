@@ -4,7 +4,8 @@
 # The user-driven targets are:
 #
 # universe            - *Really* build *everything* (buildworld and
-#                       all kernels on all architectures).
+#                       all kernels on all architectures).  Define the
+#                       MAKE_JUST_KERNELS variable to only build kernels.
 # tinderbox           - Same as universe, but presents a list of failed build
 #                       targets and exits with an error if there were any.
 # buildworld          - Rebuild *everything*, including glue to help do
@@ -45,12 +46,6 @@
 # native-xtools-install
 #                     - Install the files to the given DESTDIR/NXTP where
 #                       NXTP defaults to /nxb-bin.
-# 
-# "quick" way to test all kernel builds:
-# 	_jflag=`sysctl -n hw.ncpu`
-# 	_jflag=$(($_jflag * 2))
-# 	[ $_jflag -gt 12 ] && _jflag=12
-# 	make universe -DMAKE_JUST_KERNELS JFLAG=-j${_jflag}
 #
 # This makefile is simple by design. The FreeBSD make automatically reads
 # the /usr/share/mk/sys.mk unless the -m argument is specified on the
@@ -143,7 +138,7 @@ TGTS=	all all-man buildenv buildenvvars buildkernel buildworld \
 	build32 distribute32 install32 buildsoft distributesoft installsoft \
 	builddtb xdev xdev-build xdev-install \
 	xdev-links native-xtools native-xtools-install stageworld stagekernel \
-	stage-packages \
+	stage-packages stage-packages-kernel stage-packages-world \
 	create-packages-world create-packages-kernel create-packages \
 	packages installconfig real-packages sign-packages package-pkg \
 	print-dir test-system-compiler test-system-linker
@@ -570,7 +565,7 @@ universe-toolchain: .PHONY universe_prologue
 	    false; \
 	fi
 	@if [ ! -e "${HOST_OBJTOP}/tmp/usr/bin/ld" ]; then \
-	    echo "Missing host linker at ${HOST_OBJTOP}/tmp/usr/bin/cc?" >&2; \
+	    echo "Missing host linker at ${HOST_OBJTOP}/tmp/usr/bin/ld?" >&2; \
 	    false; \
 	fi
 	@echo "--------------------------------------------------------------"

@@ -48,6 +48,7 @@ __FBSDID("$FreeBSD$");
 #if defined(LOADER_FIREWIRE_SUPPORT)
 extern struct devsw fwohci;
 #endif
+extern struct devsw vdisk_dev;
 
 /* Exported for libstand */
 struct devsw *devsw[] = {
@@ -60,6 +61,7 @@ struct devsw *devsw[] = {
 #if defined(LOADER_FIREWIRE_SUPPORT)
     &fwohci,
 #endif
+    &vdisk_dev,
 #if defined(LOADER_ZFS_SUPPORT)
     &zfs_dev,
 #endif
@@ -81,9 +83,6 @@ struct fs_ops *file_system[] = {
 #endif
 #if defined(LOADER_CD9660_SUPPORT)
     &cd9660_fsops,
-#endif
-#if defined(LOADER_NANDFS_SUPPORT)
-    &nandfs_fsops,
 #endif
 #ifdef LOADER_NFS_SUPPORT 
     &nfs_fsops,

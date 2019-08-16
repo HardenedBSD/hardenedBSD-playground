@@ -358,7 +358,7 @@ sgx_page_remove(struct sgx_softc *sc, vm_page_t p)
 	uint64_t offs;
 
 	vm_page_lock(p);
-	vm_page_remove(p);
+	(void)vm_page_remove(p);
 	vm_page_unlock(p);
 
 	dprintf("%s: p->pidx %ld\n", __func__, p->pindex);
@@ -1074,6 +1074,12 @@ sgx_get_epc_area(struct sgx_softc *sc)
 	sc->epc_size = ((uint64_t)(cp[3] & 0xfffff) << 32) +
 	    (cp[2] & 0xfffff000);
 	sc->npages = sc->epc_size / SGX_PAGE_SIZE;
+
+	if (sc->epc_size == 0 || sc->epc_base == 0) {
+		printf("%s: Incorrect EPC data: EPC base %lx, size %lu\n",
+		    __func__, sc->epc_base, sc->epc_size);
+		return (EINVAL);
+	}
 
 	if (cp[3] & 0xffff)
 		sc->enclave_size_max = (1 << ((cp[3] >> 8) & 0xff));

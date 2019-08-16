@@ -67,6 +67,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/bio.h>
 #include <sys/buf.h>
 #include <sys/vmmeter.h>
+#include <sys/ktr.h>
 #include <sys/limits.h>
 #include <sys/conf.h>
 #include <sys/rwlock.h>
@@ -115,13 +116,23 @@ SYSCTL_PROC(_debug, OID_AUTO, vnode_domainset, CTLTYPE_STRING | CTLFLAG_RW,
     &vnode_domainset, 0, sysctl_handle_domainset, "A",
     "Default vnode NUMA policy");
 
+static int nvnpbufs;
+SYSCTL_INT(_vm, OID_AUTO, vnode_pbufs, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
+    &nvnpbufs, 0, "number of physical buffers allocated for vnode pager");
+
 static uma_zone_t vnode_pbuf_zone;
 
 static void
 vnode_pager_init(void *dummy)
 {
 
-	vnode_pbuf_zone = pbuf_zsecond_create("vnpbuf", nswbuf * 8);
+#ifdef __LP64__
+	nvnpbufs = nswbuf * 2;
+#else
+	nvnpbufs = nswbuf / 2;
+#endif
+	TUNABLE_INT_FETCH("vm.vnode_pbufs", &nvnpbufs);
+	vnode_pbuf_zone = pbuf_zsecond_create("vnpbuf", nvnpbufs);
 }
 SYSINIT(vnode_pager, SI_SUB_CPU, SI_ORDER_ANY, vnode_pager_init, NULL);
 
@@ -315,12 +326,23 @@ vnode_pager_dealloc(vm_object_t object)
 	ASSERT_VOP_ELOCKED(vp, "vnode_pager_dealloc");
 	if (object->un_pager.vnp.writemappings > 0) {
 		object->un_pager.vnp.writemappings = 0;
-		VOP_ADD_WRITECOUNT(vp, -1);
+		VOP_ADD_WRITECOUNT_CHECKED(vp, -1);
 		CTR3(KTR_VFS, "%s: vp %p v_writecount decreased to %d",
 		    __func__, vp, vp->v_writecount);
 	}
 	vp->v_object = NULL;
-	VOP_UNSET_TEXT(vp);
+	VI_LOCK(vp);
+
+	/*
+	 * vm_map_entry_set_vnode_text() cannot reach this vnode by
+	 * following object->handle.  Clear all text references now.
+	 * This also clears the transient references from
+	 * kern_execve(), which is fine because dead_vnodeops uses nop
+	 * for VOP_UNSET_TEXT().
+	 */
+	if (vp->v_writecount < 0)
+		vp->v_writecount = 0;
+	VI_UNLOCK(vp);
 	VM_OBJECT_WUNLOCK(object);
 	while (refs-- > 0)
 		vunref(vp);
@@ -522,8 +544,8 @@ vnode_pager_addr(struct vnode *vp, vm_ooffset_t address, daddr_t *rtaddress,
 			*rtaddress += voffset / DEV_BSIZE;
 		if (run) {
 			*run += 1;
-			*run *= bsize/PAGE_SIZE;
-			*run -= voffset/PAGE_SIZE;
+			*run *= bsize / PAGE_SIZE;
+			*run -= voffset / PAGE_SIZE;
 		}
 	}
 
@@ -783,7 +805,7 @@ vnode_pager_generic_getpages(struct vnode *vp, vm_page_t *m, int count,
 
 	KASSERT(foff < object->un_pager.vnp.vnp_size,
 	    ("%s: page %p offset beyond vp %p size", __func__, m[0], vp));
-	KASSERT(count <= sizeof(bp->b_pages),
+	KASSERT(count <= nitems(bp->b_pages),
 	    ("%s: requested %d pages", __func__, count));
 
 	/*
@@ -1503,13 +1525,13 @@ vnode_pager_update_writecount(vm_object_t object, vm_offset_t start,
 	object->un_pager.vnp.writemappings += (vm_ooffset_t)end - start;
 	vp = object->handle;
 	if (old_wm == 0 && object->un_pager.vnp.writemappings != 0) {
-		ASSERT_VOP_ELOCKED(vp, "v_writecount inc");
-		VOP_ADD_WRITECOUNT(vp, 1);
+		ASSERT_VOP_LOCKED(vp, "v_writecount inc");
+		VOP_ADD_WRITECOUNT_CHECKED(vp, 1);
 		CTR3(KTR_VFS, "%s: vp %p v_writecount increased to %d",
 		    __func__, vp, vp->v_writecount);
 	} else if (old_wm != 0 && object->un_pager.vnp.writemappings == 0) {
-		ASSERT_VOP_ELOCKED(vp, "v_writecount dec");
-		VOP_ADD_WRITECOUNT(vp, -1);
+		ASSERT_VOP_LOCKED(vp, "v_writecount dec");
+		VOP_ADD_WRITECOUNT_CHECKED(vp, -1);
 		CTR3(KTR_VFS, "%s: vp %p v_writecount decreased to %d",
 		    __func__, vp, vp->v_writecount);
 	}
@@ -1551,7 +1573,7 @@ vnode_pager_release_writecount(vm_object_t object, vm_offset_t start,
 	VM_OBJECT_WUNLOCK(object);
 	mp = NULL;
 	vn_start_write(vp, &mp, V_WAIT);
-	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
+	vn_lock(vp, LK_SHARED | LK_RETRY);
 
 	/*
 	 * Decrement the object's writemappings, by swapping the start

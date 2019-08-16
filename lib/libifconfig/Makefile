@@ -2,7 +2,7 @@
 
 PACKAGE=	lib${LIB}
 LIB=		ifconfig
-PRIVATELIB=	true
+INTERNALLIB=	true
 
 SHLIBDIR?=	/lib
 SHLIB_MAJOR=	1

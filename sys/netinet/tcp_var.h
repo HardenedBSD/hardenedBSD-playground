@@ -102,7 +102,8 @@ struct tcpcb {
 		t_state:4,		/* state of this connection */
 		t_idle_reduce : 1,
 		t_delayed_ack: 7,	/* Delayed ack variable */
-		bits_spare : 4;
+		t_fin_is_rst: 1,	/* Are fin's treated as resets */
+		bits_spare : 3;
 	u_int	t_flags;
 	tcp_seq	snd_una;		/* sent but unacknowledged */
 	tcp_seq	snd_max;		/* highest sequence number sent;
@@ -271,6 +272,11 @@ struct tcp_function_block {
 	void	(*tfb_tcp_do_segment)(struct mbuf *, struct tcphdr *,
 			    struct socket *, struct tcpcb *,
 		        int, int, uint8_t);
+	int     (*tfb_do_queued_segments)(struct socket *, struct tcpcb *, int);
+	int      (*tfb_do_segment_nounlock)(struct mbuf *, struct tcphdr *,
+			    struct socket *, struct tcpcb *,
+			    int, int, uint8_t,
+			    int, struct timeval *);
 	void	(*tfb_tcp_hpts_do_segment)(struct mbuf *, struct tcphdr *,
 			    struct socket *, struct tcpcb *,
 			    int, int, uint8_t,
@@ -754,7 +760,6 @@ extern	int tcp_log_in_vain;
 VNET_DECLARE(int, drop_synfin);
 VNET_DECLARE(int, path_mtu_discovery);
 VNET_DECLARE(int, tcp_abc_l_var);
-VNET_DECLARE(int, tcp_autorcvbuf_inc);
 VNET_DECLARE(int, tcp_autorcvbuf_max);
 VNET_DECLARE(int, tcp_autosndbuf_inc);
 VNET_DECLARE(int, tcp_autosndbuf_max);
@@ -789,7 +794,6 @@ VNET_DECLARE(struct inpcbinfo, tcbinfo);
 #define	V_tcb				VNET(tcb)
 #define	V_tcbinfo			VNET(tcbinfo)
 #define	V_tcp_abc_l_var			VNET(tcp_abc_l_var)
-#define	V_tcp_autorcvbuf_inc		VNET(tcp_autorcvbuf_inc)
 #define	V_tcp_autorcvbuf_max		VNET(tcp_autorcvbuf_max)
 #define	V_tcp_autosndbuf_inc		VNET(tcp_autosndbuf_inc)
 #define	V_tcp_autosndbuf_max		VNET(tcp_autosndbuf_max)
@@ -798,6 +802,7 @@ VNET_DECLARE(struct inpcbinfo, tcbinfo);
 #define	V_tcp_do_autosndbuf		VNET(tcp_do_autosndbuf)
 #define	V_tcp_do_ecn			VNET(tcp_do_ecn)
 #define	V_tcp_do_rfc1323		VNET(tcp_do_rfc1323)
+#define V_tcp_ts_offset_per_conn	VNET(tcp_ts_offset_per_conn)
 #define	V_tcp_do_rfc3042		VNET(tcp_do_rfc3042)
 #define	V_tcp_do_rfc3390		VNET(tcp_do_rfc3390)
 #define	V_tcp_do_rfc3465		VNET(tcp_do_rfc3465)
@@ -935,6 +940,7 @@ tcp_seq	 tcp_new_isn(struct in_conninfo *);
 
 int	 tcp_sack_doack(struct tcpcb *, struct tcpopt *, tcp_seq);
 void	 tcp_update_sack_list(struct tcpcb *tp, tcp_seq rcv_laststart, tcp_seq rcv_lastend);
+void	 tcp_clean_dsack_blocks(struct tcpcb *tp);
 void	 tcp_clean_sackreport(struct tcpcb *tp);
 void	 tcp_sack_adjust(struct tcpcb *tp);
 struct sackhole *tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt);

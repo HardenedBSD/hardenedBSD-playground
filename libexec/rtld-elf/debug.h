@@ -37,12 +37,12 @@
 #include <sys/cdefs.h>
 
 #include <string.h>
-#include <unistd.h>
+#include "rtld_printf.h"
 
-extern void debug_printf(const char *, ...) __printflike(1, 2);
+void debug_printf(const char *, ...) __printflike(1, 2);
 extern int debug;
 
-#ifdef DEBUG
+#ifndef NO_LD_DEBUG
 #define dbg(...)	debug_printf(__VA_ARGS__)
 #else
 #define dbg(...)	((void) 0)
@@ -57,7 +57,7 @@ extern int debug;
 #define assert(cond)	((cond) ? (void) 0 :		\
     (msg(_MYNAME ": assert failed: " __FILE__ ":"	\
       __XSTRING(__LINE__) "\n"), abort()))
-#define msg(s)		write(STDOUT_FILENO, s, strlen(s))
+#define msg(s)		rtld_putstr(s)
 #define trace()		msg(_MYNAME ": " __XSTRING(__LINE__) "\n")
 
 

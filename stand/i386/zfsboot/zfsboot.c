@@ -87,6 +87,24 @@ static const unsigned char flags[NOPT] = {
 };
 uint32_t opts;
 
+/*
+ * Paths to try loading before falling back to the boot2 prompt.
+ *
+ * /boot/zfsloader must be tried before /boot/loader in order to remain
+ * backward compatible with ZFS boot environments where /boot/loader exists
+ * but does not have ZFS support, which was the case before FreeBSD 12.
+ *
+ * If no loader is found, try to load a kernel directly instead.
+ */
+static const struct string {
+    const char *p;
+    size_t len;
+} loadpath[] = {
+    { PATH_LOADER_ZFS, sizeof(PATH_LOADER_ZFS) },
+    { PATH_LOADER, sizeof(PATH_LOADER) },
+    { PATH_KERNEL, sizeof(PATH_KERNEL) },
+};
+
 static const unsigned char dev_maj[NDEV] = {30, 4, 2};
 
 static char cmd[512];
@@ -460,6 +478,33 @@ copy_dsk(struct zfsdsk *zdsk)
 }
 
 /*
+ * Get disk size from GPT.
+ */
+static uint64_t
+drvsize_gpt(struct dsk *dskp)
+{
+#ifdef GPT
+	struct gpt_hdr hdr;
+	char *sec;
+
+	sec = dmadat->secbuf;
+	if (drvread(dskp, sec, 1, 1))
+		return (0);
+
+	memcpy(&hdr, sec, sizeof(hdr));
+	if (memcmp(hdr.hdr_sig, GPT_HDR_SIG, sizeof(hdr.hdr_sig)) != 0 ||
+	    hdr.hdr_lba_self != 1 || hdr.hdr_revision < 0x00010000 ||
+	    hdr.hdr_entsz < sizeof(struct gpt_ent) ||
+	    DEV_BSIZE % hdr.hdr_entsz != 0) {
+		return (0);
+	}
+	return (hdr.hdr_lba_alt + 1);
+#else
+	return (0);
+#endif
+}
+
+/*
  * Get disk size from eax=0x800 and 0x4800. We need to probe both
  * because 0x4800 may not be available and we would like to get more
  * or less correct disk size - if it is possible at all.
@@ -474,6 +519,11 @@ drvsize_ext(struct zfsdsk *zdsk)
 	int cyl, hds, sec;
 
 	dskp = &zdsk->dsk;
+
+	/* Try to read disk size from GPT */
+	size = drvsize_gpt(dskp);
+	if (size != 0)
+		return (size);
 
 	v86.ctl = V86_FLAGS;
 	v86.addr = 0x13;
@@ -545,32 +595,19 @@ probe_drive(struct zfsdsk *zdsk)
     char *sec;
     unsigned i;
 
-    /*
-     * If we find a vdev on the whole disk, stop here.
-     */
-    if (vdev_probe(vdev_read2, zdsk, NULL) == 0)
-	return;
-
 #ifdef LOADER_GELI_SUPPORT
     /*
-     * Taste the disk, if it is GELI encrypted, decrypt it and check to see if
-     * it is a usable vdev then. Otherwise dig
-     * out the partition table and probe each slice/partition
-     * in turn for a vdev or GELI encrypted vdev.
+     * Taste the disk, if it is GELI encrypted, decrypt it then dig out the
+     * partition table and probe each slice/partition in turn for a vdev or
+     * GELI encrypted vdev.
      */
     elba = drvsize_ext(zdsk);
     if (elba > 0) {
 	elba--;
     }
     zdsk->gdev = geli_taste(vdev_read, zdsk, elba, "disk%u:0:");
-    if (zdsk->gdev != NULL) {
-	if (geli_havekey(zdsk->gdev) == 0 || 
-	    geli_passphrase(zdsk->gdev, gelipw) == 0) {
-	    if (vdev_probe(vdev_read2, zdsk, NULL) == 0) {
-		return;
-	    }
-	}
-    }
+    if ((zdsk->gdev != NULL) && (geli_havekey(zdsk->gdev) == 0))
+	    geli_passphrase(zdsk->gdev, gelipw);
 #endif /* LOADER_GELI_SUPPORT */
 
     sec = dmadat->secbuf;
@@ -838,16 +875,17 @@ main(void)
     if (nextboot && !autoboot)
 	reboot();
 
-    /*
-     * Try to exec /boot/loader. If interrupted by a keypress,
-     * or in case of failure, try to load a kernel directly instead.
-     */
-
     if (autoboot && !*kname) {
-	memcpy(kname, PATH_LOADER, sizeof(PATH_LOADER));
-	if (!keyhit(3)) {
+	/*
+	 * Iterate through the list of loader and kernel paths, trying to load.
+	 * If interrupted by a keypress, or in case of failure, drop the user
+	 * to the boot2 prompt.
+	 */
+	for (i = 0; i < nitems(loadpath); i++) {
+	    memcpy(kname, loadpath[i].p, loadpath[i].len);
+	    if (keyhit(3))
+		break;
 	    load();
-	    memcpy(kname, PATH_KERNEL, sizeof(PATH_KERNEL));
 	}
     }
 

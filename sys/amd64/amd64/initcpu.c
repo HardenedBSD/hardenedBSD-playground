@@ -155,9 +155,9 @@ init_amd(void)
 	 */
 	if (CPUID_TO_FAMILY(cpu_id) == 0x16 && CPUID_TO_MODEL(cpu_id) <= 0xf) {
 		if ((cpu_feature2 & CPUID2_HV) == 0) {
-			msr = rdmsr(0xc0011020);
+			msr = rdmsr(MSR_LS_CFG);
 			msr |= (uint64_t)1 << 15;
-			wrmsr(0xc0011020, msr);
+			wrmsr(MSR_LS_CFG, msr);
 		}
 	}
 
@@ -170,9 +170,9 @@ init_amd(void)
 		wrmsr(0xc0011029, msr);
 
 		/* 1033 */
-		msr = rdmsr(0xc0011020);
+		msr = rdmsr(MSR_LS_CFG);
 		msr |= 0x10;
-		wrmsr(0xc0011020, msr);
+		wrmsr(MSR_LS_CFG, msr);
 
 		/* 1049 */
 		msr = rdmsr(0xc0011028);
@@ -180,9 +180,9 @@ init_amd(void)
 		wrmsr(0xc0011028, msr);
 
 		/* 1095 */
-		msr = rdmsr(0xc0011020);
+		msr = rdmsr(MSR_LS_CFG);
 		msr |= 0x200000000000000;
-		wrmsr(0xc0011020, msr);
+		wrmsr(MSR_LS_CFG, msr);
 	}
 
 	/*
@@ -264,6 +264,9 @@ initializecpu(void)
 	if (cpu_stdext_feature & CPUID_STDEXT_FSGSBASE)
 		cr4 |= CR4_FSGSBASE;
 
+	if (cpu_stdext_feature2 & CPUID_STDEXT2_PKU)
+		cr4 |= CR4_PKE;
+
 	/*
 	 * Postpone enabling the SMEP on the boot CPU until the page
 	 * tables are switched from the boot loader identity mapping
@@ -296,6 +299,10 @@ initializecpu(void)
 		init_via();
 		break;
 	}
+
+	if ((amd_feature & AMDID_RDTSCP) != 0 ||
+	    (cpu_stdext_feature2 & CPUID_STDEXT2_RDPID) != 0)
+		wrmsr(MSR_TSC_AUX, PCPU_GET(cpuid));
 }
 
 void

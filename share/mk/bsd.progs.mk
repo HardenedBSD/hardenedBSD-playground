@@ -22,8 +22,8 @@ PROGS += ${PROGS_CXX}
 
 .if defined(PROG)
 # just one of many
-PROG_OVERRIDE_VARS +=	BINDIR BINGRP BINOWN BINMODE DPSRCS MAN NO_WERROR \
-			PROGNAME SRCS STRIP WARNS
+PROG_OVERRIDE_VARS +=	BINDIR BINGRP BINOWN BINMODE CSTD CXXSTD DPSRCS MAN \
+			NO_SHARED NO_WERROR PROGNAME SRCS STRIP WARNS
 PROG_VARS +=	CFLAGS CXXFLAGS DEBUG_FLAGS DPADD INTERNALPROG LDADD LIBADD \
 		LINKS LDFLAGS MLINKS ${PROG_OVERRIDE_VARS}
 .for v in ${PROG_VARS:O:u}
@@ -34,6 +34,11 @@ $v += ${${v}.${PROG}}
 $v += ${${v}_${PROG}}
 .endif
 .else
+.if defined(${v}.${PROG})
+$v = ${${v}.${PROG}}
+.elif defined(${v}_${PROG})
+$v = ${${v}_${PROG}}
+.endif
 $v ?=
 .endif
 .endfor
@@ -90,7 +95,7 @@ $v =
 # Find common sources among the PROGS to depend on them before building
 # anything.  This allows parallelization without them each fighting over
 # the same objects.
-_PROGS_COMMON_SRCS=
+_PROGS_COMMON_SRCS= ${DPSRCS}
 _PROGS_ALL_SRCS=
 .for p in ${PROGS}
 .for s in ${SRCS.${p}}

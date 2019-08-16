@@ -143,8 +143,6 @@ SYSCTL_INT(_kern, OID_AUTO, disallow_high_osrel, CTLFLAG_RW,
     &disallow_high_osrel, 0,
     "Disallow execution of binaries built for higher version of the world");
 
-EVENTHANDLER_LIST_DECLARE(process_exec);
-
 static int
 sysctl_kern_ps_strings(SYSCTL_HANDLER_ARGS)
 {
@@ -373,7 +371,6 @@ do_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
 #endif
 	struct vnode *oldtextvp = NULL, *newtextvp;
 	int credential_changing;
-	int textset;
 #ifdef MAC
 	struct label *interpvplabel = NULL;
 	int will_transition;
@@ -425,8 +422,8 @@ do_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
 	 * interpreter if this is an interpreted binary.
 	 */
 	if (args->fname != NULL) {
-		NDINIT(&nd, LOOKUP, ISOPEN | LOCKLEAF | FOLLOW | SAVENAME
-		    | AUDITVNODE1, UIO_SYSSPACE, args->fname, td);
+		NDINIT(&nd, LOOKUP, ISOPEN | LOCKLEAF | LOCKSHARED | FOLLOW |
+		    SAVENAME | AUDITVNODE1, UIO_SYSSPACE, args->fname, td);
 	}
 
 	SDT_PROBE1(proc, , , exec, args->fname);
@@ -459,13 +456,14 @@ interpret:
 		error = fgetvp_exec(td, args->fd, &cap_fexecve_rights, &newtextvp);
 		if (error)
 			goto exec_fail;
-		vn_lock(newtextvp, LK_EXCLUSIVE | LK_RETRY);
+		vn_lock(newtextvp, LK_SHARED | LK_RETRY);
 		AUDIT_ARG_VNODE1(newtextvp);
 		imgp->vp = newtextvp;
 	}
 
 	/*
-	 * Check file permissions (also 'opens' file)
+	 * Check file permissions.  Also 'opens' file and sets its vnode to
+	 * text mode.
 	 */
 	error = exec_check_permissions(imgp);
 	if (error)
@@ -487,16 +485,6 @@ interpret:
 	imgp->object = imgp->vp->v_object;
 	if (imgp->object != NULL)
 		vm_object_reference(imgp->object);
-
-	/*
-	 * Set VV_TEXT now so no one can write to the executable while we're
-	 * activating it.
-	 *
-	 * Remember if this was set before and unset it in case this is not
-	 * actually an executable image.
-	 */
-	textset = VOP_IS_TEXT(imgp->vp);
-	VOP_SET_TEXT(imgp->vp);
 
 	error = exec_map_first_page(imgp);
 	if (error)
@@ -625,11 +613,8 @@ interpret:
 	}
 
 	if (error) {
-		if (error == -1) {
-			if (textset == 0)
-				VOP_UNSET_TEXT(imgp->vp);
+		if (error == -1)
 			error = ENOEXEC;
-		}
 		goto exec_fail_dealloc;
 	}
 
@@ -646,12 +631,13 @@ interpret:
 	if (imgp->interpreted) {
 		exec_unmap_first_page(imgp);
 		/*
-		 * VV_TEXT needs to be unset for scripts.  There is a short
-		 * period before we determine that something is a script where
-		 * VV_TEXT will be set. The vnode lock is held over this
-		 * entire period so nothing should illegitimately be blocked.
+		 * The text reference needs to be removed for scripts.
+		 * There is a short period before we determine that
+		 * something is a script where text reference is active.
+		 * The vnode lock is held over this entire period
+		 * so nothing should illegitimately be blocked.
 		 */
-		VOP_UNSET_TEXT(imgp->vp);
+		VOP_UNSET_TEXT_CHECKED(imgp->vp);
 		/* free name buffer and old vnode */
 		if (args->fname != NULL)
 			NDFREE(&nd, NDF_ONLY_PNBUF);
@@ -674,7 +660,7 @@ interpret:
 		free(imgp->freepath, M_TEMP);
 		imgp->freepath = NULL;
 		/* set new name to that of the interpreter */
-		NDINIT(&nd, LOOKUP, LOCKLEAF | FOLLOW | SAVENAME,
+		NDINIT(&nd, LOOKUP, ISOPEN | LOCKLEAF | FOLLOW | SAVENAME,
 		    UIO_SYSSPACE, imgp->interpreter_name, td);
 		args->fname = imgp->interpreter_name;
 		goto interpret;
@@ -705,25 +691,18 @@ interpret:
 		sys_cap_enter(td, NULL);
 
 	/*
-	 * Copy out strings (args and env) and initialize stack base
+	 * Copy out strings (args and env) and initialize stack base.
 	 */
-	if (p->p_sysent->sv_copyout_strings)
-		stack_base = (*p->p_sysent->sv_copyout_strings)(imgp);
-	else
-		stack_base = exec_copyout_strings(imgp);
+	stack_base = (*p->p_sysent->sv_copyout_strings)(imgp);
 
 	/*
-	 * If custom stack fixup routine present for this process
-	 * let it do the stack setup.
-	 * Else stuff argument count as first item on stack
+	 * Stack setup.
 	 */
-	if (p->p_sysent->sv_fixup != NULL)
-		error = (*p->p_sysent->sv_fixup)(&stack_base, imgp);
-	else
-		error = suword(--stack_base, imgp->args->argc) == 0 ?
-		    0 : EFAULT;
-	if (error != 0)
+	error = (*p->p_sysent->sv_fixup)(&stack_base, imgp);
+	if (error != 0) {
+		vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
 		goto exec_fail_dealloc;
+	}
 
 	if (args->fdp != NULL) {
 		/* Install a brand new file descriptor table. */
@@ -904,11 +883,7 @@ interpret:
 #endif
 
 	/* Set values passed into the program in registers. */
-	if (p->p_sysent->sv_setregs)
-		(*p->p_sysent->sv_setregs)(td, imgp, 
-		    (u_long)(uintptr_t)stack_base);
-	else
-		exec_setregs(td, imgp, (u_long)(uintptr_t)stack_base);
+	(*p->p_sysent->sv_setregs)(td, imgp, (u_long)(uintptr_t)stack_base);
 
 	vfs_mark_atime(imgp->vp, td->td_ucred);
 
@@ -923,6 +898,8 @@ exec_fail_dealloc:
 			NDFREE(&nd, NDF_ONLY_PNBUF);
 		if (imgp->opened)
 			VOP_CLOSE(imgp->vp, FREAD, td->td_ucred, td);
+		if (imgp->textset)
+			VOP_UNSET_TEXT_CHECKED(imgp->vp);
 		if (error != 0)
 			vput(imgp->vp);
 		else
@@ -1064,8 +1041,7 @@ exec_map_first_page(struct image_params *imgp)
 			vm_page_readahead_finish(ma[i]);
 	}
 	vm_page_lock(ma[0]);
-	vm_page_hold(ma[0]);
-	vm_page_activate(ma[0]);
+	vm_page_wire(ma[0]);
 	vm_page_unlock(ma[0]);
 	VM_OBJECT_WUNLOCK(object);
 
@@ -1085,7 +1061,7 @@ exec_unmap_first_page(struct image_params *imgp)
 		sf_buf_free(imgp->firstpage);
 		imgp->firstpage = NULL;
 		vm_page_lock(m);
-		vm_page_unhold(m);
+		vm_page_unwire(m, PQ_ACTIVE);
 		vm_page_unlock(m);
 	}
 }
@@ -1123,13 +1099,18 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 	map = &vmspace->vm_map;
 	sv_minuser = MAX(sv->sv_minuser, PAGE_SIZE);
 	if (vmspace->vm_refcnt == 1 && vm_map_min(map) == sv_minuser &&
-	    vm_map_max(map) == sv->sv_maxuser) {
+	    vm_map_max(map) == sv->sv_maxuser &&
+	    cpu_exec_vmspace_reuse(p, map)) {
 		shmexit(vmspace);
 		pmap_remove_pages(vmspace_pmap(vmspace));
 		vm_map_remove(map, vm_map_min(map), vm_map_max(map));
-		/* An exec terminates mlockall(MCL_FUTURE). */
+		/*
+		 * An exec terminates mlockall(MCL_FUTURE), ASLR state
+		 * must be re-evaluated.
+		 */
 		vm_map_lock(map);
-		vm_map_modflags(map, 0, MAP_WIREFUTURE);
+		vm_map_modflags(map, 0, MAP_WIREFUTURE | MAP_ASLR |
+		    MAP_ASLR_IGNSTART);
 		vm_map_unlock(map);
 	} else {
 		error = vmspace_exec(p, sv_minuser, sv->sv_maxuser);
@@ -1138,6 +1119,7 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 		vmspace = p->p_vmspace;
 		map = &vmspace->vm_map;
 	}
+	map->flags |= imgp->map_flags;
 
 #ifdef PAX_ASLR
 	PROC_LOCK(imgp->proc);
@@ -1211,6 +1193,9 @@ exec_new_vmspace(struct image_params *imgp, struct sysentvec *sv)
 #ifdef PAX_NOEXEC
 	pax_noexec_nx(p, &stackprot, &stackmaxprot);
 #endif
+	imgp->eff_stack_sz = lim_cur(curthread, RLIMIT_STACK);
+	if (ssiz < imgp->eff_stack_sz)
+		imgp->eff_stack_sz = ssiz;
 	error = vm_map_stack(map, stack_addr, (vm_size_t)ssiz,
 	    stackprot, stackmaxprot, MAP_STACK_GROWS_DOWN);
 	if (error != KERN_SUCCESS) {
@@ -1708,6 +1693,9 @@ exec_copyout_strings(struct image_params *imgp)
 	destp = rounddown2(destp, sizeof(void *));
 
 	vectp = (char **)destp;
+	if (imgp->sysent->sv_stackgap != NULL)
+		imgp->sysent->sv_stackgap(imgp, (u_long *)&vectp);
+
 	if (imgp->auxargs) {
 		/*
 		 * Allocate room on the stack for the ELF auxargs
@@ -1786,7 +1774,7 @@ exec_check_permissions(struct image_params *imgp)
 	struct vnode *vp = imgp->vp;
 	struct vattr *attr = imgp->attr;
 	struct thread *td;
-	int error, writecount;
+	int error;
 
 	td = curthread;
 
@@ -1830,12 +1818,17 @@ exec_check_permissions(struct image_params *imgp)
 	/*
 	 * Check number of open-for-writes on the file and deny execution
 	 * if there are any.
+	 *
+	 * Add a text reference now so no one can write to the
+	 * executable while we're activating it.
+	 *
+	 * Remember if this was set before and unset it in case this is not
+	 * actually an executable image.
 	 */
-	error = VOP_GET_WRITECOUNT(vp, &writecount);
+	error = VOP_SET_TEXT(vp);
 	if (error != 0)
 		return (error);
-	if (writecount != 0)
-		return (ETXTBSY);
+	imgp->textset = true;
 
 	/*
 	 * Call filesystem specific open routine (which does nothing in the

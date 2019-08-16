@@ -57,6 +57,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/rman.h>
 #include <sys/types.h>
 #include <sys/lock.h>
+#include <sys/mutex.h>
 #include <sys/sema.h>
 #include <sys/sysctl.h>
 #include <sys/stat.h>
@@ -119,7 +120,7 @@ __FBSDID("$FreeBSD$");
  */
 #define	BYTE_ALIGNMENT					1
 #define	MRSAS_MAX_NAME_LENGTH			32
-#define	MRSAS_VERSION					"07.709.01.00-fbsd"
+#define	MRSAS_VERSION					"07.709.04.00-fbsd"
 #define	MRSAS_ULONG_MAX					0xFFFFFFFFFFFFFFFF
 #define	MRSAS_DEFAULT_TIMEOUT			0x14	/* Temporarily set */
 #define	DONE							0

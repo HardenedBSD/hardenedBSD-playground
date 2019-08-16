@@ -163,6 +163,7 @@ ieee80211_vap_pkt_send_dest(struct ieee80211vap *vap, struct mbuf *m,
 	 * uses any existing value for rcvif to identify the
 	 * interface it (might have been) received on.
 	 */
+	MPASS((m->m_pkthdr.csum_flags & CSUM_SND_TAG) == 0);
 	m->m_pkthdr.rcvif = (void *)ni;
 	mcast = (m->m_flags & (M_MCAST | M_BCAST)) ? 1: 0;
 
@@ -528,6 +529,7 @@ ieee80211_raw_output(struct ieee80211vap *vap, struct ieee80211_node *ni,
 	 * that the mbuf has the same node value that
 	 * it would if it were going via the normal path.
 	 */
+	MPASS((m->m_pkthdr.csum_flags & CSUM_SND_TAG) == 0);
 	m->m_pkthdr.rcvif = (void *)ni;
 
 	/*
@@ -1948,14 +1950,8 @@ ieee80211_fragment(struct ieee80211vap *vap, struct mbuf *m0,
 		whf = mtod(m, struct ieee80211_frame *);
 		memcpy(whf, wh, hdrsize);
 #ifdef IEEE80211_SUPPORT_MESH
-		if (vap->iv_opmode == IEEE80211_M_MBSS) {
-			if (IEEE80211_IS_DSTODS(wh))
-				((struct ieee80211_qosframe_addr4 *)
-				    whf)->i_qos[1] &= ~IEEE80211_QOS_MC;
-			else
-				((struct ieee80211_qosframe *)
-				    whf)->i_qos[1] &= ~IEEE80211_QOS_MC;
-		}
+		if (vap->iv_opmode == IEEE80211_M_MBSS)
+			ieee80211_getqos(wh)[1] &= ~IEEE80211_QOS_MC;
 #endif
 		*(uint16_t *)&whf->i_seq[0] |= htole16(
 			(fragno & IEEE80211_SEQ_FRAG_MASK) <<

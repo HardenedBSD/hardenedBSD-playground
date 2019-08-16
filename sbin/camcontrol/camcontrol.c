@@ -46,10 +46,8 @@ __FBSDID("$FreeBSD$");
 #include <ctype.h>
 #include <err.h>
 #include <libutil.h>
-#ifndef MINIMALISTIC
 #include <limits.h>
 #include <inttypes.h>
-#endif
 
 #include <cam/cam.h>
 #include <cam/cam_debug.h>
@@ -109,7 +107,10 @@ typedef enum {
 	CAM_CMD_ZONE		= 0x00000026,
 	CAM_CMD_EPC		= 0x00000027,
 	CAM_CMD_TIMESTAMP	= 0x00000028,
-	CAM_CMD_MMCSD_CMD	= 0x00000029
+	CAM_CMD_MMCSD_CMD	= 0x00000029,
+	CAM_CMD_POWER_MODE	= 0x0000002a,
+	CAM_CMD_DEVTYPE		= 0x0000002b,
+	CAM_CMD_AMA	= 0x0000002c,
 } cam_cmdmask;
 
 typedef enum {
@@ -152,7 +153,6 @@ struct camcontrol_opts {
 	const char	*subopt;
 };
 
-#ifndef MINIMALISTIC
 struct ata_res_pass16 {
 	u_int16_t reserved[5];
 	u_int8_t flags;
@@ -191,10 +191,8 @@ static const char smprg_opts[] = "l";
 static const char smppc_opts[] = "a:A:d:lm:M:o:p:s:S:T:";
 static const char smpphylist_opts[] = "lq";
 static char pwd_opt;
-#endif
 
 static struct camcontrol_opts option_table[] = {
-#ifndef MINIMALISTIC
 	{"tur", CAM_CMD_TUR, CAM_ARG_NONE, NULL},
 	{"inquiry", CAM_CMD_INQUIRY, CAM_ARG_NONE, "DSR"},
 	{"identify", CAM_CMD_IDENTIFY, CAM_ARG_NONE, NULL},
@@ -203,12 +201,10 @@ static struct camcontrol_opts option_table[] = {
 	{"load", CAM_CMD_STARTSTOP, CAM_ARG_START_UNIT | CAM_ARG_EJECT, NULL},
 	{"eject", CAM_CMD_STARTSTOP, CAM_ARG_EJECT, NULL},
 	{"reportluns", CAM_CMD_REPORTLUNS, CAM_ARG_NONE, "clr:"},
-	{"readcapacity", CAM_CMD_READCAP, CAM_ARG_NONE, "bhHNqs"},
+	{"readcapacity", CAM_CMD_READCAP, CAM_ARG_NONE, "bhHlNqs"},
 	{"reprobe", CAM_CMD_REPROBE, CAM_ARG_NONE, NULL},
-#endif /* MINIMALISTIC */
 	{"rescan", CAM_CMD_RESCAN, CAM_ARG_NONE, NULL},
 	{"reset", CAM_CMD_RESET, CAM_ARG_NONE, NULL},
-#ifndef MINIMALISTIC
 	{"cmd", CAM_CMD_SCSI_CMD, CAM_ARG_NONE, scsicmd_opts},
 	{"mmcsdcmd", CAM_CMD_MMCSD_CMD, CAM_ARG_NONE, "c:a:f:Wb:l:41S:I"},
 	{"command", CAM_CMD_SCSI_CMD, CAM_ARG_NONE, scsicmd_opts},
@@ -222,11 +218,10 @@ static struct camcontrol_opts option_table[] = {
 	{"smpmaninfo", CAM_CMD_SMP_MANINFO, CAM_ARG_NONE, "l"},
 	{"defects", CAM_CMD_READ_DEFECTS, CAM_ARG_NONE, readdefect_opts},
 	{"defectlist", CAM_CMD_READ_DEFECTS, CAM_ARG_NONE, readdefect_opts},
-#endif /* MINIMALISTIC */
 	{"devlist", CAM_CMD_DEVTREE, CAM_ARG_NONE, "-b"},
-#ifndef MINIMALISTIC
+	{"devtype", CAM_CMD_DEVTYPE, CAM_ARG_NONE, ""},
 	{"periphlist", CAM_CMD_DEVLIST, CAM_ARG_NONE, NULL},
-	{"modepage", CAM_CMD_MODE_PAGE, CAM_ARG_NONE, "bdelm:P:"},
+	{"modepage", CAM_CMD_MODE_PAGE, CAM_ARG_NONE, "6bdelm:DLP:"},
 	{"tags", CAM_CMD_TAG, CAM_ARG_NONE, "N:q"},
 	{"negotiate", CAM_CMD_RATE, CAM_ARG_NONE, negotiate_opts},
 	{"rate", CAM_CMD_RATE, CAM_ARG_NONE, negotiate_opts},
@@ -236,18 +231,19 @@ static struct camcontrol_opts option_table[] = {
 	{"idle", CAM_CMD_IDLE, CAM_ARG_NONE, "t:"},
 	{"standby", CAM_CMD_STANDBY, CAM_ARG_NONE, "t:"},
 	{"sleep", CAM_CMD_SLEEP, CAM_ARG_NONE, ""},
+	{"powermode", CAM_CMD_POWER_MODE, CAM_ARG_NONE, ""},
 	{"apm", CAM_CMD_APM, CAM_ARG_NONE, "l:"},
 	{"aam", CAM_CMD_AAM, CAM_ARG_NONE, "l:"},
 	{"fwdownload", CAM_CMD_DOWNLOAD_FW, CAM_ARG_NONE, "f:qsy"},
 	{"security", CAM_CMD_SECURITY, CAM_ARG_NONE, "d:e:fh:k:l:qs:T:U:y"},
 	{"hpa", CAM_CMD_HPA, CAM_ARG_NONE, "Pflp:qs:U:y"},
+	{"ama", CAM_CMD_AMA, CAM_ARG_NONE, "fqs:"},
 	{"persist", CAM_CMD_PERSIST, CAM_ARG_NONE, "ai:I:k:K:o:ps:ST:U"},
 	{"attrib", CAM_CMD_ATTRIB, CAM_ARG_NONE, "a:ce:F:p:r:s:T:w:V:"},
 	{"opcodes", CAM_CMD_OPCODES, CAM_ARG_NONE, "No:s:T"},
 	{"zone", CAM_CMD_ZONE, CAM_ARG_NONE, "ac:l:No:P:"},
 	{"epc", CAM_CMD_EPC, CAM_ARG_NONE, "c:dDeHp:Pr:sS:T:"},
 	{"timestamp", CAM_CMD_TIMESTAMP, CAM_ARG_NONE, "f:mrsUT:"},
-#endif /* MINIMALISTIC */
 	{"help", CAM_CMD_USAGE, CAM_ARG_NONE, NULL},
 	{"-?", CAM_CMD_USAGE, CAM_ARG_NONE, NULL},
 	{"-h", CAM_CMD_USAGE, CAM_ARG_NONE, NULL},
@@ -271,13 +267,22 @@ struct cam_devlist {
 static cam_cmdmask cmdlist;
 static cam_argmask arglist;
 
+static const char *devtype_names[] = {
+	"none",
+	"scsi",
+	"satl",
+	"ata",
+	"nvme",
+	"mmcsd",
+	"unknown",
+};
+
 camcontrol_optret getoption(struct camcontrol_opts *table, char *arg,
 			    uint32_t *cmdnum, cam_argmask *argnum,
 			    const char **subopt);
-#ifndef MINIMALISTIC
 static int getdevlist(struct cam_device *device);
-#endif /* MINIMALISTIC */
 static int getdevtree(int argc, char **argv, char *combinedopt);
+static int getdevtype(struct cam_device *device);
 static int print_dev_scsi(struct device_match_result *dev_result, char *tmpstr);
 static int print_dev_ata(struct device_match_result *dev_result, char *tmpstr);
 static int print_dev_semb(struct device_match_result *dev_result, char *tmpstr);
@@ -286,7 +291,6 @@ static int print_dev_mmcsd(struct device_match_result *dev_result,
 #ifdef WITH_NVME
 static int print_dev_nvme(struct device_match_result *dev_result, char *tmpstr);
 #endif
-#ifndef MINIMALISTIC
 static int testunitready(struct cam_device *device, int task_attr,
 			 int retry_count, int timeout, int quiet);
 static int scsistart(struct cam_device *device, int startstop, int loadeject,
@@ -295,14 +299,13 @@ static int scsiinquiry(struct cam_device *device, int task_attr,
 		       int retry_count, int timeout);
 static int scsiserial(struct cam_device *device, int task_attr,
 		      int retry_count, int timeout);
-#endif /* MINIMALISTIC */
 static int parse_btl(char *tstr, path_id_t *bus, target_id_t *target,
 		     lun_id_t *lun, cam_argmask *arglst);
+static int reprobe(struct cam_device *device);
 static int dorescan_or_reset(int argc, char **argv, int rescan);
 static int rescan_or_reset_bus(path_id_t bus, int rescan);
 static int scanlun_or_reset_dev(path_id_t bus, target_id_t target,
     lun_id_t lun, int scan);
-#ifndef MINIMALISTIC
 static int readdefects(struct cam_device *device, int argc, char **argv,
 		       char *combinedopt, int task_attr, int retry_count,
 		       int timeout);
@@ -344,7 +347,7 @@ static int ratecontrol(struct cam_device *device, int task_attr,
 static int scsiformat(struct cam_device *device, int argc, char **argv,
 		      char *combinedopt, int task_attr, int retry_count,
 		      int timeout);
-static int scsisanitize(struct cam_device *device, int argc, char **argv,
+static int sanitize(struct cam_device *device, int argc, char **argv,
 			char *combinedopt, int task_attr, int retry_count,
 			int timeout);
 static int scsireportluns(struct cam_device *device, int argc, char **argv,
@@ -359,6 +362,8 @@ static int atasecurity(struct cam_device *device, int retry_count, int timeout,
 		       int argc, char **argv, char *combinedopt);
 static int atahpa(struct cam_device *device, int retry_count, int timeout,
 		  int argc, char **argv, char *combinedopt);
+static int ataama(struct cam_device *device, int retry_count, int timeout,
+		  int argc, char **argv, char *combinedopt);
 static int scsiprintoneopcode(struct cam_device *device, int req_opcode,
 			      int sa_set, int req_sa, uint8_t *buf,
 			      uint32_t valid_len);
@@ -367,9 +372,7 @@ static int scsiprintopcodes(struct cam_device *device, int td_req, uint8_t *buf,
 static int scsiopcodes(struct cam_device *device, int argc, char **argv,
 		       char *combinedopt, int task_attr, int retry_count,
 		       int timeout, int verbose);
-static int scsireprobe(struct cam_device *device);
 
-#endif /* MINIMALISTIC */
 #ifndef min
 #define min(a,b) (((a)<(b))?(a):(b))
 #endif
@@ -401,7 +404,6 @@ getoption(struct camcontrol_opts *table, char *arg, uint32_t *cmdnum,
 		return (CC_OR_NOT_FOUND);
 }
 
-#ifndef MINIMALISTIC
 static int
 getdevlist(struct cam_device *device)
 {
@@ -460,7 +462,6 @@ getdevlist(struct cam_device *device)
 
 	return (error);
 }
-#endif /* MINIMALISTIC */
 
 static int
 getdevtree(int argc, char **argv, char *combinedopt)
@@ -670,6 +671,24 @@ getdevtree(int argc, char **argv, char *combinedopt)
 }
 
 static int
+getdevtype(struct cam_device *cam_dev)
+{
+	camcontrol_devtype dt;
+	int error;
+
+	/*
+	 * Get the device type and report it, request no I/O be done to do this.
+	 */
+	error = get_device_type(cam_dev, -1, 0, 0, &dt);
+	if (error != 0 || (unsigned)dt > CC_DT_UNKNOWN) {
+		fprintf(stdout, "illegal\n");
+		return (1);
+	}
+	fprintf(stdout, "%s\n", devtype_names[dt]);
+	return (0);
+}
+
+static int
 print_dev_scsi(struct device_match_result *dev_result, char *tmpstr)
 {
 	char vendor[16], product[48], revision[16];
@@ -833,7 +852,6 @@ print_dev_nvme(struct device_match_result *dev_result, char *tmpstr)
 }
 #endif
 
-#ifndef MINIMALISTIC
 static int
 testunitready(struct cam_device *device, int task_attr, int retry_count,
 	      int timeout, int quiet)
@@ -1409,10 +1427,37 @@ atahpa_print(struct ata_params *parm, u_int64_t hpasize, int header)
 			lba, hpasize);
 
 		printf("HPA - Security                 ");
-		if (parm->support.command1 & ATA_SUPPORT_MAXSECURITY)
-			printf("yes\n");
+		if (parm->support.command2 & ATA_SUPPORT_MAXSECURITY)
+			printf("yes      %s\n", (parm->enabled.command2 &
+			    ATA_SUPPORT_MAXSECURITY) ? "yes" : "no ");
 		else
 			printf("no\n");
+	} else {
+		printf("no\n");
+	}
+}
+
+static void
+ataama_print(struct ata_params *parm, u_int64_t nativesize, int header)
+{
+	u_int32_t lbasize = (u_int32_t)parm->lba_size_1 |
+				((u_int32_t)parm->lba_size_2 << 16);
+
+	u_int64_t lbasize48 = ((u_int64_t)parm->lba_size48_1) |
+				((u_int64_t)parm->lba_size48_2 << 16) |
+				((u_int64_t)parm->lba_size48_3 << 32) |
+				((u_int64_t)parm->lba_size48_4 << 48);
+
+	if (header) {
+		printf("\nFeature                      "
+		       "Support  Enabled   Value\n");
+	}
+
+	printf("Accessible Max Address Config  ");
+	if (parm->support2 & ATA_SUPPORT_AMAX_ADDR) {
+		u_int64_t lba = lbasize48 ? lbasize48 : lbasize;
+		printf("yes      %s     %ju/%ju\n",
+		    (nativesize > lba) ? "yes" : "no ", lba, nativesize);
 	} else {
 		printf("no\n");
 	}
@@ -1433,6 +1478,7 @@ atasata(struct ata_params *parm)
 static void
 atacapprint(struct ata_params *parm)
 {
+	const char *proto;
 	u_int32_t lbasize = (u_int32_t)parm->lba_size_1 |
 				((u_int32_t)parm->lba_size_2 << 16);
 
@@ -1443,7 +1489,19 @@ atacapprint(struct ata_params *parm)
 
 	printf("\n");
 	printf("protocol              ");
-	printf("ATA/ATAPI-%d", ata_version(parm->version_major));
+	proto = (parm->config == ATA_PROTO_CFA) ? "CFA" :
+		(parm->config & ATA_PROTO_ATAPI) ? "ATAPI" : "ATA";
+	if (ata_version(parm->version_major) == 0) {
+		printf("%s", proto);
+	} else if (ata_version(parm->version_major) <= 7) {
+		printf("%s-%d", proto,
+		    ata_version(parm->version_major));
+	} else if (ata_version(parm->version_major) == 8) {
+		printf("%s8-ACS", proto);
+	} else {
+		printf("ACS-%d %s",
+		    ata_version(parm->version_major) - 7, proto);
+	}
 	if (parm->satacapabilities && parm->satacapabilities != 0xffff) {
 		if (parm->satacapabilities & ATA_SATA_GEN3)
 			printf(" SATA 3.x\n");
@@ -1463,6 +1521,7 @@ atacapprint(struct ata_params *parm)
 		printf("WWN                   %04x%04x%04x%04x\n",
 		    parm->wwn[0], parm->wwn[1], parm->wwn[2], parm->wwn[3]);
 	}
+	printf("additional product id %.8s\n", parm->product_id);
 	if (parm->enabled.extension & ATA_SUPPORT_MEDIASN) {
 		printf("media serial number   %.30s\n",
 		    parm->media_serial);
@@ -1592,35 +1651,39 @@ atacapprint(struct ata_params *parm)
 		} else
 			printf("\n");
 	printf("Native Command Queuing (NCQ)   ");
-	if (parm->satacapabilities != 0xffff &&
-	    (parm->satacapabilities & ATA_SUPPORT_NCQ)) {
+	if (atasata(parm) && (parm->satacapabilities & ATA_SUPPORT_NCQ)) {
 		printf("yes		%d tags\n",
 		    ATA_QUEUE_LEN(parm->queue) + 1);
+		printf("NCQ Priority Information       %s\n",
+		    parm->satacapabilities & ATA_SUPPORT_NCQ_PRIO ?
+		    "yes" : "no");
+		printf("NCQ Non-Data Command           %s\n",
+		    parm->satacapabilities2 & ATA_SUPPORT_NCQ_NON_DATA ?
+		    "yes" : "no");
+		printf("NCQ Streaming                  %s\n",
+		    parm->satacapabilities2 & ATA_SUPPORT_NCQ_STREAM ?
+		    "yes" : "no");
+		printf("Receive & Send FPDMA Queued    %s\n",
+		    parm->satacapabilities2 & ATA_SUPPORT_RCVSND_FPDMA_QUEUED ?
+		    "yes" : "no");
+		printf("NCQ Autosense                  %s\n",
+		    parm->satasupport & ATA_SUPPORT_NCQ_AUTOSENSE ?
+		    "yes" : "no");
 	} else
 		printf("no\n");
-
-	printf("NCQ Queue Management           %s\n", atasata(parm) &&
-		parm->satacapabilities2 & ATA_SUPPORT_NCQ_QMANAGEMENT ?
-		"yes" : "no");
-	printf("NCQ Streaming                  %s\n", atasata(parm) &&
-		parm->satacapabilities2 & ATA_SUPPORT_NCQ_STREAM ?
-		"yes" : "no");
-	printf("Receive & Send FPDMA Queued    %s\n", atasata(parm) &&
-		parm->satacapabilities2 & ATA_SUPPORT_RCVSND_FPDMA_QUEUED ?
-		"yes" : "no");
 
 	printf("SMART                          %s	%s\n",
 		parm->support.command1 & ATA_SUPPORT_SMART ? "yes" : "no",
 		parm->enabled.command1 & ATA_SUPPORT_SMART ? "yes" : "no");
-	printf("microcode download             %s	%s\n",
-		parm->support.command2 & ATA_SUPPORT_MICROCODE ? "yes" : "no",
-		parm->enabled.command2 & ATA_SUPPORT_MICROCODE ? "yes" : "no");
 	printf("security                       %s	%s\n",
 		parm->support.command1 & ATA_SUPPORT_SECURITY ? "yes" : "no",
 		parm->enabled.command1 & ATA_SUPPORT_SECURITY ? "yes" : "no");
 	printf("power management               %s	%s\n",
 		parm->support.command1 & ATA_SUPPORT_POWERMGT ? "yes" : "no",
 		parm->enabled.command1 & ATA_SUPPORT_POWERMGT ? "yes" : "no");
+	printf("microcode download             %s	%s\n",
+		parm->support.command2 & ATA_SUPPORT_MICROCODE ? "yes" : "no",
+		parm->enabled.command2 & ATA_SUPPORT_MICROCODE ? "yes" : "no");
 	printf("advanced power management      %s	%s",
 		parm->support.command2 & ATA_SUPPORT_APM ? "yes" : "no",
 		parm->enabled.command2 & ATA_SUPPORT_APM ? "yes" : "no");
@@ -1663,6 +1726,15 @@ atacapprint(struct ata_params *parm)
 	printf("free-fall                      %s	%s\n",
 		parm->support2 & ATA_SUPPORT_FREEFALL ? "yes" : "no",
 		parm->enabled2 & ATA_SUPPORT_FREEFALL ? "yes" : "no");
+	printf("sense data reporting           %s	%s\n",
+		parm->support2 & ATA_SUPPORT_SENSE_REPORT ? "yes" : "no",
+		parm->enabled2 & ATA_SUPPORT_SENSE_REPORT ? "yes" : "no");
+	printf("extended power conditions      %s	%s\n",
+		parm->support2 & ATA_SUPPORT_EPC ? "yes" : "no",
+		parm->enabled2 & ATA_SUPPORT_EPC ? "yes" : "no");
+	printf("device statistics notification %s	%s\n",
+		parm->support2 & ATA_SUPPORT_DSN ? "yes" : "no",
+		parm->enabled2 & ATA_SUPPORT_DSN ? "yes" : "no");
 	printf("Data Set Management (DSM/TRIM) ");
 	if (parm->support_dsm & ATA_SUPPORT_DSM_TRIM) {
 		printf("yes\n");
@@ -1682,6 +1754,21 @@ atacapprint(struct ata_params *parm)
 		} else {
 			printf("no\n");
 		}
+	} else {
+		printf("no\n");
+	}
+	printf("encrypts all user data         %s\n",
+		parm->support3 & ATA_ENCRYPTS_ALL_USER_DATA ? "yes" : "no");
+	printf("Sanitize                       ");
+	if (parm->multi & ATA_SUPPORT_SANITIZE) {
+		printf("yes\t\t%s%s%s\n",
+		    parm->multi & ATA_SUPPORT_BLOCK_ERASE_EXT ? "block, " : "",
+		    parm->multi & ATA_SUPPORT_OVERWRITE_EXT ? "overwrite, " : "",
+		    parm->multi & ATA_SUPPORT_CRYPTO_SCRAMBLE_EXT ? "crypto" : "");
+		printf("Sanitize - commands allowed    %s\n",
+		    parm->multi & ATA_SUPPORT_SANITIZE_ALLOWED ? "yes" : "no");
+		printf("Sanitize - antifreeze lock     %s\n",
+		    parm->multi & ATA_SUPPORT_ANTIFREEZE_LOCK_EXT ? "yes" : "no");
 	} else {
 		printf("no\n");
 	}
@@ -1931,6 +2018,11 @@ ata_do_cmd(struct cam_device *device, union ccb *ccb, int retries,
 			res->lba_high_exp = res_pass16->lba_high_exp;
 			res->sector_count = res_pass16->sector_count;
 			res->sector_count_exp = res_pass16->sector_count_exp;
+			ccb->ccb_h.status &= ~CAM_STATUS_MASK;
+			if (res->status & ATA_STATUS_ERROR)
+				ccb->ccb_h.status |= CAM_ATA_STATUS_ERROR;
+			else
+				ccb->ccb_h.status |= CAM_REQ_CMP;
 		}
 
 		return (error);
@@ -2057,7 +2149,7 @@ ata_read_native_max(struct cam_device *device, int retry_count,
 			   /*sector_count*/0,
 			   /*data_ptr*/NULL,
 			   /*dxfer_len*/0,
-			   timeout ? timeout : 1000,
+			   timeout ? timeout : 5000,
 			   is48bit);
 
 	if (error)
@@ -2244,6 +2336,94 @@ atahpa_freeze_lock(struct cam_device *device, int retry_count,
 	return atahpa_proc_resp(device, ccb, is48bit, NULL);
 }
 
+static int
+ata_get_native_max(struct cam_device *device, int retry_count,
+		      u_int32_t timeout, union ccb *ccb,
+		      u_int64_t *nativesize)
+{
+	int error;
+
+	error = ata_do_cmd(device,
+			   ccb,
+			   retry_count,
+			   /*flags*/CAM_DIR_NONE,
+			   /*protocol*/AP_PROTO_NON_DATA | AP_EXTEND,
+			   /*ata_flags*/AP_FLAG_CHK_COND,
+			   /*tag_action*/MSG_SIMPLE_Q_TAG,
+			   /*command*/ATA_AMAX_ADDR,
+			   /*features*/ATA_AMAX_ADDR_GET,
+			   /*lba*/0,
+			   /*sector_count*/0,
+			   /*data_ptr*/NULL,
+			   /*dxfer_len*/0,
+			   timeout ? timeout : 30 * 1000,
+			   /*force48bit*/1);
+
+	if (error)
+		return (error);
+
+	return atahpa_proc_resp(device, ccb, /*is48bit*/1, nativesize);
+}
+
+static int
+ataama_set(struct cam_device *device, int retry_count,
+	      u_int32_t timeout, union ccb *ccb, u_int64_t maxsize)
+{
+	int error;
+
+	/* lba's are zero indexed so the max lba is requested max - 1 */
+	if (maxsize)
+		maxsize--;
+
+	error = ata_do_cmd(device,
+			   ccb,
+			   retry_count,
+			   /*flags*/CAM_DIR_NONE,
+			   /*protocol*/AP_PROTO_NON_DATA | AP_EXTEND,
+			   /*ata_flags*/AP_FLAG_CHK_COND,
+			   /*tag_action*/MSG_SIMPLE_Q_TAG,
+			   /*command*/ATA_AMAX_ADDR,
+			   /*features*/ATA_AMAX_ADDR_SET,
+			   /*lba*/maxsize,
+			   /*sector_count*/0,
+			   /*data_ptr*/NULL,
+			   /*dxfer_len*/0,
+			   timeout ? timeout : 30 * 1000,
+			   /*force48bit*/1);
+
+	if (error)
+		return (error);
+
+	return atahpa_proc_resp(device, ccb, /*is48bit*/1, NULL);
+}
+
+static int
+ataama_freeze(struct cam_device *device, int retry_count,
+		   u_int32_t timeout, union ccb *ccb)
+{
+	int error;
+
+	error = ata_do_cmd(device,
+			   ccb,
+			   retry_count,
+			   /*flags*/CAM_DIR_NONE,
+			   /*protocol*/AP_PROTO_NON_DATA | AP_EXTEND,
+			   /*ata_flags*/AP_FLAG_CHK_COND,
+			   /*tag_action*/MSG_SIMPLE_Q_TAG,
+			   /*command*/ATA_AMAX_ADDR,
+			   /*features*/ATA_AMAX_ADDR_FREEZE,
+			   /*lba*/0,
+			   /*sector_count*/0,
+			   /*data_ptr*/NULL,
+			   /*dxfer_len*/0,
+			   timeout ? timeout : 30 * 1000,
+			   /*force48bit*/1);
+
+	if (error)
+		return (error);
+
+	return atahpa_proc_resp(device, ccb, /*is48bit*/1, NULL);
+}
 
 int
 ata_do_identify(struct cam_device *device, int retry_count, int timeout,
@@ -2292,7 +2472,7 @@ ata_do_identify(struct cam_device *device, int retry_count, int timeout,
 				 /*command*/command,
 				 /*features*/0,
 				 /*lba*/0,
-				 /*sector_count*/(u_int8_t)sizeof(struct ata_params),
+				 /*sector_count*/0,
 				 /*data_ptr*/(u_int8_t *)ptr,
 				 /*dxfer_len*/sizeof(struct ata_params),
 				 /*timeout*/timeout ? timeout : 30 * 1000,
@@ -2312,8 +2492,7 @@ ata_do_identify(struct cam_device *device, int retry_count, int timeout,
 					 /*command*/retry_command,
 					 /*features*/0,
 					 /*lba*/0,
-					 /*sector_count*/(u_int8_t)
-					     sizeof(struct ata_params),
+					 /*sector_count*/0,
 					 /*data_ptr*/(u_int8_t *)ptr,
 					 /*dxfer_len*/sizeof(struct ata_params),
 					 /*timeout*/timeout ? timeout : 30 * 1000,
@@ -2325,17 +2504,13 @@ ata_do_identify(struct cam_device *device, int retry_count, int timeout,
 		}
 	}
 
+	ident_buf = (struct ata_params *)ptr;
+	ata_param_fixup(ident_buf);
+
 	error = 1;
 	for (i = 0; i < sizeof(struct ata_params) / 2; i++) {
-		ptr[i] = le16toh(ptr[i]);
 		if (ptr[i] != 0)
 			error = 0;
-	}
-
-	if (arglist & CAM_ARG_VERBOSE) {
-		fprintf(stdout, "%s%d: Raw identify data:\n",
-		    device->device_name, device->dev_unit_num);
-		dump_data(ptr, sizeof(struct ata_params));
 	}
 
 	/* check for invalid (all zero) response */
@@ -2344,26 +2519,6 @@ ata_do_identify(struct cam_device *device, int retry_count, int timeout,
 		free(ptr);
 		return (error);
 	}
-
-	ident_buf = (struct ata_params *)ptr;
-	if (strncmp(ident_buf->model, "FX", 2) &&
-	    strncmp(ident_buf->model, "NEC", 3) &&
-	    strncmp(ident_buf->model, "Pioneer", 7) &&
-	    strncmp(ident_buf->model, "SHARP", 5)) {
-		ata_bswap(ident_buf->model, sizeof(ident_buf->model));
-		ata_bswap(ident_buf->revision, sizeof(ident_buf->revision));
-		ata_bswap(ident_buf->serial, sizeof(ident_buf->serial));
-		ata_bswap(ident_buf->media_serial, sizeof(ident_buf->media_serial));
-	}
-	ata_btrim(ident_buf->model, sizeof(ident_buf->model));
-	ata_bpack(ident_buf->model, ident_buf->model, sizeof(ident_buf->model));
-	ata_btrim(ident_buf->revision, sizeof(ident_buf->revision));
-	ata_bpack(ident_buf->revision, ident_buf->revision, sizeof(ident_buf->revision));
-	ata_btrim(ident_buf->serial, sizeof(ident_buf->serial));
-	ata_bpack(ident_buf->serial, ident_buf->serial, sizeof(ident_buf->serial));
-	ata_btrim(ident_buf->media_serial, sizeof(ident_buf->media_serial));
-	ata_bpack(ident_buf->media_serial, ident_buf->media_serial,
-	    sizeof(ident_buf->media_serial));
 
 	*ident_bufp = ident_buf;
 
@@ -2376,7 +2531,7 @@ ataidentify(struct cam_device *device, int retry_count, int timeout)
 {
 	union ccb *ccb;
 	struct ata_params *ident_buf;
-	u_int64_t hpasize;
+	u_int64_t hpasize, nativesize;
 
 	if ((ccb = cam_getccb(device)) == NULL) {
 		warnx("couldn't allocate CCB");
@@ -2388,6 +2543,12 @@ ataidentify(struct cam_device *device, int retry_count, int timeout)
 		return (1);
 	}
 
+	if (arglist & CAM_ARG_VERBOSE) {
+		printf("%s%d: Raw identify data:\n",
+		    device->device_name, device->dev_unit_num);
+		dump_data((void*)ident_buf, sizeof(struct ata_params));
+	}
+
 	if (ident_buf->support.command1 & ATA_SUPPORT_PROTECTED) {
 		if (ata_read_native_max(device, retry_count, timeout, ccb,
 					ident_buf, &hpasize) != 0) {
@@ -2397,12 +2558,22 @@ ataidentify(struct cam_device *device, int retry_count, int timeout)
 	} else {
 		hpasize = 0;
 	}
+	if (ident_buf->support2 & ATA_SUPPORT_AMAX_ADDR) {
+		if (ata_get_native_max(device, retry_count, timeout, ccb,
+					&nativesize) != 0) {
+			cam_freeccb(ccb);
+			return (1);
+		}
+	} else {
+		nativesize = 0;
+	}
 
 	printf("%s%d: ", device->device_name, device->dev_unit_num);
 	ata_print_ident(ident_buf);
 	camxferrate(device);
 	atacapprint(ident_buf);
 	atahpa_print(ident_buf, hpasize, 0);
+	ataama_print(ident_buf, nativesize, 0);
 
 	free(ident_buf);
 	cam_freeccb(ccb);
@@ -2441,10 +2612,8 @@ identify(struct cam_device *device, int retry_count, int timeout)
 #endif
 	return (ataidentify(device, retry_count, timeout));
 }
-#endif /* MINIMALISTIC */
 
 
-#ifndef MINIMALISTIC
 enum {
 	ATA_SECURITY_ACTION_PRINT,
 	ATA_SECURITY_ACTION_FREEZE,
@@ -2924,7 +3093,7 @@ atahpa(struct cam_device *device, int retry_count, int timeout,
 		return (1);
 	}
 
-	if (security && !(ident_buf->support.command1 & ATA_SUPPORT_MAXSECURITY)) {
+	if (security && !(ident_buf->support.command2 & ATA_SUPPORT_MAXSECURITY)) {
 		warnx("HPA Security is not supported by this device");
 		cam_freeccb(ccb);
 		free(ident_buf);
@@ -2953,12 +3122,14 @@ atahpa(struct cam_device *device, int retry_count, int timeout,
 		if (error == 0) {
 			error = atahpa_set_max(device, retry_count, timeout,
 					       ccb, is48bit, maxsize, persist);
-			if (error == 0) {
+			if (error == 0 && quiet == 0) {
 				/* redo identify to get new lba values */
 				error = ata_do_identify(device, retry_count,
 							timeout, ccb,
 							&ident_buf);
 				atahpa_print(ident_buf, hpasize, 1);
+				/* Hint CAM to reprobe the device. */
+				reprobe(device);
 			}
 		}
 		break;
@@ -2966,29 +3137,152 @@ atahpa(struct cam_device *device, int retry_count, int timeout,
 	case ATA_HPA_ACTION_SET_PWD:
 		error = atahpa_password(device, retry_count, timeout,
 					ccb, is48bit, &pwd);
-		if (error == 0)
+		if (error == 0 && quiet == 0)
 			printf("HPA password has been set\n");
 		break;
 
 	case ATA_HPA_ACTION_LOCK:
 		error = atahpa_lock(device, retry_count, timeout,
 				    ccb, is48bit);
-		if (error == 0)
+		if (error == 0 && quiet == 0)
 			printf("HPA has been locked\n");
 		break;
 
 	case ATA_HPA_ACTION_UNLOCK:
 		error = atahpa_unlock(device, retry_count, timeout,
 				      ccb, is48bit, &pwd);
-		if (error == 0)
+		if (error == 0 && quiet == 0)
 			printf("HPA has been unlocked\n");
 		break;
 
 	case ATA_HPA_ACTION_FREEZE_LOCK:
 		error = atahpa_freeze_lock(device, retry_count, timeout,
 					   ccb, is48bit);
-		if (error == 0)
+		if (error == 0 && quiet == 0)
 			printf("HPA has been frozen\n");
+		break;
+
+	default:
+		errx(1, "Option currently not supported");
+	}
+
+	cam_freeccb(ccb);
+	free(ident_buf);
+
+	return (error);
+}
+
+enum {
+	ATA_AMA_ACTION_PRINT,
+	ATA_AMA_ACTION_SET_MAX,
+	ATA_AMA_ACTION_FREEZE_LOCK
+};
+
+static int
+ataama(struct cam_device *device, int retry_count, int timeout,
+       int argc, char **argv, char *combinedopt)
+{
+	union ccb *ccb;
+	struct ata_params *ident_buf;
+	struct ccb_getdev cgd;
+	int error, quiet, c, action, actions;
+	u_int64_t nativesize, maxsize;
+
+	actions = 0;
+	quiet = 0;
+	maxsize = 0;
+
+	/* default action is to print AMA information */
+	action = ATA_AMA_ACTION_PRINT;
+
+	while ((c = getopt(argc, argv, combinedopt)) != -1) {
+		switch(c){
+		case 's':
+			action = ATA_AMA_ACTION_SET_MAX;
+			maxsize = strtoumax(optarg, NULL, 0);
+			actions++;
+			break;
+
+		case 'f':
+			action = ATA_AMA_ACTION_FREEZE_LOCK;
+			actions++;
+			break;
+
+		case 'q':
+			quiet++;
+			break;
+		}
+	}
+
+	if (actions > 1) {
+		warnx("too many AMA actions specified");
+		return (1);
+	}
+
+	if (get_cgd(device, &cgd) != 0) {
+		warnx("couldn't get CGD");
+		return (1);
+	}
+
+	ccb = cam_getccb(device);
+	if (ccb == NULL) {
+		warnx("couldn't allocate CCB");
+		return (1);
+	}
+
+	error = ata_do_identify(device, retry_count, timeout, ccb, &ident_buf);
+	if (error != 0) {
+		cam_freeccb(ccb);
+		return (1);
+	}
+
+	if (quiet == 0) {
+		printf("%s%d: ", device->device_name, device->dev_unit_num);
+		ata_print_ident(ident_buf);
+		camxferrate(device);
+	}
+
+	if (action == ATA_AMA_ACTION_PRINT) {
+		error = ata_get_native_max(device, retry_count, timeout, ccb,
+					   &nativesize);
+		if (error == 0)
+			ataama_print(ident_buf, nativesize, 1);
+
+		cam_freeccb(ccb);
+		free(ident_buf);
+		return (error);
+	}
+
+	if (!(ident_buf->support2 & ATA_SUPPORT_AMAX_ADDR)) {
+		warnx("Accessible Max Address is not supported by this device");
+		cam_freeccb(ccb);
+		free(ident_buf);
+		return (1);
+	}
+
+	switch(action) {
+	case ATA_AMA_ACTION_SET_MAX:
+		error = ata_get_native_max(device, retry_count, timeout, ccb,
+					   &nativesize);
+		if (error == 0) {
+			error = ataama_set(device, retry_count, timeout,
+				       ccb, maxsize);
+			if (error == 0 && quiet == 0) {
+				/* redo identify to get new lba values */
+				error = ata_do_identify(device, retry_count,
+				    timeout, ccb, &ident_buf);
+				ataama_print(ident_buf, nativesize, 1);
+				/* Hint CAM to reprobe the device. */
+				reprobe(device);
+			}
+		}
+		break;
+
+	case ATA_AMA_ACTION_FREEZE_LOCK:
+		error = ataama_freeze(device, retry_count, timeout,
+					   ccb);
+		if (error == 0 && quiet == 0)
+			printf("Accessible Max Address has been frozen\n");
 		break;
 
 	default:
@@ -3277,7 +3571,66 @@ atasecurity(struct cam_device *device, int retry_count, int timeout,
 
 	return (error);
 }
-#endif /* MINIMALISTIC */
+
+/*
+ * Convert periph name into a bus, target and lun.
+ *
+ * Returns the number of parsed components, or 0.
+ */
+static int
+parse_btl_name(char *tstr, path_id_t *bus, target_id_t *target, lun_id_t *lun,
+    cam_argmask *arglst)
+{
+	int fd;
+	union ccb ccb;
+
+	bzero(&ccb, sizeof(ccb));
+	ccb.ccb_h.func_code = XPT_GDEVLIST;
+	if (cam_get_device(tstr, ccb.cgdl.periph_name,
+	    sizeof(ccb.cgdl.periph_name), &ccb.cgdl.unit_number) == -1) {
+		warnx("%s", cam_errbuf);
+		return (0);
+	}
+
+	/*
+	 * Attempt to get the passthrough device.  This ioctl will
+	 * fail if the device name is null, if the device doesn't
+	 * exist, or if the passthrough driver isn't in the kernel.
+	 */
+	if ((fd = open(XPT_DEVICE, O_RDWR)) == -1) {
+		warn("Unable to open %s", XPT_DEVICE);
+		return (0);
+	}
+	if (ioctl(fd, CAMGETPASSTHRU, &ccb) == -1) {
+		warn("Unable to find bus:target:lun for device %s%d",
+		    ccb.cgdl.periph_name, ccb.cgdl.unit_number);
+		close(fd);
+		return (0);
+	}
+	close(fd);
+	if ((ccb.ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP) {
+		const struct cam_status_entry *entry;
+
+		entry = cam_fetch_status_entry(ccb.ccb_h.status);
+		warnx("Unable to find bus:target_lun for device %s%d, "
+		    "CAM status: %s (%#x)",
+		    ccb.cgdl.periph_name, ccb.cgdl.unit_number,
+		    entry ? entry->status_text : "Unknown",
+		    ccb.ccb_h.status);
+		return (0);
+	}
+
+	/*
+	 * The kernel fills in the bus/target/lun.  We don't
+	 * need the passthrough device name and unit number since
+	 * we aren't going to open it.
+	 */
+	*bus = ccb.ccb_h.path_id;
+	*target = ccb.ccb_h.target_id;
+	*lun = ccb.ccb_h.target_lun;
+	*arglst |= CAM_ARG_BUS | CAM_ARG_TARGET | CAM_ARG_LUN;
+	return (3);
+}
 
 /*
  * Parse out a bus, or a bus, target and lun in the following
@@ -3292,25 +3645,43 @@ static int
 parse_btl(char *tstr, path_id_t *bus, target_id_t *target, lun_id_t *lun,
     cam_argmask *arglst)
 {
-	char *tmpstr;
+	char *tmpstr, *end;
 	int convs = 0;
+
+	*bus = CAM_BUS_WILDCARD;
+	*target = CAM_TARGET_WILDCARD;
+	*lun = CAM_LUN_WILDCARD;
 
 	while (isspace(*tstr) && (*tstr != '\0'))
 		tstr++;
 
-	tmpstr = (char *)strtok(tstr, ":");
+	if (strncasecmp(tstr, "all", strlen("all")) == 0) {
+		arglist |= CAM_ARG_BUS;
+		return (1);
+	}
+
+	if (!isdigit(*tstr))
+		return (parse_btl_name(tstr, bus, target, lun, arglst));
+
+	tmpstr = strsep(&tstr, ":");
 	if ((tmpstr != NULL) && (*tmpstr != '\0')) {
-		*bus = strtol(tmpstr, NULL, 0);
+		*bus = strtol(tmpstr, &end, 0);
+		if (*end != '\0')
+			return (0);
 		*arglst |= CAM_ARG_BUS;
 		convs++;
-		tmpstr = (char *)strtok(NULL, ":");
+		tmpstr = strsep(&tstr, ":");
 		if ((tmpstr != NULL) && (*tmpstr != '\0')) {
-			*target = strtol(tmpstr, NULL, 0);
+			*target = strtol(tmpstr, &end, 0);
+			if (*end != '\0')
+				return (0);
 			*arglst |= CAM_ARG_TARGET;
 			convs++;
-			tmpstr = (char *)strtok(NULL, ":");
+			tmpstr = strsep(&tstr, ":");
 			if ((tmpstr != NULL) && (*tmpstr != '\0')) {
-				*lun = strtol(tmpstr, NULL, 0);
+				*lun = strtoll(tmpstr, &end, 0);
+				if (*end != '\0')
+					return (0);
 				*arglst |= CAM_ARG_LUN;
 				convs++;
 			}
@@ -3324,7 +3695,7 @@ static int
 dorescan_or_reset(int argc, char **argv, int rescan)
 {
 	static const char must[] =
-		"you must specify \"all\", a bus, or a bus:target:lun to %s";
+	    "you must specify \"all\", a bus, a bus:target:lun or periph to %s";
 	int rv, error = 0;
 	path_id_t bus = CAM_BUS_WILDCARD;
 	target_id_t target = CAM_TARGET_WILDCARD;
@@ -3341,117 +3712,18 @@ dorescan_or_reset(int argc, char **argv, int rescan)
 		tstr++;
 	if (strncasecmp(tstr, "all", strlen("all")) == 0)
 		arglist |= CAM_ARG_BUS;
-	else if (isdigit(*tstr)) {
+	else {
 		rv = parse_btl(argv[optind], &bus, &target, &lun, &arglist);
 		if (rv != 1 && rv != 3) {
-			warnx(must, rescan? "rescan" : "reset");
+			warnx(must, rescan ? "rescan" : "reset");
 			return (1);
 		}
-	} else {
-		char name[30];
-		int unit;
-		int fd = -1;
-		union ccb ccb;
-
-		/*
-		 * Note that resetting or rescanning a device used to
-		 * require a bus or bus:target:lun.  This is because the
-		 * device in question may not exist and you're trying to
-		 * get the controller to rescan to find it.  It may also be
-		 * because the device is hung / unresponsive, and opening
-		 * an unresponsive device is not desireable.
-		 *
-		 * It can be more convenient to reference a device by
-		 * peripheral name and unit number, though, and it is
-		 * possible to get the bus:target:lun for devices that
-		 * currently exist in the EDT.  So this can work for
-		 * devices that we want to reset, or devices that exist
-		 * that we want to rescan, but not devices that do not
-		 * exist yet.
-		 *
-		 * So, we are careful here to look up the bus/target/lun
-		 * for the device the user wants to operate on, specified
-		 * by peripheral instance (e.g. da0, pass32) without
-		 * actually opening that device.  The process is similar to
-		 * what cam_lookup_pass() does, except that we don't
-		 * actually open the passthrough driver instance in the end.
-		 */
-
-		if (cam_get_device(tstr, name, sizeof(name), &unit) == -1) {
-			warnx("%s", cam_errbuf);
-			error = 1;
-			goto bailout;
-		}
-
-		if ((fd = open(XPT_DEVICE, O_RDWR)) == -1) {
-			warn("Unable to open %s", XPT_DEVICE);
-			error = 1;
-			goto bailout;
-		}
-
-		bzero(&ccb, sizeof(ccb));
-
-		/*
-		 * The function code isn't strictly necessary for the
-		 * GETPASSTHRU ioctl.
-		 */
-		ccb.ccb_h.func_code = XPT_GDEVLIST;
-
-		/*
-		 * These two are necessary for the GETPASSTHRU ioctl to
-		 * work.
-		 */
-		strlcpy(ccb.cgdl.periph_name, name,
-			sizeof(ccb.cgdl.periph_name));
-		ccb.cgdl.unit_number = unit;
-
-		/*
-		 * Attempt to get the passthrough device.  This ioctl will
-		 * fail if the device name is null, if the device doesn't
-		 * exist, or if the passthrough driver isn't in the kernel.
-		 */
-		if (ioctl(fd, CAMGETPASSTHRU, &ccb) == -1) {
-			warn("Unable to find bus:target:lun for device %s%d",
-			    name, unit);
-			error = 1;
-			close(fd);
-			goto bailout;
-		}
-		if ((ccb.ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP) {
-			const struct cam_status_entry *entry;
-
-			entry = cam_fetch_status_entry(ccb.ccb_h.status);
-			warnx("Unable to find bus:target_lun for device %s%d, "
-			    "CAM status: %s (%#x)", name, unit,
-			    entry ? entry->status_text : "Unknown",
-			    ccb.ccb_h.status);
-			error = 1;
-			close(fd);
-			goto bailout;
-		}
-
-		/*
-		 * The kernel fills in the bus/target/lun.  We don't
-		 * need the passthrough device name and unit number since
-		 * we aren't going to open it.
-		 */
-		bus = ccb.ccb_h.path_id;
-		target = ccb.ccb_h.target_id;
-		lun = ccb.ccb_h.target_lun;
-
-		arglist |= CAM_ARG_BUS | CAM_ARG_TARGET | CAM_ARG_LUN;
-
-		close(fd);
 	}
 
-	if ((arglist & CAM_ARG_BUS)
-	    && (arglist & CAM_ARG_TARGET)
-	    && (arglist & CAM_ARG_LUN))
+	if (arglist & CAM_ARG_LUN)
 		error = scanlun_or_reset_dev(bus, target, lun, rescan);
 	else
 		error = rescan_or_reset_bus(bus, rescan);
-
-bailout:
 
 	return (error);
 }
@@ -3725,7 +3997,6 @@ scanlun_or_reset_dev(path_id_t bus, target_id_t target, lun_id_t lun, int scan)
 	}
 }
 
-#ifndef MINIMALISTIC
 
 static struct scsi_nv defect_list_type_map[] = {
 	{ "block", SRDD10_BLOCK_FORMAT },
@@ -4301,7 +4572,6 @@ defect_bailout:
 
 	return (error);
 }
-#endif /* MINIMALISTIC */
 
 #if 0
 void
@@ -4315,19 +4585,25 @@ reassignblocks(struct cam_device *device, u_int32_t *blocks, int num_blocks)
 }
 #endif
 
-#ifndef MINIMALISTIC
 void
-mode_sense(struct cam_device *device, int dbd, int pc, int page, int subpage,
-	   int task_attr, int retry_count, int timeout, u_int8_t *data,
-	   int datalen)
+mode_sense(struct cam_device *device, int *cdb_len, int dbd, int llbaa, int pc,
+    int page, int subpage, int task_attr, int retry_count, int timeout,
+    u_int8_t *data, int datalen)
 {
 	union ccb *ccb;
-	int retval;
+	int error_code, sense_key, asc, ascq;
 
 	ccb = cam_getccb(device);
-
 	if (ccb == NULL)
 		errx(1, "mode_sense: couldn't allocate CCB");
+
+retry:
+	/*
+	 * MODE SENSE(6) can't handle more then 255 bytes.  If there are more,
+	 * device must return error, so we should not get trucated data.
+	 */
+	if (*cdb_len == 6 && datalen > 255)
+		datalen = 255;
 
 	CCB_CLEAR_ALL_EXCEPT_HDR(&ccb->csio);
 
@@ -4341,9 +4617,17 @@ mode_sense(struct cam_device *device, int dbd, int pc, int page, int subpage,
 			/* subpage */ subpage,
 			/* param_buf */ data,
 			/* param_len */ datalen,
-			/* minimum_cmd_size */ 0,
+			/* minimum_cmd_size */ *cdb_len,
 			/* sense_len */ SSD_FULL_SIZE,
 			/* timeout */ timeout ? timeout : 5000);
+	if (llbaa && ccb->csio.cdb_len == 10) {
+		struct scsi_mode_sense_10 *cdb =
+		    (struct scsi_mode_sense_10 *)ccb->csio.cdb_io.cdb_bytes;
+		cdb->byte2 |= SMS10_LLBAA;
+	}
+
+	/* Record what CDB size the above function really set. */
+	*cdb_len = ccb->csio.cdb_len;
 
 	if (arglist & CAM_ARG_ERR_RECOVER)
 		ccb->ccb_h.flags |= CAM_PASS_ERR_RECOVER;
@@ -4351,26 +4635,34 @@ mode_sense(struct cam_device *device, int dbd, int pc, int page, int subpage,
 	/* Disable freezing the device queue */
 	ccb->ccb_h.flags |= CAM_DEV_QFRZDIS;
 
-	if (((retval = cam_send_ccb(device, ccb)) < 0)
-	 || ((ccb->ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP)) {
+	if (cam_send_ccb(device, ccb) < 0)
+		err(1, "error sending mode sense command");
+
+	/* In case of ILLEGEL REQUEST try to fall back to 6-byte command. */
+	if (*cdb_len != 6 &&
+	    ((ccb->ccb_h.status & CAM_STATUS_MASK) == CAM_REQ_INVALID ||
+	     (scsi_extract_sense_ccb(ccb, &error_code, &sense_key, &asc, &ascq)
+	      && sense_key == SSD_KEY_ILLEGAL_REQUEST))) {
+		*cdb_len = 6;
+		goto retry;
+	}
+
+	if ((ccb->ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP) {
 		if (arglist & CAM_ARG_VERBOSE) {
 			cam_error_print(device, ccb, CAM_ESF_ALL,
 					CAM_EPF_ALL, stderr);
 		}
 		cam_freeccb(ccb);
 		cam_close_device(device);
-		if (retval < 0)
-			err(1, "error sending mode sense command");
-		else
-			errx(1, "error sending mode sense command");
+		errx(1, "mode sense command returned error");
 	}
 
 	cam_freeccb(ccb);
 }
 
 void
-mode_select(struct cam_device *device, int save_pages, int task_attr,
-	    int retry_count, int timeout, u_int8_t *data, int datalen)
+mode_select(struct cam_device *device, int cdb_len, int save_pages,
+    int task_attr, int retry_count, int timeout, u_int8_t *data, int datalen)
 {
 	union ccb *ccb;
 	int retval;
@@ -4382,7 +4674,7 @@ mode_select(struct cam_device *device, int save_pages, int task_attr,
 
 	CCB_CLEAR_ALL_EXCEPT_HDR(&ccb->csio);
 
-	scsi_mode_select(&ccb->csio,
+	scsi_mode_select_len(&ccb->csio,
 			 /* retries */ retry_count,
 			 /* cbfcnp */ NULL,
 			 /* tag_action */ task_attr,
@@ -4390,6 +4682,7 @@ mode_select(struct cam_device *device, int save_pages, int task_attr,
 			 /* save_pages */ save_pages,
 			 /* param_buf */ data,
 			 /* param_len */ datalen,
+			 /* minimum_cmd_size */ cdb_len,
 			 /* sense_len */ SSD_FULL_SIZE,
 			 /* timeout */ timeout ? timeout : 5000);
 
@@ -4423,11 +4716,14 @@ modepage(struct cam_device *device, int argc, char **argv, char *combinedopt,
 	 int task_attr, int retry_count, int timeout)
 {
 	char *str_subpage;
-	int c, page = -1, subpage = -1, pc = 0;
-	int binary = 0, dbd = 0, edit = 0, list = 0;
+	int c, page = -1, subpage = -1, pc = 0, llbaa = 0;
+	int binary = 0, cdb_len = 10, dbd = 0, desc = 0, edit = 0, list = 0;
 
 	while ((c = getopt(argc, argv, combinedopt)) != -1) {
 		switch(c) {
+		case '6':
+			cdb_len = 6;
+			break;
 		case 'b':
 			binary = 1;
 			break;
@@ -4453,6 +4749,12 @@ modepage(struct cam_device *device, int argc, char **argv, char *combinedopt,
 			if (subpage < 0)
 				errx(1, "invalid mode subpage %d", subpage);
 			break;
+		case 'D':
+			desc = 1;
+			break;
+		case 'L':
+			llbaa = 1;
+			break;
 		case 'P':
 			pc = strtol(optarg, NULL, 0);
 			if ((pc < 0) || (pc > 3))
@@ -4463,15 +4765,21 @@ modepage(struct cam_device *device, int argc, char **argv, char *combinedopt,
 		}
 	}
 
-	if (page == -1 && list == 0)
+	if (page == -1 && desc == 0 && list == 0)
 		errx(1, "you must specify a mode page!");
 
+	if (dbd && desc)
+		errx(1, "-d and -D are incompatible!");
+
+	if (llbaa && cdb_len != 10)
+		errx(1, "LLBAA bit is not present in MODE SENSE(6)!");
+
 	if (list != 0) {
-		mode_list(device, dbd, pc, list > 1, task_attr, retry_count,
-			  timeout);
+		mode_list(device, cdb_len, dbd, pc, list > 1, task_attr,
+		    retry_count, timeout);
 	} else {
-		mode_edit(device, dbd, pc, page, subpage, edit, binary,
-		    task_attr, retry_count, timeout);
+		mode_edit(device, cdb_len, desc, dbd, llbaa, pc, page, subpage,
+		    edit, binary, task_attr, retry_count, timeout);
 	}
 }
 
@@ -4839,9 +5147,9 @@ camdebug(int argc, char **argv, char *combinedopt)
 	path_id_t bus = CAM_BUS_WILDCARD;
 	target_id_t target = CAM_TARGET_WILDCARD;
 	lun_id_t lun = CAM_LUN_WILDCARD;
-	char *tstr, *tmpstr = NULL;
+	char *tstr;
 	union ccb ccb;
-	int error = 0;
+	int error = 0, rv;
 
 	bzero(&ccb, sizeof(union ccb));
 
@@ -4880,23 +5188,16 @@ camdebug(int argc, char **argv, char *combinedopt)
 		}
 	}
 
-	if ((fd = open(XPT_DEVICE, O_RDWR)) < 0) {
-		warnx("error opening transport layer device %s", XPT_DEVICE);
-		warn("%s", XPT_DEVICE);
-		return (1);
-	}
 	argc -= optind;
 	argv += optind;
 
 	if (argc <= 0) {
 		warnx("you must specify \"off\", \"all\" or a bus,");
-		warnx("bus:target, or bus:target:lun");
-		close(fd);
+		warnx("bus:target, bus:target:lun or periph");
 		return (1);
 	}
 
 	tstr = *argv;
-
 	while (isspace(*tstr) && (*tstr != '\0'))
 		tstr++;
 
@@ -4905,66 +5206,54 @@ camdebug(int argc, char **argv, char *combinedopt)
 		arglist &= ~(CAM_ARG_DEBUG_INFO|CAM_ARG_DEBUG_PERIPH|
 			     CAM_ARG_DEBUG_TRACE|CAM_ARG_DEBUG_SUBTRACE|
 			     CAM_ARG_DEBUG_XPT|CAM_ARG_DEBUG_PROBE);
-	} else if (strncmp(tstr, "all", 3) != 0) {
-		tmpstr = (char *)strtok(tstr, ":");
-		if ((tmpstr != NULL) && (*tmpstr != '\0')){
-			bus = strtol(tmpstr, NULL, 0);
-			arglist |= CAM_ARG_BUS;
-			tmpstr = (char *)strtok(NULL, ":");
-			if ((tmpstr != NULL) && (*tmpstr != '\0')){
-				target = strtol(tmpstr, NULL, 0);
-				arglist |= CAM_ARG_TARGET;
-				tmpstr = (char *)strtok(NULL, ":");
-				if ((tmpstr != NULL) && (*tmpstr != '\0')){
-					lun = strtol(tmpstr, NULL, 0);
-					arglist |= CAM_ARG_LUN;
-				}
-			}
-		} else {
-			error = 1;
+	} else {
+		rv = parse_btl(tstr, &bus, &target, &lun, &arglist);
+		if (rv < 1) {
 			warnx("you must specify \"all\", \"off\", or a bus,");
-			warnx("bus:target, or bus:target:lun to debug");
+			warnx("bus:target, bus:target:lun or periph to debug");
+			return (1);
 		}
 	}
 
-	if (error == 0) {
+	if ((fd = open(XPT_DEVICE, O_RDWR)) < 0) {
+		warnx("error opening transport layer device %s", XPT_DEVICE);
+		warn("%s", XPT_DEVICE);
+		return (1);
+	}
 
-		ccb.ccb_h.func_code = XPT_DEBUG;
-		ccb.ccb_h.path_id = bus;
-		ccb.ccb_h.target_id = target;
-		ccb.ccb_h.target_lun = lun;
+	ccb.ccb_h.func_code = XPT_DEBUG;
+	ccb.ccb_h.path_id = bus;
+	ccb.ccb_h.target_id = target;
+	ccb.ccb_h.target_lun = lun;
 
-		if (ioctl(fd, CAMIOCOMMAND, &ccb) == -1) {
-			warn("CAMIOCOMMAND ioctl failed");
+	if (ioctl(fd, CAMIOCOMMAND, &ccb) == -1) {
+		warn("CAMIOCOMMAND ioctl failed");
+		error = 1;
+	} else {
+		if ((ccb.ccb_h.status & CAM_STATUS_MASK) ==
+		     CAM_FUNC_NOTAVAIL) {
+			warnx("CAM debugging not available");
+			warnx("you need to put options CAMDEBUG in"
+			      " your kernel config file!");
 			error = 1;
-		}
-
-		if (error == 0) {
-			if ((ccb.ccb_h.status & CAM_STATUS_MASK) ==
-			     CAM_FUNC_NOTAVAIL) {
-				warnx("CAM debugging not available");
-				warnx("you need to put options CAMDEBUG in"
-				      " your kernel config file!");
-				error = 1;
-			} else if ((ccb.ccb_h.status & CAM_STATUS_MASK) !=
-				    CAM_REQ_CMP) {
-				warnx("XPT_DEBUG CCB failed with status %#x",
-				      ccb.ccb_h.status);
-				error = 1;
+		} else if ((ccb.ccb_h.status & CAM_STATUS_MASK) !=
+			    CAM_REQ_CMP) {
+			warnx("XPT_DEBUG CCB failed with status %#x",
+			      ccb.ccb_h.status);
+			error = 1;
+		} else {
+			if (ccb.cdbg.flags == CAM_DEBUG_NONE) {
+				fprintf(stderr,
+					"Debugging turned off\n");
 			} else {
-				if (ccb.cdbg.flags == CAM_DEBUG_NONE) {
-					fprintf(stderr,
-						"Debugging turned off\n");
-				} else {
-					fprintf(stderr,
-						"Debugging enabled for "
-						"%d:%d:%jx\n",
-						bus, target, (uintmax_t)lun);
-				}
+				fprintf(stderr,
+					"Debugging enabled for "
+					"%d:%d:%jx\n",
+					bus, target, (uintmax_t)lun);
 			}
 		}
-		close(fd);
 	}
+	close(fd);
 
 	return (error);
 }
@@ -5393,7 +5682,7 @@ get_device_type(struct cam_device *dev, int retry_count, int timeout,
 		    int verbosemode, camcontrol_devtype *devtype)
 {
 	struct ccb_getdev cgd;
-	int retval = 0;
+	int retval;
 
 	retval = get_cgd(dev, &cgd);
 	if (retval != 0)
@@ -5408,27 +5697,48 @@ get_device_type(struct cam_device *dev, int retry_count, int timeout,
 		*devtype = CC_DT_ATA;
 		goto bailout;
 		break; /*NOTREACHED*/
+	case PROTO_NVME:
+		*devtype = CC_DT_NVME;
+		goto bailout;
+		break; /*NOTREACHED*/
+	case PROTO_MMCSD:
+		*devtype = CC_DT_MMCSD;
+		goto bailout;
+		break; /*NOTREACHED*/
 	default:
 		*devtype = CC_DT_UNKNOWN;
 		goto bailout;
 		break; /*NOTREACHED*/
 	}
 
-	/*
-	 * Check for the ATA Information VPD page (0x89).  If this is an
-	 * ATA device behind a SCSI to ATA translation layer, this VPD page
-	 * should be present.
-	 *
-	 * If that VPD page isn't present, or we get an error back from the
-	 * INQUIRY command, we'll just treat it as a normal SCSI device.
-	 */
-	retval = dev_has_vpd_page(dev, SVPD_ATA_INFORMATION, retry_count,
-				  timeout, verbosemode);
-	if (retval == 1)
-		*devtype = CC_DT_ATA_BEHIND_SCSI;
-	else
-		*devtype = CC_DT_SCSI;
-
+	if (retry_count == -1) {
+		/*
+		 * For a retry count of -1, used only the cached data to avoid
+		 * I/O to the drive. Sending the identify command to the drive
+		 * can cause issues for SATL attachaed drives since identify is
+		 * not an NCQ command.
+		 */
+		if (cgd.ident_data.config != 0)
+			*devtype = CC_DT_SATL;
+		else
+			*devtype = CC_DT_SCSI;
+	} else {
+		/*
+		 * Check for the ATA Information VPD page (0x89).  If this is an
+		 * ATA device behind a SCSI to ATA translation layer (SATL),
+		 * this VPD page should be present.
+		 *
+		 * If that VPD page isn't present, or we get an error back from
+		 * the INQUIRY command, we'll just treat it as a normal SCSI
+		 * device.
+		 */
+		retval = dev_has_vpd_page(dev, SVPD_ATA_INFORMATION, retry_count,
+		    timeout, verbosemode);
+		if (retval == 1)
+			*devtype = CC_DT_SATL;
+		else
+			*devtype = CC_DT_SCSI;
+	}
 	retval = 0;
 
 bailout:
@@ -6507,295 +6817,78 @@ scsiformat_bailout:
 }
 
 static int
-scsisanitize(struct cam_device *device, int argc, char **argv,
-	     char *combinedopt, int task_attr, int retry_count, int timeout)
+sanitize_wait_ata(struct cam_device *device, union ccb *ccb, int quiet)
 {
-	union ccb *ccb;
-	u_int8_t action = 0;
-	int c;
-	int ycount = 0, quiet = 0;
-	int error = 0, retval = 0;
-	int use_timeout = 10800 * 1000;
-	int immediate = 1;
-	int invert = 0;
-	int passes = 0;
-	int ause = 0;
-	int fd = -1;
-	const char *pattern = NULL;
-	u_int8_t *data_ptr = NULL;
-	u_int32_t dxfer_len = 0;
-	u_int8_t byte2 = 0;
-	int num_warnings = 0;
-	int reportonly = 0;
+	struct ata_res *res;
+	int retval;
+	cam_status status;
+	u_int val, perc;
 
-	ccb = cam_getccb(device);
-
-	if (ccb == NULL) {
-		warnx("scsisanitize: error allocating ccb");
-		return (1);
-	}
-
-	CCB_CLEAR_ALL_EXCEPT_HDR(&ccb->csio);
-
-	while ((c = getopt(argc, argv, combinedopt)) != -1) {
-		switch(c) {
-		case 'a':
-			if (strcasecmp(optarg, "overwrite") == 0)
-				action = SSZ_SERVICE_ACTION_OVERWRITE;
-			else if (strcasecmp(optarg, "block") == 0)
-				action = SSZ_SERVICE_ACTION_BLOCK_ERASE;
-			else if (strcasecmp(optarg, "crypto") == 0)
-				action = SSZ_SERVICE_ACTION_CRYPTO_ERASE;
-			else if (strcasecmp(optarg, "exitfailure") == 0)
-				action = SSZ_SERVICE_ACTION_EXIT_MODE_FAILURE;
-			else {
-				warnx("invalid service operation \"%s\"",
-				      optarg);
-				error = 1;
-				goto scsisanitize_bailout;
-			}
-			break;
-		case 'c':
-			passes = strtol(optarg, NULL, 0);
-			if (passes < 1 || passes > 31) {
-				warnx("invalid passes value %d", passes);
-				error = 1;
-				goto scsisanitize_bailout;
-			}
-			break;
-		case 'I':
-			invert = 1;
-			break;
-		case 'P':
-			pattern = optarg;
-			break;
-		case 'q':
-			quiet++;
-			break;
-		case 'U':
-			ause = 1;
-			break;
-		case 'r':
-			reportonly = 1;
-			break;
-		case 'w':
-			immediate = 0;
-			break;
-		case 'y':
-			ycount++;
-			break;
-		}
-	}
-
-	if (reportonly)
-		goto doreport;
-
-	if (action == 0) {
-		warnx("an action is required");
-		error = 1;
-		goto scsisanitize_bailout;
-	} else if (action == SSZ_SERVICE_ACTION_OVERWRITE) {
-		struct scsi_sanitize_parameter_list *pl;
-		struct stat sb;
-		ssize_t sz, amt;
-
-		if (pattern == NULL) {
-			warnx("overwrite action requires -P argument");
-			error = 1;
-			goto scsisanitize_bailout;
-		}
-		fd = open(pattern, O_RDONLY);
-		if (fd < 0) {
-			warn("cannot open pattern file %s", pattern);
-			error = 1;
-			goto scsisanitize_bailout;
-		}
-		if (fstat(fd, &sb) < 0) {
-			warn("cannot stat pattern file %s", pattern);
-			error = 1;
-			goto scsisanitize_bailout;
-		}
-		sz = sb.st_size;
-		if (sz > SSZPL_MAX_PATTERN_LENGTH) {
-			warnx("pattern file size exceeds maximum value %d",
-			      SSZPL_MAX_PATTERN_LENGTH);
-			error = 1;
-			goto scsisanitize_bailout;
-		}
-		dxfer_len = sizeof(*pl) + sz;
-		data_ptr = calloc(1, dxfer_len);
-		if (data_ptr == NULL) {
-			warnx("cannot allocate parameter list buffer");
-			error = 1;
-			goto scsisanitize_bailout;
-		}
-
-		amt = read(fd, data_ptr + sizeof(*pl), sz);
-		if (amt < 0) {
-			warn("cannot read pattern file");
-			error = 1;
-			goto scsisanitize_bailout;
-		} else if (amt != sz) {
-			warnx("short pattern file read");
-			error = 1;
-			goto scsisanitize_bailout;
-		}
-
-		pl = (struct scsi_sanitize_parameter_list *)data_ptr;
-		if (passes == 0)
-			pl->byte1 = 1;
-		else
-			pl->byte1 = passes;
-		if (invert != 0)
-			pl->byte1 |= SSZPL_INVERT;
-		scsi_ulto2b(sz, pl->length);
-	} else {
-		const char *arg;
-
-		if (passes != 0)
-			arg = "-c";
-		else if (invert != 0)
-			arg = "-I";
-		else if (pattern != NULL)
-			arg = "-P";
-		else
-			arg = NULL;
-		if (arg != NULL) {
-			warnx("%s argument only valid with overwrite "
-			      "operation", arg);
-			error = 1;
-			goto scsisanitize_bailout;
-		}
-	}
-
-	if (quiet == 0) {
-		fprintf(stdout, "You are about to REMOVE ALL DATA from the "
-			"following device:\n");
-
-		error = scsidoinquiry(device, argc, argv, combinedopt,
-				      task_attr, retry_count, timeout);
-
-		if (error != 0) {
-			warnx("scsisanitize: error sending inquiry");
-			goto scsisanitize_bailout;
-		}
-	}
-
-	if (ycount == 0) {
-		if (!get_confirmation()) {
-			error = 1;
-			goto scsisanitize_bailout;
-		}
-	}
-
-	if (timeout != 0)
-		use_timeout = timeout;
-
-	if (quiet == 0) {
-		fprintf(stdout, "Current sanitize timeout is %d seconds\n",
-			use_timeout / 1000);
-	}
-
-	/*
-	 * If the user hasn't disabled questions and didn't specify a
-	 * timeout on the command line, ask them if they want the current
-	 * timeout.
-	 */
-	if ((ycount == 0)
-	 && (timeout == 0)) {
-		char str[1024];
-		int new_timeout = 0;
-
-		fprintf(stdout, "Enter new timeout in seconds or press\n"
-			"return to keep the current timeout [%d] ",
-			use_timeout / 1000);
-
-		if (fgets(str, sizeof(str), stdin) != NULL) {
-			if (str[0] != '\0')
-				new_timeout = atoi(str);
-		}
-
-		if (new_timeout != 0) {
-			use_timeout = new_timeout * 1000;
-			fprintf(stdout, "Using new timeout value %d\n",
-				use_timeout / 1000);
-		}
-	}
-
-	byte2 = action;
-	if (ause != 0)
-		byte2 |= SSZ_UNRESTRICTED_EXIT;
-	if (immediate != 0)
-		byte2 |= SSZ_IMMED;
-
-	scsi_sanitize(&ccb->csio,
-		      /* retries */ retry_count,
-		      /* cbfcnp */ NULL,
-		      /* tag_action */ task_attr,
-		      /* byte2 */ byte2,
-		      /* control */ 0,
-		      /* data_ptr */ data_ptr,
-		      /* dxfer_len */ dxfer_len,
-		      /* sense_len */ SSD_FULL_SIZE,
-		      /* timeout */ use_timeout);
-
-	/* Disable freezing the device queue */
-	ccb->ccb_h.flags |= CAM_DEV_QFRZDIS;
-
-	if (arglist & CAM_ARG_ERR_RECOVER)
-		ccb->ccb_h.flags |= CAM_PASS_ERR_RECOVER;
-
-	if (cam_send_ccb(device, ccb) < 0) {
-		warn("error sending sanitize command");
-		error = 1;
-		goto scsisanitize_bailout;
-	}
-
-	if ((ccb->ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP) {
-		struct scsi_sense_data *sense;
-		int error_code, sense_key, asc, ascq;
-
-		if ((ccb->ccb_h.status & CAM_STATUS_MASK) ==
-		    CAM_SCSI_STATUS_ERROR) {
-			sense = &ccb->csio.sense_data;
-			scsi_extract_sense_len(sense, ccb->csio.sense_len -
-			    ccb->csio.sense_resid, &error_code, &sense_key,
-			    &asc, &ascq, /*show_errors*/ 1);
-
-			if (sense_key == SSD_KEY_ILLEGAL_REQUEST &&
-			    asc == 0x20 && ascq == 0x00)
-				warnx("sanitize is not supported by "
-				      "this device");
-			else
-				warnx("error sanitizing this device");
-		} else
-			warnx("error sanitizing this device");
-
-		if (arglist & CAM_ARG_VERBOSE) {
-			cam_error_print(device, ccb, CAM_ESF_ALL,
-					CAM_EPF_ALL, stderr);
-		}
-		error = 1;
-		goto scsisanitize_bailout;
-	}
-
-	/*
-	 * If we ran in non-immediate mode, we already checked for errors
-	 * above and printed out any necessary information.  If we're in
-	 * immediate mode, we need to loop through and get status
-	 * information periodically.
-	 */
-	if (immediate == 0) {
-		if (quiet == 0) {
-			fprintf(stdout, "Sanitize Complete\n");
-		}
-		goto scsisanitize_bailout;
-	}
-
-doreport:
 	do {
-		cam_status status;
+		retval = ata_do_cmd(device,
+				   ccb,
+				   /*retries*/1,
+				   /*flags*/CAM_DIR_NONE,
+				   /*protocol*/AP_PROTO_NON_DATA | AP_EXTEND,
+				   /*ata_flags*/AP_FLAG_CHK_COND,
+				   /*tag_action*/MSG_SIMPLE_Q_TAG,
+				   /*command*/ATA_SANITIZE,
+				   /*features*/0x00, /* SANITIZE STATUS EXT */
+				   /*lba*/0,
+				   /*sector_count*/0,
+				   /*data_ptr*/NULL,
+				   /*dxfer_len*/0,
+				   /*timeout*/10000,
+				   /*is48bit*/1);
+		if (retval < 0) {
+			warn("error sending CAMIOCOMMAND ioctl");
+			if (arglist & CAM_ARG_VERBOSE) {
+				cam_error_print(device, ccb, CAM_ESF_ALL,
+						CAM_EPF_ALL, stderr);
+			}
+			return (1);
+		}
 
+		status = ccb->ccb_h.status & CAM_STATUS_MASK;
+		if (status == CAM_REQ_CMP) {
+			res = &ccb->ataio.res;
+			if (res->sector_count_exp & 0x40) {
+				if (quiet == 0) {
+					val = (res->lba_mid << 8) + res->lba_low;
+					perc = 10000 * val;
+					fprintf(stdout,
+					    "Sanitizing: %u.%02u%% (%d/%d)\r",
+					    (perc / (0x10000 * 100)),
+					    ((perc / 0x10000) % 100),
+					    val, 0x10000);
+					fflush(stdout);
+				}
+				sleep(1);
+			} else if ((res->sector_count_exp & 0x80) == 0) {
+				warnx("Sanitize complete with an error.     ");
+				return (1);
+			} else
+				break;
+
+		} else if (status != CAM_REQ_CMP && status != CAM_REQUEUE_REQ) {
+			warnx("Unexpected CAM status %#x", status);
+			if (arglist & CAM_ARG_VERBOSE)
+				cam_error_print(device, ccb, CAM_ESF_ALL,
+						CAM_EPF_ALL, stderr);
+			return (1);
+		}
+	} while (1);
+	return (0);
+}
+
+static int
+sanitize_wait_scsi(struct cam_device *device, union ccb *ccb, int task_attr, int quiet)
+{
+	int warnings = 0, retval;
+	cam_status status;
+	u_int val, perc;
+
+	do {
 		CCB_CLEAR_ALL_EXCEPT_HDR(&ccb->csio);
 
 		/*
@@ -6825,15 +6918,12 @@ doreport:
 				cam_error_print(device, ccb, CAM_ESF_ALL,
 						CAM_EPF_ALL, stderr);
 			}
-			error = 1;
-			goto scsisanitize_bailout;
+			return (1);
 		}
 
 		status = ccb->ccb_h.status & CAM_STATUS_MASK;
-
-		if ((status != CAM_REQ_CMP)
-		 && (status == CAM_SCSI_STATUS_ERROR)
-		 && ((ccb->ccb_h.status & CAM_AUTOSNS_VALID) != 0)) {
+		if ((status == CAM_SCSI_STATUS_ERROR) &&
+		    ((ccb->ccb_h.status & CAM_AUTOSNS_VALID) != 0)) {
 			struct scsi_sense_data *sense;
 			int error_code, sense_key, asc, ascq;
 
@@ -6856,23 +6946,15 @@ doreport:
 				if ((scsi_get_sks(sense, ccb->csio.sense_len -
 				     ccb->csio.sense_resid, sks) == 0)
 				 && (quiet == 0)) {
-					int val;
-					u_int64_t percentage;
-
 					val = scsi_2btoul(&sks[1]);
-					percentage = 10000 * val;
-
+					perc = 10000 * val;
 					fprintf(stdout,
-						"\rSanitizing:  %ju.%02u %% "
-						"(%d/%d) done",
-						(uintmax_t)(percentage /
-						(0x10000 * 100)),
-						(unsigned)((percentage /
-						0x10000) % 100),
-						val, 0x10000);
+					    "Sanitizing: %u.%02u%% (%d/%d)\r",
+					    (perc / (0x10000 * 100)),
+					    ((perc / 0x10000) % 100),
+					    val, 0x10000);
 					fflush(stdout);
-				} else if ((quiet == 0)
-					&& (++num_warnings <= 1)) {
+				} else if ((quiet == 0) && (++warnings <= 1)) {
 					warnx("Unexpected SCSI Sense Key "
 					      "Specific value returned "
 					      "during sanitize:");
@@ -6889,24 +6971,387 @@ doreport:
 				warnx("Unexpected SCSI error during sanitize");
 				cam_error_print(device, ccb, CAM_ESF_ALL,
 						CAM_EPF_ALL, stderr);
-				error = 1;
-				goto scsisanitize_bailout;
+				return (1);
 			}
 
-		} else if (status != CAM_REQ_CMP) {
+		} else if (status != CAM_REQ_CMP && status != CAM_REQUEUE_REQ) {
 			warnx("Unexpected CAM status %#x", status);
 			if (arglist & CAM_ARG_VERBOSE)
 				cam_error_print(device, ccb, CAM_ESF_ALL,
 						CAM_EPF_ALL, stderr);
-			error = 1;
-			goto scsisanitize_bailout;
+			return (1);
 		}
-	} while((ccb->ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP);
+	} while ((ccb->ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP);
+	return (0);
+}
 
-	if (quiet == 0)
-		fprintf(stdout, "\nSanitize Complete\n");
+static int
+sanitize(struct cam_device *device, int argc, char **argv,
+	     char *combinedopt, int task_attr, int retry_count, int timeout)
+{
+	union ccb *ccb;
+	u_int8_t action = 0;
+	int c;
+	int ycount = 0, quiet = 0;
+	int error = 0;
+	int use_timeout;
+	int immediate = 1;
+	int invert = 0;
+	int passes = 0;
+	int ause = 0;
+	int fd = -1;
+	const char *pattern = NULL;
+	u_int8_t *data_ptr = NULL;
+	u_int32_t dxfer_len = 0;
+	uint8_t byte2;
+	uint16_t feature, count;
+	uint64_t lba;
+	int reportonly = 0;
+	camcontrol_devtype dt;
 
-scsisanitize_bailout:
+	/*
+	 * Get the device type, request no I/O be done to do this.
+	 */
+	error = get_device_type(device, -1, 0, 0, &dt);
+	if (error != 0 || (unsigned)dt > CC_DT_UNKNOWN) {
+		warnx("sanitize: can't get device type");
+		return (1);
+	}
+
+	ccb = cam_getccb(device);
+
+	if (ccb == NULL) {
+		warnx("sanitize: error allocating ccb");
+		return (1);
+	}
+
+	CCB_CLEAR_ALL_EXCEPT_HDR(&ccb->csio);
+
+	while ((c = getopt(argc, argv, combinedopt)) != -1) {
+		switch(c) {
+		case 'a':
+			if (strcasecmp(optarg, "overwrite") == 0)
+				action = SSZ_SERVICE_ACTION_OVERWRITE;
+			else if (strcasecmp(optarg, "block") == 0)
+				action = SSZ_SERVICE_ACTION_BLOCK_ERASE;
+			else if (strcasecmp(optarg, "crypto") == 0)
+				action = SSZ_SERVICE_ACTION_CRYPTO_ERASE;
+			else if (strcasecmp(optarg, "exitfailure") == 0)
+				action = SSZ_SERVICE_ACTION_EXIT_MODE_FAILURE;
+			else {
+				warnx("invalid service operation \"%s\"",
+				      optarg);
+				error = 1;
+				goto sanitize_bailout;
+			}
+			break;
+		case 'c':
+			passes = strtol(optarg, NULL, 0);
+			if (passes < 1 || passes > 31) {
+				warnx("invalid passes value %d", passes);
+				error = 1;
+				goto sanitize_bailout;
+			}
+			break;
+		case 'I':
+			invert = 1;
+			break;
+		case 'P':
+			pattern = optarg;
+			break;
+		case 'q':
+			quiet++;
+			break;
+		case 'U':
+			ause = 1;
+			break;
+		case 'r':
+			reportonly = 1;
+			break;
+		case 'w':
+			/* ATA supports only immediate commands. */
+			if (dt == CC_DT_SCSI)
+				immediate = 0;
+			break;
+		case 'y':
+			ycount++;
+			break;
+		}
+	}
+
+	if (reportonly)
+		goto doreport;
+
+	if (action == 0) {
+		warnx("an action is required");
+		error = 1;
+		goto sanitize_bailout;
+	} else if (action == SSZ_SERVICE_ACTION_OVERWRITE) {
+		struct scsi_sanitize_parameter_list *pl;
+		struct stat sb;
+		ssize_t sz, amt;
+
+		if (pattern == NULL) {
+			warnx("overwrite action requires -P argument");
+			error = 1;
+			goto sanitize_bailout;
+		}
+		fd = open(pattern, O_RDONLY);
+		if (fd < 0) {
+			warn("cannot open pattern file %s", pattern);
+			error = 1;
+			goto sanitize_bailout;
+		}
+		if (fstat(fd, &sb) < 0) {
+			warn("cannot stat pattern file %s", pattern);
+			error = 1;
+			goto sanitize_bailout;
+		}
+		sz = sb.st_size;
+		if (sz > SSZPL_MAX_PATTERN_LENGTH) {
+			warnx("pattern file size exceeds maximum value %d",
+			      SSZPL_MAX_PATTERN_LENGTH);
+			error = 1;
+			goto sanitize_bailout;
+		}
+		dxfer_len = sizeof(*pl) + sz;
+		data_ptr = calloc(1, dxfer_len);
+		if (data_ptr == NULL) {
+			warnx("cannot allocate parameter list buffer");
+			error = 1;
+			goto sanitize_bailout;
+		}
+
+		amt = read(fd, data_ptr + sizeof(*pl), sz);
+		if (amt < 0) {
+			warn("cannot read pattern file");
+			error = 1;
+			goto sanitize_bailout;
+		} else if (amt != sz) {
+			warnx("short pattern file read");
+			error = 1;
+			goto sanitize_bailout;
+		}
+
+		pl = (struct scsi_sanitize_parameter_list *)data_ptr;
+		if (passes == 0)
+			pl->byte1 = 1;
+		else
+			pl->byte1 = passes;
+		if (invert != 0)
+			pl->byte1 |= SSZPL_INVERT;
+		scsi_ulto2b(sz, pl->length);
+	} else {
+		const char *arg;
+
+		if (passes != 0)
+			arg = "-c";
+		else if (invert != 0)
+			arg = "-I";
+		else if (pattern != NULL)
+			arg = "-P";
+		else
+			arg = NULL;
+		if (arg != NULL) {
+			warnx("%s argument only valid with overwrite "
+			      "operation", arg);
+			error = 1;
+			goto sanitize_bailout;
+		}
+	}
+
+	if (quiet == 0) {
+		fprintf(stdout, "You are about to REMOVE ALL DATA from the "
+			"following device:\n");
+
+		if (dt == CC_DT_SCSI) {
+			error = scsidoinquiry(device, argc, argv, combinedopt,
+					      task_attr, retry_count, timeout);
+		} else if (dt == CC_DT_ATA || dt == CC_DT_SATL) {
+			struct ata_params *ident_buf;
+			error = ata_do_identify(device, retry_count, timeout,
+						ccb, &ident_buf);
+			if (error == 0) {
+				printf("%s%d: ", device->device_name,
+				    device->dev_unit_num);
+				ata_print_ident(ident_buf);
+				free(ident_buf);
+			}
+		} else
+			error = 1;
+
+		if (error != 0) {
+			warnx("sanitize: error sending inquiry");
+			goto sanitize_bailout;
+		}
+	}
+
+	if (ycount == 0) {
+		if (!get_confirmation()) {
+			error = 1;
+			goto sanitize_bailout;
+		}
+	}
+
+	if (timeout != 0)
+		use_timeout = timeout;
+	else
+		use_timeout = (immediate ? 10 : 10800) * 1000;
+
+	if (immediate == 0 && quiet == 0) {
+		fprintf(stdout, "Current sanitize timeout is %d seconds\n",
+			use_timeout / 1000);
+	}
+
+	/*
+	 * If the user hasn't disabled questions and didn't specify a
+	 * timeout on the command line, ask them if they want the current
+	 * timeout.
+	 */
+	if (immediate == 0 && ycount == 0 && timeout == 0) {
+		char str[1024];
+		int new_timeout = 0;
+
+		fprintf(stdout, "Enter new timeout in seconds or press\n"
+			"return to keep the current timeout [%d] ",
+			use_timeout / 1000);
+
+		if (fgets(str, sizeof(str), stdin) != NULL) {
+			if (str[0] != '\0')
+				new_timeout = atoi(str);
+		}
+
+		if (new_timeout != 0) {
+			use_timeout = new_timeout * 1000;
+			fprintf(stdout, "Using new timeout value %d\n",
+				use_timeout / 1000);
+		}
+	}
+
+	if (dt == CC_DT_SCSI) {
+		byte2 = action;
+		if (ause != 0)
+			byte2 |= SSZ_UNRESTRICTED_EXIT;
+		if (immediate != 0)
+			byte2 |= SSZ_IMMED;
+		scsi_sanitize(&ccb->csio,
+			      /* retries */ retry_count,
+			      /* cbfcnp */ NULL,
+			      /* tag_action */ task_attr,
+			      /* byte2 */ byte2,
+			      /* control */ 0,
+			      /* data_ptr */ data_ptr,
+			      /* dxfer_len */ dxfer_len,
+			      /* sense_len */ SSD_FULL_SIZE,
+			      /* timeout */ use_timeout);
+
+		ccb->ccb_h.flags |= CAM_DEV_QFRZDIS;
+		if (arglist & CAM_ARG_ERR_RECOVER)
+			ccb->ccb_h.flags |= CAM_PASS_ERR_RECOVER;
+		if (cam_send_ccb(device, ccb) < 0) {
+			warn("error sending sanitize command");
+			error = 1;
+			goto sanitize_bailout;
+		}
+	} else if (dt == CC_DT_ATA || dt == CC_DT_SATL) {
+		if (action == SSZ_SERVICE_ACTION_OVERWRITE) {
+			feature = 0x14; /* OVERWRITE EXT */
+			lba = 0x4F5700000000 | scsi_4btoul(data_ptr + 4);
+			count = (passes == 0) ? 1 : (passes >= 16) ? 0 : passes;
+			if (invert)
+				count |= 0x80; /* INVERT PATTERN */
+			if (ause)
+				count |= 0x10; /* FAILURE MODE */
+		} else if (action == SSZ_SERVICE_ACTION_BLOCK_ERASE) {
+			feature = 0x12; /* BLOCK ERASE EXT */
+			lba = 0x0000426B4572;
+			count = 0;
+			if (ause)
+				count |= 0x10; /* FAILURE MODE */
+		} else if (action == SSZ_SERVICE_ACTION_CRYPTO_ERASE) {
+			feature = 0x11; /* CRYPTO SCRAMBLE EXT */
+			lba = 0x000043727970;
+			count = 0;
+			if (ause)
+				count |= 0x10; /* FAILURE MODE */
+		} else if (action == SSZ_SERVICE_ACTION_EXIT_MODE_FAILURE) {
+			feature = 0x00; /* SANITIZE STATUS EXT */
+			lba = 0;
+			count = 1; /* CLEAR SANITIZE OPERATION FAILED */
+		} else {
+			error = 1;
+			goto sanitize_bailout;
+		}
+
+		error = ata_do_cmd(device,
+				   ccb,
+				   retry_count,
+				   /*flags*/CAM_DIR_NONE,
+				   /*protocol*/AP_PROTO_NON_DATA | AP_EXTEND,
+				   /*ata_flags*/AP_FLAG_CHK_COND,
+				   /*tag_action*/MSG_SIMPLE_Q_TAG,
+				   /*command*/ATA_SANITIZE,
+				   /*features*/feature,
+				   /*lba*/lba,
+				   /*sector_count*/count,
+				   /*data_ptr*/NULL,
+				   /*dxfer_len*/0,
+				   /*timeout*/ use_timeout,
+				   /*is48bit*/1);
+	}
+
+	if ((ccb->ccb_h.status & CAM_STATUS_MASK) != CAM_REQ_CMP) {
+		struct scsi_sense_data *sense;
+		int error_code, sense_key, asc, ascq;
+
+		if ((ccb->ccb_h.status & CAM_STATUS_MASK) ==
+		    CAM_SCSI_STATUS_ERROR) {
+			sense = &ccb->csio.sense_data;
+			scsi_extract_sense_len(sense, ccb->csio.sense_len -
+			    ccb->csio.sense_resid, &error_code, &sense_key,
+			    &asc, &ascq, /*show_errors*/ 1);
+
+			if (sense_key == SSD_KEY_ILLEGAL_REQUEST &&
+			    asc == 0x20 && ascq == 0x00)
+				warnx("sanitize is not supported by "
+				      "this device");
+			else
+				warnx("error sanitizing this device");
+		} else
+			warnx("error sanitizing this device");
+
+		if (arglist & CAM_ARG_VERBOSE) {
+			cam_error_print(device, ccb, CAM_ESF_ALL,
+					CAM_EPF_ALL, stderr);
+		}
+		error = 1;
+		goto sanitize_bailout;
+	}
+
+	/*
+	 * If we ran in non-immediate mode, we already checked for errors
+	 * above and printed out any necessary information.  If we're in
+	 * immediate mode, we need to loop through and get status
+	 * information periodically.
+	 */
+	if (immediate == 0) {
+		if (quiet == 0) {
+			fprintf(stdout, "Sanitize Complete\n");
+		}
+		goto sanitize_bailout;
+	}
+
+doreport:
+	if (dt == CC_DT_SCSI) {
+		error = sanitize_wait_scsi(device, ccb, task_attr, quiet);
+	} else if (dt == CC_DT_ATA || dt == CC_DT_SATL) {
+		error = sanitize_wait_ata(device, ccb, quiet);
+	} else
+		error = 1;
+	if (error == 0 && quiet == 0)
+		fprintf(stdout, "Sanitize Complete                      \n");
+
+sanitize_bailout:
 	if (fd >= 0)
 		close(fd);
 	if (data_ptr != NULL)
@@ -7163,7 +7608,7 @@ scsireadcapacity(struct cam_device *device, int argc, char **argv,
 		 char *combinedopt, int task_attr, int retry_count, int timeout)
 {
 	union ccb *ccb;
-	int blocksizeonly, humanize, numblocks, quiet, sizeonly, baseten;
+	int blocksizeonly, humanize, numblocks, quiet, sizeonly, baseten, longonly;
 	struct scsi_read_capacity_data rcap;
 	struct scsi_read_capacity_data_long rcaplong;
 	uint64_t maxsector;
@@ -7173,6 +7618,7 @@ scsireadcapacity(struct cam_device *device, int argc, char **argv,
 
 	blocksizeonly = 0;
 	humanize = 0;
+	longonly = 0;
 	numblocks = 0;
 	quiet = 0;
 	sizeonly = 0;
@@ -7200,6 +7646,9 @@ scsireadcapacity(struct cam_device *device, int argc, char **argv,
 		case 'H':
 			humanize++;
 			baseten++;
+			break;
+		case 'l':
+			longonly++;
 			break;
 		case 'N':
 			numblocks++;
@@ -7243,6 +7692,9 @@ scsireadcapacity(struct cam_device *device, int argc, char **argv,
 		goto bailout;
 	}
 
+	if (longonly != 0)
+		goto long_only;
+
 	scsi_read_capacity(&ccb->csio,
 			   /*retries*/ retry_count,
 			   /*cbfcnp*/ NULL,
@@ -7285,6 +7737,7 @@ scsireadcapacity(struct cam_device *device, int argc, char **argv,
 	if (maxsector != 0xffffffff)
 		goto do_print;
 
+long_only:
 	scsi_read_capacity_16(&ccb->csio,
 			      /*retries*/ retry_count,
 			      /*cbfcnp*/ NULL,
@@ -7781,6 +8234,7 @@ mmcsdcmd(struct cam_device *device, int argc, char **argv, char *combinedopt,
 		flags |= CAM_DIR_IN;
 		mmc_data = malloc(mmc_data_len);
 		memset(mmc_data, 0, mmc_data_len);
+		memset(&mmc_d, 0, sizeof(mmc_d));
 		mmc_d.len = mmc_data_len;
 		mmc_d.data = mmc_data;
 		mmc_d.flags = MMC_DATA_READ;
@@ -8877,6 +9331,61 @@ bailout:
 }
 
 static int
+atapm_proc_resp(struct cam_device *device, union ccb *ccb)
+{
+    struct ata_res *res;
+
+    res = &ccb->ataio.res;
+    if (res->status & ATA_STATUS_ERROR) {
+        if (arglist & CAM_ARG_VERBOSE) {
+            cam_error_print(device, ccb, CAM_ESF_ALL,
+                    CAM_EPF_ALL, stderr);
+            printf("error = 0x%02x, sector_count = 0x%04x, "
+                   "device = 0x%02x, status = 0x%02x\n",
+                   res->error, res->sector_count,
+                   res->device, res->status);
+        }
+
+        return (1);
+    }
+
+    if (arglist & CAM_ARG_VERBOSE) {
+        fprintf(stdout, "%s%d: Raw native check power data:\n",
+            device->device_name, device->dev_unit_num);
+        /* res is 4 byte aligned */
+        dump_data((uint16_t*)(uintptr_t)res, sizeof(struct ata_res));
+
+        printf("error = 0x%02x, sector_count = 0x%04x, device = 0x%02x, "
+               "status = 0x%02x\n", res->error, res->sector_count,
+               res->device, res->status);
+    }
+
+    printf("%s%d: ", device->device_name, device->dev_unit_num);
+    switch (res->sector_count) {
+    case 0x00:
+       printf("Standby mode\n");
+       break;
+    case 0x40:
+       printf("NV Cache Power Mode and the spindle is spun down or spinning down\n");
+       break;
+    case 0x41:
+       printf("NV Cache Power Mode and the spindle is spun up or spinning up\n");
+       break;
+    case 0x80:
+       printf("Idle mode\n");
+       break;
+    case 0xff:
+       printf("Active or Idle mode\n");
+       break;
+    default:
+       printf("Unknown mode 0x%02x\n", res->sector_count);
+       break;
+    }
+
+    return (0);
+}
+
+static int
 atapm(struct cam_device *device, int argc, char **argv,
 		 char *combinedopt, int retry_count, int timeout)
 {
@@ -8884,6 +9393,7 @@ atapm(struct cam_device *device, int argc, char **argv,
 	int retval = 0;
 	int t = -1;
 	int c;
+	u_int8_t ata_flags = 0;
 	u_char cmd, sc;
 
 	ccb = cam_getccb(device);
@@ -8912,6 +9422,10 @@ atapm(struct cam_device *device, int argc, char **argv,
 			cmd = ATA_STANDBY_IMMEDIATE;
 		else
 			cmd = ATA_STANDBY_CMD;
+	} else if (strcmp(argv[1], "powermode") == 0) {
+		cmd = ATA_CHECK_POWER_MODE;
+		ata_flags = AP_FLAG_CHK_COND;
+		t = -1;
 	} else {
 		cmd = ATA_SLEEP;
 		t = -1;
@@ -8929,11 +9443,12 @@ atapm(struct cam_device *device, int argc, char **argv,
 	else
 		sc = 253;
 
-	retval = ata_do_28bit_cmd(device,
+	retval = ata_do_cmd(device,
 	    ccb,
 	    /*retries*/retry_count,
 	    /*flags*/CAM_DIR_NONE,
 	    /*protocol*/AP_PROTO_NON_DATA,
+	    /*ata_flags*/ata_flags,
 	    /*tag_action*/MSG_SIMPLE_Q_TAG,
 	    /*command*/cmd,
 	    /*features*/0,
@@ -8945,7 +9460,11 @@ atapm(struct cam_device *device, int argc, char **argv,
 	    /*quiet*/1);
 
 	cam_freeccb(ccb);
-	return (retval);
+
+	if (retval || cmd != ATA_CHECK_POWER_MODE)
+		return (retval);
+
+	return (atapm_proc_resp(device, ccb));
 }
 
 static int
@@ -9465,10 +9984,9 @@ bailout:
 	return (retval);
 }
 
-#endif /* MINIMALISTIC */
 
 static int
-scsireprobe(struct cam_device *device)
+reprobe(struct cam_device *device)
 {
 	union ccb *ccb;
 	int retval = 0;
@@ -9480,7 +9998,7 @@ scsireprobe(struct cam_device *device)
 		return (1);
 	}
 
-	CCB_CLEAR_ALL_EXCEPT_HDR(&ccb->csio);
+	CCB_CLEAR_ALL_EXCEPT_HDR(ccb);
 
 	ccb->ccb_h.func_code = XPT_REPROBE_LUN;
 
@@ -9509,23 +10027,20 @@ usage(int printlong)
 	fprintf(printlong ? stdout : stderr,
 "usage:  camcontrol <command>  [device id][generic args][command args]\n"
 "        camcontrol devlist    [-b] [-v]\n"
-#ifndef MINIMALISTIC
 "        camcontrol periphlist [dev_id][-n dev_name] [-u unit]\n"
 "        camcontrol tur        [dev_id][generic args]\n"
 "        camcontrol inquiry    [dev_id][generic args] [-D] [-S] [-R]\n"
 "        camcontrol identify   [dev_id][generic args] [-v]\n"
 "        camcontrol reportluns [dev_id][generic args] [-c] [-l] [-r report]\n"
 "        camcontrol readcap    [dev_id][generic args] [-b] [-h] [-H] [-N]\n"
-"                              [-q] [-s]\n"
+"                              [-q] [-s] [-l]\n"
 "        camcontrol start      [dev_id][generic args]\n"
 "        camcontrol stop       [dev_id][generic args]\n"
 "        camcontrol load       [dev_id][generic args]\n"
 "        camcontrol eject      [dev_id][generic args]\n"
 "        camcontrol reprobe    [dev_id][generic args]\n"
-#endif /* MINIMALISTIC */
 "        camcontrol rescan     <all | bus[:target:lun] | dev_id>\n"
 "        camcontrol reset      <all | bus[:target:lun] | dev_id>\n"
-#ifndef MINIMALISTIC
 "        camcontrol defects    [dev_id][generic args] <-f format> [-P][-G]\n"
 "                              [-q][-s][-S offset][-X]\n"
 "        camcontrol modepage   [dev_id][generic args] <-m page | -l>\n"
@@ -9544,7 +10059,7 @@ usage(int printlong)
 "        camcontrol smpphylist [dev_id][generic args][-l][-q]\n"
 "        camcontrol smpmaninfo [dev_id][generic args][-l]\n"
 "        camcontrol debug      [-I][-P][-T][-S][-X][-c]\n"
-"                              <all|bus[:target[:lun]]|off>\n"
+"                              <all|dev_id|bus[:target[:lun]]|off>\n"
 "        camcontrol tags       [dev_id][generic args] [-N tags] [-q] [-v]\n"
 "        camcontrol negotiate  [dev_id][generic args] [-a][-c]\n"
 "                              [-D <enable|disable>][-M mode][-O offset]\n"
@@ -9558,6 +10073,7 @@ usage(int printlong)
 "        camcontrol idle       [dev_id][generic args][-t time]\n"
 "        camcontrol standby    [dev_id][generic args][-t time]\n"
 "        camcontrol sleep      [dev_id][generic args]\n"
+"        camcontrol powermode  [dev_id][generic args]\n"
 "        camcontrol apm        [dev_id][generic args][-l level]\n"
 "        camcontrol aam        [dev_id][generic args][-l level]\n"
 "        camcontrol fwdownload [dev_id][generic args] <-f fw_image> [-q]\n"
@@ -9568,6 +10084,7 @@ usage(int printlong)
 "                              [-U <user|master>] [-y]\n"
 "        camcontrol hpa        [dev_id][generic args] [-f] [-l] [-P] [-p pwd]\n"
 "                              [-q] [-s max_sectors] [-U pwd] [-y]\n"
+"        camcontrol ama        [dev_id][generic args] [-f] [-q] [-s max_sectors]\n"
 "        camcontrol persist    [dev_id][generic args] <-i action|-o action>\n"
 "                              [-a][-I tid][-k key][-K sa_key][-p][-R rtp]\n"
 "                              [-s scope][-S][-T type][-U]\n"
@@ -9583,12 +10100,11 @@ usage(int printlong)
 "                              [-S power_src] [-T timer]\n"
 "        camcontrol timestamp  [dev_id][generic_args] <-r [-f format|-m|-U]>|\n"
 "                              <-s <-f format -T time | -U >>\n"
+"        camcontrol devtype    [dev_id]\n"
 "                              \n"
-#endif /* MINIMALISTIC */
 "        camcontrol help\n");
 	if (!printlong)
 		return;
-#ifndef MINIMALISTIC
 	fprintf(stdout,
 "Specify one of the following options:\n"
 "devlist     list all CAM devices\n"
@@ -9621,6 +10137,7 @@ usage(int printlong)
 "idle        send the ATA IDLE command to the named device\n"
 "standby     send the ATA STANDBY command to the named device\n"
 "sleep       send the ATA SLEEP command to the named device\n"
+"powermode   send the ATA CHECK POWER MODE command to the named device\n"
 "fwdownload  program firmware of the named device with the given image\n"
 "security    report or send ATA security commands to the named device\n"
 "persist     send the SCSI PERSISTENT RESERVE IN or OUT commands\n"
@@ -9629,6 +10146,7 @@ usage(int printlong)
 "zone        manage Zoned Block (Shingled) devices\n"
 "epc         send ATA Extended Power Conditions commands\n"
 "timestamp   report or set the device's timestamp\n"
+"devtype     report the type of device\n"
 "help        this message\n"
 "Device Identifiers:\n"
 "bus:target        specify the bus and target, lun defaults to 0\n"
@@ -9765,6 +10283,11 @@ usage(int printlong)
 "                  device\n"
 "-U pwd            unlock the HPA configuration of the device\n"
 "-y                don't ask any questions\n"
+"ama arguments:\n"
+"-f                freeze the AMA configuration of the device\n"
+"-q                be quiet, do not print any status messages\n"
+"-s sectors        configures the maximum user accessible sectors of the\n"
+"                  device\n"
 "persist arguments:\n"
 "-i action         specify read_keys, read_reservation, report_cap, or\n"
 "                  read_full_status\n"
@@ -9833,7 +10356,6 @@ usage(int printlong)
 "-T time           the time value passed into strptime(3)\n"
 "-U                set the timestamp of the device to UTC time\n"
 );
-#endif /* MINIMALISTIC */
 }
 
 int
@@ -9852,11 +10374,9 @@ main(int argc, char **argv)
 	int error = 0, optstart = 2;
 	int task_attr = MSG_SIMPLE_Q_TAG;
 	int devopen = 1;
-#ifndef MINIMALISTIC
 	path_id_t bus;
 	target_id_t target;
 	lun_id_t lun;
-#endif /* MINIMALISTIC */
 
 	cmdlist = CAM_CMD_NONE;
 	arglist = CAM_ARG_NONE;
@@ -9944,7 +10464,6 @@ main(int argc, char **argv)
 	 || (cmdlist == CAM_CMD_DEBUG))
 		devopen = 0;
 
-#ifndef MINIMALISTIC
 	if ((devopen == 1)
 	 && (argc > 2 && argv[2][0] != '-')) {
 		char name[30];
@@ -9972,7 +10491,6 @@ main(int argc, char **argv)
 			optstart++;
 		}
 	}
-#endif /* MINIMALISTIC */
 	/*
 	 * Start getopt processing at argv[2/3], since we've already
 	 * accepted argv[1..2] as the command name, and as a possible
@@ -10058,7 +10576,6 @@ main(int argc, char **argv)
 		}
 	}
 
-#ifndef MINIMALISTIC
 	/*
 	 * For most commands we'll want to open the passthrough device
 	 * associated with the specified device.  In the case of the rescan
@@ -10079,7 +10596,6 @@ main(int argc, char **argv)
 		     == NULL)
 			errx(1,"%s", cam_errbuf);
 	}
-#endif /* MINIMALISTIC */
 
 	/*
 	 * Reset optind to 2, and reset getopt, so these routines can parse
@@ -10089,7 +10605,6 @@ main(int argc, char **argv)
 	optreset = 1;
 
 	switch(cmdlist) {
-#ifndef MINIMALISTIC
 	case CAM_CMD_DEVLIST:
 		error = getdevlist(cam_dev);
 		break;
@@ -10097,11 +10612,16 @@ main(int argc, char **argv)
 		error = atahpa(cam_dev, retry_count, timeout,
 			       argc, argv, combinedopt);
 		break;
-#endif /* MINIMALISTIC */
+	case CAM_CMD_AMA:
+		error = ataama(cam_dev, retry_count, timeout,
+			       argc, argv, combinedopt);
+		break;
 	case CAM_CMD_DEVTREE:
 		error = getdevtree(argc, argv, combinedopt);
 		break;
-#ifndef MINIMALISTIC
+	case CAM_CMD_DEVTYPE:
+		error = getdevtype(cam_dev);
+		break;
 	case CAM_CMD_TUR:
 		error = testunitready(cam_dev, task_attr, retry_count,
 		    timeout, 0);
@@ -10118,14 +10638,12 @@ main(int argc, char **argv)
 				  arglist & CAM_ARG_EJECT, task_attr,
 				  retry_count, timeout);
 		break;
-#endif /* MINIMALISTIC */
 	case CAM_CMD_RESCAN:
 		error = dorescan_or_reset(argc, argv, 1);
 		break;
 	case CAM_CMD_RESET:
 		error = dorescan_or_reset(argc, argv, 0);
 		break;
-#ifndef MINIMALISTIC
 	case CAM_CMD_READ_DEFECTS:
 		error = readdefects(cam_dev, argc, argv, combinedopt,
 				    task_attr, retry_count, timeout);
@@ -10191,6 +10709,7 @@ main(int argc, char **argv)
 	case CAM_CMD_IDLE:
 	case CAM_CMD_STANDBY:
 	case CAM_CMD_SLEEP:
+	case CAM_CMD_POWER_MODE:
 		error = atapm(cam_dev, argc, argv,
 			      combinedopt, retry_count, timeout);
 		break;
@@ -10209,9 +10728,8 @@ main(int argc, char **argv)
 		    timeout);
 		break;
 	case CAM_CMD_SANITIZE:
-		error = scsisanitize(cam_dev, argc, argv,
-				     combinedopt, task_attr,
-				     retry_count, timeout);
+		error = sanitize(cam_dev, argc, argv, combinedopt, task_attr,
+				 retry_count, timeout);
 		break;
 	case CAM_CMD_PERSIST:
 		error = scsipersist(cam_dev, argc, argv, combinedopt,
@@ -10231,7 +10749,7 @@ main(int argc, char **argv)
 		    arglist & CAM_ARG_VERBOSE);
 		break;
 	case CAM_CMD_REPROBE:
-		error = scsireprobe(cam_dev);
+		error = reprobe(cam_dev);
 		break;
 	case CAM_CMD_ZONE:
 		error = zone(cam_dev, argc, argv, combinedopt,
@@ -10247,7 +10765,6 @@ main(int argc, char **argv)
 		    task_attr, retry_count, timeout,
 		    arglist & CAM_ARG_VERBOSE);
 		break;
-#endif /* MINIMALISTIC */
 	case CAM_CMD_USAGE:
 		usage(1);
 		break;

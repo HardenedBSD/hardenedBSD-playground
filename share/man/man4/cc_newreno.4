@@ -30,7 +30,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd March 19, 2018
+.Dd August 6, 2019
 .Dt CC_NEWRENO 4
 .Os
 .Sh NAME
@@ -75,6 +75,7 @@ the congestion window in response to an ECN congestion signal when
 .Va net.inet.tcp.cc.abe=1
 per: cwnd = (cwnd * CC_NEWRENO_BETA_ECN) / 100.
 Default is 80.
+.El
 .Sh MIB Variables
 The algorithm exposes these variables in the
 .Va net.inet.tcp.cc.newreno
@@ -93,6 +94,7 @@ the congestion window in response to an ECN congestion signal when
 .Va net.inet.tcp.cc.abe=1
 per: cwnd = (cwnd * beta_ecn) / 100.
 Default is 80.
+.El
 .Sh SEE ALSO
 .Xr cc_chd 4 ,
 .Xr cc_cubic 4 ,
@@ -115,10 +117,7 @@ Default is 80.
 .%A "Grenville Armitage"
 .%A "Gorry Fairhurst"
 .%T "TCP Alternative Backoff with ECN (ABE)"
-.%R "internet draft"
-.%D "February 2018"
-.%N "draft-ietf-tcpm-alternativebackoff-ecn"
-.%O "work in progress"
+.%O "RFC 8511"
 .Re
 .Sh ACKNOWLEDGEMENTS
 Development and testing of this software were made possible in part by grants

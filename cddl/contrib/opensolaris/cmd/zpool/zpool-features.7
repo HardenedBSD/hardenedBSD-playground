@@ -23,7 +23,7 @@
 .\"
 .\" $FreeBSD$
 .\"
-.Dd June 7, 2017
+.Dd August 16, 2019
 .Dt ZPOOL-FEATURES 7
 .Os
 .Sh NAME
@@ -284,7 +284,7 @@ configuration.
 .It DEPENDENCIES Ta none
 .El
 .Pp
-This features allows ZFS to maintain more information about how free space
+This feature allows ZFS to maintain more information about how free space
 is organized within the pool.
 If this feature is
 .Sy enabled ,
@@ -531,7 +531,7 @@ boot loader.
 .Bl -column "READ\-ONLY COMPATIBLE" "org.illumos:sha512"
 .It GUID Ta org.illumos:sha512
 .It READ\-ONLY COMPATIBLE Ta no
-.It DEPENDENCIES Ta none
+.It DEPENDENCIES Ta extensible_dataset
 .El
 .Pp
 The
@@ -570,7 +570,7 @@ are destroyed.
 .Bl -column "READ\-ONLY COMPATIBLE" "org.illumos:skein"
 .It GUID Ta org.illumos:skein
 .It READ\-ONLY COMPATIBLE Ta no
-.It DEPENDENCIES Ta none
+.It DEPENDENCIES Ta extensible_dataset
 .El
 .Pp
 The

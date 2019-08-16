@@ -494,6 +494,7 @@ struct crypt_data {
 int	 acct(const char *);
 int	 async_daemon(void);
 int	 check_utility_compat(const char *);
+ssize_t	 copy_file_range(int, off_t *, int, off_t *, size_t, unsigned int);
 const char *
 	 crypt_get_format(void);
 char	*crypt_r(const char *, const char *, struct crypt_data *);
@@ -585,6 +586,7 @@ off_t	 __syscall(quad_t, ...);
 int	 undelete(const char *);
 int	 unwhiteout(const char *);
 void	*valloc(size_t);			/* obsoleted by malloc() */
+int	 funlinkat(int, const char *, int, int);
 
 #ifndef _OPTRESET_DECLARED
 #define	_OPTRESET_DECLARED

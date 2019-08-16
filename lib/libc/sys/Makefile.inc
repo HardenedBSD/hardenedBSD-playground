@@ -175,6 +175,7 @@ MAN+=	abort2.2 \
 	closefrom.2 \
 	connect.2 \
 	connectat.2 \
+	copy_file_range.2 \
 	cpuset.2 \
 	cpuset_getaffinity.2 \
 	cpuset_getdomain.2 \
@@ -394,6 +395,7 @@ MLINKS+=extattr_get_file.2 extattr.2 \
 MLINKS+=ffclock.2 ffclock_getcounter.2 \
 	ffclock.2 ffclock_getestimate.2 \
 	ffclock.2 ffclock_setestimate.2
+MLINKS+=fhlink.2 fhlinkat.2
 MLINKS+=fhopen.2 fhstat.2 fhopen.2 fhstatfs.2
 MLINKS+=fsync.2 fdatasync.2
 MLINKS+=getdirentries.2 getdents.2
@@ -485,6 +487,7 @@ MLINKS+=timer_settime.2 timer_getoverrun.2 \
 MLINKS+=thr_kill.2 thr_kill2.2
 MLINKS+=truncate.2 ftruncate.2
 MLINKS+=unlink.2 unlinkat.2
+MLINKS+=unlink.2 funlinkat.2
 MLINKS+=utimensat.2 futimens.2
 MLINKS+=utimes.2 futimes.2 \
 	utimes.2 futimesat.2 \

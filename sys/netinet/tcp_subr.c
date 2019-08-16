@@ -195,6 +195,11 @@ SYSCTL_INT(_net_inet_tcp, TCPCTL_DO_RFC1323, rfc1323, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_do_rfc1323), 0,
     "Enable rfc1323 (high performance TCP) extensions");
 
+VNET_DEFINE(int, tcp_ts_offset_per_conn) = 1;
+SYSCTL_INT(_net_inet_tcp, OID_AUTO, ts_offset_per_conn, CTLFLAG_VNET | CTLFLAG_RW,
+    &VNET_NAME(tcp_ts_offset_per_conn), 0,
+    "Initialize TCP timestamps per connection instead of per host pair");
+
 static int	tcp_log_debug = 0;
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, log_debug, CTLFLAG_RW,
     &tcp_log_debug, 0, "Log errors caused by incoming TCP segments");
@@ -257,20 +262,9 @@ static struct tcp_function_block tcp_def_funcblk = {
 	.tfb_tcp_fb_fini = tcp_default_fb_fini,
 };
 
-int t_functions_inited = 0;
 static int tcp_fb_cnt = 0;
 struct tcp_funchead t_functions;
 static struct tcp_function_block *tcp_func_set_ptr = &tcp_def_funcblk;
-
-static void
-init_tcp_functions(void)
-{
-	if (t_functions_inited == 0) {
-		TAILQ_INIT(&t_functions);
-		rw_init_flags(&tcp_function_lock, "tcp_func_lock" , 0);
-		t_functions_inited = 1;
-	}
-}
 
 static struct tcp_function_block *
 find_tcp_functions_locked(struct tcp_function_set *fs)
@@ -559,13 +553,10 @@ sysctl_net_inet_list_func_info(SYSCTL_HANDLER_ARGS)
 			bzero(&tfi, sizeof(tfi));
 			tfi.tfi_refcnt = f->tf_fb->tfb_refcnt;
 			tfi.tfi_id = f->tf_fb->tfb_id;
-			(void)strncpy(tfi.tfi_alias, f->tf_name,
-			    TCP_FUNCTION_NAME_LEN_MAX);
-			tfi.tfi_alias[TCP_FUNCTION_NAME_LEN_MAX - 1] = '\0';
-			(void)strncpy(tfi.tfi_name,
-			    f->tf_fb->tfb_tcp_block_name,
-			    TCP_FUNCTION_NAME_LEN_MAX);
-			tfi.tfi_name[TCP_FUNCTION_NAME_LEN_MAX - 1] = '\0';
+			(void)strlcpy(tfi.tfi_alias, f->tf_name,
+			    sizeof(tfi.tfi_alias));
+			(void)strlcpy(tfi.tfi_name,
+			    f->tf_fb->tfb_tcp_block_name, sizeof(tfi.tfi_name));
 			error = SYSCTL_OUT(req, &tfi, sizeof(tfi));
 			/*
 			 * Don't stop on error, as that is the
@@ -781,10 +772,9 @@ register_tcp_functions_as_names(struct tcp_function_block *blk, int wait,
 	KASSERT(names != NULL && *num_names > 0,
 	    ("%s: Called with 0-length name list", __func__));
 	KASSERT(names != NULL, ("%s: Called with NULL name list", __func__));
+	KASSERT(rw_initialized(&tcp_function_lock),
+	    ("%s: called too early", __func__));
 
-	if (t_functions_inited == 0) {
-		init_tcp_functions();
-	}
 	if ((blk->tfb_tcp_output == NULL) ||
 	    (blk->tfb_tcp_do_segment == NULL) ||
 	    (blk->tfb_tcp_ctloutput == NULL) ||
@@ -813,8 +803,12 @@ register_tcp_functions_as_names(struct tcp_function_block *blk, int wait,
 		}
 	}
 
+	if (blk->tfb_flags & TCP_FUNC_BEING_REMOVED) {
+		*num_names = 0;
+		return (EINVAL);
+	}
+
 	refcount_init(&blk->tfb_refcnt, 0);
-	blk->tfb_flags = 0;
 	blk->tfb_id = atomic_fetchadd_int(&next_tcp_stack_id, 1);
 	for (i = 0; i < *num_names; i++) {
 		n = malloc(sizeof(struct tcp_function), M_TCPFUNCTIONS, wait);
@@ -824,9 +818,8 @@ register_tcp_functions_as_names(struct tcp_function_block *blk, int wait,
 		}
 		n->tf_fb = blk;
 
-		(void)strncpy(fs.function_set_name, names[i],
-		    TCP_FUNCTION_NAME_LEN_MAX);
-		fs.function_set_name[TCP_FUNCTION_NAME_LEN_MAX - 1] = '\0';
+		(void)strlcpy(fs.function_set_name, names[i],
+		    sizeof(fs.function_set_name));
 		rw_wlock(&tcp_function_lock);
 		if (find_tcp_functions_locked(&fs) != NULL) {
 			/* Duplicate name space not allowed */
@@ -835,8 +828,7 @@ register_tcp_functions_as_names(struct tcp_function_block *blk, int wait,
 			error = EALREADY;
 			goto cleanup;
 		}
-		(void)strncpy(n->tf_name, names[i], TCP_FUNCTION_NAME_LEN_MAX);
-		n->tf_name[TCP_FUNCTION_NAME_LEN_MAX - 1] = '\0';
+		(void)strlcpy(n->tf_name, names[i], sizeof(n->tf_name));
 		TAILQ_INSERT_TAIL(&t_functions, n, tf_next);
 		tcp_fb_cnt++;
 		rw_wunlock(&tcp_function_lock);
@@ -923,8 +915,8 @@ deregister_tcp_functions(struct tcp_function_block *blk, bool quiesce,
     bool force)
 {
 	struct tcp_function *f;
-	
-	if (strcmp(blk->tfb_tcp_block_name, "default") == 0) {
+
+	if (blk == &tcp_def_funcblk) {
 		/* You can't un-register the default */
 		return (EPERM);
 	}
@@ -1082,6 +1074,9 @@ tcp_init(void)
 	tcp_keepintvl = TCPTV_KEEPINTVL;
 	tcp_maxpersistidle = TCPTV_KEEP_IDLE;
 	tcp_msl = TCPTV_MSL;
+	tcp_rexmit_initial = TCPTV_RTOBASE;
+	if (tcp_rexmit_initial < 1)
+		tcp_rexmit_initial = 1;
 	tcp_rexmit_min = TCPTV_MIN;
 	if (tcp_rexmit_min < 1)
 		tcp_rexmit_min = 1;
@@ -1090,8 +1085,10 @@ tcp_init(void)
 	tcp_rexmit_slop = TCPTV_CPU_VAR;
 	tcp_finwait2_timeout = TCPTV_FINWAIT2_TIMEOUT;
 	tcp_tcbhashsize = hashsize;
+
 	/* Setup the tcp function block list */
-	init_tcp_functions();
+	TAILQ_INIT(&t_functions);
+	rw_init(&tcp_function_lock, "tcp_func_lock");
 	register_tcp_functions(&tcp_def_funcblk, M_WAITOK);
 #ifdef TCP_BLACKBOX
 	/* Initialize the TCP logging data. */
@@ -1660,9 +1657,9 @@ tcp_newtcpcb(struct inpcb *inp)
 	 * reasonable initial retransmit time.
 	 */
 	tp->t_srtt = TCPTV_SRTTBASE;
-	tp->t_rttvar = ((TCPTV_RTOBASE - TCPTV_SRTTBASE) << TCP_RTTVAR_SHIFT) / 4;
+	tp->t_rttvar = ((tcp_rexmit_initial - TCPTV_SRTTBASE) << TCP_RTTVAR_SHIFT) / 4;
 	tp->t_rttmin = tcp_rexmit_min;
-	tp->t_rxtcur = TCPTV_RTOBASE;
+	tp->t_rxtcur = tcp_rexmit_initial;
 	tp->snd_cwnd = TCP_MAXWIN << TCP_MAX_WINSHIFT;
 	tp->snd_ssthresh = TCP_MAXWIN << TCP_MAX_WINSHIFT;
 	tp->t_rcvtime = ticks;
@@ -2642,7 +2639,17 @@ tcp_keyed_hash(struct in_conninfo *inc, u_char *key, u_int len)
 uint32_t
 tcp_new_ts_offset(struct in_conninfo *inc)
 {
-	return (tcp_keyed_hash(inc, V_ts_offset_secret,
+	struct in_conninfo inc_store, *local_inc;
+
+	if (!V_tcp_ts_offset_per_conn) {
+		memcpy(&inc_store, inc, sizeof(struct in_conninfo));
+		inc_store.inc_lport = 0;
+		inc_store.inc_fport = 0;
+		local_inc = &inc_store;
+	} else {
+		local_inc = inc;
+	}
+	return (tcp_keyed_hash(local_inc, V_ts_offset_secret,
 	    sizeof(V_ts_offset_secret)));
 }
 

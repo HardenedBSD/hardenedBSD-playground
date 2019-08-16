@@ -75,6 +75,10 @@ using namespace llvm;
 
 using MBBVector = SmallVector<MachineBasicBlock *, 4>;
 
+STATISTIC(NumLeafFuncWithSpills, "Number of leaf functions with CSRs");
+STATISTIC(NumFuncSeen, "Number of functions seen in PEI");
+
+
 namespace {
 
 class PEI : public MachineFunctionPass {
@@ -168,6 +172,7 @@ using StackObjSet = SmallSetVector<int, 8>;
 /// runOnMachineFunction - Insert prolog/epilog code and replace abstract
 /// frame indexes with appropriate references.
 bool PEI::runOnMachineFunction(MachineFunction &MF) {
+  NumFuncSeen++;
   const Function &F = MF.getFunction();
   const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
@@ -357,6 +362,11 @@ static void assignCalleeSavedSpillSlots(MachineFunction &F,
     // Now that we know which registers need to be saved and restored, allocate
     // stack slots for them.
     for (auto &CS : CSI) {
+      // If the target has spilled this register to another register, we don't
+      // need to allocate a stack slot.
+      if (CS.isSpilledToReg())
+        continue;
+
       unsigned Reg = CS.getReg();
       const TargetRegisterClass *RC = RegInfo->getMinimalPhysRegClass(Reg);
 
@@ -454,7 +464,22 @@ static void updateLiveness(MachineFunction &MF) {
       if (!MRI.isReserved(Reg) && !MBB->isLiveIn(Reg))
         MBB->addLiveIn(Reg);
     }
+    // If callee-saved register is spilled to another register rather than
+    // spilling to stack, the destination register has to be marked as live for
+    // each MBB between the prologue and epilogue so that it is not clobbered
+    // before it is reloaded in the epilogue. The Visited set contains all
+    // blocks outside of the region delimited by prologue/epilogue.
+    if (CSI[i].isSpilledToReg()) {
+      for (MachineBasicBlock &MBB : MF) {
+        if (Visited.count(&MBB))
+          continue;
+        MCPhysReg DstReg = CSI[i].getDstReg();
+        if (!MBB.isLiveIn(DstReg))
+          MBB.addLiveIn(DstReg);
+      }
+    }
   }
+
 }
 
 /// Insert restore code for the callee-saved registers used in the function.
@@ -530,6 +555,9 @@ void PEI::spillCalleeSavedRegs(MachineFunction &MF) {
 
     std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
     if (!CSI.empty()) {
+      if (!MFI.hasCalls())
+        NumLeafFuncWithSpills++;
+
       for (MachineBasicBlock *SaveBlock : SaveBlocks) {
         insertCSRSaves(*SaveBlock, CSI);
         // Update the live-in information of all the blocks up to the save
@@ -817,18 +845,26 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &MF) {
   // Make sure that the stack protector comes before the local variables on the
   // stack.
   SmallSet<int, 16> ProtectedObjs;
-  if (MFI.getStackProtectorIndex() >= 0) {
+  if (MFI.hasStackProtectorIndex()) {
+    int StackProtectorFI = MFI.getStackProtectorIndex();
     StackObjSet LargeArrayObjs;
     StackObjSet SmallArrayObjs;
     StackObjSet AddrOfObjs;
 
-    AdjustStackOffset(MFI, MFI.getStackProtectorIndex(), StackGrowsDown,
-                      Offset, MaxAlign, Skew);
+    // If we need a stack protector, we need to make sure that
+    // LocalStackSlotPass didn't already allocate a slot for it.
+    // If we are told to use the LocalStackAllocationBlock, the stack protector
+    // is expected to be already pre-allocated.
+    if (!MFI.getUseLocalStackAllocationBlock())
+      AdjustStackOffset(MFI, StackProtectorFI, StackGrowsDown, Offset, MaxAlign,
+                        Skew);
+    else if (!MFI.isObjectPreAllocated(MFI.getStackProtectorIndex()))
+      llvm_unreachable(
+          "Stack protector not pre-allocated by LocalStackSlotPass.");
 
     // Assign large stack objects first.
     for (unsigned i = 0, e = MFI.getObjectIndexEnd(); i != e; ++i) {
-      if (MFI.isObjectPreAllocated(i) &&
-          MFI.getUseLocalStackAllocationBlock())
+      if (MFI.isObjectPreAllocated(i) && MFI.getUseLocalStackAllocationBlock())
         continue;
       if (i >= MinCSFrameIndex && i <= MaxCSFrameIndex)
         continue;
@@ -836,8 +872,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &MF) {
         continue;
       if (MFI.isDeadObjectIndex(i))
         continue;
-      if (MFI.getStackProtectorIndex() == (int)i ||
-          EHRegNodeFrameIndex == (int)i)
+      if (StackProtectorFI == (int)i || EHRegNodeFrameIndex == (int)i)
         continue;
 
       switch (MFI.getObjectSSPLayout(i)) {
@@ -855,6 +890,15 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &MF) {
       }
       llvm_unreachable("Unexpected SSPLayoutKind.");
     }
+
+    // We expect **all** the protected stack objects to be pre-allocated by
+    // LocalStackSlotPass. If it turns out that PEI still has to allocate some
+    // of them, we may end up messing up the expected order of the objects.
+    if (MFI.getUseLocalStackAllocationBlock() &&
+        !(LargeArrayObjs.empty() && SmallArrayObjs.empty() &&
+          AddrOfObjs.empty()))
+      llvm_unreachable("Found protected stack objects not pre-allocated by "
+                       "LocalStackSlotPass.");
 
     AssignProtectedObjSet(LargeArrayObjs, ProtectedObjs, MFI, StackGrowsDown,
                           Offset, MaxAlign, Skew);
@@ -877,8 +921,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &MF) {
       continue;
     if (MFI.isDeadObjectIndex(i))
       continue;
-    if (MFI.getStackProtectorIndex() == (int)i ||
-        EHRegNodeFrameIndex == (int)i)
+    if (MFI.getStackProtectorIndex() == (int)i || EHRegNodeFrameIndex == (int)i)
       continue;
     if (ProtectedObjs.count(i))
       continue;
@@ -1090,7 +1133,7 @@ void PEI::replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &MF,
         MachineOperand &Offset = MI.getOperand(i + 1);
         int refOffset = TFI->getFrameIndexReferencePreferSP(
             MF, MI.getOperand(i).getIndex(), Reg, /*IgnoreSPUpdates*/ false);
-        Offset.setImm(Offset.getImm() + refOffset);
+        Offset.setImm(Offset.getImm() + refOffset + SPAdj);
         MI.getOperand(i).ChangeToRegister(Reg, false /*isDef*/);
         continue;
       }

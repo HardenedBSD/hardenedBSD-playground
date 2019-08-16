@@ -56,6 +56,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/sysproto.h>
+#include <sys/elf.h>
 #include <sys/filedesc.h>
 #include <sys/pax.h>
 #include <sys/priv.h>
@@ -76,6 +77,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/syscallsubr.h>
 #include <sys/sysent.h>
 #include <sys/vmmeter.h>
+#if defined(__amd64__) || defined(__i386__) /* for i386_read_exec */
+#include <machine/md_var.h>
+#endif
 
 #include <security/audit/audit.h>
 #include <security/mac/mac_framework.h>
@@ -103,6 +107,9 @@ static int mincore_mapped = 1;
 SYSCTL_INT(_vm, OID_AUTO, mincore_mapped,
     CTLFLAG_RWTUN | CTLFLAG_SECURE, &mincore_mapped, 0,
     "mincore reports mappings, not residency");
+static int imply_prot_max = 0;
+SYSCTL_INT(_vm, OID_AUTO, imply_prot_max, CTLFLAG_RWTUN, &imply_prot_max, 0,
+    "Imply maximum page permissions in mmap() when none are specified");
 
 #ifdef MAP_32BIT
 #define	MAP_32BIT_MAX_ADDR	((vm_offset_t)1 << 31)
@@ -179,14 +186,28 @@ sys_mmap(struct thread *td, struct mmap_args *uap)
 }
 
 int
-kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
+kern_mmap_maxprot(struct proc *p, int prot)
+{
+
+	if ((p->p_flag2 & P2_PROTMAX_DISABLE) != 0 ||
+	    (p->p_fctl0 & NT_FREEBSD_FCTL_PROTMAX_DISABLE) != 0)
+		return (_PROT_ALL);
+	if (((p->p_flag2 & P2_PROTMAX_ENABLE) != 0 || imply_prot_max) &&
+	    prot != PROT_NONE)
+		 return (prot);
+	return (_PROT_ALL);
+}
+
+int
+kern_mmap(struct thread *td, uintptr_t addr0, size_t len, int prot, int flags,
     int fd, off_t pos)
 {
 	struct vmspace *vms;
 	struct file *fp;
+	struct proc *p;
 	vm_offset_t addr;
-	vm_size_t pageoff;
-	vm_prot_t cap_maxprot;
+	vm_size_t pageoff, size;
+	vm_prot_t cap_maxprot, max_prot;
 	int align, error;
 	cap_rights_t rights;
 #ifdef PAX_ASLR
@@ -194,7 +215,23 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 	int pax_aslr_done;
 #endif
 
-	vms = td->td_proc->p_vmspace;
+	if ((prot & ~(_PROT_ALL | PROT_MAX(_PROT_ALL))) != 0)
+		return (EINVAL);
+	max_prot = PROT_MAX_EXTRACT(prot);
+	prot = PROT_EXTRACT(prot);
+	if (max_prot != 0 && (max_prot & prot) != prot)
+		return (EINVAL);
+
+	p = td->td_proc;
+
+	/*
+	 * Always honor PROT_MAX if set.  If not, default to all
+	 * permissions unless we're implying maximum permissions.
+	 */
+	if (max_prot == 0)
+		max_prot = kern_mmap_maxprot(p, prot);
+
+	vms = p->p_vmspace;
 	fp = NULL;
 	AUDIT_ARG_FD(fd);
 	addr = addr0;
@@ -218,7 +255,7 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 	 * ld.so sometimes issues anonymous map requests with non-zero
 	 * pos.
 	 */
-	if ((size == 0 && curproc->p_osrel >= P_OSREL_MAP_ANON) ||
+	if ((len == 0 && p->p_osrel >= P_OSREL_MAP_ANON) ||
 	    ((flags & MAP_ANON) != 0 && (fd != -1 || pos != 0)))
 		return (EINVAL);
 
@@ -259,9 +296,12 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 	pageoff = (pos & PAGE_MASK);
 	pos -= pageoff;
 
-	/* Adjust size for rounding (on both ends). */
-	size += pageoff;			/* low end... */
-	size = (vm_size_t) round_page(size);	/* hi end */
+	/* Compute size from len by rounding (on both ends). */
+	size = len + pageoff;			/* low end... */
+	size = round_page(size);		/* hi end */
+	/* Check for rounding up to zero. */
+	if (len > size)
+		return (ENOMEM);
 
 	/* Ensure alignment is at least a page and fits in a pointer. */
 	align = flags & MAP_ALIGNMENT_MASK;
@@ -308,9 +348,10 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 			addr = 0;
 #ifdef PAX_ASLR
 		PROC_LOCK(td->td_proc);
-		pax_aslr_mmap_map_32bit(td->td_proc, &addr, orig_addr, flags);
-		pax_aslr_done = 1;
+		if (!(td->td_proc->p_flag2 & P2_ASLR_ENABLE))
+			pax_aslr_mmap_map_32bit(td->td_proc, &addr, orig_addr, flags);
 		PROC_UNLOCK(td->td_proc);
+		pax_aslr_done = 1;
 #endif /* PAX_ASLR */
 #endif /* MAP_32BIT */
 	} else {
@@ -330,12 +371,13 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 			    lim_max(td, RLIMIT_DATA));
 #ifdef PAX_ASLR
 		PROC_LOCK(td->td_proc);
-		pax_aslr_mmap(td->td_proc, &addr, orig_addr, flags);
-		pax_aslr_done = 1;
+		if (!(td->td_proc->p_flag2 & P2_ASLR_ENABLE))
+			pax_aslr_mmap(td->td_proc, &addr, orig_addr, flags);
 		PROC_UNLOCK(td->td_proc);
+		pax_aslr_done = 1;
 #endif
 	}
-	if (size == 0) {
+	if (len == 0) {
 		/*
 		 * Return success without mapping anything for old
 		 * binaries that request a page-aligned mapping of
@@ -357,12 +399,14 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 
 		pax_pageexec(td->td_proc, (vm_prot_t *)&prot, &cap_maxprot);
 		pax_mprotect(td->td_proc, (vm_prot_t *)&prot, &cap_maxprot);
+		pax_pageexec(td->td_proc, (vm_prot_t *)&prot, &max_prot);
+		pax_mprotect(td->td_proc, (vm_prot_t *)&prot, &max_prot);
 
 		error = vm_mmap_object(&vms->vm_map, &addr, size, prot,
 		    cap_maxprot, flags, NULL, pos, FALSE, td);
 #else
 		error = vm_mmap_object(&vms->vm_map, &addr, size, prot,
-		    VM_PROT_ALL, flags, NULL, pos, FALSE, td);
+		    max_prot, flags, NULL, pos, FALSE, td);
 #endif
 	} else {
 		/*
@@ -384,7 +428,7 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 		if (error != 0)
 			goto done;
 		if ((flags & (MAP_SHARED | MAP_PRIVATE)) == 0 &&
-		    td->td_proc->p_osrel >= P_OSREL_MAP_FSTRICT) {
+		    p->p_osrel >= P_OSREL_MAP_FSTRICT) {
 			error = EINVAL;
 			goto done;
 		}
@@ -392,6 +436,8 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 #ifdef PAX_NOEXEC
 		pax_pageexec(td->td_proc, (vm_prot_t *)&prot, &cap_maxprot);
 		pax_mprotect(td->td_proc, (vm_prot_t *)&prot, &cap_maxprot);
+		pax_pageexec(td->td_proc, (vm_prot_t *)&prot, &max_prot);
+		pax_mprotect(td->td_proc, (vm_prot_t *)&prot, &max_prot);
 #endif
 #ifdef PAX_ASLR
 		KASSERT((flags & MAP_FIXED) == MAP_FIXED || pax_aslr_done == 1,
@@ -399,7 +445,7 @@ kern_mmap(struct thread *td, uintptr_t addr0, size_t size, int prot, int flags,
 #endif
 		/* This relies on VM_PROT_* matching PROT_*. */
 		error = fo_mmap(fp, &vms->vm_map, &addr, size, prot,
-		    cap_maxprot, flags, pos, td);
+		    max_prot & cap_maxprot, flags, pos, td);
 	}
 
 	if (error == 0)
@@ -625,9 +671,13 @@ kern_mprotect(struct thread *td, uintptr_t addr0, size_t size, int prot)
 {
 	vm_offset_t addr;
 	vm_size_t pageoff;
+	int vm_error, max_prot;
 
 	addr = addr0;
-	prot = (prot & VM_PROT_ALL);
+	if ((prot & ~(_PROT_ALL | PROT_MAX(_PROT_ALL))) != 0)
+		return (EINVAL);
+	max_prot = PROT_MAX_EXTRACT(prot);
+	prot = PROT_EXTRACT(prot);
 	pageoff = (addr & PAGE_MASK);
 	addr -= pageoff;
 	size += pageoff;
@@ -641,8 +691,18 @@ kern_mprotect(struct thread *td, uintptr_t addr0, size_t size, int prot)
 	if (addr + size < addr)
 		return (EINVAL);
 
-	switch (vm_map_protect(&td->td_proc->p_vmspace->vm_map, addr,
-	    addr + size, prot, FALSE)) {
+	vm_error = KERN_SUCCESS;
+	if (max_prot != 0) {
+		if ((max_prot & prot) != prot)
+			return (EINVAL);
+		vm_error = vm_map_protect(&td->td_proc->p_vmspace->vm_map,
+		    addr, addr + size, max_prot, TRUE);
+	}
+	if (vm_error == KERN_SUCCESS)
+		vm_error = vm_map_protect(&td->td_proc->p_vmspace->vm_map,
+		    addr, addr + size, prot, FALSE);
+
+	switch (vm_error) {
 	case KERN_SUCCESS:
 		return (0);
 	case KERN_PROTECTION_FAILURE:
@@ -1037,7 +1097,7 @@ kern_mlock(struct proc *proc, struct ucred *cred, uintptr_t addr0, size_t len)
 	if (last < addr || end < addr)
 		return (EINVAL);
 	npages = atop(end - start);
-	if (npages > vm_page_max_wired)
+	if (npages > vm_page_max_user_wired)
 		return (ENOMEM);
 	map = &proc->p_vmspace->vm_map;
 	PROC_LOCK(proc);
@@ -1047,8 +1107,6 @@ kern_mlock(struct proc *proc, struct ucred *cred, uintptr_t addr0, size_t len)
 		return (ENOMEM);
 	}
 	PROC_UNLOCK(proc);
-	if (npages + vm_wire_count() > vm_page_max_wired)
-		return (EAGAIN);
 #ifdef RACCT
 	if (racct_enable) {
 		PROC_LOCK(proc);
@@ -1125,7 +1183,12 @@ sys_mlockall(struct thread *td, struct mlockall_args *uap)
 		 */
 		error = vm_map_wire(map, vm_map_min(map), vm_map_max(map),
 		    VM_MAP_WIRE_USER|VM_MAP_WIRE_HOLESOK);
-		error = (error == KERN_SUCCESS ? 0 : EAGAIN);
+		if (error == KERN_SUCCESS)
+			error = 0;
+		else if (error == KERN_RESOURCE_SHORTAGE)
+			error = ENOMEM;
+		else
+			error = EAGAIN;
 	}
 #ifdef RACCT
 	if (racct_enable && error != KERN_SUCCESS) {
@@ -1236,14 +1299,13 @@ vm_mmap_vnode(struct thread *td, vm_size_t objsize,
 	vm_object_t obj;
 	vm_ooffset_t foff;
 	struct ucred *cred;
-	int error, flags, locktype;
+	int error, flags;
+	bool writex;
 
 	cred = td->td_ucred;
-	if ((*maxprotp & VM_PROT_WRITE) && (*flagsp & MAP_SHARED))
-		locktype = LK_EXCLUSIVE;
-	else
-		locktype = LK_SHARED;
-	if ((error = vget(vp, locktype, td)) != 0)
+	writex = (*maxprotp & VM_PROT_WRITE) != 0 &&
+	    (*flagsp & MAP_SHARED) != 0;
+	if ((error = vget(vp, LK_SHARED, td)) != 0)
 		return (error);
 	AUDIT_ARG_VNODE1(vp);
 	foff = *foffp;
@@ -1264,11 +1326,11 @@ vm_mmap_vnode(struct thread *td, vm_size_t objsize,
 			 * Bypass filesystems obey the mpsafety of the
 			 * underlying fs.  Tmpfs never bypasses.
 			 */
-			error = vget(vp, locktype, td);
+			error = vget(vp, LK_SHARED, td);
 			if (error != 0)
 				return (error);
 		}
-		if (locktype == LK_EXCLUSIVE) {
+		if (writex) {
 			*writecounted = TRUE;
 			vnode_pager_update_writecount(obj, 0, objsize);
 		}
@@ -1593,10 +1655,14 @@ vm_mmap_object(vm_map_t map, vm_offset_t *addr, vm_size_t size, vm_prot_t prot,
 		 * If the process has requested that all future mappings
 		 * be wired, then heed this.
 		 */
-		if (map->flags & MAP_WIREFUTURE) {
-			vm_map_wire(map, *addr, *addr + size,
-			    VM_MAP_WIRE_USER | ((flags & MAP_STACK) ?
-			    VM_MAP_WIRE_HOLESOK : VM_MAP_WIRE_NOHOLES));
+		if ((map->flags & MAP_WIREFUTURE) != 0) {
+			vm_map_lock(map);
+			if ((map->flags & MAP_WIREFUTURE) != 0)
+				(void)vm_map_wire_locked(map, *addr,
+				    *addr + size, VM_MAP_WIRE_USER |
+				    ((flags & MAP_STACK) ? VM_MAP_WIRE_HOLESOK :
+				    VM_MAP_WIRE_NOHOLES));
+			vm_map_unlock(map);
 		}
 	}
 	return (vm_mmap_to_errno(rv));

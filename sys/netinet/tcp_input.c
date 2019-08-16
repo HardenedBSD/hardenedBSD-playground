@@ -212,11 +212,6 @@ SYSCTL_INT(_net_inet_tcp, OID_AUTO, recvbuf_auto, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_do_autorcvbuf), 0,
     "Enable automatic receive buffer sizing");
 
-VNET_DEFINE(int, tcp_autorcvbuf_inc) = 16*1024;
-SYSCTL_INT(_net_inet_tcp, OID_AUTO, recvbuf_inc, CTLFLAG_VNET | CTLFLAG_RW,
-    &VNET_NAME(tcp_autorcvbuf_inc), 0,
-    "Incrementor step size of automatic receive buffer");
-
 VNET_DEFINE(int, tcp_autorcvbuf_max) = 2*1024*1024;
 SYSCTL_INT(_net_inet_tcp, OID_AUTO, recvbuf_max, CTLFLAG_VNET | CTLFLAG_RW,
     &VNET_NAME(tcp_autorcvbuf_max), 0,
@@ -559,6 +554,7 @@ tcp_input(struct mbuf **mp, int *offp, int proto)
 	int optlen = 0;
 #ifdef INET
 	int len;
+	uint8_t ipttl;
 #endif
 	int tlen = 0, off;
 	int drop_hdrlen;
@@ -681,6 +677,7 @@ tcp_input(struct mbuf **mp, int *offp, int proto)
 			 * Checksum extended TCP header and data.
 			 */
 			len = off0 + tlen;
+			ipttl = ip->ip_ttl;
 			bzero(ipov->ih_x1, sizeof(ipov->ih_x1));
 			ipov->ih_len = htons(tlen);
 			th->th_sum = in_cksum(m, len);
@@ -689,6 +686,7 @@ tcp_input(struct mbuf **mp, int *offp, int proto)
 			/* Reset TOS bits */
 			ip->ip_tos = iptos;
 			/* Re-initialization for later version check */
+			ip->ip_ttl = ipttl;
 			ip->ip_v = IPVERSION;
 			ip->ip_hl = off0 >> 2;
 		}
@@ -1449,13 +1447,16 @@ drop:
  * The criteria to step up the receive buffer one notch are:
  *  1. Application has not set receive buffer size with
  *     SO_RCVBUF. Setting SO_RCVBUF clears SB_AUTOSIZE.
- *  2. the number of bytes received during the time it takes
- *     one timestamp to be reflected back to us (the RTT);
- *  3. received bytes per RTT is within seven eighth of the
- *     current socket buffer size;
- *  4. receive buffer size has not hit maximal automatic size;
+ *  2. the number of bytes received during 1/2 of an sRTT
+ *     is at least 3/8 of the current socket buffer size.
+ *  3. receive buffer size has not hit maximal automatic size;
  *
- * This algorithm does one step per RTT at most and only if
+ * If all of the criteria are met we increaset the socket buffer
+ * by a 1/2 (bounded by the max). This allows us to keep ahead
+ * of slow-start but also makes it so our peer never gets limited
+ * by our rwnd which we then open up causing a burst.
+ *
+ * This algorithm does two steps per RTT at most and only if
  * we receive a bulk stream w/o packet losses or reorderings.
  * Shrinking the buffer during idle times is not necessary as
  * it doesn't consume any memory when idle.
@@ -1472,11 +1473,10 @@ tcp_autorcvbuf(struct mbuf *m, struct tcphdr *th, struct socket *so,
 	if (V_tcp_do_autorcvbuf && (so->so_rcv.sb_flags & SB_AUTOSIZE) &&
 	    tp->t_srtt != 0 && tp->rfbuf_ts != 0 &&
 	    TCP_TS_TO_TICKS(tcp_ts_getticks() - tp->rfbuf_ts) >
-	    (tp->t_srtt >> TCP_RTT_SHIFT)) {
-		if (tp->rfbuf_cnt > (so->so_rcv.sb_hiwat / 8 * 7) &&
+	    ((tp->t_srtt >> TCP_RTT_SHIFT)/2)) {
+		if (tp->rfbuf_cnt > ((so->so_rcv.sb_hiwat / 2)/ 4 * 3) &&
 		    so->so_rcv.sb_hiwat < V_tcp_autorcvbuf_max) {
-			newsize = min(so->so_rcv.sb_hiwat +
-			    V_tcp_autorcvbuf_inc, V_tcp_autorcvbuf_max);
+			newsize = min((so->so_rcv.sb_hiwat + (so->so_rcv.sb_hiwat/2)), V_tcp_autorcvbuf_max);
 		}
 		TCP_PROBE6(receive__autoresize, NULL, tp, m, tp, th, newsize);
 
@@ -2010,7 +2010,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			else
 				tp->t_flags |= TF_ACKNOW;
 
-			if ((thflags & TH_ECE) && V_tcp_do_ecn) {
+			if (((thflags & (TH_CWR | TH_ECE)) == TH_ECE) &&
+			    V_tcp_do_ecn) {
 				tp->t_flags |= TF_ECN_PERMIT;
 				TCPSTAT_INC(tcps_ecn_shs);
 			}
@@ -2260,6 +2261,17 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 			TCPSTAT_INC(tcps_rcvpartduppack);
 			TCPSTAT_ADD(tcps_rcvpartdupbyte, todrop);
 		}
+		/*
+		 * DSACK - add SACK block for dropped range
+		 */
+		if (tp->t_flags & TF_SACK_PERMIT) {
+			tcp_update_sack_list(tp, th->th_seq, th->th_seq+tlen);
+			/*
+			 * ACK now, as the next in-sequence segment
+			 * will clear the DSACK block again
+			 */
+			tp->t_flags |= TF_ACKNOW;
+		}
 		drop_hdrlen += todrop;	/* drop from the top afterwards */
 		th->th_seq += todrop;
 		tlen -= todrop;
@@ -2384,8 +2396,8 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
 		if ((tp->t_flags & (TF_RCVD_SCALE|TF_REQ_SCALE)) ==
 			(TF_RCVD_SCALE|TF_REQ_SCALE)) {
 			tp->rcv_scale = tp->request_r_scale;
-			tp->snd_wnd = tiwin;
 		}
+		tp->snd_wnd = tiwin;
 		/*
 		 * Make transitions:
 		 *      SYN-RECEIVED  -> ESTABLISHED
@@ -2988,6 +3000,8 @@ dodata:							/* XXX */
 	if ((tlen || (thflags & TH_FIN) || tfo_syn) &&
 	    TCPS_HAVERCVDFIN(tp->t_state) == 0) {
 		tcp_seq save_start = th->th_seq;
+		tcp_seq save_rnxt  = tp->rcv_nxt;
+		int     save_tlen  = tlen;
 		m_adj(m, drop_hdrlen);	/* delayed header drop */
 		/*
 		 * Insert segment which includes th into TCP reassembly queue
@@ -3027,11 +3041,34 @@ dodata:							/* XXX */
 			 * m_adj() doesn't actually frees any mbufs
 			 * when trimming from the head.
 			 */
-			thflags = tcp_reass(tp, th, &save_start, &tlen, m);
+			tcp_seq temp = save_start;
+			thflags = tcp_reass(tp, th, &temp, &tlen, m);
 			tp->t_flags |= TF_ACKNOW;
 		}
-		if (tlen > 0 && (tp->t_flags & TF_SACK_PERMIT))
-			tcp_update_sack_list(tp, save_start, save_start + tlen);
+		if (tp->t_flags & TF_SACK_PERMIT) {
+			if (((tlen == 0) && (save_tlen > 0) &&
+			    (SEQ_LT(save_start, save_rnxt)))) {
+				/*
+				 * DSACK actually handled in the fastpath
+				 * above.
+				 */
+				tcp_update_sack_list(tp, save_start, save_start + save_tlen);
+			} else
+			if ((tlen > 0) && SEQ_GT(tp->rcv_nxt, save_rnxt)) {
+				/*
+				 * Cleaning sackblks by using zero length
+				 * update.
+				 */
+				tcp_update_sack_list(tp, save_start, save_start);
+			} else
+			if ((tlen > 0) && (tlen >= save_tlen)) {
+				/* Update of sackblks. */
+				tcp_update_sack_list(tp, save_start, save_start + save_tlen);
+			} else
+			if (tlen > 0) {
+				tcp_update_sack_list(tp, save_start, save_start+tlen);
+			}
+		}
 #if 0
 		/*
 		 * Note the amount of data that peer has sent into

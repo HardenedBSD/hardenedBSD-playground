@@ -69,9 +69,10 @@ __FBSDID("$FreeBSD$");
 #include <machine/frame.h>
 #include <machine/pcb.h>
 #include <machine/psl.h>
-#include <machine/trap.h>
+#include <machine/slb.h>
 #include <machine/spr.h>
 #include <machine/sr.h>
+#include <machine/trap.h>
 
 /* Below matches setjmp.S */
 #define	FAULTBUF_LR	21
@@ -92,9 +93,6 @@ static int	handle_onfault(struct trapframe *frame);
 static void	syscall(struct trapframe *frame);
 
 #if defined(__powerpc64__) && defined(AIM)
-       void	handle_kernel_slb_spill(int, register_t, register_t);
-static int	handle_user_slb_spill(pmap_t pm, vm_offset_t addr);
-extern int	n_slbs;
 static void	normalize_inputs(void);
 #endif
 
@@ -297,7 +295,7 @@ trap(struct trapframe *frame)
 			    ("VSX already enabled for thread"));
 			if (!(td->td_pcb->pcb_flags & PCB_VEC))
 				enable_vec(td);
-			if (!(td->td_pcb->pcb_flags & PCB_FPU))
+			if (td->td_pcb->pcb_flags & PCB_FPU)
 				save_fpu(td);
 			td->td_pcb->pcb_flags |= PCB_VSX;
 			enable_fpu(td);
@@ -305,11 +303,41 @@ trap(struct trapframe *frame)
 
 		case EXC_FAC:
 			fscr = mfspr(SPR_FSCR);
-			if ((fscr & FSCR_IC_MASK) == FSCR_IC_HTM) {
-				CTR0(KTR_TRAP, "Hardware Transactional Memory subsystem disabled");
+			switch (fscr & FSCR_IC_MASK) {
+			case FSCR_IC_HTM:
+				CTR0(KTR_TRAP,
+				    "Hardware Transactional Memory subsystem disabled");
+				sig = SIGILL;
+				ucode =	ILL_ILLOPC;
+				break;
+			case FSCR_IC_DSCR:
+				td->td_pcb->pcb_flags |= PCB_CFSCR | PCB_CDSCR;
+				fscr |= FSCR_DSCR;
+				mtspr(SPR_DSCR, 0);
+				break;
+			case FSCR_IC_EBB:
+				td->td_pcb->pcb_flags |= PCB_CFSCR;
+				fscr |= FSCR_EBB;
+				mtspr(SPR_EBBHR, 0);
+				mtspr(SPR_EBBRR, 0);
+				mtspr(SPR_BESCR, 0);
+				break;
+			case FSCR_IC_TAR:
+				td->td_pcb->pcb_flags |= PCB_CFSCR;
+				fscr |= FSCR_TAR;
+				mtspr(SPR_TAR, 0);
+				break;
+			case FSCR_IC_LM:
+				td->td_pcb->pcb_flags |= PCB_CFSCR;
+				fscr |= FSCR_LM;
+				mtspr(SPR_LMRR, 0);
+				mtspr(SPR_LMSER, 0);
+				break;
+			default:
+				sig = SIGILL;
+				ucode =	ILL_ILLOPC;
 			}
-			sig = SIGILL;
-			ucode =	ILL_ILLOPC;
+			mtspr(SPR_FSCR, fscr & ~FSCR_IC_MASK);
 			break;
 		case EXC_HEA:
 			sig = SIGILL;
@@ -363,7 +391,7 @@ trap(struct trapframe *frame)
  				sig = SIGTRAP;
 				ucode = TRAP_BRKPT;
 			} else {
-				sig = ppc_instr_emulate(frame, td->td_pcb);
+				sig = ppc_instr_emulate(frame, td);
 				if (sig == SIGILL) {
 					if (frame->srr1 & EXC_PGM_PRIV)
 						ucode = ILL_PRVOPC;
@@ -528,6 +556,7 @@ printtrap(u_int vector, struct trapframe *frame, int isfatal, int user)
 	case EXC_DSE:
 	case EXC_DSI:
 	case EXC_DTMISS:
+	case EXC_ALI:
 		printf("   virtual address = 0x%" PRIxPTR "\n", frame->dar);
 		break;
 	case EXC_ISE:
@@ -545,6 +574,7 @@ printtrap(u_int vector, struct trapframe *frame, int isfatal, int user)
 	printf("   current msr     = 0x%" PRIxPTR "\n", mfmsr());
 	printf("   lr              = 0x%" PRIxPTR " (0x%" PRIxPTR ")\n",
 	    frame->lr, frame->lr - (register_t)(__startkernel - KERNBASE));
+	printf("   frame           = %p\n", frame);
 	printf("   curthread       = %p\n", curthread);
 	if (curthread != NULL)
 		printf("          pid = %d, comm = %s\n",
@@ -670,7 +700,6 @@ void
 syscall(struct trapframe *frame)
 {
 	struct thread *td;
-	int error;
 
 	td = curthread;
 	td->td_frame = frame;
@@ -685,92 +714,9 @@ syscall(struct trapframe *frame)
 		    "r"(td->td_pcb->pcb_cpu.aim.usr_vsid), "r"(USER_SLB_SLBE));
 #endif
 
-	error = syscallenter(td);
-	syscallret(td, error);
+	syscallenter(td);
+	syscallret(td);
 }
-
-#if defined(__powerpc64__) && defined(AIM)
-/* Handle kernel SLB faults -- runs in real mode, all seat belts off */
-void
-handle_kernel_slb_spill(int type, register_t dar, register_t srr0)
-{
-	struct slb *slbcache;
-	uint64_t slbe, slbv;
-	uint64_t esid, addr;
-	int i;
-
-	addr = (type == EXC_ISE) ? srr0 : dar;
-	slbcache = PCPU_GET(aim.slb);
-	esid = (uintptr_t)addr >> ADDR_SR_SHFT;
-	slbe = (esid << SLBE_ESID_SHIFT) | SLBE_VALID;
-	
-	/* See if the hardware flushed this somehow (can happen in LPARs) */
-	for (i = 0; i < n_slbs; i++)
-		if (slbcache[i].slbe == (slbe | (uint64_t)i))
-			return;
-
-	/* Not in the map, needs to actually be added */
-	slbv = kernel_va_to_slbv(addr);
-	if (slbcache[USER_SLB_SLOT].slbe == 0) {
-		for (i = 0; i < n_slbs; i++) {
-			if (i == USER_SLB_SLOT)
-				continue;
-			if (!(slbcache[i].slbe & SLBE_VALID))
-				goto fillkernslb;
-		}
-
-		if (i == n_slbs)
-			slbcache[USER_SLB_SLOT].slbe = 1;
-	}
-
-	/* Sacrifice a random SLB entry that is not the user entry */
-	i = mftb() % n_slbs;
-	if (i == USER_SLB_SLOT)
-		i = (i+1) % n_slbs;
-
-fillkernslb:
-	/* Write new entry */
-	slbcache[i].slbv = slbv;
-	slbcache[i].slbe = slbe | (uint64_t)i;
-
-	/* Trap handler will restore from cache on exit */
-}
-
-static int 
-handle_user_slb_spill(pmap_t pm, vm_offset_t addr)
-{
-	struct slb *user_entry;
-	uint64_t esid;
-	int i;
-
-	if (pm->pm_slb == NULL)
-		return (-1);
-
-	esid = (uintptr_t)addr >> ADDR_SR_SHFT;
-
-	PMAP_LOCK(pm);
-	user_entry = user_va_to_slb_entry(pm, addr);
-
-	if (user_entry == NULL) {
-		/* allocate_vsid auto-spills it */
-		(void)allocate_user_vsid(pm, esid, 0);
-	} else {
-		/*
-		 * Check that another CPU has not already mapped this.
-		 * XXX: Per-thread SLB caches would be better.
-		 */
-		for (i = 0; i < pm->pm_slb_len; i++)
-			if (pm->pm_slb[i] == user_entry)
-				break;
-
-		if (i == pm->pm_slb_len)
-			slb_insert_user(pm, user_entry);
-	}
-	PMAP_UNLOCK(pm);
-
-	return (0);
-}
-#endif
 
 static int
 trap_pfault(struct trapframe *frame, int user)
@@ -841,7 +787,7 @@ static int
 fix_unaligned(struct thread *td, struct trapframe *frame)
 {
 	struct thread	*fputhread;
-#ifdef	__SPE__
+#ifdef BOOKE
 	uint32_t	inst;
 #endif
 	int		indicator, reg;
@@ -852,7 +798,7 @@ fix_unaligned(struct thread *td, struct trapframe *frame)
 	if (indicator & ESR_SPE) {
 		if (copyin((void *)frame->srr0, &inst, sizeof(inst)) != 0)
 			return (-1);
-		reg = EXC_ALI_SPE_REG(inst);
+		reg = EXC_ALI_INST_RST(inst);
 		fpr = (double *)td->td_pcb->pcb_vec.vr[reg];
 		fputhread = PCPU_GET(vecthread);
 
@@ -882,12 +828,22 @@ fix_unaligned(struct thread *td, struct trapframe *frame)
 		return (0);
 	}
 #else
+#ifdef BOOKE
+	indicator = (frame->cpu.booke.esr & ESR_ST) ? EXC_ALI_STFD : EXC_ALI_LFD;
+#else
 	indicator = EXC_ALI_OPCODE_INDICATOR(frame->cpu.aim.dsisr);
+#endif
 
 	switch (indicator) {
 	case EXC_ALI_LFD:
 	case EXC_ALI_STFD:
+#ifdef BOOKE
+		if (copyin((void *)frame->srr0, &inst, sizeof(inst)) != 0)
+			return (-1);
+		reg = EXC_ALI_INST_RST(inst);
+#else
 		reg = EXC_ALI_RST(frame->cpu.aim.dsisr);
+#endif
 		fpr = &td->td_pcb->pcb_fpu.fpr[reg].fpr;
 		fputhread = PCPU_GET(fputhread);
 

@@ -108,7 +108,7 @@ struct nvpair_header {
 
 
 void
-nvpair_assert(const nvpair_t *nvp)
+nvpair_assert(const nvpair_t *nvp __unused)
 {
 
 	NVPAIR_ASSERT(nvp);
@@ -235,7 +235,8 @@ nvpair_remove_nvlist_array(nvpair_t *nvp)
 }
 
 void
-nvpair_remove(struct nvl_head *head, nvpair_t *nvp, const nvlist_t *nvl)
+nvpair_remove(struct nvl_head *head, nvpair_t *nvp,
+    const nvlist_t *nvl __unused)
 {
 
 	NVPAIR_ASSERT(nvp);
@@ -359,7 +360,7 @@ nvpair_pack_header(const nvpair_t *nvp, unsigned char *ptr, size_t *leftp)
 }
 
 unsigned char *
-nvpair_pack_null(const nvpair_t *nvp, unsigned char *ptr,
+nvpair_pack_null(const nvpair_t *nvp __unused, unsigned char *ptr,
     size_t *leftp __unused)
 {
 
@@ -1193,8 +1194,7 @@ nvpair_create_stringv(const char *name, const char *valuefmt, va_list valueap)
 	if (len < 0)
 		return (NULL);
 	nvp = nvpair_create_string(name, str);
-	if (nvp == NULL)
-		nv_free(str);
+	nv_free(str);
 	return (nvp);
 }
 
@@ -2054,6 +2054,7 @@ nvpair_free(nvpair_t *nvp)
 	case NV_TYPE_DESCRIPTOR_ARRAY:
 		for (i = 0; i < nvp->nvp_nitems; i++)
 			close(((int *)(intptr_t)nvp->nvp_data)[i]);
+		nv_free((int *)(intptr_t)nvp->nvp_data);
 		break;
 #endif
 	case NV_TYPE_NVLIST:

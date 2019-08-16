@@ -56,7 +56,7 @@ CWARNEXTRA?=	-Wno-error=address				\
 		-Wno-error=maybe-uninitialized			\
 		-Wno-error=overflow				\
 		-Wno-error=sequence-point			\
-		-Wno-error=unused-but-set-variable
+		-Wno-unused-but-set-variable
 .if ${COMPILER_VERSION} >= 60100
 CWARNEXTRA+=	-Wno-error=misleading-indentation		\
 		-Wno-error=nonnull-compare			\
@@ -75,8 +75,12 @@ CWARNEXTRA?=	-Wno-uninitialized
 # GCC 4.2 doesn't have -Wno-error=cast-qual, so just disable the warning for
 # the few files that are already known to generate cast-qual warnings.
 NO_WCAST_QUAL= -Wno-cast-qual
+NO_WNONNULL=	-Wno-nonnull
 .endif
 .endif
+
+# This warning is utter nonsense
+CWARNFLAGS+=	-Wno-format-zero-length
 
 # External compilers may not support our format extensions.  Allow them
 # to be disabled.  WARNING: format checking is disabled in this case.

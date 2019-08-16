@@ -3990,6 +3990,7 @@ iwn_notif_intr(struct iwn_softc *sc)
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 	uint16_t hw;
+	int is_stopped;
 
 	bus_dmamap_sync(sc->rxq.stat_dma.tag, sc->rxq.stat_dma.map,
 	    BUS_DMASYNC_POSTREAD);
@@ -4021,6 +4022,11 @@ iwn_notif_intr(struct iwn_softc *sc)
 		case IWN_MPDU_RX_DONE:
 			/* An 802.11 frame has been received. */
 			iwn_rx_done(sc, desc, data);
+
+			is_stopped = (sc->sc_flags & IWN_FLAG_RUNNING) == 0;
+			if (__predict_false(is_stopped))
+				return;
+
 			break;
 
 		case IWN_RX_COMPRESSED_BA:
@@ -4061,6 +4067,11 @@ iwn_notif_intr(struct iwn_softc *sc)
 					IWN_UNLOCK(sc);
 					ieee80211_beacon_miss(ic);
 					IWN_LOCK(sc);
+
+					is_stopped = (sc->sc_flags &
+					    IWN_FLAG_RUNNING) == 0;
+					if (__predict_false(is_stopped))
+						return;
 				}
 			}
 			break;
@@ -4127,6 +4138,11 @@ iwn_notif_intr(struct iwn_softc *sc)
 			IWN_UNLOCK(sc);
 			ieee80211_scan_next(vap);
 			IWN_LOCK(sc);
+
+			is_stopped = (sc->sc_flags & IWN_FLAG_RUNNING) == 0;
+			if (__predict_false(is_stopped))  
+				return;
+
 			break;
 		}
 		case IWN5000_CALIBRATION_RESULT:
@@ -9086,18 +9102,12 @@ iwn_scan_end(struct ieee80211com *ic)
 static void
 iwn_set_channel(struct ieee80211com *ic)
 {
-	const struct ieee80211_channel *c = ic->ic_curchan;
 	struct iwn_softc *sc = ic->ic_softc;
 	int error;
 
 	DPRINTF(sc, IWN_DEBUG_TRACE, "->Doing %s\n", __func__);
 
 	IWN_LOCK(sc);
-	sc->sc_rxtap.wr_chan_freq = htole16(c->ic_freq);
-	sc->sc_rxtap.wr_chan_flags = htole16(c->ic_flags);
-	sc->sc_txtap.wt_chan_freq = htole16(c->ic_freq);
-	sc->sc_txtap.wt_chan_flags = htole16(c->ic_flags);
-
 	/*
 	 * Only need to set the channel in Monitor mode. AP scanning and auth
 	 * are already taken care of by their respective firmware commands.

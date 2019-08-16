@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2002 John Baldwin <jhb@FreeBSD.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -100,7 +99,8 @@ int	turnstile_signal(struct turnstile *, int);
 struct turnstile *turnstile_trywait(struct lock_object *);
 void	turnstile_unpend(struct turnstile *);
 void	turnstile_wait(struct turnstile *, struct thread *, int);
-struct thread *turnstile_lock(struct turnstile *, struct lock_object **);
+bool	turnstile_lock(struct turnstile *, struct lock_object **,
+	    struct thread **);
 void	turnstile_unlock(struct turnstile *, struct lock_object *);
 void	turnstile_assert(struct turnstile *);
 #endif	/* _KERNEL */

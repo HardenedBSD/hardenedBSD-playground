@@ -153,7 +153,6 @@ cpu_mp_start(void)
 	/* Initialize the logical ID to APIC ID table. */
 	for (i = 0; i < MAXCPU; i++) {
 		cpu_apic_ids[i] = -1;
-		cpu_ipi_pending[i] = 0;
 	}
 
 	/* Install an inter-CPU IPI for TLB invalidation */
@@ -309,9 +308,7 @@ start_all_aps(void)
 
 	mtx_init(&ap_boot_mtx, "ap boot", NULL, MTX_SPIN);
 
-	/* Remap lowest 1MB */
-	IdlePTD[0] = IdlePTD[1];
-	load_cr3(rcr3());		/* invalidate TLB */
+	pmap_remap_lower(true);
 
 	/* install the AP 1st level boot code */
 	install_ap_tramp();
@@ -359,9 +356,7 @@ start_all_aps(void)
 		CPU_SET(cpu, &all_cpus);	/* record AP in CPU map */
 	}
 
-	/* Unmap lowest 1MB again */
-	IdlePTD[0] = 0;
-	load_cr3(rcr3());
+	pmap_remap_lower(false);
 
 	/* restore the warmstart vector */
 	*(u_int32_t *) WARMBOOT_OFF = mpbioswarmvec;

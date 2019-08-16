@@ -52,6 +52,7 @@ SUBDIR=adjkerntz \
 	newfs_msdos \
 	nfsiod \
 	nos-tun \
+	pfilctl \
 	ping \
 	rcorder \
 	reboot \
@@ -78,14 +79,13 @@ SUBDIR.${MK_IPFILTER}+=	ipf
 SUBDIR.${MK_IPFW}+=	ipfw
 SUBDIR.${MK_IPFW}+=	natd
 SUBDIR.${MK_ISCSI}+=	iscontrol
-SUBDIR.${MK_NAND}+=	nandfs
-SUBDIR.${MK_NAND}+=	newfs_nandfs
 SUBDIR.${MK_NVME}+=	nvmecontrol
 SUBDIR.${MK_OPENSSL}+=	decryptcore
 SUBDIR.${MK_PF}+=	pfctl
 SUBDIR.${MK_PF}+=	pflogd
 SUBDIR.${MK_QUOTAS}+=	quotacheck
 SUBDIR.${MK_ROUTED}+=	routed
+SUBDIR.${MK_VERIEXEC}+=	veriexec
 SUBDIR.${MK_ZFS}+=	bectl
 SUBDIR.${MK_ZFS}+=	zfsbootcfg
 

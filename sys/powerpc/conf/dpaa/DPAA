@@ -74,6 +74,7 @@ device		sdhci
 
 # Network devices
 device		miibus		# MII bus support
+device		iflib
 device		em
 
 
@@ -95,7 +96,6 @@ device		pci
 # Pseudo devices
 device		ether		# Ethernet support
 device		loop		# Network loopback
-device		random		# Entropy device
 device		bpf		# Berkeley packet filter
 device		md		# Memory "disks"
 

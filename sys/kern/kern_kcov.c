@@ -39,28 +39,27 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
+#include <sys/systm.h>
 #include <sys/conf.h>
-#include <sys/file.h>
+#include <sys/eventhandler.h>
 #include <sys/kcov.h>
 #include <sys/kernel.h>
+#include <sys/limits.h>
 #include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/mman.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
 #include <sys/rwlock.h>
-#include <sys/stat.h>
 #include <sys/sysctl.h>
-#include <sys/systm.h>
-#include <sys/types.h>
 
 #include <vm/vm.h>
+#include <vm/pmap.h>
 #include <vm/vm_extern.h>
 #include <vm/vm_object.h>
 #include <vm/vm_page.h>
 #include <vm/vm_pager.h>
-
-#include <vm/pmap.h>
+#include <vm/vm_param.h>
 
 MALLOC_DEFINE(M_KCOV_INFO, "kcovinfo", "KCOV info type");
 
@@ -129,7 +128,6 @@ struct kcov_info {
 	size_t		bufsize;	/* (o) */
 	kcov_state_t	state;		/* (s) */
 	int		mode;		/* (l) */
-	bool		mmap;
 };
 
 /* Prototypes */
@@ -138,18 +136,8 @@ static d_close_t	kcov_close;
 static d_mmap_single_t	kcov_mmap_single;
 static d_ioctl_t	kcov_ioctl;
 
-void __sanitizer_cov_trace_pc(void);
-void __sanitizer_cov_trace_cmp1(uint8_t, uint8_t);
-void __sanitizer_cov_trace_cmp2(uint16_t, uint16_t);
-void __sanitizer_cov_trace_cmp4(uint32_t, uint32_t);
-void __sanitizer_cov_trace_cmp8(uint64_t, uint64_t);
-void __sanitizer_cov_trace_const_cmp1(uint8_t, uint8_t);
-void __sanitizer_cov_trace_const_cmp2(uint16_t, uint16_t);
-void __sanitizer_cov_trace_const_cmp4(uint32_t, uint32_t);
-void __sanitizer_cov_trace_const_cmp8(uint64_t, uint64_t);
-void __sanitizer_cov_trace_switch(uint64_t, uint64_t *);
-
 static int  kcov_alloc(struct kcov_info *info, size_t entries);
+static void kcov_free(struct kcov_info *info);
 static void kcov_init(const void *unused);
 
 static struct cdevsw kcov_cdevsw = {
@@ -169,6 +157,7 @@ SYSCTL_UINT(_kern_kcov, OID_AUTO, max_entries, CTLFLAG_RW,
     "Maximum number of entries in the kcov buffer");
 
 static struct mtx kcov_lock;
+static int active_count;
 
 static struct kcov_info *
 get_kinfo(struct thread *td)
@@ -197,24 +186,12 @@ get_kinfo(struct thread *td)
 	return (info);
 }
 
-/*
- * Main entry point. A call to this function will be inserted
- * at every edge, and if coverage is enabled for the thread
- * this function will add the PC to the buffer.
- */
-void
-__sanitizer_cov_trace_pc(void)
+static void
+trace_pc(uintptr_t ret)
 {
 	struct thread *td;
 	struct kcov_info *info;
 	uint64_t *buf, index;
-
-	/*
-	 * To guarantee curthread is properly set, we exit early
-	 * until the driver has been initialized
-	 */
-	if (cold)
-		return;
 
 	td = curthread;
 	info = get_kinfo(td);
@@ -237,7 +214,7 @@ __sanitizer_cov_trace_pc(void)
 	if (index + 2 > info->entries)
 		return;
 
-	buf[index + 1] = (uint64_t)__builtin_return_address(0);
+	buf[index + 1] = ret;
 	buf[0] = index + 1;
 }
 
@@ -247,13 +224,6 @@ trace_cmp(uint64_t type, uint64_t arg1, uint64_t arg2, uint64_t ret)
 	struct thread *td;
 	struct kcov_info *info;
 	uint64_t *buf, index;
-
-	/*
-	 * To guarantee curthread is properly set, we exit early
-	 * until the driver has been initialized
-	 */
-	if (cold)
-		return (false);
 
 	td = curthread;
 	info = get_kinfo(td);
@@ -278,115 +248,18 @@ trace_cmp(uint64_t type, uint64_t arg1, uint64_t arg2, uint64_t ret)
 	if (index * 4 + 4 + 1 > info->entries)
 		return (false);
 
-	buf[index * 4 + 1] = type;
-	buf[index * 4 + 2] = arg1;
-	buf[index * 4 + 3] = arg2;
-	buf[index * 4 + 4] = ret;
-	buf[0] = index + 1;
+	while (1) {
+		buf[index * 4 + 1] = type;
+		buf[index * 4 + 2] = arg1;
+		buf[index * 4 + 3] = arg2;
+		buf[index * 4 + 4] = ret;
 
-	return (true);
-}
-
-void
-__sanitizer_cov_trace_cmp1(uint8_t arg1, uint8_t arg2)
-{
-
-	trace_cmp(KCOV_CMP_SIZE(0), arg1, arg2,
-	    (uint64_t)__builtin_return_address(0));
-}
-
-void
-__sanitizer_cov_trace_cmp2(uint16_t arg1, uint16_t arg2)
-{
-
-	trace_cmp(KCOV_CMP_SIZE(1), arg1, arg2,
-	    (uint64_t)__builtin_return_address(0));
-}
-
-void
-__sanitizer_cov_trace_cmp4(uint32_t arg1, uint32_t arg2)
-{
-
-	trace_cmp(KCOV_CMP_SIZE(2), arg1, arg2,
-	    (uint64_t)__builtin_return_address(0));
-}
-
-void
-__sanitizer_cov_trace_cmp8(uint64_t arg1, uint64_t arg2)
-{
-
-	trace_cmp(KCOV_CMP_SIZE(3), arg1, arg2,
-	    (uint64_t)__builtin_return_address(0));
-}
-
-void
-__sanitizer_cov_trace_const_cmp1(uint8_t arg1, uint8_t arg2)
-{
-
-	trace_cmp(KCOV_CMP_SIZE(0) | KCOV_CMP_CONST, arg1, arg2,
-	    (uint64_t)__builtin_return_address(0));
-}
-
-void
-__sanitizer_cov_trace_const_cmp2(uint16_t arg1, uint16_t arg2)
-{
-
-	trace_cmp(KCOV_CMP_SIZE(1) | KCOV_CMP_CONST, arg1, arg2,
-	    (uint64_t)__builtin_return_address(0));
-}
-
-void
-__sanitizer_cov_trace_const_cmp4(uint32_t arg1, uint32_t arg2)
-{
-
-	trace_cmp(KCOV_CMP_SIZE(2) | KCOV_CMP_CONST, arg1, arg2,
-	    (uint64_t)__builtin_return_address(0));
-}
-
-void
-__sanitizer_cov_trace_const_cmp8(uint64_t arg1, uint64_t arg2)
-{
-
-	trace_cmp(KCOV_CMP_SIZE(3) | KCOV_CMP_CONST, arg1, arg2,
-	    (uint64_t)__builtin_return_address(0));
-}
-
-/*
- * val is the switch operand
- * cases[0] is the number of case constants
- * cases[1] is the size of val in bits
- * cases[2..n] are the case constants
- */
-void
-__sanitizer_cov_trace_switch(uint64_t val, uint64_t *cases)
-{
-	uint64_t i, count, ret, type;
-
-	count = cases[0];
-	ret = (uint64_t)__builtin_return_address(0);
-
-	switch (cases[1]) {
-	case 8:
-		type = KCOV_CMP_SIZE(0);
-		break;
-	case 16:
-		type = KCOV_CMP_SIZE(1);
-		break;
-	case 32:
-		type = KCOV_CMP_SIZE(2);
-		break;
-	case 64:
-		type = KCOV_CMP_SIZE(3);
-		break;
-	default:
-		return;
+		if (atomic_cmpset_64(&buf[0], index, index + 1))
+			break;
+		buf[0] = index;
 	}
 
-	val |= KCOV_CMP_CONST;
-
-	for (i = 0; i < count; i++)
-		if (!trace_cmp(type, val, cases[i + 2], ret))
-			return;
+	return (true);
 }
 
 /*
@@ -422,14 +295,7 @@ kcov_mmap_cleanup(void *arg)
 	 * The KCOV_STATE_DYING stops new threads from using it.
 	 * The lack of a thread means nothing is currently using the buffers.
 	 */
-
-	if (info->kvaddr != 0) {
-		pmap_qremove(info->kvaddr, info->bufsize / PAGE_SIZE);
-		kva_free(info->kvaddr, info->bufsize);
-	}
-	if (info->bufobj != NULL && !info->mmap)
-		vm_object_deallocate(info->bufobj);
-	free(info, M_KCOV_INFO);
+	kcov_free(info);
 }
 
 static int
@@ -442,7 +308,6 @@ kcov_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 	info->state = KCOV_STATE_OPEN;
 	info->thread = NULL;
 	info->mode = -1;
-	info->mmap = false;
 
 	if ((error = devfs_set_cdevpriv(info, kcov_mmap_cleanup)) != 0)
 		kcov_mmap_cleanup(info);
@@ -455,6 +320,7 @@ kcov_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
 {
 	struct kcov_info *info;
 	int error;
+
 
 	if ((error = devfs_get_cdevpriv((void **)&info)) != 0)
 		return (error);
@@ -482,11 +348,10 @@ kcov_mmap_single(struct cdev *dev, vm_ooffset_t *offset, vm_size_t size,
 	if ((error = devfs_get_cdevpriv((void **)&info)) != 0)
 		return (error);
 
-	if (info->kvaddr == 0 || size / KCOV_ELEMENT_SIZE != info->entries ||
-	    info->mmap != false)
+	if (info->kvaddr == 0 || size / KCOV_ELEMENT_SIZE != info->entries)
 		return (EINVAL);
 
-	info->mmap = true;
+	vm_object_reference(info->bufobj);
 	*offset = 0;
 	*object = info->bufobj;
 	return (0);
@@ -496,7 +361,7 @@ static int
 kcov_alloc(struct kcov_info *info, size_t entries)
 {
 	size_t n, pages;
-	vm_page_t *m;
+	vm_page_t m;
 
 	KASSERT(info->kvaddr == 0, ("kcov_alloc: Already have a buffer"));
 	KASSERT(info->state == KCOV_STATE_OPEN,
@@ -515,20 +380,44 @@ kcov_alloc(struct kcov_info *info, size_t entries)
 	info->bufobj = vm_pager_allocate(OBJT_PHYS, 0, info->bufsize,
 	    PROT_READ | PROT_WRITE, 0, curthread->td_ucred);
 
-	m = malloc(sizeof(*m) * pages, M_TEMP, M_WAITOK);
 	VM_OBJECT_WLOCK(info->bufobj);
 	for (n = 0; n < pages; n++) {
-		m[n] = vm_page_grab(info->bufobj, n,
+		m = vm_page_grab(info->bufobj, n,
 		    VM_ALLOC_NOBUSY | VM_ALLOC_ZERO | VM_ALLOC_WIRED);
-		m[n]->valid = VM_PAGE_BITS_ALL;
+		m->valid = VM_PAGE_BITS_ALL;
+		pmap_qenter(info->kvaddr + n * PAGE_SIZE, &m, 1);
 	}
 	VM_OBJECT_WUNLOCK(info->bufobj);
-	pmap_qenter(info->kvaddr, m, pages);
-	free(m, M_TEMP);
 
 	info->entries = entries;
 
 	return (0);
+}
+
+static void
+kcov_free(struct kcov_info *info)
+{
+	vm_page_t m;
+	size_t i;
+
+	if (info->kvaddr != 0) {
+		pmap_qremove(info->kvaddr, info->bufsize / PAGE_SIZE);
+		kva_free(info->kvaddr, info->bufsize);
+	}
+	if (info->bufobj != NULL) {
+		VM_OBJECT_WLOCK(info->bufobj);
+		m = vm_page_lookup(info->bufobj, 0);
+		for (i = 0; i < info->bufsize / PAGE_SIZE; i++) {
+			vm_page_lock(m);
+			vm_page_unwire_noq(m);
+			vm_page_unlock(m);
+
+			m = vm_page_next(m);
+		}
+		VM_OBJECT_WUNLOCK(info->bufobj);
+		vm_object_deallocate(info->bufobj);
+	}
+	free(info, M_KCOV_INFO);
 }
 
 static int
@@ -571,6 +460,16 @@ kcov_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag __unused,
 			error = EINVAL;
 			break;
 		}
+
+		/* Lets hope nobody opens this 2 billion times */
+		KASSERT(active_count < INT_MAX,
+		    ("%s: Open too many times", __func__));
+		active_count++;
+		if (active_count == 1) {
+			cov_register_pc(&trace_pc);
+			cov_register_cmp(&trace_cmp);
+		}
+
 		KASSERT(info->thread == NULL,
 		    ("Enabling kcov when already enabled"));
 		info->thread = td;
@@ -589,6 +488,13 @@ kcov_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag __unused,
 			error = EINVAL;
 			break;
 		}
+		KASSERT(active_count > 0, ("%s: Open count is zero", __func__));
+		active_count--;
+		if (active_count == 0) {
+			cov_unregister_pc();
+			cov_unregister_cmp();
+		}
+
 		td->td_kcov_info = NULL;
 		atomic_store_int(&info->state, KCOV_STATE_READY);
 		/*
@@ -618,6 +524,12 @@ kcov_thread_dtor(void *arg __unused, struct thread *td)
 		return;
 
 	mtx_lock_spin(&kcov_lock);
+	KASSERT(active_count > 0, ("%s: Open count is zero", __func__));
+	active_count--;
+	if (active_count == 0) {
+		cov_unregister_pc();
+		cov_unregister_cmp();
+	}
 	td->td_kcov_info = NULL;
 	if (info->state != KCOV_STATE_DYING) {
 		/*
@@ -641,14 +553,7 @@ kcov_thread_dtor(void *arg __unused, struct thread *td)
 	 * The KCOV_STATE_DYING stops new threads from using it.
 	 * It also stops the current thread from trying to use the info struct.
 	 */
-
-	if (info->kvaddr != 0) {
-		pmap_qremove(info->kvaddr, info->bufsize / PAGE_SIZE);
-		kva_free(info->kvaddr, info->bufsize);
-	}
-	if (info->bufobj != NULL && !info->mmap)
-		vm_object_deallocate(info->bufobj);
-	free(info, M_KCOV_INFO);
+	kcov_free(info);
 }
 
 static void
@@ -673,4 +578,4 @@ kcov_init(const void *unused)
 	    EVENTHANDLER_PRI_ANY);
 }
 
-SYSINIT(kcovdev, SI_SUB_DEVFS, SI_ORDER_ANY, kcov_init, NULL);
+SYSINIT(kcovdev, SI_SUB_LAST, SI_ORDER_ANY, kcov_init, NULL);

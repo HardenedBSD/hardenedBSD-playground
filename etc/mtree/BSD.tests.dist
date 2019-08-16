@@ -238,6 +238,20 @@
                     version
                     ..
                 ..
+                i386
+                    arrays
+                    ..
+                    funcs
+                    ..
+                    pid
+                    ..
+                    ustack
+                    ..
+                ..
+                amd64
+                    arrays
+                    ..
+                ..
             ..
             zfsd
             ..
@@ -278,7 +292,19 @@
             static
             ..
         ..
+        googletest
+            gmock
+            ..
+            gmock_main
+            ..
+            gtest
+            ..
+            gtest_main
+            ..
+        ..
         libarchive
+        ..
+        libbe
         ..
         libc
             c063
@@ -429,6 +455,8 @@
         examples
             tests
                 atf
+                ..
+                googletest
                 ..
                 plain
                 ..
@@ -694,6 +722,8 @@
                 ..
             ..
         ..
+        devrandom
+        ..
         dtrace
         ..
         fifo
@@ -701,6 +731,8 @@
         file
         ..
         fs
+            fusefs
+            ..
             tmpfs
             ..
         ..
@@ -763,6 +795,8 @@
     netmap
     ..
         netpfil
+            common
+            ..
             pf
                 ioctl
                 ..

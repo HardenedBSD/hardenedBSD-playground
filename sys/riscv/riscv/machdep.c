@@ -48,6 +48,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/imgact.h>
 #include <sys/kdb.h>
 #include <sys/kernel.h>
+#include <sys/ktr.h>
 #include <sys/limits.h>
 #include <sys/linker.h>
 #include <sys/msgbuf.h>
@@ -61,12 +62,16 @@ __FBSDID("$FreeBSD$");
 #include <sys/syscallsubr.h>
 #include <sys/sysent.h>
 #include <sys/sysproto.h>
+#include <sys/tslog.h>
 #include <sys/ucontext.h>
+#include <sys/vmmeter.h>
 
 #include <vm/vm.h>
+#include <vm/vm_param.h>
 #include <vm/vm_kern.h>
 #include <vm/vm_object.h>
 #include <vm/vm_page.h>
+#include <vm/vm_phys.h>
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
 #include <vm/vm_pager.h>
@@ -97,9 +102,6 @@ struct pcpu __pcpu[MAXCPU];
 
 static struct trapframe proc0_tf;
 
-vm_paddr_t phys_avail[PHYS_AVAIL_SIZE + 2];
-vm_paddr_t dump_avail[PHYS_AVAIL_SIZE + 2];
-
 int early_boot = 1;
 int cold = 1;
 long realmem = 0;
@@ -107,8 +109,7 @@ long Maxmem = 0;
 
 #define	DTB_SIZE_MAX	(1024 * 1024)
 
-#define	PHYSMAP_SIZE	(2 * (VM_PHYSSEG_MAX - 1))
-vm_paddr_t physmap[PHYSMAP_SIZE];
+vm_paddr_t physmap[PHYS_AVAIL_ENTRIES];
 u_int physmap_idx;
 
 struct kva_md_info kmi;
@@ -117,19 +118,11 @@ int64_t dcache_line_size;	/* The minimum D cache line size */
 int64_t icache_line_size;	/* The minimum I cache line size */
 int64_t idcache_line_size;	/* The minimum cache line size */
 
+uint32_t boot_hart;	/* The hart we booted on. */
+cpuset_t all_harts;
+
 extern int *end;
 extern int *initstack_end;
-
-struct pcpu *pcpup;
-
-uintptr_t mcall_trap(uintptr_t mcause, uintptr_t* regs);
-
-uintptr_t
-mcall_trap(uintptr_t mcause, uintptr_t* regs)
-{
-
-	return (0);
-}
 
 static void
 cpu_startup(void *dummy)
@@ -137,7 +130,34 @@ cpu_startup(void *dummy)
 
 	identify_cpu();
 
+	printf("real memory  = %ju (%ju MB)\n", ptoa((uintmax_t)realmem),
+	    ptoa((uintmax_t)realmem) / (1024 * 1024));
+
+	/*
+	 * Display any holes after the first chunk of extended memory.
+	 */
+	if (bootverbose) {
+		int indx;
+
+		printf("Physical memory chunk(s):\n");
+		for (indx = 0; phys_avail[indx + 1] != 0; indx += 2) {
+			vm_paddr_t size;
+
+			size = phys_avail[indx + 1] - phys_avail[indx];
+			printf(
+			    "0x%016jx - 0x%016jx, %ju bytes (%ju pages)\n",
+			    (uintmax_t)phys_avail[indx],
+			    (uintmax_t)phys_avail[indx + 1] - 1,
+			    (uintmax_t)size, (uintmax_t)size / PAGE_SIZE);
+		}
+	}
+
 	vm_ksubmap_init(&kmi);
+
+	printf("avail memory = %ju (%ju MB)\n",
+	    ptoa((uintmax_t)vm_free_count()),
+	    ptoa((uintmax_t)vm_free_count()) / (1024 * 1024));
+
 	bufinit();
 	vm_pager_bufferinit();
 }
@@ -459,11 +479,13 @@ void
 spinlock_enter(void)
 {
 	struct thread *td;
+	register_t reg;
 
 	td = curthread;
 	if (td->td_md.md_spinlock_count == 0) {
+		reg = intr_disable();
 		td->td_md.md_spinlock_count = 1;
-		td->td_md.md_saved_sstatus_ie = intr_disable();
+		td->td_md.md_saved_sstatus_ie = reg;
 	} else
 		td->td_md.md_spinlock_count++;
 	critical_enter();
@@ -627,6 +649,7 @@ sendsig(sig_t catcher, ksiginfo_t *ksi, sigset_t *mask)
 static void
 init_proc0(vm_offset_t kstack)
 {
+	struct pcpu *pcpup;
 
 	pcpup = &__pcpu[0];
 
@@ -682,7 +705,7 @@ add_physmap_entry(uint64_t base, uint64_t length, vm_paddr_t *physmap,
 
 	_physmap_idx += 2;
 	*physmap_idxp = _physmap_idx;
-	if (_physmap_idx == PHYSMAP_SIZE) {
+	if (_physmap_idx == PHYS_AVAIL_ENTRIES) {
 		printf(
 		"Too many segments in the physical address map, giving up\n");
 		return (0);
@@ -733,6 +756,10 @@ cache_setup(void)
 {
 
 	/* TODO */
+
+	dcache_line_size = 0;
+	icache_line_size = 0;
+	idcache_line_size = 0;
 }
 
 /*
@@ -798,6 +825,7 @@ void
 initriscv(struct riscv_bootparams *rvbp)
 {
 	struct mem_region mem_regions[FDT_MEM_REGIONS];
+	struct pcpu *pcpup;
 	vm_offset_t rstart, rend;
 	vm_offset_t s, e;
 	int mem_regions_sz;
@@ -805,6 +833,18 @@ initriscv(struct riscv_bootparams *rvbp)
 	vm_size_t kernlen;
 	caddr_t kmdp;
 	int i;
+
+	TSRAW(&thread0, TS_ENTER, __func__, NULL);
+
+	/* Set the pcpu data, this is needed by pmap_bootstrap */
+	pcpup = &__pcpu[0];
+	pcpu_init(pcpup, 0, sizeof(struct pcpu));
+	pcpup->pc_hart = boot_hart;
+
+	/* Set the pcpu pointer */
+	__asm __volatile("mv tp, %0" :: "r"(pcpup));
+
+	PCPU_SET(curthread, &thread0);
 
 	/* Set the module data location */
 	lastaddr = fake_preload_metadata(rvbp);
@@ -849,15 +889,6 @@ initriscv(struct riscv_bootparams *rvbp)
 	}
 #endif
 
-	/* Set the pcpu data, this is needed by pmap_bootstrap */
-	pcpup = &__pcpu[0];
-	pcpu_init(pcpup, 0, sizeof(struct pcpu));
-
-	/* Set the pcpu pointer */
-	__asm __volatile("mv gp, %0" :: "r"(pcpup));
-
-	PCPU_SET(curthread, &thread0);
-
 	/* Do basic tuning, hz etc */
 	init_param1();
 
@@ -871,16 +902,14 @@ initriscv(struct riscv_bootparams *rvbp)
 
 	init_proc0(rvbp->kern_stack);
 
-	/* set page table base register for thread0 */
-	thread0.td_pcb->pcb_l1addr = \
-	    (rvbp->kern_l1pt - KERNBASE + rvbp->kern_phys);
-
 	msgbufinit(msgbufp, msgbufsize);
 	mutex_init();
 	init_param2(physmem);
 	kdb_init();
 
 	early_boot = 0;
+
+	TSEXIT();
 }
 
 #undef bzero

@@ -29,10 +29,11 @@
 .\" Copyright (c) 2014, Xin LI <delphij@FreeBSD.org>
 .\" Copyright (c) 2014-2015, The FreeBSD Foundation, All Rights Reserved.
 .\" Copyright 2018 Joyent, Inc.
+.\" Copyright (c) 2018 Datto Inc.
 .\"
 .\" $FreeBSD$
 .\"
-.Dd August 11, 2018
+.Dd February 15, 2018
 .Dt ZFS 8
 .Os
 .Sh NAME
@@ -184,7 +185,7 @@
 .Ar bookmark
 .Nm
 .Cm send
-.Op Fl DLPRcenpv
+.Op Fl DLPRVcenpv
 .Op Fl i Ar snapshot | Fl I Ar snapshot
 .Ar snapshot
 .Nm
@@ -194,7 +195,7 @@
 .Ar filesystem Ns | Ns Ar volume Ns | Ns Ar snapshot
 .Nm
 .Cm send
-.Op Fl Penv
+.Op Fl PVenv
 .Fl t Ar receive_resume_token
 .Nm
 .Cm receive Ns | Ns Cm recv
@@ -291,7 +292,7 @@
 .Op Ar snapshot Ns | Ns Ar filesystem
 .Nm
 .Cm program
-.Op Fl n
+.Op Fl jn
 .Op Fl t Ar timeout
 .Op Fl m Ar memory_limit
 .Ar pool script
@@ -1500,7 +1501,9 @@ command, or by changing the value of the
 .Sy refreservation
 property, or
 .Sy reservation
-property on pool version 8 or earlier
+property on pool 
+.Po
+version 8 or earlier
 .Pc
 after the volume has been created.
 A "sparse volume" is a volume where the value of
@@ -2607,7 +2610,7 @@ feature.
 .It Xo
 .Nm
 .Cm send
-.Op Fl DLPRcenpv
+.Op Fl DLPRVcenpv
 .Op Fl i Ar snapshot | Fl I Ar snapshot
 .Ar snapshot
 .Xc
@@ -2753,6 +2756,8 @@ Print machine-parsable verbose information about the stream package generated.
 .It Fl v, -verbose
 Print verbose information about the stream package generated.
 This information includes a per-second report of how much data has been sent.
+.It Fl V
+Set the process title to a per-second report of how much data has been sent.
 .El
 .Pp
 The format of the stream is committed. You will be able to receive your streams
@@ -3362,7 +3367,7 @@ Display the path's inode change time as the first column of output.
 .It Xo
 .Nm
 .Cm program
-.Op Fl n
+.Op Fl jn
 .Op Fl t Ar timeout
 .Op Fl m Ar memory_limit
 .Ar pool script
@@ -3385,6 +3390,11 @@ For full documentation of the ZFS channel program interface, see the manual
 page for
 .Xr zfs-program 8 .
 .Bl -tag -width indent
+.It Fl j
+Display channel program output in JSON format.
+When this flag is specified and standard output is empty -
+channel program encountered an error.
+The details of such an error will be printed to standard error in plain text.
 .It Fl n
 Executes a read-only channel program, which runs faster.
 The program cannot change on-disk state by calling functions from

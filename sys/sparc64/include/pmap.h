@@ -105,7 +105,6 @@ void	pmap_set_kctx(void);
 extern	struct pmap kernel_pmap_store;
 #define	kernel_pmap	(&kernel_pmap_store)
 extern	struct rwlock_padalign tte_list_global_lock;
-extern	vm_paddr_t phys_avail[];
 extern	vm_offset_t virtual_avail;
 extern	vm_offset_t virtual_end;
 
@@ -127,5 +126,12 @@ SYSCTL_DECL(_debug_pmap_stats);
 #define	PMAP_STATS_INC(var)
 
 #endif
+
+static inline int
+pmap_vmspace_copy(pmap_t dst_pmap __unused, pmap_t src_pmap __unused)
+{
+
+	return (0);
+}
 
 #endif /* !_MACHINE_PMAP_H_ */

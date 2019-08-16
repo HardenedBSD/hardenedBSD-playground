@@ -155,9 +155,6 @@ EVENTHANDLER_LIST_DEFINE(process_exit);
 EVENTHANDLER_LIST_DEFINE(process_fork);
 EVENTHANDLER_LIST_DEFINE(process_exec);
 
-EVENTHANDLER_LIST_DECLARE(thread_ctor);
-EVENTHANDLER_LIST_DECLARE(thread_dtor);
-
 int kstack_pages = KSTACK_PAGES;
 SYSCTL_INT(_kern, OID_AUTO, kstack_pages, CTLFLAG_RD, &kstack_pages, 0,
     "Kernel stack size in pages");
@@ -193,7 +190,7 @@ procinit(void)
 	pidhashtbl_lock = malloc(sizeof(*pidhashtbl_lock) * (pidhashlock + 1),
 	    M_PROC, M_WAITOK | M_ZERO);
 	for (i = 0; i < pidhashlock + 1; i++)
-		sx_init(&pidhashtbl_lock[i], "pidhash");
+		sx_init_flags(&pidhashtbl_lock[i], "pidhash", SX_DUPOK);
 	pgrphashtbl = hashinit(maxproc / 4, M_PROC, &pgrphash);
 	proc_zone = uma_zcreate("PROC", sched_sizeof_proc(),
 	    proc_ctor, proc_dtor, proc_init, proc_fini,
@@ -365,6 +362,52 @@ inferior(struct proc *p)
 			return (0);
 	}
 	return (1);
+}
+
+/*
+ * Shared lock all the pid hash lists.
+ */
+void
+pidhash_slockall(void)
+{
+	u_long i;
+
+	for (i = 0; i < pidhashlock + 1; i++)
+		sx_slock(&pidhashtbl_lock[i]);
+}
+
+/*
+ * Shared unlock all the pid hash lists.
+ */
+void
+pidhash_sunlockall(void)
+{
+	u_long i;
+
+	for (i = 0; i < pidhashlock + 1; i++)
+		sx_sunlock(&pidhashtbl_lock[i]);
+}
+
+/*
+ * Similar to pfind_any(), this function finds zombies.
+ */
+struct proc *
+pfind_any_locked(pid_t pid)
+{
+	struct proc *p;
+
+	sx_assert(PIDHASHLOCK(pid), SX_LOCKED);
+	LIST_FOREACH(p, PIDHASH(pid), p_hash) {
+		if (p->p_pid == pid) {
+			PROC_LOCK(p);
+			if (p->p_state == PRS_NEW) {
+				PROC_UNLOCK(p);
+				p = NULL;
+			}
+			break;
+		}
+	}
+	return (p);
 }
 
 /*
@@ -2487,6 +2530,8 @@ kern_proc_vmmap_out(struct proc *p, struct sbuf *sb, ssize_t maxlen, int flags)
 			kve->kve_flags |= KVME_FLAG_GROWS_UP;
 		if (entry->eflags & MAP_ENTRY_GROWS_DOWN)
 			kve->kve_flags |= KVME_FLAG_GROWS_DOWN;
+		if (entry->eflags & MAP_ENTRY_USER_WIRED)
+			kve->kve_flags |= KVME_FLAG_USER_WIRED;
 
 		last_timestamp = map->timestamp;
 		vm_map_unlock_read(map);
@@ -3112,8 +3157,8 @@ allproc_loop:
 			PROC_UNLOCK(p);
 			continue;
 		}
-		_PHOLD(p);
 		sx_xunlock(&allproc_lock);
+		_PHOLD(p);
 		r = thread_single(p, SINGLE_ALLPROC);
 		if (r != 0)
 			restart = true;

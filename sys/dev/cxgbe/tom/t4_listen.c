@@ -356,7 +356,7 @@ send_reset_synqe(struct toedev *tod, struct synq_entry *synqe)
 	struct sge_wrq *ofld_txq;
 	struct sge_ofld_rxq *ofld_rxq;
 	const int nparams = 6;
-	unsigned int pfvf = G_FW_VIID_PFN(vi->viid) << S_FW_VIID_PFN;
+	const u_int pfvf = sc->pf << S_FW_VIID_PFN;
 
 	INP_WLOCK_ASSERT(synqe->lctx->inp);
 
@@ -1400,7 +1400,6 @@ found:
 
 		mtu_idx = find_best_mtu_idx(sc, &inc, &settings);
 		rscale = cpl->tcpopt.wsf && V_tcp_do_rfc1323 ?  select_rcv_wscale() : 0;
-		/* opt0 rcv_bufsiz initially, assumes its normal meaning later */
 		wnd = max(so->sol_sbrcv_hiwat, MIN_RCV_WND);
 		wnd = min(wnd, MAX_RCV_WND);
 		rx_credits = min(wnd >> 10, M_RCV_BUFSIZ);
@@ -1552,8 +1551,7 @@ reset:
 	toep->l2te = &sc->l2t->l2tab[synqe->l2e_idx];
 	toep->vnet = lctx->vnet;
 	set_ulp_mode(toep, synqe->ulp_mode);
-	/* opt0 rcv_bufsiz initially, assumes its normal meaning later */
-	toep->rx_credits = synqe->rcv_bufsize;
+	toep->opt0_rcv_bufsize = synqe->rcv_bufsize;
 
 	MPASS(be32toh(cpl->snd_isn) - 1 == synqe->iss);
 	MPASS(be32toh(cpl->rcv_isn) - 1 == synqe->irs);

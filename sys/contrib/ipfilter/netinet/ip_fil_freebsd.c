@@ -16,36 +16,38 @@ static const char rcsid[] = "@(#)$Id$";
 # define	KERNEL	1
 # define	_KERNEL	1
 #endif
-#if defined(__FreeBSD_version) && (__FreeBSD_version >= 400000) && \
+#if defined(__FreeBSD_version) && \
     !defined(KLD_MODULE) && !defined(IPFILTER_LKM)
 # include "opt_inet6.h"
 #endif
-#if defined(__FreeBSD_version) && (__FreeBSD_version >= 440000) && \
+#if defined(__FreeBSD_version) && \
     !defined(KLD_MODULE) && !defined(IPFILTER_LKM)
 # include "opt_random_ip_id.h"
 #endif
 #include <sys/param.h>
+#include <sys/eventhandler.h>
+#include <sys/conf.h>
 #include <sys/errno.h>
 #include <sys/types.h>
 #include <sys/file.h>
-# include <sys/fcntl.h>
-# include <sys/filio.h>
+#include <sys/fcntl.h>
+#include <sys/filio.h>
 #include <sys/time.h>
 #include <sys/systm.h>
 # include <sys/dirent.h>
-#if defined(__FreeBSD_version) && (__FreeBSD_version >= 800000)
+#if defined(__FreeBSD_version)
 #include <sys/jail.h>
 #endif
-# include <sys/malloc.h>
-# include <sys/mbuf.h>
-# include <sys/sockopt.h>
+#include <sys/malloc.h>
+#include <sys/mbuf.h>
+#include <sys/sockopt.h>
 #include <sys/socket.h>
-# include <sys/selinfo.h>
-# include <netinet/tcp_var.h>
+#include <sys/selinfo.h>
+#include <netinet/tcp_var.h>
 
 #include <net/if.h>
-# include <net/if_var.h>
-#  include <net/netisr.h>
+#include <net/if_var.h>
+#include <net/netisr.h>
 #include <net/route.h>
 #include <netinet/in.h>
 #include <netinet/in_fib.h>
@@ -75,7 +77,7 @@ static const char rcsid[] = "@(#)$Id$";
 #include "netinet/ip_scan.h"
 #endif
 #include "netinet/ip_pool.h"
-# include <sys/malloc.h>
+#include <sys/malloc.h>
 #include <sys/kernel.h>
 #ifdef CSUM_DATA_VALID
 #include <machine/in_cksum.h>
@@ -98,7 +100,10 @@ VNET_DEFINE(ipf_main_softc_t, ipfmain) = {
 # include <sys/conf.h>
 #  include <net/pfil.h>
 
-static eventhandler_tag ipf_arrivetag, ipf_departtag;
+VNET_DEFINE_STATIC(eventhandler_tag, ipf_arrivetag);
+VNET_DEFINE_STATIC(eventhandler_tag, ipf_departtag);
+#define	V_ipf_arrivetag		VNET(ipf_arrivetag)
+#define	V_ipf_departtag		VNET(ipf_departtag)
 #if 0
 /*
  * Disable the "cloner" event handler;  we are getting interface
@@ -108,7 +113,8 @@ static eventhandler_tag ipf_arrivetag, ipf_departtag;
  * If it turns out to be needed, well need a dedicated event handler
  * for it to deal with the ifc and the correct vnet.
  */
-static eventhandler_tag ipf_clonetag;
+VNET_DEFINE_STATIC(eventhandler_tag, ipf_clonetag);
+#define	V_ipf_clonetag		VNET(ipf_clonetag)
 #endif
 
 static void ipf_ifevent(void *arg, struct ifnet *ifp);
@@ -126,32 +132,33 @@ static void ipf_ifevent(arg, ifp)
 
 
 
-static int
-ipf_check_wrapper(void *arg, struct mbuf **mp, struct ifnet *ifp, int dir)
+static pfil_return_t
+ipf_check_wrapper(struct mbuf **mp, struct ifnet *ifp, int flags,
+    void *ruleset __unused, struct inpcb *inp)
 {
 	struct ip *ip = mtod(*mp, struct ip *);
-	int rv;
+	pfil_return_t rv;
 
 	CURVNET_SET(ifp->if_vnet);
-	rv = ipf_check(&V_ipfmain, ip, ip->ip_hl << 2, ifp, (dir == PFIL_OUT),
-		       mp);
+	rv = ipf_check(&V_ipfmain, ip, ip->ip_hl << 2, ifp,
+	    !!(flags & PFIL_OUT), mp);
 	CURVNET_RESTORE();
-	return rv;
+	return (rv == 0 ? PFIL_PASS : PFIL_DROPPED);
 }
 
-# ifdef USE_INET6
-#  include <netinet/ip6.h>
-
-static int
-ipf_check_wrapper6(void *arg, struct mbuf **mp, struct ifnet *ifp, int dir)
+#ifdef USE_INET6
+static pfil_return_t
+ipf_check_wrapper6(struct mbuf **mp, struct ifnet *ifp, int flags,
+    void *ruleset __unused, struct inpcb *inp)
 {
-	int error;
+	pfil_return_t rv;
 
 	CURVNET_SET(ifp->if_vnet);
-	error = ipf_check(&V_ipfmain, mtod(*mp, struct ip *),
-			  sizeof(struct ip6_hdr), ifp, (dir == PFIL_OUT), mp);
+	rv = ipf_check(&V_ipfmain, mtod(*mp, struct ip *),
+	    sizeof(struct ip6_hdr), ifp, !!(flags & PFIL_OUT), mp);
 	CURVNET_RESTORE();
-	return (error);
+
+	return (rv == 0 ? PFIL_PASS : PFIL_DROPPED);
 }
 # endif
 #if	defined(IPFILTER_LKM)
@@ -479,7 +486,7 @@ ipf_send_ip(fin, m)
 	default :
 		return EINVAL;
 	}
-#ifdef IPSEC
+#ifdef IPSEC_SUPPORT
 	m->m_pkthdr.rcvif = NULL;
 #endif
 
@@ -961,7 +968,7 @@ ipf_ifpaddr(softc, v, atype, ifptr, inp, inpmask)
 	i6addr_t *inp, *inpmask;
 {
 #ifdef USE_INET6
-	struct in6_addr *inp6 = NULL;
+	struct in6_addr *ia6 = NULL;
 #endif
 	struct sockaddr *sock, *mask;
 	struct sockaddr_in *sin;
@@ -989,9 +996,9 @@ ipf_ifpaddr(softc, v, atype, ifptr, inp, inpmask)
 			break;
 #ifdef USE_INET6
 		if ((v == 6) && (sin->sin_family == AF_INET6)) {
-			inp6 = &((struct sockaddr_in6 *)sin)->sin6_addr;
-			if (!IN6_IS_ADDR_LINKLOCAL(inp6) &&
-			    !IN6_IS_ADDR_LOOPBACK(inp6))
+			ia6 = &((struct sockaddr_in6 *)sin)->sin6_addr;
+			if (!IN6_IS_ADDR_LINKLOCAL(ia6) &&
+			    !IN6_IS_ADDR_LOOPBACK(ia6))
 				break;
 		}
 #endif
@@ -1167,7 +1174,7 @@ ipf_checkv6sum(fin)
 size_t
 mbufchainlen(m0)
 	struct mbuf *m0;
-	{
+{
 	size_t len;
 
 	if ((m0->m_flags & M_PKTHDR) != 0) {
@@ -1318,66 +1325,76 @@ ipf_inject(fin, m)
 	return error;
 }
 
-int ipf_pfil_unhook(void) {
-	struct pfil_head *ph_inet;
-#ifdef USE_INET6
-	struct pfil_head *ph_inet6;
-#endif
+VNET_DEFINE_STATIC(pfil_hook_t, ipf_inet_hook);
+VNET_DEFINE_STATIC(pfil_hook_t, ipf_inet6_hook);
+#define	V_ipf_inet_hook		VNET(ipf_inet_hook)
+#define	V_ipf_inet6_hook	VNET(ipf_inet6_hook)
 
-	ph_inet = pfil_head_get(PFIL_TYPE_AF, AF_INET);
-	if (ph_inet != NULL)
-		pfil_remove_hook((void *)ipf_check_wrapper, NULL,
-		    PFIL_IN|PFIL_OUT|PFIL_WAITOK, ph_inet);
-# ifdef USE_INET6
-	ph_inet6 = pfil_head_get(PFIL_TYPE_AF, AF_INET6);
-	if (ph_inet6 != NULL)
-		pfil_remove_hook((void *)ipf_check_wrapper6, NULL,
-		    PFIL_IN|PFIL_OUT|PFIL_WAITOK, ph_inet6);
-# endif
+int ipf_pfil_unhook(void) {
+
+	pfil_remove_hook(V_ipf_inet_hook);
+
+#ifdef USE_INET6
+	pfil_remove_hook(V_ipf_inet6_hook);
+#endif
 
 	return (0);
 }
 
 int ipf_pfil_hook(void) {
-	struct pfil_head *ph_inet;
+	struct pfil_hook_args pha;
+	struct pfil_link_args pla;
+	int error, error6;
+
+	pha.pa_version = PFIL_VERSION;
+	pha.pa_flags = PFIL_IN | PFIL_OUT;
+	pha.pa_modname = "ipfilter";
+	pha.pa_rulname = "default-ip4";
+	pha.pa_func = ipf_check_wrapper;
+	pha.pa_ruleset = NULL;
+	pha.pa_type = PFIL_TYPE_IP4;
+	V_ipf_inet_hook = pfil_add_hook(&pha);
+
 #ifdef USE_INET6
-	struct pfil_head *ph_inet6;
+	pha.pa_rulname = "default-ip6";
+	pha.pa_func = ipf_check_wrapper6;
+	pha.pa_type = PFIL_TYPE_IP6;
+	V_ipf_inet6_hook = pfil_add_hook(&pha);
 #endif
 
-	ph_inet = pfil_head_get(PFIL_TYPE_AF, AF_INET);
-#    ifdef USE_INET6
-	ph_inet6 = pfil_head_get(PFIL_TYPE_AF, AF_INET6);
-#    endif
-	if (ph_inet == NULL
-#    ifdef USE_INET6
-	    && ph_inet6 == NULL
-#    endif
-	   ) {
-		return ENODEV;
-	}
+	pla.pa_version = PFIL_VERSION;
+	pla.pa_flags = PFIL_IN | PFIL_OUT |
+	    PFIL_HEADPTR | PFIL_HOOKPTR;
+	pla.pa_head = V_inet_pfil_head;
+	pla.pa_hook = V_ipf_inet_hook;
+	error = pfil_link(&pla);
 
-	if (ph_inet != NULL)
-		pfil_add_hook((void *)ipf_check_wrapper, NULL,
-		    PFIL_IN|PFIL_OUT|PFIL_WAITOK, ph_inet);
-#  ifdef USE_INET6
-	if (ph_inet6 != NULL)
-		pfil_add_hook((void *)ipf_check_wrapper6, NULL,
-				      PFIL_IN|PFIL_OUT|PFIL_WAITOK, ph_inet6);
-#  endif
-	return (0);
+	error6 = 0;
+#ifdef USE_INET6
+	pla.pa_head = V_inet6_pfil_head;
+	pla.pa_hook = V_ipf_inet6_hook;
+	error6 = pfil_link(&pla);
+#endif
+
+	if (error || error6)
+		error = ENODEV;
+	else
+		error = 0;
+
+	return (error);
 }
 
 void
 ipf_event_reg(void)
 {
-	ipf_arrivetag = EVENTHANDLER_REGISTER(ifnet_arrival_event, \
+	V_ipf_arrivetag = EVENTHANDLER_REGISTER(ifnet_arrival_event, \
 					       ipf_ifevent, NULL, \
 					       EVENTHANDLER_PRI_ANY);
-	ipf_departtag = EVENTHANDLER_REGISTER(ifnet_departure_event, \
+	V_ipf_departtag = EVENTHANDLER_REGISTER(ifnet_departure_event, \
 					       ipf_ifevent, NULL, \
 					       EVENTHANDLER_PRI_ANY);
 #if 0
-	ipf_clonetag  = EVENTHANDLER_REGISTER(if_clone_event, ipf_ifevent, \
+	V_ipf_clonetag  = EVENTHANDLER_REGISTER(if_clone_event, ipf_ifevent, \
 					       NULL, EVENTHANDLER_PRI_ANY);
 #endif
 }
@@ -1385,15 +1402,15 @@ ipf_event_reg(void)
 void
 ipf_event_dereg(void)
 {
-	if (ipf_arrivetag != NULL) {
-		EVENTHANDLER_DEREGISTER(ifnet_arrival_event, ipf_arrivetag);
+	if (V_ipf_arrivetag != NULL) {
+		EVENTHANDLER_DEREGISTER(ifnet_arrival_event, V_ipf_arrivetag);
 	}
-	if (ipf_departtag != NULL) {
-		EVENTHANDLER_DEREGISTER(ifnet_departure_event, ipf_departtag);
+	if (V_ipf_departtag != NULL) {
+		EVENTHANDLER_DEREGISTER(ifnet_departure_event, V_ipf_departtag);
 	}
 #if 0
-	if (ipf_clonetag != NULL) {
-		EVENTHANDLER_DEREGISTER(if_clone_event, ipf_clonetag);
+	if (V_ipf_clonetag != NULL) {
+		EVENTHANDLER_DEREGISTER(if_clone_event, V_ipf_clonetag);
 	}
 #endif
 }

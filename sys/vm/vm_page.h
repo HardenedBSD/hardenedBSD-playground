@@ -204,15 +204,14 @@ struct vm_page {
 	struct md_page md;		/* machine dependent stuff */
 	u_int wire_count;		/* wired down maps refs (P) */
 	volatile u_int busy_lock;	/* busy owners lock */
-	uint16_t hold_count;		/* page hold count (P) */
 	uint16_t flags;			/* page PG_* flags (P) */
+	uint8_t	order;			/* index of the buddy queue (F) */
+	uint8_t pool;			/* vm_phys freepool index (F) */
 	uint8_t aflags;			/* access is atomic */
 	uint8_t oflags;			/* page VPO_* flags (O) */
 	uint8_t queue;			/* page queue index (Q) */
 	int8_t psind;			/* pagesizes[] index (O) */
 	int8_t segind;			/* vm_phys segment index (C) */
-	uint8_t	order;			/* index of the buddy queue (F) */
-	uint8_t pool;			/* vm_phys freepool index (F) */
 	u_char	act_count;		/* page usage count (P) */
 	/* NOTE that these must support one bit per DEV_BSIZE in a page */
 	/* so, on normal X86 kernels, they must be at least 8 bits wide */
@@ -351,8 +350,10 @@ extern struct mtx_padalign pa_lock[];
  * queue, and cleared when the dequeue request is processed.  A page may
  * have PGA_DEQUEUE set and PGA_ENQUEUED cleared, for instance if a dequeue
  * is requested after the page is scheduled to be enqueued but before it is
- * actually inserted into the page queue.  The page lock must be held to set
- * this flag, and the queue lock for the page must be held to clear it.
+ * actually inserted into the page queue.  For allocated pages, the page lock
+ * must be held to set this flag, but it may be set by vm_page_free_prep()
+ * without the page lock held.  The page queue lock must be held to clear the
+ * PGA_DEQUEUE flag.
  *
  * PGA_REQUEUE is set when the page is scheduled to be enqueued or requeued
  * in its page queue.  The page lock must be held to set this flag, and the
@@ -376,12 +377,16 @@ extern struct mtx_padalign pa_lock[];
 /*
  * Page flags.  If changed at any other time than page allocation or
  * freeing, the modification must be protected by the vm_page lock.
+ *
+ * The PG_PCPU_CACHE flag is set at allocation time if the page was
+ * allocated from a per-CPU cache.  It is cleared the next time that the
+ * page is allocated from the physical memory allocator.
  */
+#define	PG_PCPU_CACHE	0x0001		/* was allocated from per-CPU caches */
 #define	PG_FICTITIOUS	0x0004		/* physical page doesn't exist */
 #define	PG_ZERO		0x0008		/* page is zeroed */
 #define	PG_MARKER	0x0010		/* special queue marker page */
 #define	PG_NODUMP	0x0080		/* don't include this page in a dump */
-#define	PG_UNHOLDFREE	0x0100		/* delayed free of a held page */
 
 /*
  * Misc constants.
@@ -509,8 +514,6 @@ malloc2vm_flags(int malloc_flags)
 void vm_page_busy_downgrade(vm_page_t m);
 void vm_page_busy_sleep(vm_page_t m, const char *msg, bool nonshared);
 void vm_page_flash(vm_page_t m);
-void vm_page_hold(vm_page_t mem);
-void vm_page_unhold(vm_page_t mem);
 void vm_page_free(vm_page_t m);
 void vm_page_free_zero(vm_page_t m);
 
@@ -559,8 +562,12 @@ bool vm_page_reclaim_contig(int req, u_long npages, vm_paddr_t low,
 bool vm_page_reclaim_contig_domain(int domain, int req, u_long npages,
     vm_paddr_t low, vm_paddr_t high, u_long alignment, vm_paddr_t boundary);
 void vm_page_reference(vm_page_t m);
-void vm_page_remove (vm_page_t);
-int vm_page_rename (vm_page_t, vm_object_t, vm_pindex_t);
+#define	VPR_TRYFREE	0x01
+#define	VPR_NOREUSE	0x02
+void vm_page_release(vm_page_t m, int flags);
+void vm_page_release_locked(vm_page_t m, int flags);
+bool vm_page_remove(vm_page_t);
+int vm_page_rename(vm_page_t, vm_object_t, vm_pindex_t);
 vm_page_t vm_page_replace(vm_page_t mnew, vm_object_t object,
     vm_pindex_t pindex);
 void vm_page_requeue(vm_page_t m);
@@ -571,7 +578,6 @@ void vm_page_set_valid_range(vm_page_t m, int base, int size);
 int vm_page_sleep_if_busy(vm_page_t m, const char *msg);
 vm_offset_t vm_page_startup(vm_offset_t vaddr);
 void vm_page_sunbusy(vm_page_t m);
-bool vm_page_try_to_free(vm_page_t m);
 int vm_page_trysbusy(vm_page_t m);
 void vm_page_unhold_pages(vm_page_t *ma, int count);
 void vm_page_unswappable(vm_page_t m);
@@ -809,15 +815,15 @@ vm_page_in_laundry(vm_page_t m)
 }
 
 /*
- *	vm_page_held:
+ *	vm_page_wired:
  *
  *	Return true if a reference prevents the page from being reclaimable.
  */
 static inline bool
-vm_page_held(vm_page_t m)
+vm_page_wired(vm_page_t m)
 {
 
-	return (m->hold_count > 0 || m->wire_count > 0);
+	return (m->wire_count > 0);
 }
 
 #endif				/* _KERNEL */

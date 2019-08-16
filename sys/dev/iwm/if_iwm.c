@@ -2211,7 +2211,8 @@ iwm_parse_nvm_data(struct iwm_softc *sc,
 	}
 
 	if (sc->cfg->device_family == IWM_DEVICE_FAMILY_7000) {
-		memcpy(data->nvm_ch_flags, &nvm_sw[IWM_NVM_CHANNELS],
+		memcpy(data->nvm_ch_flags, sc->cfg->nvm_type == IWM_NVM_SDP ?
+		    &regulatory[0] : &nvm_sw[IWM_NVM_CHANNELS],
 		    IWM_NUM_CHANNELS * sizeof(uint16_t));
 	} else {
 		memcpy(data->nvm_ch_flags, &regulatory[IWM_NVM_CHANNELS_8000],
@@ -2271,8 +2272,9 @@ iwm_parse_nvm_sections(struct iwm_softc *sc, struct iwm_nvm_section *sections)
 	sw = (const uint16_t *)sections[IWM_NVM_SECTION_TYPE_SW].data;
 	calib = (const uint16_t *)
 	    sections[IWM_NVM_SECTION_TYPE_CALIBRATION].data;
-	regulatory = (const uint16_t *)
-	    sections[IWM_NVM_SECTION_TYPE_REGULATORY].data;
+	regulatory = sc->cfg->nvm_type == IWM_NVM_SDP ?
+	    (const uint16_t *)sections[IWM_NVM_SECTION_TYPE_REGULATORY_SDP].data :
+	    (const uint16_t *)sections[IWM_NVM_SECTION_TYPE_REGULATORY].data;
 	mac_override = (const uint16_t *)
 	    sections[IWM_NVM_SECTION_TYPE_MAC_OVERRIDE].data;
 	phy_sku = (const uint16_t *)sections[IWM_NVM_SECTION_TYPE_PHY_SKU].data;
@@ -6328,12 +6330,9 @@ iwm_detach_local(struct iwm_softc *sc, int do_net80211)
 	if (!sc->sc_attached)
 		return 0;
 	sc->sc_attached = 0;
-
-	if (do_net80211)
+	if (do_net80211) {
 		ieee80211_draintask(&sc->sc_ic, &sc->sc_es_task);
-
-	callout_drain(&sc->sc_led_blink_to);
-	callout_drain(&sc->sc_watchdog_to);
+	}
 	iwm_stop_device(sc);
 	if (do_net80211) {
 		IWM_LOCK(sc);
@@ -6341,6 +6340,8 @@ iwm_detach_local(struct iwm_softc *sc, int do_net80211)
 		IWM_UNLOCK(sc);
 		ieee80211_ifdetach(&sc->sc_ic);
 	}
+	callout_drain(&sc->sc_led_blink_to);
+	callout_drain(&sc->sc_watchdog_to);
 
 	iwm_phy_db_free(sc->sc_phy_db);
 	sc->sc_phy_db = NULL;

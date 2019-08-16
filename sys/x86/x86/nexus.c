@@ -61,8 +61,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/rman.h>
 #include <sys/interrupt.h>
 
-#include <machine/vmparam.h>
+#include <machine/md_var.h>
 #include <vm/vm.h>
+#include <vm/vm_param.h>
+#include <vm/vm_page.h>
+#include <vm/vm_phys.h>
 #include <vm/pmap.h>
 
 #include <machine/metadata.h>
@@ -269,11 +272,7 @@ nexus_init_resources(void)
 		panic("nexus_init_resources port_rman");
 
 	mem_rman.rm_start = 0;
-#ifndef PAE
-	mem_rman.rm_end = BUS_SPACE_MAXADDR;
-#else
-	mem_rman.rm_end = ((1ULL << cpu_maxphyaddr) - 1);
-#endif
+	mem_rman.rm_end = cpu_getmaxphyaddr();
 	mem_rman.rm_type = RMAN_ARRAY;
 	mem_rman.rm_descr = "I/O memory addresses";
 	if (rman_init(&mem_rman)
@@ -325,7 +324,7 @@ nexus_print_child(device_t bus, device_t child)
 	retval += nexus_print_all_resources(child);
 	if (device_get_flags(child))
 		retval += printf(" flags %#x", device_get_flags(child));
-	retval += printf(" on motherboard\n");	/* XXX "motherboard", ick */
+	retval += printf("\n");
 
 	return (retval);
 }
@@ -787,6 +786,7 @@ ram_attach(device_t dev)
 {
 	struct bios_smap *smapbase, *smap, *smapend;
 	struct resource *res;
+	rman_res_t length;
 	vm_paddr_t *p;
 	caddr_t kmdp;
 	uint32_t smapsize;
@@ -807,16 +807,12 @@ ram_attach(device_t dev)
 			if (smap->type != SMAP_TYPE_MEMORY ||
 			    smap->length == 0)
 				continue;
-#ifdef __i386__
-			/*
-			 * Resources use long's to track resources, so
-			 * we can't include memory regions above 4GB.
-			 */
-			if (smap->base > ~0ul)
+			if (smap->base > mem_rman.rm_end)
 				continue;
-#endif
+			length = smap->base + smap->length > mem_rman.rm_end ?
+			    mem_rman.rm_end - smap->base : smap->length;
 			error = bus_set_resource(dev, SYS_RES_MEMORY, rid,
-			    smap->base, smap->length);
+			    smap->base, length);
 			if (error)
 				panic(
 				    "ram_attach: resource %d failed set with %d",
@@ -841,16 +837,12 @@ ram_attach(device_t dev)
 	 * segment is 0.
 	 */
 	for (rid = 0, p = dump_avail; p[1] != 0; rid++, p += 2) {
-#ifdef PAE
-		/*
-		 * Resources use long's to track resources, so we can't
-		 * include memory regions above 4GB.
-		 */
-		if (p[0] > ~0ul)
+		if (p[0] > mem_rman.rm_end)
 			break;
-#endif
+		length = (p[1] > mem_rman.rm_end ? mem_rman.rm_end : p[1]) -
+		    p[0];
 		error = bus_set_resource(dev, SYS_RES_MEMORY, rid, p[0],
-		    p[1] - p[0]);
+		    length);
 		if (error)
 			panic("ram_attach: resource %d failed set with %d", rid,
 			    error);

@@ -208,20 +208,14 @@ efi_create_1t1_map(struct efi_md *map, int ndesc, int descsz)
 			mode = VM_MEMATTR_WRITE_THROUGH;
 		else if ((p->md_attr & EFI_MD_ATTR_WC) != 0)
 			mode = VM_MEMATTR_WRITE_COMBINING;
-		else if ((p->md_attr & EFI_MD_ATTR_UC) != 0)
+		else
 			mode = VM_MEMATTR_DEVICE;
-		else {
-			if (bootverbose)
-				printf("EFI Runtime entry %d mapping "
-				    "attributes unsupported\n", i);
-			mode = VM_MEMATTR_UNCACHEABLE;
-		}
 
 		printf("MAP %lx mode %x pages %lu\n", p->md_phys, mode, p->md_pages);
 
 		l3_attr = ATTR_DEFAULT | ATTR_IDX(mode) | ATTR_AP(ATTR_AP_RW) |
 		    L3_PAGE;
-		if (mode == VM_MEMATTR_DEVICE)
+		if (mode == VM_MEMATTR_DEVICE || p->md_attr & EFI_MD_ATTR_XP)
 			l3_attr |= ATTR_UXN | ATTR_PXN;
 
 		VM_OBJECT_WLOCK(obj_1t1_pt);
@@ -245,6 +239,7 @@ efi_arch_enter(void)
 
 	__asm __volatile(
 	    "msr ttbr0_el1, %0	\n"
+	    "isb		\n"
 	    "dsb  ishst		\n"
 	    "tlbi vmalle1is	\n"
 	    "dsb  ish		\n"
@@ -259,9 +254,20 @@ efi_arch_leave(void)
 {
 	struct thread *td;
 
+	/*
+	 * Restore the pcpu pointer. Some UEFI implementations trash it and
+	 * we don't store it before calling into them. To fix this we need
+	 * to restore it after returning to the kernel context. As reading
+	 * curthread will access x18 we need to restore it before loading
+	 * the thread pointer.
+	 */
+	__asm __volatile(
+	    "mrs x18, tpidr_el1	\n"
+	);
 	td = curthread;
 	__asm __volatile(
 	    "msr ttbr0_el1, %0	\n"
+	    "isb		\n"
 	    "dsb  ishst		\n"
 	    "tlbi vmalle1is	\n"
 	    "dsb  ish		\n"

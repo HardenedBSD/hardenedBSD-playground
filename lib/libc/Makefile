@@ -6,8 +6,6 @@ SHLIBDIR?= /lib
 
 .include <src.opts.mk>
 
-# BIND_NOW in libc results in segfault at startup (PR 233333)
-MK_BIND_NOW=	no
 # Force building of libc_pic.a
 MK_TOOLCHAIN=	yes
 
@@ -122,6 +120,7 @@ NOASM=
 .endif
 .if ${LIBC_ARCH} == "i386" || ${LIBC_ARCH} == "amd64"
 .include "${LIBC_SRCTOP}/x86/sys/Makefile.inc"
+.include "${LIBC_SRCTOP}/x86/gen/Makefile.inc"
 .endif
 .if ${MK_NIS} != "no"
 CFLAGS+= -DYP

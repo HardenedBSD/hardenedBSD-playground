@@ -39,6 +39,7 @@
 #error "no assembler-serviceable parts inside"
 #endif
 
+#include <sys/param.h>
 #include <sys/_cpuset.h>
 #include <sys/_lock.h>
 #include <sys/_mutex.h>
@@ -84,7 +85,8 @@ extern uintptr_t dpcpu_off[];
 /* struct _hack is to stop this from being used with the static keyword. */
 #define	DPCPU_DEFINE(t, n)	\
     struct _hack; t DPCPU_NAME(n) __section(DPCPU_SETNAME) __used
-#if defined(KLD_MODULE) && (defined(__aarch64__) || defined(__riscv))
+#if defined(KLD_MODULE) && (defined(__aarch64__) || defined(__riscv) \
+		|| defined(__powerpc64__))
 /*
  * On some architectures the compiler will use PC-relative load to
  * find the address of DPCPU data with the static keyword. We then
@@ -178,6 +180,7 @@ struct pcpu {
 	struct thread	*pc_fpcurthread;	/* Fp state owner */
 	struct thread	*pc_deadthread;		/* Zombie thread or NULL */
 	struct pcb	*pc_curpcb;		/* Current pcb */
+	void		*pc_sched;		/* Scheduler state */
 	uint64_t	pc_switchtime;		/* cpu_ticks() at last csw */
 	int		pc_switchticks;		/* `ticks' at last csw */
 	u_int		pc_cpuid;		/* This cpu number */

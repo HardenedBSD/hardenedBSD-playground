@@ -49,9 +49,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/bio.h>
 #include <sys/ktr.h>
 #include <sys/proc.h>
+#include <sys/sbuf.h>
 #include <sys/stack.h>
 #include <sys/sysctl.h>
 #include <sys/vmem.h>
+#include <machine/stdarg.h>
 
 #include <sys/errno.h>
 #include <geom/geom.h>
@@ -155,7 +157,7 @@ g_new_bio(void)
 
 		CTR1(KTR_GEOM, "g_new_bio(): %p", bp);
 		stack_save(&st);
-		CTRSTACK(KTR_GEOM, &st, 3, 0);
+		CTRSTACK(KTR_GEOM, &st, 3);
 	}
 #endif
 	return (bp);
@@ -173,7 +175,7 @@ g_alloc_bio(void)
 
 		CTR1(KTR_GEOM, "g_alloc_bio(): %p", bp);
 		stack_save(&st);
-		CTRSTACK(KTR_GEOM, &st, 3, 0);
+		CTRSTACK(KTR_GEOM, &st, 3);
 	}
 #endif
 	return (bp);
@@ -188,7 +190,7 @@ g_destroy_bio(struct bio *bp)
 
 		CTR1(KTR_GEOM, "g_destroy_bio(): %p", bp);
 		stack_save(&st);
-		CTRSTACK(KTR_GEOM, &st, 3, 0);
+		CTRSTACK(KTR_GEOM, &st, 3);
 	}
 #endif
 	uma_zfree(biozone, bp);
@@ -236,7 +238,7 @@ g_clone_bio(struct bio *bp)
 
 		CTR2(KTR_GEOM, "g_clone_bio(%p): %p", bp, bp2);
 		stack_save(&st);
-		CTRSTACK(KTR_GEOM, &st, 3, 0);
+		CTRSTACK(KTR_GEOM, &st, 3);
 	}
 #endif
 	return(bp2);
@@ -265,7 +267,7 @@ g_duplicate_bio(struct bio *bp)
 
 		CTR2(KTR_GEOM, "g_duplicate_bio(%p): %p", bp, bp2);
 		stack_save(&st);
-		CTRSTACK(KTR_GEOM, &st, 3, 0);
+		CTRSTACK(KTR_GEOM, &st, 3);
 	}
 #endif
 	return(bp2);
@@ -1029,7 +1031,36 @@ g_delete_data(struct g_consumer *cp, off_t offset, off_t length)
 }
 
 void
-g_print_bio(struct bio *bp)
+g_print_bio(const char *prefix, const struct bio *bp, const char *fmtsuffix,
+    ...)
+{
+#ifndef PRINTF_BUFR_SIZE
+#define PRINTF_BUFR_SIZE 64
+#endif
+	char bufr[PRINTF_BUFR_SIZE];
+	struct sbuf sb, *sbp __unused;
+	va_list ap;
+
+	sbp = sbuf_new(&sb, bufr, sizeof(bufr), SBUF_FIXEDLEN);
+	KASSERT(sbp != NULL, ("sbuf_new misused?"));
+
+	sbuf_set_drain(&sb, sbuf_printf_drain, NULL);
+
+	sbuf_cat(&sb, prefix);
+	g_format_bio(&sb, bp);
+
+	va_start(ap, fmtsuffix);
+	sbuf_vprintf(&sb, fmtsuffix, ap);
+	va_end(ap);
+
+	sbuf_nl_terminate(&sb);
+
+	sbuf_finish(&sb);
+	sbuf_delete(&sb);
+}
+
+void
+g_format_bio(struct sbuf *sb, const struct bio *bp)
 {
 	const char *pname, *cmd = NULL;
 
@@ -1041,11 +1072,12 @@ g_print_bio(struct bio *bp)
 	switch (bp->bio_cmd) {
 	case BIO_GETATTR:
 		cmd = "GETATTR";
-		printf("%s[%s(attr=%s)]", pname, cmd, bp->bio_attribute);
+		sbuf_printf(sb, "%s[%s(attr=%s)]", pname, cmd,
+		    bp->bio_attribute);
 		return;
 	case BIO_FLUSH:
 		cmd = "FLUSH";
-		printf("%s[%s]", pname, cmd);
+		sbuf_printf(sb, "%s[%s]", pname, cmd);
 		return;
 	case BIO_ZONE: {
 		char *subcmd = NULL;
@@ -1073,7 +1105,7 @@ g_print_bio(struct bio *bp)
 			subcmd = "UNKNOWN";
 			break;
 		}
-		printf("%s[%s,%s]", pname, cmd, subcmd);
+		sbuf_printf(sb, "%s[%s,%s]", pname, cmd, subcmd);
 		return;
 	}
 	case BIO_READ:
@@ -1087,9 +1119,9 @@ g_print_bio(struct bio *bp)
 		break;
 	default:
 		cmd = "UNKNOWN";
-		printf("%s[%s()]", pname, cmd);
+		sbuf_printf(sb, "%s[%s()]", pname, cmd);
 		return;
 	}
-	printf("%s[%s(offset=%jd, length=%jd)]", pname, cmd,
+	sbuf_printf(sb, "%s[%s(offset=%jd, length=%jd)]", pname, cmd,
 	    (intmax_t)bp->bio_offset, (intmax_t)bp->bio_length);
 }

@@ -75,6 +75,9 @@
 #define ISCI_NUM_PCI_BARS  2
 #define ISCI_MAX_LUN		 8
 
+/* This device cannot DMA across a 4GB boundary */
+#define	ISCI_DMA_BOUNDARY		((bus_addr_t)((uint64_t)1 << 32))
+
 MALLOC_DECLARE(M_ISCI);
 
 struct ISCI_TIMER {
@@ -253,7 +256,8 @@ struct isci_softc {
 
 int isci_allocate_resources(device_t device);
 
-int isci_allocate_dma_buffer(device_t device, struct ISCI_MEMORY *memory);
+int isci_allocate_dma_buffer(device_t device, struct ISCI_CONTROLLER *lock,
+    struct ISCI_MEMORY *memory);
 
 void isci_remote_device_reset(struct ISCI_REMOTE_DEVICE *remote_device,
     union ccb *ccb);

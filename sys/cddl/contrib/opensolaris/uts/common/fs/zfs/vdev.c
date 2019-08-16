@@ -165,29 +165,38 @@ static vdev_ops_t *vdev_ops_table[] = {
 
 /* target number of metaslabs per top-level vdev */
 int vdev_max_ms_count = 200;
-SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, max_ms_count, CTLFLAG_RDTUN,
+SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, max_ms_count, CTLFLAG_RWTUN,
     &vdev_max_ms_count, 0,
-    "Maximum number of metaslabs per top-level vdev");
+    "Target number of metaslabs per top-level vdev");
 
 /* minimum number of metaslabs per top-level vdev */
 int vdev_min_ms_count = 16;
-SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, min_ms_count, CTLFLAG_RDTUN,
+SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, min_ms_count, CTLFLAG_RWTUN,
     &vdev_min_ms_count, 0,
     "Minimum number of metaslabs per top-level vdev");
 
 /* practical upper limit of total metaslabs per top-level vdev */
 int vdev_ms_count_limit = 1ULL << 17;
+SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, max_ms_count_limit, CTLFLAG_RWTUN,
+    &vdev_ms_count_limit, 0,
+    "Maximum number of metaslabs per top-level vdev");
 
 /* lower limit for metaslab size (512M) */
 int vdev_default_ms_shift = 29;
-SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, default_ms_shift, CTLFLAG_RDTUN,
+SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, default_ms_shift, CTLFLAG_RWTUN,
     &vdev_default_ms_shift, 0,
-    "Shift between vdev size and number of metaslabs");
+    "Default shift between vdev size and number of metaslabs");
 
 /* upper limit for metaslab size (256G) */
 int vdev_max_ms_shift = 38;
+SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, max_ms_shift, CTLFLAG_RWTUN,
+    &vdev_max_ms_shift, 0,
+    "Maximum shift between vdev size and number of metaslabs");
 
 boolean_t vdev_validate_skip = B_FALSE;
+SYSCTL_INT(_vfs_zfs_vdev, OID_AUTO, validate_skip, CTLFLAG_RWTUN,
+    &vdev_validate_skip, 0,
+    "Bypass vdev validation");
 
 /*
  * Since the DTL space map of a vdev is not expected to have a lot of
@@ -207,6 +216,15 @@ int vdev_standard_sm_blksz = (1 << 17);
 SYSCTL_INT(_vfs_zfs, OID_AUTO, standard_sm_blksz, CTLFLAG_RDTUN,
     &vdev_standard_sm_blksz, 0,
     "Block size for standard space map.  Power of 2 and greater than 4096.");
+
+/*
+ * Tunable parameter for debugging or performance analysis. Setting this
+ * will cause pool corruption on power loss if a volatile out-of-order
+ * write cache is enabled.
+ */
+boolean_t zfs_nocacheflush = B_FALSE;
+SYSCTL_INT(_vfs_zfs, OID_AUTO, cache_flush_disable, CTLFLAG_RWTUN,
+    &zfs_nocacheflush, 0, "Disable cache flush");
 
 /*PRINTFLIKE2*/
 void
@@ -1467,15 +1485,19 @@ vdev_open_children(vdev_t *vd)
 	taskq_t *tq;
 	int children = vd->vdev_children;
 
+	vd->vdev_nonrot = B_TRUE;
+
 	/*
 	 * in order to handle pools on top of zvols, do the opens
 	 * in a single thread so that the same thread holds the
 	 * spa_namespace_lock
 	 */
 	if (B_TRUE || vdev_uses_zvols(vd)) {
-		for (int c = 0; c < children; c++)
+		for (int c = 0; c < children; c++) {
 			vd->vdev_child[c]->vdev_open_error =
 			    vdev_open(vd->vdev_child[c]);
+			vd->vdev_nonrot &= vd->vdev_child[c]->vdev_nonrot;
+		}
 		return;
 	}
 	tq = taskq_create("vdev_open", children, minclsyspri,
@@ -1486,6 +1508,9 @@ vdev_open_children(vdev_t *vd)
 		    TQ_SLEEP) != 0);
 
 	taskq_destroy(tq);
+
+	for (int c = 0; c < children; c++)
+		vd->vdev_nonrot &= vd->vdev_child[c]->vdev_nonrot;
 }
 
 /*
@@ -3015,11 +3040,11 @@ vdev_destroy_spacemaps(vdev_t *vd, dmu_tx_t *tx)
 }
 
 static void
-vdev_remove_empty(vdev_t *vd, uint64_t txg)
+vdev_remove_empty_log(vdev_t *vd, uint64_t txg)
 {
 	spa_t *spa = vd->vdev_spa;
-	dmu_tx_t *tx;
 
+	ASSERT(vd->vdev_islog);
 	ASSERT(vd == vd->vdev_top);
 	ASSERT3U(txg, ==, spa_syncing_txg(spa));
 
@@ -3063,13 +3088,14 @@ vdev_remove_empty(vdev_t *vd, uint64_t txg)
 			ASSERT0(mg->mg_histogram[i]);
 	}
 
-	tx = dmu_tx_create_assigned(spa_get_dsl(spa), txg);
-	vdev_destroy_spacemaps(vd, tx);
+	dmu_tx_t *tx = dmu_tx_create_assigned(spa_get_dsl(spa), txg);
 
-	if (vd->vdev_islog && vd->vdev_top_zap != 0) {
+	vdev_destroy_spacemaps(vd, tx);
+	if (vd->vdev_top_zap != 0) {
 		vdev_destroy_unlink_zap(vd, vd->vdev_top_zap, tx);
 		vd->vdev_top_zap = 0;
 	}
+
 	dmu_tx_commit(tx);
 }
 
@@ -3141,14 +3167,11 @@ vdev_sync(vdev_t *vd, uint64_t txg)
 		vdev_dtl_sync(lvd, txg);
 
 	/*
-	 * Remove the metadata associated with this vdev once it's empty.
-	 * Note that this is typically used for log/cache device removal;
-	 * we don't empty toplevel vdevs when removing them.  But if
-	 * a toplevel happens to be emptied, this is not harmful.
+	 * If this is an empty log device being removed, destroy the
+	 * metadata associated with it.
 	 */
-	if (vd->vdev_stat.vs_alloc == 0 && vd->vdev_removing) {
-		vdev_remove_empty(vd, txg);
-	}
+	if (vd->vdev_islog && vd->vdev_stat.vs_alloc == 0 && vd->vdev_removing)
+		vdev_remove_empty_log(vd, txg);
 
 	(void) txg_list_add(&spa->spa_vdev_txg_list, vd, TXG_CLEAN(txg));
 }

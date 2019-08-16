@@ -111,6 +111,10 @@ VNET_DEFINE(u_int32_t, ip6_temp_valid_lifetime) = DEF_TEMP_VALID_LIFETIME;
 
 VNET_DEFINE(int, ip6_temp_regen_advance) = TEMPADDR_REGEN_ADVANCE;
 
+#ifdef EXPERIMENTAL
+VNET_DEFINE(int, nd6_ignore_ipv6_only_ra) = 1;
+#endif
+
 /* RTPREF_MEDIUM has to be 0! */
 #define RTPREF_HIGH	1
 #define RTPREF_MEDIUM	0
@@ -213,7 +217,7 @@ nd6_rs_input(struct mbuf *m, int off, int icmp6len)
 /*
  * An initial update routine for draft-ietf-6man-ipv6only-flag.
  * We need to iterate over all default routers for the given
- * interface to see whether they are all advertising the "6"
+ * interface to see whether they are all advertising the "S"
  * (IPv6-Only) flag.  If they do set, otherwise unset, the
  * interface flag we later use to filter on.
  */
@@ -221,7 +225,15 @@ static void
 defrtr_ipv6_only_ifp(struct ifnet *ifp)
 {
 	struct nd_defrouter *dr;
-	bool ipv6_only;
+	bool ipv6_only, ipv6_only_old;
+#ifdef INET
+	struct epoch_tracker et;
+	struct ifaddr *ifa;
+	bool has_ipv4_addr;
+#endif
+
+	if (V_nd6_ignore_ipv6_only_ra != 0)
+		return;
 
 	ipv6_only = true;
 	ND6_RLOCK();
@@ -232,13 +244,78 @@ defrtr_ipv6_only_ifp(struct ifnet *ifp)
 	ND6_RUNLOCK();
 
 	IF_AFDATA_WLOCK(ifp);
+	ipv6_only_old = ND_IFINFO(ifp)->flags & ND6_IFF_IPV6_ONLY;
+	IF_AFDATA_WUNLOCK(ifp);
+
+	/* If nothing changed, we have an early exit. */
+	if (ipv6_only == ipv6_only_old)
+		return;
+
+#ifdef INET
+	/*
+	 * Should we want to set the IPV6-ONLY flag, check if the
+	 * interface has a non-0/0 and non-link-local IPv4 address
+	 * configured on it.  If it has we will assume working
+	 * IPv4 operations and will clear the interface flag.
+	 */
+	has_ipv4_addr = false;
+	if (ipv6_only) {
+		NET_EPOCH_ENTER(et);
+		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+			if (ifa->ifa_addr->sa_family != AF_INET)
+				continue;
+			if (in_canforward(
+			    satosin(ifa->ifa_addr)->sin_addr)) {
+				has_ipv4_addr = true;
+				break;
+			}
+		}
+		NET_EPOCH_EXIT(et);
+	}
+	if (ipv6_only && has_ipv4_addr) {
+		log(LOG_NOTICE, "%s rcvd RA w/ IPv6-Only flag set but has IPv4 "
+		    "configured, ignoring IPv6-Only flag.\n", ifp->if_xname);
+		ipv6_only = false;
+	}
+#endif
+
+	IF_AFDATA_WLOCK(ifp);
 	if (ipv6_only)
 		ND_IFINFO(ifp)->flags |= ND6_IFF_IPV6_ONLY;
 	else
 		ND_IFINFO(ifp)->flags &= ~ND6_IFF_IPV6_ONLY;
 	IF_AFDATA_WUNLOCK(ifp);
-}
+
+#ifdef notyet
+	/* Send notification of flag change. */
 #endif
+}
+
+static void
+defrtr_ipv6_only_ipf_down(struct ifnet *ifp)
+{
+
+	IF_AFDATA_WLOCK(ifp);
+	ND_IFINFO(ifp)->flags &= ~ND6_IFF_IPV6_ONLY;
+	IF_AFDATA_WUNLOCK(ifp);
+}
+#endif	/* EXPERIMENTAL */
+
+void
+nd6_ifnet_link_event(void *arg __unused, struct ifnet *ifp, int linkstate)
+{
+
+	/*
+	 * XXX-BZ we might want to trigger re-evaluation of our default router
+	 * availability. E.g., on link down the default router might be
+	 * unreachable but a different interface might still have connectivity.
+	 */
+
+#ifdef EXPERIMENTAL
+	if (linkstate == LINK_STATE_DOWN)
+		defrtr_ipv6_only_ipf_down(ifp);
+#endif
+}
 
 /*
  * Receive Router Advertisement Message.
@@ -1822,8 +1899,7 @@ restart:
 static int
 nd6_prefix_onlink_rtrequest(struct nd_prefix *pr, struct ifaddr *ifa)
 {
-	static struct sockaddr_dl null_sdl = {sizeof(null_sdl), AF_LINK};
-	struct rib_head *rnh;
+	struct sockaddr_dl sdl;
 	struct rtentry *rt;
 	struct sockaddr_in6 mask6;
 	u_long rtflags;
@@ -1838,6 +1914,12 @@ nd6_prefix_onlink_rtrequest(struct nd_prefix *pr, struct ifaddr *ifa)
 	mask6.sin6_addr = pr->ndpr_mask;
 	rtflags = (ifa->ifa_flags & ~IFA_RTSELF) | RTF_UP;
 
+	bzero(&sdl, sizeof(struct sockaddr_dl));
+	sdl.sdl_len = sizeof(struct sockaddr_dl);
+	sdl.sdl_family = AF_LINK;
+	sdl.sdl_type = ifa->ifa_ifp->if_type;
+	sdl.sdl_index = ifa->ifa_ifp->if_index;
+
 	if(V_rt_add_addr_allfibs) {
 		fibnum = 0;
 		maxfib = rt_numfibs;
@@ -1850,26 +1932,13 @@ nd6_prefix_onlink_rtrequest(struct nd_prefix *pr, struct ifaddr *ifa)
 
 		rt = NULL;
 		error = in6_rtrequest(RTM_ADD,
-		    (struct sockaddr *)&pr->ndpr_prefix, ifa->ifa_addr,
+		    (struct sockaddr *)&pr->ndpr_prefix, (struct sockaddr *)&sdl,
 		    (struct sockaddr *)&mask6, rtflags, &rt, fibnum);
 		if (error == 0) {
 			KASSERT(rt != NULL, ("%s: in6_rtrequest return no "
 			    "error(%d) but rt is NULL, pr=%p, ifa=%p", __func__,
 			    error, pr, ifa));
-
-			rnh = rt_tables_get_rnh(rt->rt_fibnum, AF_INET6);
-			/* XXX what if rhn == NULL? */
-			RIB_WLOCK(rnh);
 			RT_LOCK(rt);
-			if (rt_setgate(rt, rt_key(rt),
-			    (struct sockaddr *)&null_sdl) == 0) {
-				struct sockaddr_dl *dl;
-
-				dl = (struct sockaddr_dl *)rt->rt_gateway;
-				dl->sdl_type = rt->rt_ifp->if_type;
-				dl->sdl_index = rt->rt_ifp->if_index;
-			}
-			RIB_WUNLOCK(rnh);
 			nd6_rtmsg(RTM_ADD, rt);
 			RT_UNLOCK(rt);
 			pr->ndpr_stateflags |= NDPRF_ONLINK;

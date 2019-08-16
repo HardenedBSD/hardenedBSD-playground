@@ -48,6 +48,9 @@ SRCS+=		utility.cpp
 SRCS+=		valarray.cpp
 SRCS+=		variant.cpp
 SRCS+=		vector.cpp
+SRCS+=		filesystem/directory_iterator.cpp
+SRCS+=		filesystem/int128_builtins.cpp
+SRCS+=		filesystem/operations.cpp
 
 CXXRT_SRCS+=	auxhelper.cc
 CXXRT_SRCS+=	dynamic_cast.cc
@@ -73,9 +76,7 @@ CFLAGS+=	-nostdinc++
 CFLAGS+=	-nostdlib
 CFLAGS+=	-D_LIBCPP_BUILDING_LIBRARY
 CFLAGS+=	-DLIBCXXRT
-.if empty(CXXFLAGS:M-std=*)
-CXXFLAGS+=	-std=c++11
-.endif
+CXXSTD?=	c++11
 
 LIBADD+=	cxxrt
 INCSGROUPS=	STD EXP EXT
@@ -107,6 +108,7 @@ STD_HEADERS+=	algorithm
 STD_HEADERS+=	any
 STD_HEADERS+=	array
 STD_HEADERS+=	atomic
+STD_HEADERS+=	bit
 STD_HEADERS+=	bitset
 STD_HEADERS+=	cassert
 STD_HEADERS+=	ccomplex
@@ -230,7 +232,6 @@ EXP_HEADERS+=	any
 EXP_HEADERS+=	chrono
 EXP_HEADERS+=	coroutine
 EXP_HEADERS+=	deque
-EXP_HEADERS+=	dynarray
 EXP_HEADERS+=	filesystem
 EXP_HEADERS+=	forward_list
 EXP_HEADERS+=	functional

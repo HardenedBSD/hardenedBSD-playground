@@ -40,12 +40,14 @@ __FBSDID("$FreeBSD$");
 #include "opt_ddb.h"
 
 #include <sys/param.h>
+#include <sys/gsb_crc32.h>
 #include <sys/systm.h>
 #include <sys/namei.h>
 #include <sys/priv.h>
 #include <sys/proc.h>
 #include <sys/taskqueue.h>
 #include <sys/kernel.h>
+#include <sys/ktr.h>
 #include <sys/vnode.h>
 #include <sys/mount.h>
 #include <sys/bio.h>
@@ -143,7 +145,7 @@ static struct buf_ops ffs_ops = {
 static const char *ffs_opts[] = { "acls", "async", "noatime", "noclusterr",
     "noclusterw", "noexec", "export", "force", "from", "groupquota",
     "multilabel", "nfsv4acls", "fsckpid", "snapshot", "nosuid", "suiddir",
-    "nosymfollow", "sync", "union", "userquota", NULL };
+    "nosymfollow", "sync", "union", "userquota", "untrusted", NULL };
 
 static int
 ffs_mount(struct mount *mp)
@@ -154,7 +156,7 @@ ffs_mount(struct mount *mp)
 	struct fs *fs;
 	pid_t fsckpid = 0;
 	int error, error1, flags;
-	uint64_t mntorflags;
+	uint64_t mntorflags, saved_mnt_flag;
 	accmode_t accmode;
 	struct nameidata ndp;
 	char *fspec;
@@ -182,6 +184,9 @@ ffs_mount(struct mount *mp)
 		return (error);
 
 	mntorflags = 0;
+	if (vfs_getopt(mp->mnt_optnew, "untrusted", NULL, NULL) == 0)
+		mntorflags |= MNT_UNTRUSTED;
+
 	if (vfs_getopt(mp->mnt_optnew, "acls", NULL, NULL) == 0)
 		mntorflags |= MNT_ACLS;
 
@@ -371,25 +376,40 @@ ffs_mount(struct mount *mp)
 				return (error);
 			if ((error = vn_start_write(NULL, &mp, V_WAIT)) != 0)
 				return (error);
+			error = vfs_write_suspend_umnt(mp);
+			if (error != 0)
+				return (error);
 			fs->fs_ronly = 0;
 			MNT_ILOCK(mp);
-			mp->mnt_flag &= ~MNT_RDONLY;
+			saved_mnt_flag = MNT_RDONLY;
+			if (MOUNTEDSOFTDEP(mp) && (mp->mnt_flag &
+			    MNT_ASYNC) != 0)
+				saved_mnt_flag |= MNT_ASYNC;
+			mp->mnt_flag &= ~saved_mnt_flag;
 			MNT_IUNLOCK(mp);
 			fs->fs_mtime = time_second;
 			/* check to see if we need to start softdep */
 			if ((fs->fs_flags & FS_DOSOFTDEP) &&
 			    (error = softdep_mount(devvp, mp, fs, td->td_ucred))){
-				vn_finished_write(mp);
+				fs->fs_ronly = 1;
+				MNT_ILOCK(mp);
+				mp->mnt_flag |= saved_mnt_flag;
+				MNT_IUNLOCK(mp);
+				vfs_write_resume(mp, 0);
 				return (error);
 			}
 			fs->fs_clean = 0;
 			if ((error = ffs_sbupdate(ump, MNT_WAIT, 0)) != 0) {
-				vn_finished_write(mp);
+				fs->fs_ronly = 1;
+				MNT_ILOCK(mp);
+				mp->mnt_flag |= saved_mnt_flag;
+				MNT_IUNLOCK(mp);
+				vfs_write_resume(mp, 0);
 				return (error);
 			}
 			if (fs->fs_snapinum[0] != 0)
 				ffs_snapshot_mount(mp);
-			vn_finished_write(mp);
+			vfs_write_resume(mp, 0);
 		}
 		/*
 		 * Soft updates is incompatible with "async",
@@ -899,6 +919,10 @@ ffs_mountfs(devvp, mp, td)
 	ump->um_ifree = ffs_ifree;
 	ump->um_rdonly = ffs_rdonly;
 	ump->um_snapgone = ffs_snapgone;
+	if ((mp->mnt_flag & MNT_UNTRUSTED) != 0)
+		ump->um_check_blkno = ffs_check_blkno;
+	else
+		ump->um_check_blkno = NULL;
 	mtx_init(UFS_MTX(ump), "FFS", "FFS Lock", MTX_DEF);
 	ffs_oldfscompat_read(fs, ump, fs->fs_sblockloc);
 	fs->fs_ronly = ronly;
@@ -1974,7 +1998,13 @@ ffs_use_bwrite(void *devfd, off_t loc, void *buf, int size)
 	if (MOUNTEDSOFTDEP(ump->um_mountp))
 		softdep_setup_sbupdate(ump, (struct fs *)bp->b_data, bp);
 	bcopy((caddr_t)fs, bp->b_data, (u_int)fs->fs_sbsize);
-	ffs_oldfscompat_write((struct fs *)bp->b_data, ump);
+	fs = (struct fs *)bp->b_data;
+	ffs_oldfscompat_write(fs, ump);
+	/*
+	 * Because we may have made changes to the superblock, we need to
+	 * recompute its check-hash.
+	 */
+	fs->fs_ckhash = ffs_calc_sbhash(fs);
 	if (devfdp->suspended)
 		bp->b_flags |= B_VALIDSUSPWRT;
 	if (devfdp->waitfor != MNT_WAIT)

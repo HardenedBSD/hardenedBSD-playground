@@ -26,7 +26,7 @@ linux_start()
 	local _tmpdir
 
 	echo -n ' linux'
-	load_kld -e 'linuxelf' linux
+	load_kld -e 'linux(aout|elf)' linux
 	case `sysctl -n hw.machine_arch` in
 	amd64)
 		load_kld -e 'linux64elf' linux64

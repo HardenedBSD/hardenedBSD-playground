@@ -27,11 +27,12 @@ __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/kernel.h>
-#include <sys/systm.h>
+#include <sys/lock.h>
 #include <sys/module.h>
-#include <sys/types.h>
+#include <sys/mutex.h>
 #include <sys/proc.h>
 #include <sys/sysctl.h>
+#include <sys/systm.h>
 
 #include <vm/vm.h>
 #include <vm/pmap.h>
@@ -91,37 +92,34 @@ const char *opal_sensor_types[] = {
  * Retrieve the raw value from OPAL.  This will be cooked by the sysctl handler.
  */
 static int
-opal_sensor_get_val(uint32_t key, uint64_t *val)
+opal_sensor_get_val(struct opal_sensor_softc *sc, uint32_t key, uint64_t *val)
 {
 	struct opal_msg msg;
 	uint32_t val32;
-	int i, rv;
+	int rv, token;
 
-	rv = opal_call(OPAL_SENSOR_READ, key, key, vtophys(&val32));
+	token = opal_alloc_async_token();
+	SENSOR_LOCK(sc);
+	rv = opal_call(OPAL_SENSOR_READ, key, token, vtophys(&val32));
 
 	if (rv == OPAL_ASYNC_COMPLETION) {
 		/* Sleep a little to let things settle. */
 		DELAY(100);
 		bzero(&msg, sizeof(msg));
-		i = 0;
-		do {
-			rv = opal_call(OPAL_CHECK_ASYNC_COMPLETION,
-			    vtophys(&msg), sizeof(msg), key);
-			/* Sleep for ~100us if necessary. */
-			if (rv == OPAL_BUSY)
-				DELAY(100);
-		} while (rv == OPAL_BUSY && ++i < 10);
-		if (rv != OPAL_SUCCESS)
-			return (EIO);
-		val32 = msg.params[0];
+		rv = opal_wait_completion(&msg, sizeof(msg), token);
+
+		if (rv == OPAL_SUCCESS)
+			val32 = msg.params[0];
 	}
+	SENSOR_UNLOCK(sc);
 
-	if (rv != OPAL_SUCCESS)
-		return (EIO);
-
-	*val = val32;
+	if (rv == OPAL_SUCCESS)
+		*val = val32;
+	else
+		rv = EIO;
 	
-	return (0);
+	opal_free_async_token(token);
+	return (rv);
 }
 
 static int
@@ -135,9 +133,7 @@ opal_sensor_sysctl(SYSCTL_HANDLER_ARGS)
 	sc = arg1;
 	sensor = arg2;
 
-	SENSOR_LOCK(sc);
-	error = opal_sensor_get_val(sensor, &sensval);
-	SENSOR_UNLOCK(sc);
+	error = opal_sensor_get_val(sc, sensor, &sensval);
 
 	if (error)
 		return (error);

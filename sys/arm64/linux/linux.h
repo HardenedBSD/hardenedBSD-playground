@@ -34,14 +34,6 @@
 #include <compat/linux/linux.h>
 #include <arm64/linux/linux_syscall.h>
 
-/* Debugging support */
-#define DEBUG
-extern u_char linux_debug_map[];
-#define	ldebug(name)	isclr(linux_debug_map, LINUX_SYS_linux_ ## name)
-#define	ARGS(nm, fmt)	"linux(%ld/%ld): "#nm"("fmt")\n",			\
-			(long)td->td_proc->p_pid, (long)td->td_tid
-#define	LMSG(fmt)	"linux(%ld/%ld): "fmt"\n",				\
-			(long)td->td_proc->p_pid, (long)td->td_tid
 #define	LINUX_DTRACE	linuxulator
 
 #define	PTRIN(v)	(void *)(v)
@@ -264,11 +256,6 @@ union l_semun {
 	l_uintptr_t	__pad;
 };
 
-struct l_sockaddr {
-	l_ushort	sa_family;
-	char		sa_data[14];
-};
-
 struct l_ifmap {
 	l_ulong		mem_start;
 	l_ulong		mem_end;
@@ -277,9 +264,6 @@ struct l_ifmap {
 	u_char		dma;
 	u_char		port;
 } __packed;
-
-#define	LINUX_IFHWADDRLEN	6
-#define	LINUX_IFNAMSIZ		16
 
 struct l_ifreq {
 	union {

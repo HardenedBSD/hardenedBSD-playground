@@ -16,9 +16,7 @@ CONFS=	DAEMON \
 	adjkerntz \
 	bgfsck \
 	${_blacklistd} \
-	${_bluetooth} \
 	bridge \
-	${_bthidd} \
 	cfumass \
 	cleanvar \
 	cleartmp \
@@ -39,16 +37,11 @@ CONFS=	DAEMON \
 	gptboot \
 	growfs \
 	gssd \
-	${_hcsecd} \
 	hostid \
 	hostid_save \
 	hostname \
 	iovctl \
 	ip6addrctl \
-	ipfilter \
-	ipfs \
-	ipmon \
-	ipnat \
 	ipsec \
 	${_kadmind} \
 	${_kdc} \
@@ -114,7 +107,6 @@ CONFS=	DAEMON \
 	sysctl \
 	syslogd \
 	tmp \
-	${_ubthidhci} \
 	ugidfw \
 	${_utx} \
 	var \
@@ -178,12 +170,14 @@ _blacklistd+=	blacklistd
 .endif
 
 .if ${MK_BLUETOOTH} != "no"
-_bluetooth=	bluetooth
-_bthidd=	bthidd
-_hcsecd=	hcsecd
-CONFS+=		rfcomm_pppd_server
-CONFS+=		sdpd
-_ubthidhci=	ubthidhci
+CONFGROUPS+=	BLUETOOTH
+BLUETOOTH+=	bluetooth \
+		bthidd \
+		hcsecd \
+		rfcomm_pppd_server \
+		sdpd \
+		ubthidhci
+BLUETOOTHPACKAGE=	bluetooth
 .endif
 
 .if ${MK_BOOTPARAMD} != "no"
@@ -212,6 +206,14 @@ HASTPACKAGE=	hast
 
 .if ${MK_INETD} != "no"
 CONFS+=		inetd
+.endif
+
+.if ${MK_IPFILTER} != "no"
+CONFS+=	ipfilter \
+	ipfs \
+	ipmon \
+	ipnat \
+	ippool
 .endif
 
 .if ${MK_IPFW} != "no"
@@ -326,9 +328,6 @@ ZFS+=		zfsbe
 ZFS+=		zfsd
 ZFS+=		zvol
 ZFSPACKAGE=	zfs
-DIRS+=	ETC_ZFS
-ETC_ZFS=	/etc/zfs
-ETC_ZFSPACKAGE=	zfs
 .endif
 
 .for fg in ${CONFGROUPS}

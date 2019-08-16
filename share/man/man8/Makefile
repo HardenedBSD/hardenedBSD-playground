@@ -3,8 +3,6 @@
 
 .include <src.opts.mk>
 
-PACKAGE=runtime-manuals
-
 MAN=	\
 	beinstall.8 \
 	crash.8 \
@@ -26,6 +24,7 @@ MLINKS= \
 	rc.8 rc.local.8 \
 	rc.8 rc.network.8 \
 	rc.8 rc.pccard.8 \
+	rc.8 rc.resume.8 \
 	rc.8 rc.serial.8 \
 	rc.8 rc.shutdown.8
 

@@ -2042,6 +2042,12 @@ kern_kmq_open(struct thread *td, const char *upath, int flags, mode_t mode,
 	len = strlen(path);
 	if (len < 2 || path[0] != '/' || strchr(path + 1, '/') != NULL)
 		return (EINVAL);
+	/*
+	 * "." and ".." are magic directories, populated on the fly, and cannot
+	 * be opened as queues.
+	 */
+	if (strcmp(path, "/.") == 0 || strcmp(path, "/..") == 0)
+		return (EINVAL);
 	AUDIT_ARG_UPATH1_CANON(path);
 
 	error = falloc(td, &fp, &fd, O_CLOEXEC);
@@ -2141,6 +2147,8 @@ sys_kmq_unlink(struct thread *td, struct kmq_unlink_args *uap)
 
 	len = strlen(path);
 	if (len < 2 || path[0] != '/' || strchr(path + 1, '/') != NULL)
+		return (EINVAL);
+	if (strcmp(path, "/.") == 0 || strcmp(path, "/..") == 0)
 		return (EINVAL);
 	AUDIT_ARG_UPATH1_CANON(path);
 
@@ -2275,13 +2283,14 @@ sys_kmq_timedreceive(struct thread *td, struct kmq_timedreceive_args *uap)
 	if (uap->abs_timeout != NULL) {
 		error = copyin(uap->abs_timeout, &ets, sizeof(ets));
 		if (error != 0)
-			return (error);
+			goto out;
 		abs_timeout = &ets;
 	} else
 		abs_timeout = NULL;
 	waitok = !(fp->f_flag & O_NONBLOCK);
 	error = mqueue_receive(mq, uap->msg_ptr, uap->msg_len,
 		uap->msg_prio, waitok, abs_timeout);
+out:
 	fdrop(fp, td);
 	return (error);
 }
@@ -2301,13 +2310,14 @@ sys_kmq_timedsend(struct thread *td, struct kmq_timedsend_args *uap)
 	if (uap->abs_timeout != NULL) {
 		error = copyin(uap->abs_timeout, &ets, sizeof(ets));
 		if (error != 0)
-			return (error);
+			goto out;
 		abs_timeout = &ets;
 	} else
 		abs_timeout = NULL;
 	waitok = !(fp->f_flag & O_NONBLOCK);
 	error = mqueue_send(mq, uap->msg_ptr, uap->msg_len,
 		uap->msg_prio, waitok, abs_timeout);
+out:
 	fdrop(fp, td);
 	return (error);
 }
@@ -2826,7 +2836,7 @@ freebsd32_kmq_timedreceive(struct thread *td,
 	if (uap->abs_timeout != NULL) {
 		error = copyin(uap->abs_timeout, &ets32, sizeof(ets32));
 		if (error != 0)
-			return (error);
+			goto out;
 		CP(ets32, ets, tv_sec);
 		CP(ets32, ets, tv_nsec);
 		abs_timeout = &ets;
@@ -2835,6 +2845,7 @@ freebsd32_kmq_timedreceive(struct thread *td,
 	waitok = !(fp->f_flag & O_NONBLOCK);
 	error = mqueue_receive(mq, uap->msg_ptr, uap->msg_len,
 		uap->msg_prio, waitok, abs_timeout);
+out:
 	fdrop(fp, td);
 	return (error);
 }

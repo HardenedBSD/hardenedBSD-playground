@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2005 John Baldwin <jhb@FreeBSD.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,82 +30,128 @@
 #ifndef __SYS_REFCOUNT_H__
 #define __SYS_REFCOUNT_H__
 
-#include <sys/limits.h>
 #include <machine/atomic.h>
 
 #ifdef _KERNEL
 #include <sys/systm.h>
 #else
+#include <stdbool.h>
 #define	KASSERT(exp, msg)	/* */
 #endif
+
+#define	REFCOUNT_SATURATED(val)		(((val) & (1U << 31)) != 0)
+#define	REFCOUNT_SATURATION_VALUE	(3U << 30)
+
+/*
+ * Attempt to handle reference count overflow and underflow.  Force the counter
+ * to stay at the saturation value so that a counter overflow cannot trigger
+ * destruction of the containing object and instead leads to a less harmful
+ * memory leak.
+ */
+static __inline void
+_refcount_update_saturated(volatile u_int *count)
+{
+#ifdef INVARIANTS
+	panic("refcount %p wraparound", count);
+#else
+	atomic_store_int(count, REFCOUNT_SATURATION_VALUE);
+#endif
+}
 
 static __inline void
 refcount_init(volatile u_int *count, u_int value)
 {
-
+	KASSERT(!REFCOUNT_SATURATED(value),
+	    ("invalid initial refcount value %u", value));
 	*count = value;
 }
 
 static __inline void
 refcount_acquire(volatile u_int *count)
 {
+	u_int old;
 
-	KASSERT(*count < UINT_MAX, ("refcount %p overflowed", count));
-	atomic_add_int(count, 1);
+	old = atomic_fetchadd_int(count, 1);
+	if (__predict_false(REFCOUNT_SATURATED(old)))
+		_refcount_update_saturated(count);
 }
 
-static __inline int
+static __inline __result_use_check bool
+refcount_acquire_checked(volatile u_int *count)
+{
+	u_int lcount;
+
+	for (lcount = *count;;) {
+		if (__predict_false(REFCOUNT_SATURATED(lcount + 1)))
+			return (false);
+		if (__predict_true(atomic_fcmpset_int(count, &lcount,
+		    lcount + 1) == 1))
+			return (true);
+	}
+}
+
+static __inline bool
 refcount_release(volatile u_int *count)
 {
 	u_int old;
 
 	atomic_thread_fence_rel();
 	old = atomic_fetchadd_int(count, -1);
-	KASSERT(old > 0, ("refcount %p is zero", count));
+	if (__predict_false(old == 0 || REFCOUNT_SATURATED(old))) {
+		/*
+		 * Avoid multiple destructor invocations if underflow occurred.
+		 * This is not perfect since the memory backing the containing
+		 * object may already have been reallocated.
+		 */
+		_refcount_update_saturated(count);
+		return (false);
+	}
 	if (old > 1)
-		return (0);
+		return (false);
 
 	/*
 	 * Last reference.  Signal the user to call the destructor.
 	 *
 	 * Ensure that the destructor sees all updates.  The fence_rel
-	 * at the start of the function synchronized with this fence.
+	 * at the start of the function synchronizes with this fence.
 	 */
 	atomic_thread_fence_acq();
-	return (1);
+	return (true);
 }
 
 /*
  * This functions returns non-zero if the refcount was
  * incremented. Else zero is returned.
  */
-static __inline __result_use_check int
+static __inline __result_use_check bool
 refcount_acquire_if_not_zero(volatile u_int *count)
 {
 	u_int old;
 
 	old = *count;
 	for (;;) {
-		KASSERT(old < UINT_MAX, ("refcount %p overflowed", count));
 		if (old == 0)
-			return (0);
+			return (false);
+		if (__predict_false(REFCOUNT_SATURATED(old)))
+			return (true);
 		if (atomic_fcmpset_int(count, &old, old + 1))
-			return (1);
+			return (true);
 	}
 }
 
-static __inline __result_use_check int
+static __inline __result_use_check bool
 refcount_release_if_not_last(volatile u_int *count)
 {
 	u_int old;
 
 	old = *count;
 	for (;;) {
-		KASSERT(old > 0, ("refcount %p is zero", count));
 		if (old == 1)
-			return (0);
+			return (false);
+		if (__predict_false(REFCOUNT_SATURATED(old)))
+			return (true);
 		if (atomic_fcmpset_int(count, &old, old - 1))
-			return (1);
+			return (true);
 	}
 }
 

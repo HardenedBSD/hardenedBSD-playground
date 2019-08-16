@@ -44,7 +44,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/proc.h>
 #include <sys/sysent.h>
 #include <sys/systm.h>
-#include <sys/_kstack_cache.h>
 #include <vm/vm.h>
 #include <vm/vm_param.h>
 #include <vm/pmap.h>
@@ -340,8 +339,8 @@ DB_SHOW_COMMAND(thread, db_show_thread)
 {
 	struct thread *td;
 	struct lock_object *lock;
+	u_int delta;
 	bool comma;
-	int delta;
 
 	/* Determine which thread to examine. */
 	if (have_addr)
@@ -354,6 +353,7 @@ DB_SHOW_COMMAND(thread, db_show_thread)
 	db_printf(" proc (pid %d): %p\n", td->td_proc->p_pid, td->td_proc);
 	if (td->td_name[0] != '\0')
 		db_printf(" name: %s\n", td->td_name);
+	db_printf(" pcb: %p\n", td->td_pcb);
 	db_printf(" stack: %p-%p\n", (void *)td->td_kstack,
 	    (void *)(td->td_kstack + td->td_kstack_pages * PAGE_SIZE - 1));
 	db_printf(" flags: %#x ", td->td_flags);
@@ -425,14 +425,14 @@ DB_SHOW_COMMAND(thread, db_show_thread)
 	db_printf(" priority: %d\n", td->td_priority);
 	db_printf(" container lock: %s (%p)\n", lock->lo_name, lock);
 	if (td->td_swvoltick != 0) {
-		delta = (u_int)ticks - (u_int)td->td_swvoltick;
-		db_printf(" last voluntary switch: %d ms ago\n",
-		    1000 * delta / hz);
+		delta = ticks - td->td_swvoltick;
+		db_printf(" last voluntary switch: %u.%03u s ago\n",
+		    delta / hz, (delta % hz) * 1000 / hz);
 	}
 	if (td->td_swinvoltick != 0) {
-		delta = (u_int)ticks - (u_int)td->td_swinvoltick;
-		db_printf(" last involuntary switch: %d ms ago\n",
-		    1000 * delta / hz);
+		delta = ticks - td->td_swinvoltick;
+		db_printf(" last involuntary switch: %u.%03u s ago\n",
+		    delta / hz, (delta % hz) * 1000 / hz);
 	}
 }
 
@@ -488,7 +488,7 @@ DB_SHOW_COMMAND(proc, db_show_proc)
 #ifdef PAX
 	pax_db_printf_flags(p, PAX_LOG_DEFAULT);
 #endif
-	db_printf(" repear: %p reapsubtree: %d\n",
+	db_printf(" reaper: %p reapsubtree: %d\n",
 	    p->p_reaper, p->p_reapsubtree);
 	db_printf(" sigparent: %d\n", p->p_sigparent);
 	db_printf(" vmspace: %p\n", p->p_vmspace);
@@ -512,7 +512,6 @@ db_findstack_cmd(db_expr_t addr, bool have_addr, db_expr_t dummy3 __unused,
 {
 	struct proc *p;
 	struct thread *td;
-	struct kstack_cache_entry *ks_ce;
 	vm_offset_t saddr;
 
 	if (have_addr)
@@ -529,15 +528,6 @@ db_findstack_cmd(db_expr_t addr, bool have_addr, db_expr_t dummy3 __unused,
 				db_printf("Thread %p\n", td);
 				return;
 			}
-		}
-	}
-
-	for (ks_ce = kstack_cache; ks_ce != NULL;
-	     ks_ce = ks_ce->next_ks_entry) {
-		if ((vm_offset_t)ks_ce <= saddr && saddr < (vm_offset_t)ks_ce +
-		    PAGE_SIZE * kstack_pages) {
-			db_printf("Cached stack %p\n", ks_ce);
-			return;
 		}
 	}
 }

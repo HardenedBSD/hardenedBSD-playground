@@ -68,6 +68,7 @@ extern	u_int	cpu_mon_min_size;
 extern	u_int	cpu_mon_max_size;
 extern	u_int	cpu_maxphyaddr;
 extern	char	ctx_switch_xsave[];
+extern	u_int	hv_base;
 extern	u_int	hv_high;
 extern	char	hv_vendor[];
 extern	char	kstack[];
@@ -83,8 +84,10 @@ extern	int	_ugssel;
 extern	int	use_xsave;
 extern	uint64_t xsave_mask;
 extern	u_int	max_apic_id;
+extern	int	i386_read_exec;
 extern	int	pti;
 extern	int	hw_ibrs_active;
+extern	int	hw_mds_disable;
 extern	int	hw_ssb_active;
 
 struct	pcb;
@@ -102,23 +105,10 @@ struct	trapframe;
  */
 typedef void alias_for_inthand_t(void);
 
-/*
- * Returns the maximum physical address that can be used with the
- * current system.
- */
-static __inline vm_paddr_t
-cpu_getmaxphyaddr(void)
-{
-#if defined(__i386__) && !defined(PAE)
-	return (0xffffffff);
-#else
-	return ((1ULL << cpu_maxphyaddr) - 1);
-#endif
-}
-
 bool	acpi_get_fadt_bootflags(uint16_t *flagsp);
 void	*alloc_fpusave(int flags);
 void	busdma_swi(void);
+vm_paddr_t cpu_getmaxphyaddr(void);
 bool	cpu_mwait_usable(void);
 void	cpu_probe_amdc1e(void);
 void	cpu_setregs(void);
@@ -140,6 +130,7 @@ int	isa_nmi(int cd);
 void	handle_ibrs_entry(void);
 void	handle_ibrs_exit(void);
 void	hw_ibrs_recalculate(void);
+void	hw_mds_recalculate(void);
 void	hw_ssb_recalculate(bool all_cpus);
 void	nmi_call_kdb(u_int cpu, u_int type, struct trapframe *frame);
 void	nmi_call_kdb_smp(u_int type, struct trapframe *frame);

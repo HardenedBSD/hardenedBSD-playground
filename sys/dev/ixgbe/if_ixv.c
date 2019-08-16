@@ -144,11 +144,9 @@ static driver_t ixv_driver = {
 devclass_t ixv_devclass;
 DRIVER_MODULE(ixv, pci, ixv_driver, ixv_devclass, 0, 0);
 IFLIB_PNP_INFO(pci, ixv_driver, ixv_vendor_info_array);
+MODULE_DEPEND(ixv, iflib, 1, 1, 1);
 MODULE_DEPEND(ixv, pci, 1, 1, 1);
 MODULE_DEPEND(ixv, ether, 1, 1, 1);
-#ifdef DEV_NETMAP
-MODULE_DEPEND(ixv, netmap, 1, 1, 1);
-#endif /* DEV_NETMAP */
 
 static device_method_t ixv_if_methods[] = {
 	DEVMETHOD(ifdi_attach_pre, ixv_if_attach_pre),
@@ -222,6 +220,7 @@ static struct if_shared_ctx ixv_sctx_init = {
 	.isc_vendor_info = ixv_vendor_info_array,
 	.isc_driver_version = ixv_driver_version,
 	.isc_driver = &ixv_if_driver,
+	.isc_flags = IFLIB_IS_VF | IFLIB_TSO_INIT_IP,
 
 	.isc_nrxd_min = {MIN_RXD},
 	.isc_ntxd_min = {MIN_TXD},
@@ -269,7 +268,6 @@ ixv_if_tx_queues_alloc(if_ctx_t ctx, caddr_t *vaddrs, uint64_t *paddrs,
 
 		txr->me = i;
 		txr->adapter =  que->adapter = adapter;
-		adapter->active_queues |= (u64)1 << txr->me;
 
 		/* Allocate report status array */
 		if (!(txr->tx_rsq = (qidx_t *)malloc(sizeof(qidx_t) * scctx->isc_ntxd[0], M_DEVBUF, M_NOWAIT | M_ZERO))) {
@@ -630,14 +628,7 @@ ixv_if_init(if_ctx_t ctx)
 	/* Setup Multicast table */
 	ixv_if_multi_set(ctx);
 
-	/*
-	 * Determine the correct mbuf pool
-	 * for doing jumbo/headersplit
-	 */
-	if (ifp->if_mtu > ETHERMTU)
-		adapter->rx_mbuf_sz = MJUMPAGESIZE;
-	else
-		adapter->rx_mbuf_sz = MCLBYTES;
+	adapter->rx_mbuf_sz = iflib_get_rx_mbuf_sz(ctx);
 
 	/* Configure RX settings */
 	ixv_initialize_receive_units(ctx);
@@ -1046,8 +1037,6 @@ ixv_if_msix_intr_assign(if_ctx_t ctx, int msix)
 		}
 
 		rx_que->msix = vector;
-		adapter->active_queues |= (u64)(1 << rx_que->msix);
-
 	}
 
 	for (int i = 0; i < adapter->num_tx_queues; i++) {
@@ -1132,7 +1121,7 @@ ixv_free_pci_resources(if_ctx_t ctx)
 	struct ix_rx_queue *que = adapter->rx_queues;
 	device_t           dev = iflib_get_dev(ctx);
 
-	/* Release all msix queue resources */
+	/* Release all MSI-X queue resources */
 	if (adapter->intr_type == IFLIB_INTR_MSIX)
 		iflib_irq_free(ctx, &adapter->irq);
 
@@ -1142,10 +1131,9 @@ ixv_free_pci_resources(if_ctx_t ctx)
 		}
 	}
 
-	/* Clean the Legacy or Link interrupt last */
 	if (adapter->pci_mem != NULL)
 		bus_release_resource(dev, SYS_RES_MEMORY,
-				     PCIR_BAR(0), adapter->pci_mem);
+		    rman_get_rid(adapter->pci_mem), adapter->pci_mem);
 } /* ixv_free_pci_resources */
 
 /************************************************************************

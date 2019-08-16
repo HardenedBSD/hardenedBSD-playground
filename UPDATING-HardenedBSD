@@ -1,3 +1,19 @@
+[20181019] FreeBSD ASR with HardenedBSD ASLR
+__HardenedBSD_version = 1300059
+
+	FreeBSD merged in their incomplete Address Space Randomization
+	(ASR) patch. Undo the reversion of the ASR patch and rely on
+	HardenedBSD's PaX ASLR implementation for the stack and shared
+	page when FreeBSD's ASR is enabled.
+
+	FreeBSD's ASR is disabled by default, but can be enabled at
+	runtime by setting the `kern.elf64.aslr.pie_enable` and
+	`kern.elf64.aslr.enable` sysctl nodes to 1. If HardenedBSD's
+	`hardening.pax.aslr.status' sysctl node is greater than or
+	equal to 2, the PaX ASLR implementation will only be in effect
+	for the stack and the shared page.
+
+
 [20181019] shift to FreeBSD 13-CURRENT 
 __HardenedBSD_version = 1300058
 

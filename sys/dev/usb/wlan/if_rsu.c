@@ -39,12 +39,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/conf.h>
 #include <sys/bus.h>
-#include <sys/rman.h>
 #include <sys/firmware.h>
 #include <sys/module.h>
-
-#include <machine/bus.h>
-#include <machine/resource.h>
 
 #include <net/bpf.h>
 #include <net/if.h>
@@ -2451,8 +2447,6 @@ rsu_rx_frame(struct rsu_softc *sc, struct mbuf *m)
 
 		tap->wr_rate = rxs.c_rate;
 		tap->wr_dbm_antsignal = rssi;
-		tap->wr_chan_freq = htole16(ic->ic_curchan->ic_freq);
-		tap->wr_chan_flags = htole16(ic->ic_curchan->ic_flags);
 	};
 
 	(void) ieee80211_add_rx_params(m, &rxs);
@@ -2754,12 +2748,11 @@ rsu_tx_start(struct rsu_softc *sc, struct ieee80211_node *ni,
     struct mbuf *m0, struct rsu_data *data)
 {
 	const struct ieee80211_txparam *tp = ni->ni_txparms;
-	struct ieee80211com *ic = &sc->sc_ic;
         struct ieee80211vap *vap = ni->ni_vap;
 	struct ieee80211_frame *wh;
 	struct ieee80211_key *k = NULL;
 	struct r92s_tx_desc *txd;
-	uint8_t rate, ridx, type, cipher;
+	uint8_t rate, ridx, type, cipher, qos;
 	int prio = 0;
 	uint8_t which;
 	int hasqos;
@@ -2808,12 +2801,14 @@ rsu_tx_start(struct rsu_softc *sc, struct ieee80211_node *ni,
 		prio = M_WME_GETAC(m0);
 		which = rsu_wme_ac_xfer_map[prio];
 		hasqos = 1;
+		qos = ((const struct ieee80211_qosframe *)wh)->i_qos[0];
 	} else {
 		/* Non-QoS TID */
 		/* XXX TODO: tid=0 for non-qos TID? */
 		which = rsu_wme_ac_xfer_map[WME_AC_BE];
 		hasqos = 0;
 		prio = 0;
+		qos = 0;
 	}
 
 	qid = rsu_ac2qid[prio];
@@ -2872,6 +2867,12 @@ rsu_tx_start(struct rsu_softc *sc, struct ieee80211_node *ni,
 	if (ismcast)
 		txd->txdw2 |= htole32(R92S_TXDW2_BMCAST);
 
+	if (!ismcast && (!qos || (qos & IEEE80211_QOS_ACKPOLICY) !=
+	    IEEE80211_QOS_ACKPOLICY_NOACK)) {
+		txd->txdw2 |= htole32(R92S_TXDW2_RTY_LMT_ENA);
+		txd->txdw2 |= htole32(SM(R92S_TXDW2_RTY_LMT, tp->maxretry));
+	}
+
 	/* Force mgmt / mcast / ucast rate if needed. */
 	if (rate != 0) {
 		/* Data rate fallback limit (max). */
@@ -2890,8 +2891,6 @@ rsu_tx_start(struct rsu_softc *sc, struct ieee80211_node *ni,
 		struct rsu_tx_radiotap_header *tap = &sc->sc_txtap;
 
 		tap->wt_flags = 0;
-		tap->wt_chan_freq = htole16(ic->ic_curchan->ic_freq);
-		tap->wt_chan_flags = htole16(ic->ic_curchan->ic_flags);
 		ieee80211_radiotap_tx(vap, m0);
 	}
 

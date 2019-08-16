@@ -41,9 +41,6 @@
 #ifdef _KERNEL
 #include <sys/systm.h>
 
-extern vm_paddr_t dump_avail[];
-extern vm_paddr_t phys_avail[];
-
 extern char *_tmppt;	/* poor name! */
 
 extern vm_offset_t virtual_avail;
@@ -70,6 +67,13 @@ void pmap_kremove_device(vm_offset_t, vm_size_t);
 
 vm_paddr_t pmap_kextract(vm_offset_t);
 #define vtophys(va)	pmap_kextract((vm_offset_t)(va))
+
+static inline int
+pmap_vmspace_copy(pmap_t dst_pmap __unused, pmap_t src_pmap __unused)
+{
+
+	return (0);
+}
 
 #endif	/* _KERNEL */
 #endif	/* !_MACHINE_PMAP_H_ */

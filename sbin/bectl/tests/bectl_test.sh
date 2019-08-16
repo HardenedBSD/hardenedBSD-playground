@@ -26,6 +26,17 @@
 #
 # $FreeBSD$
 
+ZPOOL_NAME_FILE=zpool_name
+get_zpool_name()
+{
+	cat $ZPOOL_NAME_FILE
+}
+make_zpool_name()
+{
+	mktemp -u bectl_test_XXXXXX > $ZPOOL_NAME_FILE
+	get_zpool_name
+}
+
 # Establishes a bectl_create zpool that can be used for some light testing; contains
 # a 'default' BE and not much else.
 bectl_create_setup()
@@ -33,6 +44,9 @@ bectl_create_setup()
 	zpool=$1
 	disk=$2
 	mnt=$3
+
+	# Sanity check to make sure `make_zpool_name` succeeded
+	atf_check test -n "$zpool"
 
 	kldload -n -q zfs || atf_skip "ZFS module not loaded on the current system"
 	atf_check mkdir -p ${mnt}
@@ -48,6 +62,9 @@ bectl_create_deep_setup()
 	disk=$2
 	mnt=$3
 
+	# Sanity check to make sure `make_zpool_name` succeeded
+	atf_check test -n "$zpool"
+
 	bectl_create_setup ${zpool} ${disk} ${mnt}
 	atf_check mkdir -p ${root}
 	atf_check -o ignore bectl -r ${zpool}/ROOT mount default ${root}
@@ -60,9 +77,10 @@ bectl_create_deep_setup()
 bectl_cleanup()
 {
 	zpool=$1
-
-	if zpool get health ${zpool} >/dev/null 2>&1; then
-		zpool destroy ${zpool}
+	if [ -z "$zpool" ]; then
+		echo "Skipping cleanup; zpool not set up"
+	elif zpool get health ${zpool} >/dev/null 2>&1; then
+		zpool destroy -f ${zpool}
 	fi
 }
 
@@ -76,21 +94,44 @@ bectl_create_head()
 bectl_create_body()
 {
 	cwd=$(realpath .)
-	zpool=bectl_test
+	zpool=$(make_zpool_name)
 	disk=${cwd}/disk.img
 	mount=${cwd}/mnt
 
 	bectl_create_setup ${zpool} ${disk} ${mount}
+
+	# Create a child dataset that will be used to test creation
+	# of recursive and non-recursive boot environments.
+	atf_check zfs create -o mountpoint=/usr -o canmount=noauto \
+	    ${zpool}/ROOT/default/usr
+
 	# Test standard creation, creation of a snapshot, and creation from a
 	# snapshot.
 	atf_check bectl -r ${zpool}/ROOT create -e default default2
 	atf_check bectl -r ${zpool}/ROOT create default2@test_snap
 	atf_check bectl -r ${zpool}/ROOT create -e default2@test_snap default3
+
+	# Test standard creation, creation of a snapshot, and creation from a
+	# snapshot for recursive boot environments.
+	atf_check bectl -r ${zpool}/ROOT create -r -e default recursive
+	atf_check bectl -r ${zpool}/ROOT create -r recursive@test_snap
+	atf_check bectl -r ${zpool}/ROOT create -r -e recursive@test_snap recursive-snap
+
+	# Test that non-recursive boot environments have no child datasets.
+	atf_check -e not-empty -s not-exit:0 \
+		zfs list "${zpool}/ROOT/default2/usr"
+	atf_check -e not-empty -s not-exit:0 \
+		zfs list "${zpool}/ROOT/default3/usr"
+
+	# Test that recursive boot environments have child datasets.
+	atf_check -o not-empty \
+		zfs list "${zpool}/ROOT/recursive/usr"
+	atf_check -o not-empty \
+		zfs list "${zpool}/ROOT/recursive-snap/usr"
 }
 bectl_create_cleanup()
 {
-
-	bectl_cleanup bectl_test
+	bectl_cleanup $(get_zpool_name)
 }
 
 atf_test_case bectl_destroy cleanup
@@ -103,20 +144,29 @@ bectl_destroy_head()
 bectl_destroy_body()
 {
 	cwd=$(realpath .)
-	zpool=bectl_test
+	zpool=$(make_zpool_name)
 	disk=${cwd}/disk.img
 	mount=${cwd}/mnt
+	root=${mount}/root
 
 	bectl_create_setup ${zpool} ${disk} ${mount}
 	atf_check bectl -r ${zpool}/ROOT create -e default default2
 	atf_check -o not-empty zfs get mountpoint ${zpool}/ROOT/default2
-	atf_check bectl -r ${zpool}/ROOT destroy default2
+	atf_check -e ignore bectl -r ${zpool}/ROOT destroy default2
 	atf_check -e not-empty -s not-exit:0 zfs get mountpoint ${zpool}/ROOT/default2
+
+	# Test origin snapshot deletion when the snapshot to be destroyed
+	# belongs to a mounted dataset, see PR 236043.
+	atf_check mkdir -p ${root}
+	atf_check -o not-empty bectl -r ${zpool}/ROOT mount default ${root}
+	atf_check bectl -r ${zpool}/ROOT create -e default default3
+	atf_check bectl -r ${zpool}/ROOT destroy -o default3
+	atf_check bectl -r ${zpool}/ROOT unmount default
 }
 bectl_destroy_cleanup()
 {
 
-	bectl_cleanup bectl_test
+	bectl_cleanup $(get_zpool_name)
 }
 
 atf_test_case bectl_export_import cleanup
@@ -129,7 +179,7 @@ bectl_export_import_head()
 bectl_export_import_body()
 {
 	cwd=$(realpath .)
-	zpool=bectl_test
+	zpool=$(make_zpool_name)
 	disk=${cwd}/disk.img
 	mount=${cwd}/mnt
 
@@ -137,14 +187,14 @@ bectl_export_import_body()
 	atf_check -o save:exported bectl -r ${zpool}/ROOT export default
 	atf_check -x "bectl -r ${zpool}/ROOT import default2 < exported"
 	atf_check -o not-empty zfs get mountpoint ${zpool}/ROOT/default2
-	atf_check bectl -r ${zpool}/ROOT destroy default2
+	atf_check -e ignore bectl -r ${zpool}/ROOT destroy default2
 	atf_check -e not-empty -s not-exit:0 zfs get mountpoint \
 	    ${zpool}/ROOT/default2
 }
 bectl_export_import_cleanup()
 {
 
-	bectl_cleanup bectl_test
+	bectl_cleanup $(get_zpool_name)
 }
 
 atf_test_case bectl_list cleanup
@@ -157,7 +207,7 @@ bectl_list_head()
 bectl_list_body()
 {
 	cwd=$(realpath .)
-	zpool=bectl_test
+	zpool=$(make_zpool_name)
 	disk=${cwd}/disk.img
 	mount=${cwd}/mnt
 
@@ -171,7 +221,7 @@ bectl_list_body()
 	atf_check bectl -r ${zpool}/ROOT create -e default default2
 	atf_check -o save:list.out bectl -r ${zpool}/ROOT list
 	atf_check -o not-empty grep 'default2' list.out
-	atf_check bectl -r ${zpool}/ROOT destroy default2
+	atf_check -e ignore bectl -r ${zpool}/ROOT destroy default2
 	atf_check -o save:list.out bectl -r ${zpool}/ROOT list
 	atf_check -s not-exit:0 grep 'default2' list.out
 	# XXX TODO: Formatting checks
@@ -179,7 +229,7 @@ bectl_list_body()
 bectl_list_cleanup()
 {
 
-	bectl_cleanup bectl_test
+	bectl_cleanup $(get_zpool_name)
 }
 
 atf_test_case bectl_mount cleanup
@@ -192,7 +242,7 @@ bectl_mount_head()
 bectl_mount_body()
 {
 	cwd=$(realpath .)
-	zpool=bectl_test
+	zpool=$(make_zpool_name)
 	disk=${cwd}/disk.img
 	mount=${cwd}/mnt
 	root=${mount}/root
@@ -213,7 +263,7 @@ bectl_mount_body()
 bectl_mount_cleanup()
 {
 
-	bectl_cleanup bectl_test
+	bectl_cleanup $(get_zpool_name)
 }
 
 atf_test_case bectl_rename cleanup
@@ -226,7 +276,7 @@ bectl_rename_head()
 bectl_rename_body()
 {
 	cwd=$(realpath .)
-	zpool=bectl_test
+	zpool=$(make_zpool_name)
 	disk=${cwd}/disk.img
 	mount=${cwd}/mnt
 
@@ -239,7 +289,7 @@ bectl_rename_body()
 bectl_rename_cleanup()
 {
 
-	bectl_cleanup bectl_test
+	bectl_cleanup $(get_zpool_name)
 }
 
 atf_test_case bectl_jail cleanup
@@ -252,7 +302,7 @@ bectl_jail_head()
 bectl_jail_body()
 {
 	cwd=$(realpath .)
-	zpool=bectl_test
+	zpool=$(make_zpool_name)
 	disk=${cwd}/disk.img
 	mount=${cwd}/mnt
 	root=${mount}/root
@@ -268,8 +318,15 @@ bectl_jail_body()
 	atf_check cp /rescue/rescue ${root}/rescue/rescue
 	atf_check bectl -r ${zpool}/ROOT umount default
 
-	# Prepare a second boot environment
+	# Prepare some more boot environments
 	atf_check -o empty -s exit:0 bectl -r ${zpool}/ROOT create -e default target
+	atf_check -o empty -s exit:0 bectl -r ${zpool}/ROOT create -e default 1234
+
+	# Attempt to unjail a BE with numeric name; jail_getid at one point
+	# did not validate that the input was a valid jid before returning the
+	# jid.
+	atf_check -o empty -s exit:0 bectl -r ${zpool}/ROOT jail -b 1234
+	atf_check -o empty -s exit:0 bectl -r ${zpool}/ROOT unjail 1234
 
 	# When a jail name is not explicit, it should match the jail id.
 	atf_check -o empty -s exit:0 bectl -r ${zpool}/ROOT jail -b -o jid=233637 default
@@ -314,9 +371,10 @@ bectl_jail_body()
 # attempts to destroy the zpool.
 bectl_jail_cleanup()
 {
-	for bootenv in "default" "target"; do
+	zpool=$(get_zpool_name)
+	for bootenv in "default" "target" "1234"; do
 		# mountpoint of the boot environment
-		mountpoint="$(bectl -r bectl_test/ROOT list -H | grep ${bootenv} | awk '{print $3}')"
+		mountpoint="$(bectl -r ${zpool}/ROOT list -H | grep ${bootenv} | awk '{print $3}')"
 
 		# see if any jail paths match the boot environment mountpoint
 		jailid="$(jls | grep ${mountpoint} | awk '{print $1}')"
@@ -327,7 +385,7 @@ bectl_jail_cleanup()
 		jail -r ${jailid}
 	done;
 
-	bectl_cleanup bectl_test
+	bectl_cleanup ${zpool}
 }
 
 atf_init_test_cases()

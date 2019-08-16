@@ -11,11 +11,12 @@ names_head()
 
 names_body()
 {
+	atf_skip "Kernel panics when flushing epair queue (bug238870)"
 	pft_init
 
-	epair=$(pft_mkepair)
+	epair=$(vnet_mkepair)
 
-	pft_mkjail alcatraz ${epair}b
+	vnet_mkjail alcatraz ${epair}b
 	ifconfig ${epair}a name foo
 	jexec alcatraz ifconfig ${epair}b name foo
 

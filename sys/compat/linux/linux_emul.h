@@ -32,6 +32,8 @@
 #ifndef _LINUX_EMUL_H_
 #define	_LINUX_EMUL_H_
 
+struct image_params;
+
 /*
  * modeled after similar structure in NetBSD
  * this will be extended as we need more functionality
@@ -40,7 +42,6 @@ struct linux_emuldata {
 	int    *child_set_tid;	/* in clone(): Child's TID to set on clone */
 	int    *child_clear_tid;/* in clone(): Child's TID to clear on exit */
 
-	int	pdeath_signal;		/* parent death signal */
 	int	flags;			/* thread emuldata flags */
 	int	em_tid;			/* thread id */
 
@@ -69,6 +70,7 @@ struct linux_pemuldata {
 	struct sx	pem_sx;		/* lock for this struct */
 	void		*epoll;		/* epoll data */
 	uint32_t	persona;	/* process execution domain */
+	uint32_t	ptrace_flags;	/* used by ptrace(2) */
 };
 
 #define	LINUX_PEM_XLOCK(p)	sx_xlock(&(p)->pem_sx)

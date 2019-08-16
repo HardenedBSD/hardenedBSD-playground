@@ -34,25 +34,105 @@
 
 # Command line options:
 #
-#     -r               Reproducible build.  Do not embed directory names, user
-#                      names, time stamps or other dynamic information into
-#                      the output file.  This is intended to allow two builds
-#                      done at different times and even by different people on
-#                      different hosts to produce identical output.
+#	-c	Print the copyright / license statement as a C comment and exit
 #
-#     -R               Reproducible build if the tree represents an unmodified
-#                      checkout from a version control system.  Metadata is
-#                      included if the tree is modified.
+#	-r	Reproducible build.  Do not embed directory names, user	names,
+#		time stamps or other dynamic information into the output file.
+#		This is intended to allow two builds done at different times
+#		and even by different people on different hosts to produce
+#		identical output.
+#
+#	-R	Reproducible build if the tree represents an unmodified
+#		checkout from a version control system.  Metadata is included
+#		if the tree is modified.
+#
+#	-V var	Print ${var}="${val-of-var}" and exit
+#
+#	-v	Print TYPE REVISION BRANCH RELEASE VERSION RELDATE variables
+#		like the -V command
+#
 
 TYPE="FreeBSD"
 REVISION="13.0"
-BRANCH="CURRENT"
-if [ -n "${BRANCH_OVERRIDE}" ]; then
-	BRANCH=${BRANCH_OVERRIDE}
-fi
-BRANCH="${BRANCH}-HBSD"
+BRANCH=${BRANCH_OVERRIDE:-CURRENT}-HBSD
 RELEASE="${REVISION}-${BRANCH}"
 VERSION="${TYPE} ${RELEASE}"
+
+if [ -z "${SYSDIR}" ]; then
+    SYSDIR=$(dirname $0)/..
+fi
+
+RELDATE=$(awk '/__FreeBSD_version.*propagated to newvers/ {print $3}' ${PARAMFILE:-${SYSDIR}/sys/param.h})
+
+if [ -r "${SYSDIR}/../COPYRIGHT" ]; then
+	year=$(sed -Ee '/^Copyright .* The FreeBSD Project/!d;s/^.*1992-([0-9]*) .*$/\1/g' ${SYSDIR}/../COPYRIGHT)
+else
+	year=$(date +%Y)
+fi
+# look for copyright template
+b=share/examples/etc/bsd-style-copyright
+for bsd_copyright in $b ../$b ../../$b ../../../$b /usr/src/$b /usr/$b
+do
+	if [ -r "$bsd_copyright" ]; then
+		COPYRIGHT=$(sed \
+		    -e "s/\[year\]/1992-$year/" \
+		    -e 's/\[your name here\]\.* /The FreeBSD Project./' \
+		    -e 's/\[your name\]\.*/The FreeBSD Project./' \
+		    -e '/\[id for your version control system, if any\]/d' \
+		    $bsd_copyright)
+		break
+	fi
+done
+
+# no copyright found, use a dummy
+if [ -z "$COPYRIGHT" ]; then
+	COPYRIGHT="/*-
+ * Copyright (c) 1992-$year The FreeBSD Project.
+ *
+ */"
+fi
+
+# add newline
+COPYRIGHT="$COPYRIGHT
+"
+
+# We expand include_metadata later since we may set it to the
+# future value of modified.
+include_metadata=yes
+modified=no
+while getopts crRvV: opt; do
+	case "$opt" in
+	c)
+		echo "$COPYRIGHT"
+		exit 0
+		;;
+	r)
+		include_metadata=no
+		;;
+	R)
+		include_metadata=if-modified
+		;;
+	v)
+		# Only put variables that are single lines here.
+		for v in TYPE REVISION BRANCH RELEASE VERSION RELDATE; do
+			eval val=\$${v}
+			echo ${v}=\"${val}\"
+		done
+		exit 0
+		;;
+	V)
+		v=$OPTARG
+		eval val=\$${v}
+		echo ${v}=\"${val}\"
+		exit 0
+		;;
+	esac
+done
+shift $((OPTIND - 1))
+
+# VARS_ONLY means no files should be generated, this is just being
+# included.
+[ -n "$VARS_ONLY" ] && return 0
 
 #
 # findvcs dir
@@ -104,58 +184,6 @@ git_tree_modified()
 	return 1
 }
 
-
-if [ -z "${SYSDIR}" ]; then
-    SYSDIR=$(dirname $0)/..
-fi
-
-if [ -n "${PARAMFILE}" ]; then
-	RELDATE=$(awk '/__FreeBSD_version.*propagated to newvers/ {print $3}' \
-		${PARAMFILE})
-else
-	RELDATE=$(awk '/__FreeBSD_version.*propagated to newvers/ {print $3}' \
-		${SYSDIR}/sys/param.h)
-fi
-
-b=share/examples/etc/bsd-style-copyright
-if [ -r "${SYSDIR}/../COPYRIGHT" ]; then
-	year=$(sed -Ee '/^Copyright .* The FreeBSD Project/!d;s/^.*1992-([0-9]*) .*$/\1/g' ${SYSDIR}/../COPYRIGHT)
-else
-	year=$(date +%Y)
-fi
-# look for copyright template
-for bsd_copyright in ../$b ../../$b ../../../$b /usr/src/$b /usr/$b
-do
-	if [ -r "$bsd_copyright" ]; then
-		COPYRIGHT=`sed \
-		    -e "s/\[year\]/1992-$year/" \
-		    -e 's/\[your name here\]\.* /The FreeBSD Project./' \
-		    -e 's/\[your name\]\.*/The FreeBSD Project./' \
-		    -e '/\[id for your version control system, if any\]/d' \
-		    $bsd_copyright` 
-		break
-	fi
-done
-
-# no copyright found, use a dummy
-if [ -z "$COPYRIGHT" ]; then
-	COPYRIGHT="/*-
- * Copyright (c) 1992-$year The FreeBSD Project.
- * All rights reserved.
- *
- */"
-fi
-
-# add newline
-COPYRIGHT="$COPYRIGHT
-"
-
-# VARS_ONLY means no files should be generated, this is just being
-# included.
-if [ -n "$VARS_ONLY" ]; then
-	return 0
-fi
-
 LC_ALL=C; export LC_ALL
 if [ ! -r version ]
 then
@@ -163,19 +191,19 @@ then
 fi
 
 touch version
-v=`cat version`
+v=$(cat version)
 u=${USER:-root}
-d=`pwd`
-h=${HOSTNAME:-`hostname`}
+d=$(pwd)
+h=${HOSTNAME:-$(hostname)}
 if [ -n "$SOURCE_DATE_EPOCH" ]; then
-	if ! t=`date -r $SOURCE_DATE_EPOCH 2>/dev/null`; then
+	if ! t=$(date -r $SOURCE_DATE_EPOCH 2>/dev/null); then
 		echo "Invalid SOURCE_DATE_EPOCH" >&2
 		exit 1
 	fi
 else
-	t=`date`
+	t=$(date)
 fi
-i=`${MAKE:-make} -V KERN_IDENT`
+i=$(${MAKE:-make} -V KERN_IDENT)
 compiler_v=$($(${MAKE:-make} -V CC) -v 2>&1 | grep -w 'version')
 
 for dir in /usr/bin /usr/local/bin; do
@@ -222,11 +250,11 @@ if findvcs .hg; then
 fi
 
 if [ -n "$svnversion" ] ; then
-	svn=`cd ${SYSDIR} && $svnversion 2>/dev/null`
+	svn=$(cd ${SYSDIR} && $svnversion 2>/dev/null)
 	case "$svn" in
 	[0-9]*[MSP]|*:*)
 		svn=" r${svn}"
-		modified=true
+		modified=yes
 		;;
 	[0-9]*)
 		svn=" r${svn}"
@@ -238,8 +266,8 @@ if [ -n "$svnversion" ] ; then
 fi
 
 if [ -n "$git_cmd" ] ; then
-	git=`$git_cmd rev-parse --verify --short HEAD 2>/dev/null`
-	gitsvn=`$git_cmd svn find-rev $git 2>/dev/null`
+	git=$($git_cmd rev-parse --verify --short HEAD 2>/dev/null)
+	gitsvn=$($git_cmd svn find-rev $git 2>/dev/null)
 	if [ -n "$gitsvn" ] ; then
 		svn=" r${gitsvn}"
 		git="=${git}"
@@ -248,13 +276,13 @@ if [ -n "$git_cmd" ] ; then
 #		We assume that if a tree is more than 10k commits out-of-sync
 #		with FreeBSD, it has forked the the OS and the SVN rev no
 #		longer matters.
-		gitsvn=`$git_cmd log -n 10000 |
+		gitsvn=$($git_cmd log -n 10000 |
 		    grep '^    git-svn-id:' | head -1 | \
-		    sed -n 's/^.*@\([0-9][0-9]*\).*$/\1/p'`
+		    sed -n 's/^.*@\([0-9][0-9]*\).*$/\1/p')
 		if [ -z "$gitsvn" ] ; then
-			gitsvn=`$git_cmd log -n 10000 --format='format:%N' | \
+			gitsvn=$($git_cmd log -n 10000 --format='format:%N' | \
 			     grep '^svn ' | head -1 | \
-			     sed -n 's/^.*revision=\([0-9][0-9]*\).*$/\1/p'`
+			     sed -n 's/^.*revision=\([0-9][0-9]*\).*$/\1/p')
 		fi
 		if [ -n "$gitsvn" ] ; then
 			svn=" r${gitsvn}"
@@ -263,20 +291,24 @@ if [ -n "$git_cmd" ] ; then
 			git=" ${git}"
 		fi
 	fi
-	git_b=`$git_cmd rev-parse --abbrev-ref HEAD`
+	git_cnt=$($git_cmd rev-list --count HEAD 2>/dev/null)
+	if [ -n "$git_cnt" ] ; then
+		git="${git}-c${git_cnt}"
+	fi
+	git_b=$($git_cmd rev-parse --abbrev-ref HEAD)
 	if [ -n "$git_b" ] ; then
 		git="${git}(${git_b})"
 	fi
 	if git_tree_modified; then
 		git="${git}-dirty"
-		modified=true
+		modified=yes
 	fi
 fi
 
 if [ -n "$hg_cmd" ] ; then
-	hg=`$hg_cmd id 2>/dev/null`
-	hgsvn=`$hg_cmd svn info 2>/dev/null | \
-		awk -F': ' '/Revision/ { print $2 }'`
+	hg=$($hg_cmd id 2>/dev/null)
+	hgsvn=$($hg_cmd svn info 2>/dev/null | \
+		awk -F': ' '/Revision/ { print $2 }')
 	if [ -n "$hgsvn" ] ; then
 		svn=" r${hgsvn}"
 	fi
@@ -285,27 +317,14 @@ if [ -n "$hg_cmd" ] ; then
 	fi
 fi
 
-include_metadata=true
-while getopts rR opt; do
-	case "$opt" in
-	r)
-		include_metadata=
-		;;
-	R)
-		if [ -z "${modified}" ]; then
-			include_metadata=
-		fi
-	esac
-done
-shift $((OPTIND - 1))
-
 if [ -n "${HBSD_EXTRA}" ] ; then
 	hbsdv=" [${HBSD_EXTRA}]"
 else
 	hbsdv=" "
 fi
 
-if [ -z "${include_metadata}" ]; then
+[ ${include_metadata} = "if-modified" -a ${modified} = "yes" ] && include_metadata=yes
+if [ ${include_metadata} != "yes" ]; then
 	VERINFO="${VERSION}${hbsdv}${svn}${git}${hg} ${i}"
 	VERSTR="${VERINFO}\\n"
 else

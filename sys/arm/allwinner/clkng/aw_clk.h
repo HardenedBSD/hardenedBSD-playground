@@ -64,9 +64,9 @@ struct aw_clk_init {
 #define	AW_CLK_HAS_MUX		0x0004
 #define	AW_CLK_REPARENT		0x0008
 #define	AW_CLK_SCALE_CHANGE	0x0010
-#define	AW_CLK_HAS_FRAC		0x0020
 #define	AW_CLK_HAS_UPDATE	0x0040
 #define	AW_CLK_HAS_PREDIV	0x0080
+#define	AW_CLK_SET_PARENT	0x0100
 
 #define	AW_CLK_FACTOR_POWER_OF_TWO	0x0001
 #define	AW_CLK_FACTOR_ZERO_BASED	0x0002
@@ -309,6 +309,66 @@ aw_clk_factor_get_value(struct aw_clk_factor *factor, uint32_t raw)
 		.flags = _flags | AW_CLK_HAS_UPDATE,	\
 	}
 
+#define FRAC_CLK(_clkname, _id, _name, _pnames,	\
+     _offset,						\
+     _nshift, _nwidth, _nvalue, _nflags,		\
+     _mshift, _mwidth, _mvalue, _mflags,		\
+     _gate_shift, _lock_shift,_lock_retries,		\
+    _flags, _freq0, _freq1, _mode_sel, _freq_sel,	\
+    _min_freq, _max_freq)				\
+	static struct aw_clk_frac_def _clkname = {	\
+		.clkdef = {				\
+			.id = _id,			\
+			.name = _name,			\
+			.parent_names = _pnames,	\
+			.parent_cnt = nitems(_pnames),	\
+			.flags = CLK_NODE_GLITCH_FREE,	\
+		},					\
+		.offset = _offset,			\
+		.n.shift = _nshift,			\
+		.n.width = _nwidth,			\
+		.n.value = _nvalue,			\
+		.n.flags = _nflags,			\
+		.m.shift = _mshift,			\
+		.m.width = _mwidth,			\
+		.m.value = _mvalue,			\
+		.m.flags = _mflags,			\
+		.gate_shift = _gate_shift,		\
+		.lock_shift = _lock_shift,		\
+		.lock_retries = _lock_retries,		\
+		.flags = _flags,			\
+		.frac.freq0 = _freq0,			\
+		.frac.freq1 = _freq1,			\
+		.frac.mode_sel = _mode_sel,		\
+		.frac.freq_sel = _freq_sel,		\
+		.min_freq = _min_freq,			\
+		.max_freq = _max_freq,			\
+	}
+
+#define M_CLK(_clkname, _id, _name, _pnames,		\
+     _offset,						\
+     _mshift, _mwidth, _mvalue, _mflags,		\
+    _mux_shift, _mux_width,				\
+    _gate_shift,					\
+    _flags)						\
+	static struct aw_clk_m_def _clkname = 	{	\
+		.clkdef = {				\
+			.id = _id,			\
+			.name = _name,			\
+			.parent_names = _pnames,	\
+			.parent_cnt = nitems(_pnames),	\
+		},					\
+		.offset = _offset,			\
+		.mux_shift = _mux_shift,		\
+		.m.shift = _mshift,			\
+		.m.width = _mwidth,			\
+		.m.value = _mvalue,			\
+		.m.flags = _mflags,			\
+		.mux_width = _mux_width,		\
+		.gate_shift = _gate_shift,		\
+		.flags = _flags,			\
+	}
+
 #define NM_CLK(_clkname, _id, _name, _pnames,		\
      _offset,						\
      _nshift, _nwidth, _nvalue, _nflags,		\
@@ -336,38 +396,6 @@ aw_clk_factor_get_value(struct aw_clk_factor *factor, uint32_t raw)
 		.mux_width = _mux_width,		\
 		.gate_shift = _gate_shift,		\
 		.flags = _flags,			\
-	}
-
-#define NM_CLK_WITH_FRAC(_clkname, _id, _name, _pnames,	\
-     _offset,						\
-     _nshift, _nwidth, _nvalue, _nflags,		\
-     _mshift, _mwidth, _mvalue, _mflags,		\
-     _gate_shift, _lock_shift,_lock_retries,		\
-    _flags, _freq0, _freq1, _mode_sel, _freq_sel)	\
-	static struct aw_clk_nm_def _clkname =	{	\
-		.clkdef = {				\
-			.id = _id,			\
-			.name = _name,			\
-			.parent_names = _pnames,	\
-			.parent_cnt = nitems(_pnames),	\
-		},					\
-		.offset = _offset,			\
-		.n.shift = _nshift,			\
-		.n.width = _nwidth,			\
-		.n.value = _nvalue,			\
-		.n.flags = _nflags,			\
-		.m.shift = _mshift,			\
-		.m.width = _mwidth,			\
-		.m.value = _mvalue,			\
-		.m.flags = _mflags,			\
-		.gate_shift = _gate_shift,		\
-		.lock_shift = _lock_shift,		\
-		.lock_retries = _lock_retries,		\
-		.flags = _flags | AW_CLK_HAS_FRAC,	\
-		.frac.freq0 = _freq0,			\
-		.frac.freq1 = _freq1,			\
-		.frac.mode_sel = _mode_sel,		\
-		.frac.freq_sel = _freq_sel,		\
 	}
 
 #define PREDIV_CLK(_clkname, _id, _name, _pnames,	\

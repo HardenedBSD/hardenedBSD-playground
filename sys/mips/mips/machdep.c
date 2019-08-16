@@ -70,6 +70,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_kern.h>
 #include <vm/vm_object.h>
 #include <vm/vm_page.h>
+#include <vm/vm_phys.h>
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
 #include <vm/vm_pager.h>
@@ -140,9 +141,7 @@ char pcpu_space[MAXCPU][PAGE_SIZE * 2] \
 
 struct pcpu *pcpup = (struct pcpu *)pcpu_space;
 
-vm_paddr_t phys_avail[PHYS_AVAIL_ENTRIES + 2];
-vm_paddr_t physmem_desc[PHYS_AVAIL_ENTRIES + 2];
-vm_paddr_t dump_avail[PHYS_AVAIL_ENTRIES + 2];
+vm_paddr_t physmem_desc[PHYS_AVAIL_COUNT];
 
 #ifdef UNIMPLEMENTED
 struct platform platform;
@@ -185,6 +184,8 @@ cpu_startup(void *dummy)
 
 	if (boothowto & RB_VERBOSE)
 		bootverbose++;
+
+	printf("CPU model: %s\n", cpu_model);
 
 	printf("real memory  = %ju (%juK bytes)\n", ptoa((uintmax_t)realmem),
 	    ptoa((uintmax_t)realmem) / 1024);

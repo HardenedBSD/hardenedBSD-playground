@@ -117,6 +117,8 @@ static bus_dma_tag_t opalpci_get_dma_tag(device_t dev, device_t child);
 #define	OPAL_EEH_ACTION_CLEAR_FREEZE_DMA	2
 #define	OPAL_EEH_ACTION_CLEAR_FREEZE_ALL	3
 
+#define	OPAL_EEH_STOPPED_NOT_FROZEN		0
+
 /*
  * Constants
  */
@@ -149,6 +151,8 @@ static device_method_t	opalpci_methods[] = {
 
 	/* Bus interface */
 	DEVMETHOD(bus_get_dma_tag,	opalpci_get_dma_tag),
+	DEVMETHOD(bus_get_cpus,		ofw_pcibus_get_cpus),
+	DEVMETHOD(bus_get_domain,	ofw_pcibus_get_domain),
 
 	DEVMETHOD_END
 };
@@ -367,7 +371,7 @@ opalpci_attach(device_t dev)
 	tce_size = max_tce_size(dev);
 	maxmem = roundup2(powerpc_ptob(Maxmem), tce_size);
 	entries = round_pow2(maxmem / tce_size);
-	tce_tbl_size = max(entries * sizeof(uint64_t), 4096);
+	tce_tbl_size = MAX(entries * sizeof(uint64_t), 4096);
 	if (entries > OPAL_PCI_TCE_MAX_ENTRIES)
 		panic("POWERNV supports only %jdGB of memory space\n",
 		    (uintmax_t)((OPAL_PCI_TCE_MAX_ENTRIES * tce_size) >> 30));
@@ -499,10 +503,11 @@ opalpci_read_config(device_t dev, u_int bus, u_int slot, u_int func, u_int reg,
 {
 	struct opalpci_softc *sc;
 	uint64_t config_addr;
-	uint8_t byte;
+	uint8_t byte, eeh_state;
 	uint16_t half;
 	uint32_t word;
 	int error;
+	uint16_t err_type;
 
 	sc = device_get_softc(dev);
 
@@ -526,19 +531,28 @@ opalpci_read_config(device_t dev, u_int bus, u_int slot, u_int func, u_int reg,
 	default:
 		error = OPAL_SUCCESS;
 		word = 0xffffffff;
+		width = 4;
 	}
 
 	/*
 	 * Poking config state for non-existant devices can make
 	 * the host bridge hang up. Clear any errors.
-	 *
-	 * XXX: Make this conditional on the existence of a freeze
 	 */
-	opal_call(OPAL_PCI_EEH_FREEZE_CLEAR, sc->phb_id, OPAL_PCI_DEFAULT_PE,
-	    OPAL_EEH_ACTION_CLEAR_FREEZE_ALL);
 	
-	if (error != OPAL_SUCCESS)
-		word = 0xffffffff;
+	if (error != OPAL_SUCCESS ||
+	    (word == ((1UL << (8 * width)) - 1))) {
+		if (error != OPAL_HARDWARE) {
+			opal_call(OPAL_PCI_EEH_FREEZE_STATUS, sc->phb_id,
+			    OPAL_PCI_DEFAULT_PE, vtophys(&eeh_state),
+			    vtophys(&err_type), NULL);
+			if (eeh_state != OPAL_EEH_STOPPED_NOT_FROZEN)
+				opal_call(OPAL_PCI_EEH_FREEZE_CLEAR,
+				    sc->phb_id, OPAL_PCI_DEFAULT_PE,
+				    OPAL_EEH_ACTION_CLEAR_FREEZE_ALL);
+		}
+		if (error != OPAL_SUCCESS)
+			word = 0xffffffff;
+	}
 
 	return (word);
 }
@@ -575,8 +589,11 @@ opalpci_write_config(device_t dev, u_int bus, u_int slot, u_int func,
 		 * Poking config state for non-existant devices can make
 		 * the host bridge hang up. Clear any errors.
 		 */
-		opal_call(OPAL_PCI_EEH_FREEZE_CLEAR, sc->phb_id,
-		    OPAL_PCI_DEFAULT_PE, OPAL_EEH_ACTION_CLEAR_FREEZE_ALL);
+		if (error != OPAL_HARDWARE) {
+			opal_call(OPAL_PCI_EEH_FREEZE_CLEAR,
+			    sc->phb_id, OPAL_PCI_DEFAULT_PE,
+			    OPAL_EEH_ACTION_CLEAR_FREEZE_ALL);
+		}
 	}
 }
 

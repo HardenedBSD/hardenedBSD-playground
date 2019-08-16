@@ -84,6 +84,15 @@ struct vxlan_socket_mc_info {
 	int				 vxlsomc_users;
 };
 
+/*
+ * The maximum MTU of encapsulated ethernet frame within IPv4/UDP packet.
+ */
+#define VXLAN_MAX_MTU	(IP_MAXPACKET - \
+		60 /* Maximum IPv4 header len */ - \
+		sizeof(struct udphdr) - \
+		sizeof(struct vxlan_header) - \
+		ETHER_HDR_LEN - ETHER_CRC_LEN - ETHER_VLAN_ENCAP_LEN)
+
 #define VXLAN_SO_MC_MAX_GROUPS		32
 
 #define VXLAN_SO_VNI_HASH_SHIFT		6
@@ -177,7 +186,7 @@ struct vxlan_softc {
 	struct sysctl_oid		*vxl_sysctl_node;
 	struct sysctl_ctx_list		 vxl_sysctl_ctx;
 	struct callout			 vxl_callout;
-	uint8_t				 vxl_hwaddr[ETHER_ADDR_LEN];
+	struct ether_addr		 vxl_hwaddr;
 	int				 vxl_mc_ifindex;
 	struct ifnet			*vxl_mc_ifp;
 	struct ifmedia 			 vxl_media;
@@ -345,7 +354,6 @@ static int	vxlan_clone_create(struct if_clone *, int, caddr_t);
 static void	vxlan_clone_destroy(struct ifnet *);
 
 static uint32_t vxlan_mac_hash(struct vxlan_softc *, const uint8_t *);
-static void	vxlan_fakeaddr(struct vxlan_softc *);
 static int	vxlan_media_change(struct ifnet *);
 static void	vxlan_media_status(struct ifnet *, struct ifmediareq *);
 
@@ -1135,7 +1143,7 @@ vxlan_socket_mc_join_group(struct vxlan_socket *vso,
 		 * If we really need to, we can of course look in the INP's
 		 * membership list:
 		 *     sotoinpcb(vso->vxlso_sock)->inp_moptions->
-		 *         imo_membership[]->inm_ifp
+		 *         imo_head[]->imf_inm->inm_ifp
 		 * similarly to imo_match_group().
 		 */
 		source->in4.sin_addr = local->in4.sin_addr;
@@ -2248,10 +2256,11 @@ vxlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	ifr = (struct ifreq *) data;
 	ifd = (struct ifdrv *) data;
 
+	error = 0;
+
 	switch (cmd) {
 	case SIOCADDMULTI:
 	case SIOCDELMULTI:
-		error = 0;
 		break;
 
 	case SIOCGDRVSPEC:
@@ -2266,6 +2275,13 @@ vxlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	case SIOCSIFMEDIA:
 	case SIOCGIFMEDIA:
 		error = ifmedia_ioctl(ifp, ifr, &sc->vxl_media, cmd);
+		break;
+
+	case SIOCSIFMTU:
+		if (ifr->ifr_mtu < ETHERMIN || ifr->ifr_mtu > VXLAN_MAX_MTU)
+			error = EINVAL;
+		else
+			ifp->if_mtu = ifr->ifr_mtu;
 		break;
 
 	default:
@@ -2748,15 +2764,15 @@ vxlan_clone_create(struct if_clone *ifc, int unit, caddr_t params)
 	ifp->if_ioctl = vxlan_ioctl;
 	ifp->if_transmit = vxlan_transmit;
 	ifp->if_qflush = vxlan_qflush;
-	ifp->if_capabilities |= IFCAP_LINKSTATE;
-	ifp->if_capenable |= IFCAP_LINKSTATE;
+	ifp->if_capabilities |= IFCAP_LINKSTATE | IFCAP_JUMBO_MTU;
+	ifp->if_capenable |= IFCAP_LINKSTATE | IFCAP_JUMBO_MTU;
 
 	ifmedia_init(&sc->vxl_media, 0, vxlan_media_change, vxlan_media_status);
 	ifmedia_add(&sc->vxl_media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&sc->vxl_media, IFM_ETHER | IFM_AUTO);
 
-	vxlan_fakeaddr(sc);
-	ether_ifattach(ifp, sc->vxl_hwaddr);
+	ether_gen_addr(ifp, &sc->vxl_hwaddr);
+	ether_ifattach(ifp, sc->vxl_hwaddr.octet);
 
 	ifp->if_baudrate = 0;
 	ifp->if_hdrlen = 0;
@@ -2825,20 +2841,6 @@ do {									\
 #undef mix
 
 	return (c);
-}
-
-static void
-vxlan_fakeaddr(struct vxlan_softc *sc)
-{
-
-	/*
-	 * Generate a non-multicast, locally administered address.
-	 *
-	 * BMV: Should we use the FreeBSD OUI range instead?
-	 */
-	arc4rand(sc->vxl_hwaddr, ETHER_ADDR_LEN, 1);
-	sc->vxl_hwaddr[0] &= ~1;
-	sc->vxl_hwaddr[0] |= 2;
 }
 
 static int

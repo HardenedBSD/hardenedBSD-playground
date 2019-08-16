@@ -44,6 +44,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/mutex.h>
 #include <sys/bus.h>
+#include <sys/eventhandler.h>
 #include <sys/fcntl.h>
 #include <sys/file.h>
 #include <sys/filio.h>
@@ -91,6 +92,10 @@ __FBSDID("$FreeBSD$");
 #endif
 
 SYSCTL_NODE(_compat, OID_AUTO, linuxkpi, CTLFLAG_RW, 0, "LinuxKPI parameters");
+
+int linuxkpi_debug;
+SYSCTL_INT(_compat_linuxkpi, OID_AUTO, debug, CTLFLAG_RWTUN,
+    &linuxkpi_debug, 0, "Set to enable pr_debug() prints. Clear to disable.");
 
 MALLOC_DEFINE(M_KMALLOC, "linux", "Linux kmalloc compat");
 
@@ -893,7 +898,7 @@ linux_clear_user(void *_uaddr, size_t _len)
 }
 
 int
-linux_access_ok(int rw, const void *uaddr, size_t len)
+linux_access_ok(const void *uaddr, size_t len)
 {
 	uintptr_t saddr;
 	uintptr_t eaddr;
@@ -1773,7 +1778,7 @@ vmmap_remove(void *addr)
 	return (vmmap);
 }
 
-#if defined(__i386__) || defined(__amd64__) || defined(__powerpc__)
+#if defined(__i386__) || defined(__amd64__) || defined(__powerpc__) || defined(__aarch64__)
 void *
 _ioremap_attr(vm_paddr_t phys_addr, unsigned long size, int attr)
 {
@@ -1796,7 +1801,7 @@ iounmap(void *addr)
 	vmmap = vmmap_remove(addr);
 	if (vmmap == NULL)
 		return;
-#if defined(__i386__) || defined(__amd64__) || defined(__powerpc__)
+#if defined(__i386__) || defined(__amd64__) || defined(__powerpc__) || defined(__aarch64__)
 	pmap_unmapdev((vm_offset_t)addr, vmmap->vm_size);
 #endif
 	kfree(vmmap);
@@ -1900,6 +1905,15 @@ add_timer_on(struct timer_list *timer, int cpu)
 	callout_reset_on(&timer->callout,
 	    linux_timer_jiffies_until(timer->expires),
 	    &linux_timer_callback_wrapper, timer, cpu);
+}
+
+int
+del_timer(struct timer_list *timer)
+{
+
+	if (callout_stop(&(timer)->callout) == -1)
+		return (0);
+	return (1);
 }
 
 static void
@@ -2328,7 +2342,7 @@ __register_chrdev(unsigned int major, unsigned int baseminor,
 
 	for (i = baseminor; i < baseminor + count; i++) {
 		cdev = cdev_alloc();
-		cdev_init(cdev, fops);
+		cdev->ops = fops;
 		kobject_set_name(&cdev->kobj, name);
 
 		ret = cdev_add(cdev, makedev(major, i), 1);
@@ -2350,7 +2364,7 @@ __register_chrdev_p(unsigned int major, unsigned int baseminor,
 
 	for (i = baseminor; i < baseminor + count; i++) {
 		cdev = cdev_alloc();
-		cdev_init(cdev, fops);
+		cdev->ops = fops;
 		kobject_set_name(&cdev->kobj, name);
 
 		ret = cdev_add_ext(cdev, makedev(major, i), uid, gid, mode);

@@ -124,6 +124,7 @@ badger [label="Eric Badger\nbadger@FreeBSD.org\n2016/07/01"]
 bapt [label="Baptiste Daroussin\nbapt@FreeBSD.org\n2011/12/23"]
 bcran [label="Rebecca Cran\nbcran@FreeBSD.org\n2010/01/29"]
 bde [label="Bruce Evans\nbde@FreeBSD.org\n1994/08/20"]
+bdragon [label="Brandon Bergren\nbdragon@FreeBSD.org\n2019/05/31"]
 bdrewery [label="Bryan Drewery\nbdrewery@FreeBSD.org\n2013/12/14"]
 benl [label="Ben Laurie\nbenl@FreeBSD.org\n2011/05/18"]
 benno [label="Benno Rice\nbenno@FreeBSD.org\n2000/11/02"]
@@ -143,6 +144,7 @@ cognet [label="Olivier Houchard\ncognet@FreeBSD.org\n2002/10/09"]
 cokane [label="Coleman Kane\ncokane@FreeBSD.org\n2000/06/19"]
 cperciva [label="Colin Percival\ncperciva@FreeBSD.org\n2004/01/20"]
 csjp [label="Christian S.J. Peron\ncsjp@FreeBSD.org\n2004/05/04"]
+cy [label="Cy Schubert\ncy@FreeBSD.org\n2013/04/23"]
 dab [label="David Bright\ndab@FreeBSD.org\n2016/10/24"]
 das [label="David Schultz\ndas@FreeBSD.org\n2003/02/21"]
 davide [label="Davide Italiano\ndavide@FreeBSD.org\n2012/01/27"]
@@ -154,6 +156,7 @@ dexuan [label="Dexuan Cui\ndexuan@FreeBSD.org\n2016/10/24"]
 dfr [label="Doug Rabson\ndfr@FreeBSD.org\n????/??/??"]
 dg [label="David Greenman\ndg@FreeBSD.org\n1993/06/14"]
 dim [label="Dimitry Andric\ndim@FreeBSD.org\n2010/08/30"]
+dougm [label="Doug Moore\ndougm@FreeBSD.org\n2019/04/30"]
 dteske [label="Devin Teske\ndteske@FreeBSD.org\n2012/04/10"]
 dumbbell [label="Jean-Sebastien Pedron\ndumbbell@FreeBSD.org\n2004/11/29"]
 dwmalone [label="David Malone\ndwmalone@FreeBSD.org\n2000/07/11"]
@@ -216,6 +219,7 @@ jmcneill [label="Jared McNeill\njmcneill@FreeBSD.org\n2016/02/24"]
 jmg [label="John-Mark Gurney\njmg@FreeBSD.org\n1997/02/13"]
 jmmv [label="Julio Merino\njmmv@FreeBSD.org\n2013/11/02"]
 joerg [label="Joerg Wunsch\njoerg@FreeBSD.org\n1993/11/14"]
+johalun [label="Johannes Lundberg\njohalun@FreeBSD.org\n2019/01/19"]
 jon [label="Jonathan Chen\njon@FreeBSD.org\n2000/10/17"]
 jonathan [label="Jonathan Anderson\njonathan@FreeBSD.org\n2010/10/07"]
 jpaetzel [label="Josh Paetzel\njpaetzel@FreeBSD.org\n2011/01/21"]
@@ -253,6 +257,7 @@ maxim [label="Maxim Konovalov\nmaxim@FreeBSD.org\n2002/02/07"]
 mdf [label="Matthew Fleming\nmdf@FreeBSD.org\n2010/06/04"]
 mdodd [label="Matthew N. Dodd\nmdodd@FreeBSD.org\n1999/07/27"]
 melifaro [label="Alexander V. Chernikov\nmelifaro@FreeBSD.org\n2011/10/04"]
+mhorne [label="Mitchell Horne\nmhorne@FreeBSD.org\n2019/03/20"]
 miwi [label="Martin Wilke\nmiwi@FreeBSD.org\n2011/02/18\n2018/06/14"]
 mizhka [label="Michael Zhilin\nmizhka@FreeBSD.org\n2016/07/19"]
 mjacob [label="Matt Jacob\nmjacob@FreeBSD.org\n1997/08/13"]
@@ -313,6 +318,7 @@ sbruno [label="Sean Bruno\nsbruno@FreeBSD.org\n2008/08/02"]
 scf [label="Sean C. Farley\nscf@FreeBSD.org\n2007/06/24"]
 schweikh [label="Jens Schweikhardt\nschweikh@FreeBSD.org\n2001/04/06"]
 scottl [label="Scott Long\nscottl@FreeBSD.org\n2000/09/28"]
+scottph [label="D Scott Phillips\nscottph@FreeBSD.org\n2019/05/28"]
 se [label="Stefan Esser\nse@FreeBSD.org\n1994/08/26"]
 sephe [label="Sepherosa Ziehau\nsephe@FreeBSD.org\n2007/03/28"]
 sepotvin [label="Stephane E. Potvin\nsepotvin@FreeBSD.org\n2007/02/15"]
@@ -348,6 +354,7 @@ uqs [label="Ulrich Spoerlein\nuqs@FreeBSD.org\n2010/01/28"]
 vangyzen [label="Eric van Gyzen\nvangyzen@FreeBSD.org\n2015/03/08"]
 vanhu [label="Yvan Vanhullebus\nvanhu@FreeBSD.org\n2008/07/21"]
 versus [label="Konrad Jankowski\nversus@FreeBSD.org\n2008/10/27"]
+vmaffione [label="Vincenzo Maffione\nvmaffione@FreeBSD.org\n2018/03/19"]
 weongyo [label="Weongyo Jeong\nweongyo@FreeBSD.org\n2007/12/21"]
 wes [label="Wes Peters\nwes@FreeBSD.org\n1998/11/25"]
 whu [label="Wei Hu\nwhu@FreeBSD.org\n2015/02/11"]
@@ -505,6 +512,7 @@ emaste -> lwhsu
 emaste -> markj
 emaste -> ngie
 emaste -> rstone
+emaste -> scottph
 
 emax -> markus
 
@@ -558,6 +566,7 @@ imp -> dmlb
 imp -> emax
 imp -> furuta
 imp -> joe
+imp -> johalun
 imp -> jon
 imp -> keichii
 imp -> kibab
@@ -601,7 +610,9 @@ jhb -> pfg
 jhb -> rnoland
 jhb -> rpokala
 jhb -> arichardson
+jhb -> scottph
 
+jhibbits -> bdragon
 jhibbits -> leitao
 jhibbits -> luporl
 
@@ -659,6 +670,7 @@ ken -> will
 kib -> ae
 kib -> badger
 kib -> dchagin
+kib -> dougm
 kib -> gjb
 kib -> jah
 kib -> jlh
@@ -690,7 +702,9 @@ marcel -> nwhitehorn
 marcel -> sjg
 
 markj -> cem
+markj -> dougm
 markj -> lwhsu
+markj -> mhorne
 markj -> rlibby
 
 markm -> jasone
@@ -738,6 +752,7 @@ obrien -> gshapiro
 obrien -> kan
 obrien -> sam
 
+pfg -> pstef
 pfg -> fsu
 
 peter -> asmodai

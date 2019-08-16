@@ -75,11 +75,10 @@
 #include <machine/pte.h>
 #include <machine/slb.h>
 #include <machine/tlb.h>
+#include <machine/vmparam.h>
 
 struct pmap;
 typedef struct pmap *pmap_t;
-
-#if defined(AIM)
 
 #if !defined(NPMAPS)
 #define	NPMAPS		32768
@@ -92,11 +91,14 @@ struct pvo_entry {
 #ifndef __powerpc64__
 	LIST_ENTRY(pvo_entry) pvo_olink;	/* Link to overflow entry */
 #endif
-	RB_ENTRY(pvo_entry) pvo_plink;	/* Link to pmap entries */
+	union {
+		RB_ENTRY(pvo_entry) pvo_plink;	/* Link to pmap entries */
+		SLIST_ENTRY(pvo_entry) pvo_dlink; /* Link to delete enty */
+	};
 	struct {
 #ifndef __powerpc64__
 		/* 32-bit fields */
-		struct	pte pte;
+		pte_t	    pte;
 #endif
 		/* 64-bit fields */
 		uintptr_t   slot;
@@ -108,6 +110,7 @@ struct pvo_entry {
 	uint64_t	pvo_vpn;		/* Virtual page number */
 };
 LIST_HEAD(pvo_head, pvo_entry);
+SLIST_HEAD(pvo_dlist, pvo_entry);
 RB_HEAD(pvo_tree, pvo_entry);
 int pvo_vaddr_compare(struct pvo_entry *, struct pvo_entry *);
 RB_PROTOTYPE(pvo_tree, pvo_entry, pvo_plink, pvo_vaddr_compare);
@@ -136,28 +139,73 @@ RB_PROTOTYPE(pvo_tree, pvo_entry, pvo_plink, pvo_vaddr_compare);
 struct	pmap {
 	struct		pmap_statistics	pm_stats;
 	struct	mtx	pm_mtx;
-	
-    #ifdef __powerpc64__
-	struct slbtnode	*pm_slb_tree_root;
-	struct slb	**pm_slb;
-	int		pm_slb_len;
-    #else
-	register_t	pm_sr[16];
-    #endif
 	cpuset_t	pm_active;
+	union {
+		struct {
+			
+		    #ifdef __powerpc64__
+			struct slbtnode	*pm_slb_tree_root;
+			struct slb	**pm_slb;
+			int		pm_slb_len;
+		    #else
+			register_t	pm_sr[16];
+		    #endif
 
-	struct pmap	*pmap_phys;
-	struct pvo_tree pmap_pvo;
+			struct pmap	*pmap_phys;
+			struct pvo_tree pmap_pvo;
+		};
+		struct {
+			/* TID to identify this pmap entries in TLB */
+			tlbtid_t	pm_tid[MAXCPU];	
+
+#ifdef __powerpc64__
+			/*
+			 * Page table directory,
+			 * array of pointers to page directories.
+			 */
+			pte_t ***pm_pp2d;
+#else
+			/*
+			 * Page table directory,
+			 * array of pointers to page tables.
+			 */
+			pte_t		**pm_pdir;
+
+			/* List of allocated ptbl bufs (ptbl kva regions). */
+			TAILQ_HEAD(, ptbl_buf)	pm_ptbl_list;
+#endif
+		};
+	};
 };
+
+struct pv_entry {
+	pmap_t pv_pmap;
+	vm_offset_t pv_va;
+	TAILQ_ENTRY(pv_entry) pv_link;
+};
+typedef struct pv_entry *pv_entry_t;
 
 struct	md_page {
-	volatile int32_t mdpg_attrs;
-	vm_memattr_t	 mdpg_cache_attrs;
-	struct	pvo_head mdpg_pvoh;
+	union {
+		struct {
+			volatile int32_t mdpg_attrs;
+			vm_memattr_t	 mdpg_cache_attrs;
+			struct	pvo_head mdpg_pvoh;
+		};
+		struct {
+			TAILQ_HEAD(, pv_entry)	pv_list;
+			int			pv_tracked;
+		};
+	};
 };
 
+#ifdef AIM
 #define	pmap_page_get_memattr(m)	((m)->md.mdpg_cache_attrs)
 #define	pmap_page_is_mapped(m)	(!LIST_EMPTY(&(m)->md.mdpg_pvoh))
+#else
+#define	pmap_page_get_memattr(m)	VM_MEMATTR_DEFAULT
+#define	pmap_page_is_mapped(m)	(!TAILQ_EMPTY(&(m)->md.pv_list))
+#endif
 
 /*
  * Return the VSID corresponding to a given virtual address.
@@ -181,56 +229,6 @@ struct slbtnode *slb_alloc_tree(void);
 void     slb_free_tree(pmap_t pm);
 struct slb **slb_alloc_user_cache(void);
 void	slb_free_user_cache(struct slb **);
-
-#elif defined(BOOKE)
-
-struct pmap {
-	struct pmap_statistics	pm_stats;	/* pmap statistics */
-	struct mtx		pm_mtx;		/* pmap mutex */
-	tlbtid_t		pm_tid[MAXCPU];	/* TID to identify this pmap entries in TLB */
-	cpuset_t		pm_active;	/* active on cpus */
-
-#ifdef __powerpc64__
-	/* Page table directory, array of pointers to page directories. */
-	pte_t **pm_pp2d[PP2D_NENTRIES];
-
-	/* List of allocated pdir bufs (pdir kva regions). */
-	TAILQ_HEAD(, ptbl_buf)	pm_pdir_list;
-#else
-	/* Page table directory, array of pointers to page tables. */
-	pte_t			*pm_pdir[PDIR_NENTRIES];
-#endif
-
-	/* List of allocated ptbl bufs (ptbl kva regions). */
-	TAILQ_HEAD(, ptbl_buf)	pm_ptbl_list;
-};
-
-struct pv_entry {
-	pmap_t pv_pmap;
-	vm_offset_t pv_va;
-	TAILQ_ENTRY(pv_entry) pv_link;
-};
-typedef struct pv_entry *pv_entry_t;
-
-struct md_page {
-	TAILQ_HEAD(, pv_entry) pv_list;
-	int	pv_tracked;
-};
-
-#define	pmap_page_get_memattr(m)	VM_MEMATTR_DEFAULT
-#define	pmap_page_is_mapped(m)	(!TAILQ_EMPTY(&(m)->md.pv_list))
-
-#else
-/*
- * Common pmap members between AIM and BOOKE.
- * libkvm needs pm_stats at the same location between both, as it doesn't define
- * AIM nor BOOKE, and is expected to work across all.
- */
-struct pmap {
-	struct pmap_statistics	pm_stats;	/* pmap statistics */
-	struct mtx		pm_mtx;		/* pmap mutex */
-};
-#endif /* AIM */
 
 extern	struct pmap kernel_pmap_store;
 #define	kernel_pmap	(&kernel_pmap_store)
@@ -271,12 +269,6 @@ boolean_t	pmap_mmu_install(char *name, int prio);
 
 #define	vtophys(va)	pmap_kextract((vm_offset_t)(va))
 
-#define PHYS_AVAIL_SZ	256	/* Allows up to 16GB Ram on pSeries with
-				 * logical memory block size of 64MB.
-				 * For more Ram increase the lmb or this value.
-				 */
-
-extern	vm_paddr_t phys_avail[PHYS_AVAIL_SZ];
 extern	vm_offset_t virtual_avail;
 extern	vm_offset_t virtual_end;
 
@@ -287,6 +279,13 @@ extern	int pmap_bootstrapped;
 vm_offset_t pmap_early_io_map(vm_paddr_t pa, vm_size_t size);
 void pmap_early_io_unmap(vm_offset_t va, vm_size_t size);
 void pmap_track_page(pmap_t pmap, vm_offset_t va);
+
+static inline int
+pmap_vmspace_copy(pmap_t dst_pmap __unused, pmap_t src_pmap __unused)
+{
+
+	return (0);
+}
 
 #endif
 

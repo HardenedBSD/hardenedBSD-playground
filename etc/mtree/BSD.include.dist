@@ -138,8 +138,6 @@
             mpilib
             ..
         ..
-        nand
-        ..
         nvme
         ..
         ofw
@@ -152,6 +150,8 @@
         ..
         ppbus
         ..
+        pwm
+        ..
         smbus
         ..
         speaker
@@ -159,6 +159,8 @@
         tcp_log
         ..
         usb
+        ..
+        veriexec
         ..
         vkbd
         ..
@@ -179,8 +181,6 @@
         fdescfs
         ..
         msdosfs
-        ..
-        nandfs
         ..
         nfs
         ..
@@ -353,6 +353,8 @@
         mac_mls
         ..
         mac_partition
+        ..
+        mac_veriexec
         ..
     ..
     ssp

@@ -48,7 +48,7 @@
 #ifndef _MACHINE_PMAP_H_
 #define	_MACHINE_PMAP_H_
 
-#include <machine/vmparam.h>
+#include <vm/vm_param.h>
 #include <machine/pte.h>
 
 #if defined(__mips_n32) || defined(__mips_n64) /* PHYSADDR_64BIT */
@@ -157,14 +157,10 @@ struct pv_chunk {
  * so we can describe up to (PHYS_AVAIL_ENTRIES / 2) distinct memory
  * regions.
  */
-#define	PHYS_AVAIL_ENTRIES	10
-extern vm_paddr_t phys_avail[PHYS_AVAIL_ENTRIES + 2];
-extern vm_paddr_t physmem_desc[PHYS_AVAIL_ENTRIES + 2];
+extern vm_paddr_t physmem_desc[PHYS_AVAIL_COUNT];
 
 extern vm_offset_t virtual_avail;
 extern vm_offset_t virtual_end;
-
-extern vm_paddr_t dump_avail[PHYS_AVAIL_ENTRIES + 2];
 
 #define	pmap_page_get_memattr(m) (((m)->md.pv_flags & PV_MEMATTR_MASK) >> PV_MEMATTR_SHIFT)
 #define	pmap_page_is_mapped(m)	(!TAILQ_EMPTY(&(m)->md.pv_list))
@@ -177,13 +173,22 @@ void pmap_unmapdev(vm_offset_t, vm_size_t);
 vm_offset_t pmap_steal_memory(vm_size_t size);
 void pmap_kenter(vm_offset_t va, vm_paddr_t pa);
 void pmap_kenter_attr(vm_offset_t va, vm_paddr_t pa, vm_memattr_t attr);
+void pmap_kenter_device(vm_offset_t, vm_size_t, vm_paddr_t);
 void pmap_kremove(vm_offset_t va);
+void pmap_kremove_device(vm_offset_t, vm_size_t);
 void *pmap_kenter_temporary(vm_paddr_t pa, int i);
 void pmap_kenter_temporary_free(vm_paddr_t pa);
 void pmap_flush_pvcache(vm_page_t m);
 int pmap_emulate_modified(pmap_t pmap, vm_offset_t va);
 void pmap_page_set_memattr(vm_page_t, vm_memattr_t);
 int pmap_change_attr(vm_offset_t, vm_size_t, vm_memattr_t);
+
+static inline int
+pmap_vmspace_copy(pmap_t dst_pmap __unused, pmap_t src_pmap __unused)
+{
+
+	return (0);
+}
 
 #endif				/* _KERNEL */
 

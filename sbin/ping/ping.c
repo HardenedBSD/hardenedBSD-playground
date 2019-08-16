@@ -96,6 +96,7 @@ __FBSDID("$FreeBSD$");
 #include <stdlib.h>
 #include <string.h>
 #include <sysexits.h>
+#include <time.h>
 #include <unistd.h>
 
 #define	INADDR_LEN	((int)sizeof(in_addr_t))
@@ -119,7 +120,7 @@ __FBSDID("$FreeBSD$");
 
 struct tv32 {
 	int32_t tv32_sec;
-	int32_t tv32_usec;
+	int32_t tv32_nsec;
 };
 
 /* various options */
@@ -208,7 +209,7 @@ static volatile sig_atomic_t siginfo_p;
 static cap_channel_t *capdns;
 
 static void fill(char *, char *);
-static u_short in_cksum(u_short *, int);
+static u_short in_cksum(u_char *, int);
 static cap_channel_t *capdns_setup(void);
 static void check_status(void);
 static void finish(void) __dead2;
@@ -217,11 +218,10 @@ static char *pr_addr(struct in_addr);
 static char *pr_ntime(n_time);
 static void pr_icmph(struct icmp *);
 static void pr_iph(struct ip *);
-static void pr_pack(char *, int, struct sockaddr_in *, struct timeval *);
+static void pr_pack(char *, int, struct sockaddr_in *, struct timespec *);
 static void pr_retip(struct ip *);
 static void status(int);
 static void stopit(int);
-static void tvsub(struct timeval *, const struct timeval *);
 static void usage(void) __dead2;
 
 int
@@ -229,7 +229,7 @@ main(int argc, char *const *argv)
 {
 	struct sockaddr_in from, sock_in;
 	struct in_addr ifaddr;
-	struct timeval last, intvl;
+	struct timespec last, intvl;
 	struct iovec iov;
 	struct ip *ip;
 	struct msghdr msg;
@@ -247,7 +247,7 @@ main(int argc, char *const *argv)
 	long ltmp;
 	int almost_done, ch, df, hold, i, icmp_len, mib[4], preload;
 	int ssend_errno, srecv_errno, tos, ttl;
-	char ctrl[CMSG_SPACE(sizeof(struct timeval))];
+	char ctrl[CMSG_SPACE(sizeof(struct timespec))];
 	char hnamebuf[MAXHOSTNAMELEN], snamebuf[MAXHOSTNAMELEN];
 #ifdef IP_OPTIONS
 	char rspace[MAX_IPOPTLEN];	/* record route space */
@@ -760,9 +760,15 @@ main(int argc, char *const *argv)
 		}
 	}
 #ifdef SO_TIMESTAMP
-	{ int on = 1;
-	if (setsockopt(srecv, SOL_SOCKET, SO_TIMESTAMP, &on, sizeof(on)) < 0)
-		err(EX_OSERR, "setsockopt SO_TIMESTAMP");
+	{
+		int on = 1;
+		int ts_clock = SO_TS_MONOTONIC;
+		if (setsockopt(srecv, SOL_SOCKET, SO_TIMESTAMP, &on,
+		    sizeof(on)) < 0)
+			err(EX_OSERR, "setsockopt SO_TIMESTAMP");
+		if (setsockopt(srecv, SOL_SOCKET, SO_TS_CLOCK, &ts_clock,
+		    sizeof(ts_clock)) < 0)
+			err(EX_OSERR, "setsockopt SO_TS_CLOCK");
 	}
 #endif
 	if (sweepmax) {
@@ -871,19 +877,19 @@ main(int argc, char *const *argv)
 		while (preload--)	/* fire off them quickies */
 			pinger();
 	}
-	(void)gettimeofday(&last, NULL);
+	(void)clock_gettime(CLOCK_MONOTONIC, &last);
 
 	if (options & F_FLOOD) {
 		intvl.tv_sec = 0;
-		intvl.tv_usec = 10000;
+		intvl.tv_nsec = 10000000;
 	} else {
 		intvl.tv_sec = interval / 1000;
-		intvl.tv_usec = interval % 1000 * 1000;
+		intvl.tv_nsec = interval % 1000 * 1000000;
 	}
 
 	almost_done = 0;
 	while (!finish_up) {
-		struct timeval now, timeout;
+		struct timespec now, timeout;
 		fd_set rfds;
 		int cc, n;
 
@@ -892,24 +898,16 @@ main(int argc, char *const *argv)
 			errx(EX_OSERR, "descriptor too large");
 		FD_ZERO(&rfds);
 		FD_SET(srecv, &rfds);
-		(void)gettimeofday(&now, NULL);
-		timeout.tv_sec = last.tv_sec + intvl.tv_sec - now.tv_sec;
-		timeout.tv_usec = last.tv_usec + intvl.tv_usec - now.tv_usec;
-		while (timeout.tv_usec < 0) {
-			timeout.tv_usec += 1000000;
-			timeout.tv_sec--;
-		}
-		while (timeout.tv_usec >= 1000000) {
-			timeout.tv_usec -= 1000000;
-			timeout.tv_sec++;
-		}
+		(void)clock_gettime(CLOCK_MONOTONIC, &now);
+		timespecadd(&last, &intvl, &timeout);
+		timespecsub(&timeout, &now, &timeout);
 		if (timeout.tv_sec < 0)
-			timerclear(&timeout);
-		n = select(srecv + 1, &rfds, NULL, NULL, &timeout);
+			timespecclear(&timeout);
+		n = pselect(srecv + 1, &rfds, NULL, NULL, &timeout, NULL);
 		if (n < 0)
 			continue;	/* Must be EINTR. */
 		if (n == 1) {
-			struct timeval *tv = NULL;
+			struct timespec *tv = NULL;
 #ifdef SO_TIMESTAMP
 			struct cmsghdr *cmsg = (struct cmsghdr *)&ctrl;
 
@@ -932,7 +930,7 @@ main(int argc, char *const *argv)
 			}
 #endif
 			if (tv == NULL) {
-				(void)gettimeofday(&now, NULL);
+				(void)clock_gettime(CLOCK_MONOTONIC, &now);
 				tv = &now;
 			}
 			pr_pack((char *)packet, cc, &from, tv);
@@ -956,17 +954,17 @@ main(int argc, char *const *argv)
 				if (almost_done)
 					break;
 				almost_done = 1;
-				intvl.tv_usec = 0;
+				intvl.tv_nsec = 0;
 				if (nreceived) {
 					intvl.tv_sec = 2 * tmax / 1000;
 					if (!intvl.tv_sec)
 						intvl.tv_sec = 1;
 				} else {
 					intvl.tv_sec = waittime / 1000;
-					intvl.tv_usec = waittime % 1000 * 1000;
+					intvl.tv_nsec = waittime % 1000 * 1000000;
 				}
 			}
-			(void)gettimeofday(&last, NULL);
+			(void)clock_gettime(CLOCK_MONOTONIC, &last);
 			if (ntransmitted - nreceived - 1 > nmissedmax) {
 				nmissedmax = ntransmitted - nreceived - 1;
 				if (options & F_MISSED)
@@ -1003,13 +1001,13 @@ stopit(int sig __unused)
  *	Compose and transmit an ICMP ECHO REQUEST packet.  The IP packet
  * will be added on by the kernel.  The ID field is our UNIX process ID,
  * and the sequence number is an ascending integer.  The first TIMEVAL_LEN
- * bytes of the data portion are used to hold a UNIX "timeval" struct in
+ * bytes of the data portion are used to hold a UNIX "timespec" struct in
  * host byte-order, to compute the round-trip time.
  */
 static void
 pinger(void)
 {
-	struct timeval now;
+	struct timespec now;
 	struct tv32 tv32;
 	struct ip *ip;
 	struct icmp *icp;
@@ -1027,13 +1025,18 @@ pinger(void)
 	CLR(ntransmitted % mx_dup_ck);
 
 	if ((options & F_TIME) || timing) {
-		(void)gettimeofday(&now, NULL);
-
-		tv32.tv32_sec = htonl(now.tv_sec);
-		tv32.tv32_usec = htonl(now.tv_usec);
+		(void)clock_gettime(CLOCK_MONOTONIC, &now);
+		/*
+		 * Truncate seconds down to 32 bits in order
+		 * to fit the timestamp within 8 bytes of the
+		 * packet. We're only concerned with
+		 * durations, not absolute times.
+		 */
+		tv32.tv32_sec = (uint32_t)htonl(now.tv_sec);
+		tv32.tv32_nsec = (uint32_t)htonl(now.tv_nsec);
 		if (options & F_TIME)
 			icp->icmp_otime = htonl((now.tv_sec % (24*60*60))
-				* 1000 + now.tv_usec / 1000);
+				* 1000 + now.tv_nsec / 1000000);
 		if (timing)
 			bcopy((void *)&tv32,
 			    (void *)&outpack[ICMP_MINLEN + phdr_len],
@@ -1043,13 +1046,13 @@ pinger(void)
 	cc = ICMP_MINLEN + phdr_len + datalen;
 
 	/* compute ICMP checksum here */
-	icp->icmp_cksum = in_cksum((u_short *)icp, cc);
+	icp->icmp_cksum = in_cksum((u_char *)icp, cc);
 
 	if (options & F_HDRINCL) {
 		cc += sizeof(struct ip);
 		ip = (struct ip *)outpackhdr;
 		ip->ip_len = htons(cc);
-		ip->ip_sum = in_cksum((u_short *)outpackhdr, cc);
+		ip->ip_sum = in_cksum(outpackhdr, cc);
 		packet = outpackhdr;
 	}
 	i = send(ssend, (char *)packet, cc, 0);
@@ -1079,7 +1082,7 @@ pinger(void)
  * program to be run without having intermingled output (or statistics!).
  */
 static void
-pr_pack(char *buf, int cc, struct sockaddr_in *from, struct timeval *tv)
+pr_pack(char *buf, int cc, struct sockaddr_in *from, struct timespec *tv)
 {
 	struct in_addr ina;
 	u_char *cp, *dp;
@@ -1087,7 +1090,8 @@ pr_pack(char *buf, int cc, struct sockaddr_in *from, struct timeval *tv)
 	struct ip *ip;
 	const void *tp;
 	double triptime;
-	int dupflag, hlen, i, j, recv_len, seq;
+	int dupflag, hlen, i, j, recv_len;
+	uint16_t seq;
 	static int old_rrlen;
 	static char old_rr[MAX_IPOPTLEN];
 
@@ -1111,7 +1115,7 @@ pr_pack(char *buf, int cc, struct sockaddr_in *from, struct timeval *tv)
 		++nreceived;
 		triptime = 0.0;
 		if (timing) {
-			struct timeval tv1;
+			struct timespec tv1;
 			struct tv32 tv32;
 #ifndef icmp_data
 			tp = &icp->icmp_ip;
@@ -1125,10 +1129,10 @@ pr_pack(char *buf, int cc, struct sockaddr_in *from, struct timeval *tv)
 				/* Copy to avoid alignment problems: */
 				memcpy(&tv32, tp, sizeof(tv32));
 				tv1.tv_sec = ntohl(tv32.tv32_sec);
-				tv1.tv_usec = ntohl(tv32.tv32_usec);
-				tvsub(tv, &tv1);
+				tv1.tv_nsec = ntohl(tv32.tv32_nsec);
+				timespecsub(tv, &tv1, tv);
  				triptime = ((double)tv->tv_sec) * 1000.0 +
- 				    ((double)tv->tv_usec) / 1000.0;
+				    ((double)tv->tv_nsec) / 1000000.0;
 				tsum += triptime;
 				tsumsq += triptime * triptime;
 				if (triptime < tmin)
@@ -1344,10 +1348,10 @@ pr_pack(char *buf, int cc, struct sockaddr_in *from, struct timeval *tv)
  *	Checksum routine for Internet Protocol family headers (C Version)
  */
 u_short
-in_cksum(u_short *addr, int len)
+in_cksum(u_char *addr, int len)
 {
 	int nleft, sum;
-	u_short *w;
+	u_char *w;
 	union {
 		u_short	us;
 		u_char	uc[2];
@@ -1364,13 +1368,17 @@ in_cksum(u_short *addr, int len)
 	 * carry bits from the top 16 bits into the lower 16 bits.
 	 */
 	while (nleft > 1)  {
-		sum += *w++;
-		nleft -= 2;
+		u_short data;
+
+		memcpy(&data, w, sizeof(data));
+		sum += data;
+		w += sizeof(data);
+		nleft -= sizeof(data);
 	}
 
 	/* mop up an odd byte, if necessary */
 	if (nleft == 1) {
-		last.uc[0] = *(u_char *)w;
+		last.uc[0] = *w;
 		last.uc[1] = 0;
 		sum += last.us;
 	}
@@ -1380,22 +1388,6 @@ in_cksum(u_short *addr, int len)
 	sum += (sum >> 16);			/* add carry */
 	answer = ~sum;				/* truncate to 16 bits */
 	return(answer);
-}
-
-/*
- * tvsub --
- *	Subtract 2 timeval structs:  out = out - in.  Out is assumed to
- * be >= in.
- */
-static void
-tvsub(struct timeval *out, const struct timeval *in)
-{
-
-	if ((out->tv_usec -= in->tv_usec) < 0) {
-		--out->tv_sec;
-		out->tv_usec += 1000000;
-	}
-	out->tv_sec -= in->tv_sec;
 }
 
 /*

@@ -81,6 +81,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/../linux/linux_proto.h>
 #endif
 
+#include <compat/linux/linux_common.h>
 #include <compat/linux/linux_ioctl.h>
 #include <compat/linux/linux_mib.h>
 #include <compat/linux/linux_socket.h>
@@ -237,12 +238,7 @@ linux_ioctl_hdio(struct thread *td, struct linux_ioctl_args *args)
 		 */
 		bytespercyl = (off_t) sectorsize * fwheads * fwsectors;
 		fwcylinders = mediasize / bytespercyl;
-#if defined(DEBUG)
-		linux_msg(td, "HDIO_GET_GEO: mediasize %jd, c/h/s %d/%d/%d, "
-			  "bpc %jd",
-			  (intmax_t)mediasize, fwcylinders, fwheads, fwsectors,
-			  (intmax_t)bytespercyl);
-#endif
+
 		if ((args->cmd & 0xffff) == LINUX_HDIO_GET_GEO) {
 			struct linux_hd_geometry hdg;
 
@@ -403,19 +399,6 @@ bsd_to_linux_termios(struct termios *bios, struct linux_termios *lios)
 {
 	int i;
 
-#ifdef DEBUG
-	if (ldebug(ioctl)) {
-		printf("LINUX: BSD termios structure (input):\n");
-		printf("i=%08x o=%08x c=%08x l=%08x ispeed=%d ospeed=%d\n",
-		    bios->c_iflag, bios->c_oflag, bios->c_cflag, bios->c_lflag,
-		    bios->c_ispeed, bios->c_ospeed);
-		printf("c_cc ");
-		for (i=0; i<NCCS; i++)
-			printf("%02x ", bios->c_cc[i]);
-		printf("\n");
-	}
-#endif
-
 	lios->c_iflag = 0;
 	if (bios->c_iflag & IGNBRK)
 		lios->c_iflag |= LINUX_IGNBRK;
@@ -524,38 +507,12 @@ bsd_to_linux_termios(struct termios *bios, struct linux_termios *lios)
 			lios->c_cc[i] = LINUX_POSIX_VDISABLE;
 	}
 	lios->c_line = 0;
-
-#ifdef DEBUG
-	if (ldebug(ioctl)) {
-		printf("LINUX: LINUX termios structure (output):\n");
-		printf("i=%08x o=%08x c=%08x l=%08x line=%d\n",
-		    lios->c_iflag, lios->c_oflag, lios->c_cflag,
-		    lios->c_lflag, (int)lios->c_line);
-		printf("c_cc ");
-		for (i=0; i<LINUX_NCCS; i++)
-			printf("%02x ", lios->c_cc[i]);
-		printf("\n");
-	}
-#endif
 }
 
 static void
 linux_to_bsd_termios(struct linux_termios *lios, struct termios *bios)
 {
 	int i;
-
-#ifdef DEBUG
-	if (ldebug(ioctl)) {
-		printf("LINUX: LINUX termios structure (input):\n");
-		printf("i=%08x o=%08x c=%08x l=%08x line=%d\n",
-		    lios->c_iflag, lios->c_oflag, lios->c_cflag,
-		    lios->c_lflag, (int)lios->c_line);
-		printf("c_cc ");
-		for (i=0; i<LINUX_NCCS; i++)
-			printf("%02x ", lios->c_cc[i]);
-		printf("\n");
-	}
-#endif
 
 	bios->c_iflag = 0;
 	if (lios->c_iflag & LINUX_IGNBRK)
@@ -666,19 +623,6 @@ linux_to_bsd_termios(struct linux_termios *lios, struct termios *bios)
 
 	bios->c_ispeed = bios->c_ospeed =
 	    linux_to_bsd_speed(lios->c_cflag & LINUX_CBAUD, sptab);
-
-#ifdef DEBUG
-	if (ldebug(ioctl)) {
-		printf("LINUX: BSD termios structure (output):\n");
-		printf("i=%08x o=%08x c=%08x l=%08x ispeed=%d ospeed=%d\n",
-		    bios->c_iflag, bios->c_oflag, bios->c_cflag, bios->c_lflag,
-		    bios->c_ispeed, bios->c_ospeed);
-		printf("c_cc ");
-		for (i=0; i<NCCS; i++)
-			printf("%02x ", bios->c_cc[i]);
-		printf("\n");
-	}
-#endif
 }
 
 static void
@@ -1545,16 +1489,26 @@ linux_ioctl_cdrom(struct thread *td, struct linux_ioctl_args *args)
 		struct ioc_read_subchannel bsdsc;
 		struct cd_sub_channel_info bsdinfo;
 
+		error = copyin((void *)args->arg, &sc, sizeof(sc));
+		if (error)
+			break;
+
+		/*
+		 * Invoke the native ioctl and bounce the returned data through
+		 * the userspace buffer.  This works because the Linux structure
+		 * is the same size as our structures for the subchannel header
+		 * and position data.
+		 */
 		bsdsc.address_format = CD_LBA_FORMAT;
 		bsdsc.data_format = CD_CURRENT_POSITION;
 		bsdsc.track = 0;
-		bsdsc.data_len = sizeof(bsdinfo);
-		bsdsc.data = &bsdinfo;
-		error = fo_ioctl(fp, CDIOCREADSUBCHANNEL_SYSSPACE,
-		    (caddr_t)&bsdsc, td->td_ucred, td);
+		bsdsc.data_len = sizeof(sc);
+		bsdsc.data = (void *)args->arg;
+		error = fo_ioctl(fp, CDIOCREADSUBCHANNEL, (caddr_t)&bsdsc,
+		    td->td_ucred, td);
 		if (error)
 			break;
-		error = copyin((void *)args->arg, &sc, sizeof(sc));
+		error = copyin((void *)args->arg, &bsdinfo, sizeof(bsdinfo));
 		if (error)
 			break;
 		sc.cdsc_audiostatus = bsdinfo.header.audio_status;
@@ -2122,56 +2076,6 @@ linux_ioctl_console(struct thread *td, struct linux_ioctl_args *args)
 }
 
 /*
- * Criteria for interface name translation
- */
-#define IFP_IS_ETH(ifp) (ifp->if_type == IFT_ETHER)
-
-/*
- * Translate a Linux interface name to a FreeBSD interface name,
- * and return the associated ifnet structure
- * bsdname and lxname need to be least IFNAMSIZ bytes long, but
- * can point to the same buffer.
- */
-
-static struct ifnet *
-ifname_linux_to_bsd(struct thread *td, const char *lxname, char *bsdname)
-{
-	struct ifnet *ifp;
-	int len, unit;
-	char *ep;
-	int is_eth, index;
-
-	for (len = 0; len < LINUX_IFNAMSIZ; ++len)
-		if (!isalpha(lxname[len]))
-			break;
-	if (len == 0 || len == LINUX_IFNAMSIZ)
-		return (NULL);
-	unit = (int)strtoul(lxname + len, &ep, 10);
-	if (ep == NULL || ep == lxname + len || ep >= lxname + LINUX_IFNAMSIZ)
-		return (NULL);
-	index = 0;
-	is_eth = (len == 3 && !strncmp(lxname, "eth", len)) ? 1 : 0;
-	CURVNET_SET(TD_TO_VNET(td));
-	IFNET_RLOCK();
-	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
-		/*
-		 * Allow Linux programs to use FreeBSD names. Don't presume
-		 * we never have an interface named "eth", so don't make
-		 * the test optional based on is_eth.
-		 */
-		if (strncmp(ifp->if_xname, lxname, LINUX_IFNAMSIZ) == 0)
-			break;
-		if (is_eth && IFP_IS_ETH(ifp) && unit == index++)
-			break;
-	}
-	IFNET_RUNLOCK();
-	CURVNET_RESTORE();
-	if (ifp != NULL)
-		strlcpy(bsdname, ifp->if_xname, IFNAMSIZ);
-	return (ifp);
-}
-
-/*
  * Implement the SIOCGIFNAME ioctl
  */
 
@@ -2332,50 +2236,20 @@ linux_gifflags(struct thread *td, struct ifnet *ifp, struct l_ifreq *ifr)
 {
 	l_short flags;
 
-	flags = (ifp->if_flags | ifp->if_drv_flags) & 0xffff;
-	/* these flags have no Linux equivalent */
-	flags &= ~(IFF_DRV_OACTIVE|IFF_SIMPLEX|
-	    IFF_LINK0|IFF_LINK1|IFF_LINK2);
-	/* Linux' multicast flag is in a different bit */
-	if (flags & IFF_MULTICAST) {
-		flags &= ~IFF_MULTICAST;
-		flags |= 0x1000;
-	}
+	linux_ifflags(ifp, &flags);
 
 	return (copyout(&flags, &ifr->ifr_flags, sizeof(flags)));
 }
 
-#define ARPHRD_ETHER	1
-#define ARPHRD_LOOPBACK	772
-
 static int
 linux_gifhwaddr(struct ifnet *ifp, struct l_ifreq *ifr)
 {
-	struct ifaddr *ifa;
-	struct sockaddr_dl *sdl;
 	struct l_sockaddr lsa;
 
-	if (ifp->if_type == IFT_LOOP) {
-		bzero(&lsa, sizeof(lsa));
-		lsa.sa_family = ARPHRD_LOOPBACK;
-		return (copyout(&lsa, &ifr->ifr_hwaddr, sizeof(lsa)));
-	}
-
-	if (ifp->if_type != IFT_ETHER)
+	if (linux_ifhwaddr(ifp, &lsa) != 0)
 		return (ENOENT);
 
-	CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
-		sdl = (struct sockaddr_dl*)ifa->ifa_addr;
-		if (sdl != NULL && (sdl->sdl_family == AF_LINK) &&
-		    (sdl->sdl_type == IFT_ETHER)) {
-			bzero(&lsa, sizeof(lsa));
-			lsa.sa_family = ARPHRD_ETHER;
-			bcopy(LLADDR(sdl), lsa.sa_data, LINUX_IFHWADDRLEN);
-			return (copyout(&lsa, &ifr->ifr_hwaddr, sizeof(lsa)));
-		}
-	}
-
-	return (ENOENT);
+	return (copyout(&lsa, &ifr->ifr_hwaddr, sizeof(lsa)));
 }
 
 
@@ -2446,10 +2320,6 @@ linux_ioctl_socket(struct thread *td, struct linux_ioctl_args *args)
 	case LINUX_SIOCSPGRP:
 	case LINUX_SIOCGIFCOUNT:
 		/* these ioctls don't take an interface name */
-#ifdef DEBUG
-		printf("%s(): ioctl %d\n", __func__,
-		    args->cmd & 0xffff);
-#endif
 		break;
 
 	case LINUX_SIOCGIFFLAGS:
@@ -2471,10 +2341,6 @@ linux_ioctl_socket(struct thread *td, struct linux_ioctl_args *args)
 		error = copyin((void *)args->arg, lifname, LINUX_IFNAMSIZ);
 		if (error != 0)
 			return (error);
-#ifdef DEBUG
-		printf("%s(): ioctl %d on %.*s\n", __func__,
-		    args->cmd & 0xffff, LINUX_IFNAMSIZ, lifname);
-#endif
 		memset(ifname, 0, sizeof(ifname));
 		ifp = ifname_linux_to_bsd(td, lifname, ifname);
 		if (ifp == NULL)
@@ -2488,10 +2354,6 @@ linux_ioctl_socket(struct thread *td, struct linux_ioctl_args *args)
 		error = copyout(ifname, (void *)args->arg, IFNAMSIZ);
 		if (error != 0)
 			return (error);
-#ifdef DEBUG
-		printf("%s(): %s translated to %s\n", __func__,
-		    lifname, ifname);
-#endif
 		break;
 
 	default:
@@ -2634,9 +2496,6 @@ linux_ioctl_socket(struct thread *td, struct linux_ioctl_args *args)
 		/* restore the original interface name */
 		copyout(lifname, (void *)args->arg, LINUX_IFNAMSIZ);
 
-#ifdef DEBUG
-	printf("%s(): returning %d\n", __func__, error);
-#endif
 	return (error);
 }
 
@@ -3692,12 +3551,6 @@ linux_ioctl(struct thread *td, struct linux_ioctl_args *args)
 	struct linux_ioctl_handler_element *he;
 	int error, cmd;
 
-#ifdef DEBUG
-	if (ldebug(ioctl))
-		printf(ARGS(ioctl, "%d, %04lx, *"), args->fd,
-		    (unsigned long)args->cmd);
-#endif
-
 	error = fget(td, args->fd, &cap_ioctl_rights, &fp);
 	if (error != 0)
 		return (error);
@@ -3740,6 +3593,7 @@ linux_ioctl(struct thread *td, struct linux_ioctl_args *args)
 
 	switch (args->cmd & 0xffff) {
 	case LINUX_BTRFS_IOC_CLONE:
+	case LINUX_FS_IOC_FIEMAP:
 		return (ENOTSUP);
 
 	default:

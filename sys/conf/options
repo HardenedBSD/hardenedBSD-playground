@@ -57,7 +57,6 @@ DDB_CTF		opt_ddb.h
 DDB_NUMSYM	opt_ddb.h
 FULL_BUF_TRACKING	opt_global.h
 GDB
-KCOV		opt_kcov.h
 KDB		opt_global.h
 KDB_TRACE	opt_kdb.h
 KDB_UNATTENDED	opt_kdb.h
@@ -89,6 +88,7 @@ COMPAT_FREEBSD7	opt_global.h
 COMPAT_FREEBSD9	opt_global.h
 COMPAT_FREEBSD10	opt_global.h
 COMPAT_FREEBSD11	opt_global.h
+COMPAT_FREEBSD12	opt_global.h
 COMPAT_CLOUDABI32	opt_dontuse.h
 COMPAT_CLOUDABI64	opt_dontuse.h
 COMPAT_LINUXKPI	opt_dontuse.h
@@ -106,18 +106,15 @@ GZIO		opt_gzio.h
 IMAGACT_BINMISC		opt_dontuse.h
 IPI_PREEMPTION	opt_sched.h
 GEOM_BDE	opt_geom.h
-GEOM_BSD	opt_geom.h
 GEOM_CACHE	opt_geom.h
 GEOM_CONCAT	opt_geom.h
 GEOM_ELI	opt_geom.h
-GEOM_FOX	opt_geom.h
 GEOM_GATE	opt_geom.h
 GEOM_JOURNAL	opt_geom.h
 GEOM_LABEL	opt_geom.h
 GEOM_LABEL_GPT	opt_geom.h
 GEOM_LINUX_LVM	opt_geom.h
 GEOM_MAP	opt_geom.h
-GEOM_MBR	opt_geom.h
 GEOM_MIRROR	opt_geom.h
 GEOM_MOUNTVER	opt_geom.h
 GEOM_MULTIPATH	opt_geom.h
@@ -135,12 +132,10 @@ GEOM_RAID	opt_geom.h
 GEOM_RAID3	opt_geom.h
 GEOM_SHSEC	opt_geom.h
 GEOM_STRIPE	opt_geom.h
-GEOM_SUNLABEL	opt_geom.h
 GEOM_UZIP	opt_geom.h
 GEOM_UZIP_DEBUG	opt_geom.h
 GEOM_VINUM	opt_geom.h
 GEOM_VIRSTOR	opt_geom.h
-GEOM_VOL	opt_geom.h
 GEOM_ZERO	opt_geom.h
 IFLIB		opt_iflib.h
 KDTRACE_HOOKS	opt_global.h
@@ -233,6 +228,8 @@ VERBOSE_SYSINIT
 ZSTDIO		opt_zstdio.h
 
 # Sanitizers
+COVERAGE	opt_global.h
+KCOV
 KUBSAN		opt_global.h
 
 # POSIX kernel options
@@ -252,9 +249,8 @@ CD9660		opt_dontuse.h
 EXT2FS		opt_dontuse.h
 FDESCFS		opt_dontuse.h
 FFS		opt_dontuse.h
-FUSE		opt_dontuse.h
+FUSEFS		opt_dontuse.h
 MSDOSFS		opt_dontuse.h
-NANDFS		opt_dontuse.h
 NULLFS		opt_dontuse.h
 PROCFS		opt_dontuse.h
 PSEUDOFS	opt_dontuse.h
@@ -617,6 +613,8 @@ NO_SWAPPING		opt_vm.h
 MALLOC_MAKE_FAILURES	opt_vm.h
 MALLOC_PROFILE		opt_vm.h
 MALLOC_DEBUG_MAXZONES	opt_vm.h
+UMA_XDOMAIN		opt_vm.h
+UMA_FIRSTTOUCH		opt_vm.h
 
 # The MemGuard replacement allocator used for tamper-after-free detection
 DEBUG_MEMGUARD		opt_vm.h
@@ -638,6 +636,9 @@ NFS_MAXATTRTIMO		opt_nfs.h
 NFS_MINDIRATTRTIMO	opt_nfs.h
 NFS_MAXDIRATTRTIMO	opt_nfs.h
 NFS_DEBUG		opt_nfs.h
+
+# TMPFS options
+TMPFS_PAGES_MINRESERVED		opt_tmpfs.h
 
 # For the Bt848/Bt848A/Bt849/Bt878/Bt879 driver
 OVERRIDE_CARD			opt_bktr.h
@@ -729,7 +730,6 @@ DEV_PCI			opt_pci.h
 DEV_PF			opt_pf.h
 DEV_PFLOG		opt_pf.h
 DEV_PFSYNC		opt_pf.h
-DEV_RANDOM		opt_global.h
 DEV_SPLASH		opt_splash.h
 DEV_VLAN		opt_vlan.h
 
@@ -766,6 +766,7 @@ SC_CUT_SPACES2TABS	opt_syscons.h
 SC_CUT_SEPCHARS		opt_syscons.h
 SC_DEBUG_LEVEL		opt_syscons.h
 SC_DFLT_FONT		opt_syscons.h
+SC_DFLT_TERM		opt_syscons.h
 SC_DISABLE_KDBKEY	opt_syscons.h
 SC_DISABLE_REBOOT	opt_syscons.h
 SC_HISTORY_SIZE		opt_syscons.h
@@ -779,6 +780,9 @@ SC_NO_HISTORY		opt_syscons.h
 SC_NO_MODE_CHANGE	opt_syscons.h
 SC_NO_SUSPEND_VTYSWITCH	opt_syscons.h
 SC_NO_SYSMOUSE		opt_syscons.h
+SC_NO_TERM_DUMB		opt_syscons.h
+SC_NO_TERM_SC		opt_syscons.h
+SC_NO_TERM_TEKEN	opt_syscons.h
 SC_NORM_ATTR		opt_syscons.h
 SC_NORM_REV_ATTR	opt_syscons.h
 SC_PIXEL_MODE		opt_syscons.h
@@ -854,6 +858,12 @@ AH_INTERRUPT_DEBUGGING	opt_ah.h
 # AR5416 and later interrupt mitigation
 # XXX do not use this for AR9130
 AH_AR5416_INTERRUPT_MITIGATION	opt_ah.h
+
+# options for the Altera mSGDMA driver (altera_msgdma)
+ALTERA_MSGDMA_DESC_STD		opt_altera_msgdma.h
+ALTERA_MSGDMA_DESC_EXT		opt_altera_msgdma.h
+ALTERA_MSGDMA_DESC_PF_STD	opt_altera_msgdma.h
+ALTERA_MSGDMA_DESC_PF_EXT	opt_altera_msgdma.h
 
 # options for the Broadcom BCM43xx driver (bwi)
 BWI_DEBUG		opt_bwi.h
@@ -1008,6 +1018,9 @@ RANDOM_LOADABLE	opt_global.h
 RANDOM_ENABLE_UMA	opt_global.h
 RANDOM_ENABLE_ETHER	opt_global.h
 
+# This options turns TPM into entropy source.
+TPM_HARVEST	opt_tpm.h
+
 # BHND(4) driver
 BHND_LOGLEVEL	opt_global.h
 
@@ -1038,3 +1051,7 @@ NVME_USE_NVD	opt_nvme.h
 
 # amdsbwd options
 AMDSBWD_DEBUG	opt_amdsbwd.h
+
+# gcov support
+GCOV		opt_global.h
+LINDEBUGFS

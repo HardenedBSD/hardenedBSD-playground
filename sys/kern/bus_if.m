@@ -66,6 +66,28 @@ CODE {
 
 		panic("bus_add_child is not implemented");
 	}
+
+	static int null_reset_post(device_t bus, device_t dev)
+	{
+		return (0);
+	}
+
+	static int null_reset_prepare(device_t bus, device_t dev)
+	{
+		return (0);
+	}
+
+	static int
+	null_translate_resource(device_t bus, int type, rman_res_t start,
+		rman_res_t *newstart)
+	{
+		if (device_get_parent(bus) != NULL)
+			return (BUS_TRANSLATE_RESOURCE(device_get_parent(bus),
+			    type, start, newstart));
+
+		*newstart = start;
+		return (0);
+	}
 };
 
 /**
@@ -395,6 +417,23 @@ METHOD int adjust_resource {
 	rman_res_t	_start;
 	rman_res_t	_end;
 };
+
+
+/**
+ * @brief translate a resource value
+ *
+ *
+ * @param _dev		the device associated with the resource
+ * @param _type		the type of resource
+ * @param _start	the starting address of the resource range
+ * @param _newstart	the new starting address of the resource range
+ */
+METHOD int translate_resource {
+	device_t	_dev;
+	int		_type;
+	rman_res_t	_start;
+	rman_res_t	*_newstart;
+} DEFAULT null_translate_resource;
 
 /**
  * @brief Release a resource
@@ -846,5 +885,50 @@ METHOD int get_cpus {
 	device_t	_child;
 	enum cpu_sets	_op;
 	size_t		_setsize;
-	cpuset_t	*_cpuset;
+	struct _cpuset	*_cpuset;
 } DEFAULT bus_generic_get_cpus;
+
+/**
+ * @brief Prepares the given child of the bus for reset
+ *
+ * Typically bus detaches or suspends children' drivers, and then
+ * calls this method to save bus-specific information, for instance,
+ * PCI config space, which is damaged by reset.
+ *
+ * The bus_helper_reset_prepare() helper is provided to ease
+ * implementing bus reset methods.
+ *
+ * @param _dev		the bus device
+ * @param _child	the child device
+ */
+METHOD int reset_prepare {
+	device_t _dev;
+	device_t _child;
+} DEFAULT null_reset_prepare;
+
+/**
+ * @brief Restores the child operations after the reset
+ *
+ * The bus_helper_reset_post() helper is provided to ease
+ * implementing bus reset methods.
+ *
+ * @param _dev		the bus device
+ * @param _child	the child device
+ */
+METHOD int reset_post {
+	device_t _dev;
+	device_t _child;
+} DEFAULT null_reset_post;
+
+/**
+ * @brief Performs reset of the child
+ *
+ * @param _dev		the bus device
+ * @param _child	the child device
+ * @param _flags	DEVF_RESET_ flags
+ */
+METHOD int reset_child {
+	device_t _dev;
+	device_t _child;
+	int _flags;
+};

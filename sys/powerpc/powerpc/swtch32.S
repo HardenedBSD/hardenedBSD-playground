@@ -98,17 +98,16 @@ ENTRY(cpu_switch)
 	mr	%r16,%r5		/* and the new lock */
 	mr	%r17,%r6		/* and the PCB */
 	
-	lwz	%r7,PCB_FLAGS(%r17)
+	lwz	%r18,PCB_FLAGS(%r17)
 	/* Save FPU context if needed */
-	andi.	%r7, %r7, PCB_FPU
+	andi.	%r7, %r18, PCB_FPU
 	beq	.L1
 	bl	save_fpu
 
 .L1:
 	mr	%r3,%r14		/* restore old thread ptr */
-	lwz	%r7,PCB_FLAGS(%r17)
 	/* Save Altivec context if needed */
-	andi.	%r7, %r7, PCB_VEC
+	andi.	%r7, %r18, PCB_VEC
 	beq	.L2
 	bl	save_vec
 	
@@ -125,8 +124,11 @@ ENTRY(cpu_switch)
 cpu_switchin:
 #if defined(SMP) && defined(SCHED_ULE)
 	/* Wait for the new thread to become unblocked */
-	bl	_GLOBAL_OFFSET_TABLE_@local-4
+	bl	1f
+1:
 	mflr	%r6
+	addis	%r6,%r6,(_GLOBAL_OFFSET_TABLE_-1b)@ha
+	addi	%r6,%r6,(_GLOBAL_OFFSET_TABLE_-1b)@l
 	lwz	%r6,blocked_lock@got(%r6)
 blocked_loop:
 	lwz	%r7,TD_LOCK(%r2)
@@ -151,17 +153,16 @@ blocked_loop:
 	mr	%r3,%r2			/* Get new thread ptr */
 	bl	pmap_activate		/* Activate the new address space */
 
-	lwz	%r6, PCB_FLAGS(%r17)
+	lwz	%r19, PCB_FLAGS(%r17)
 	/* Restore FPU context if needed */
-	andi.	%r6, %r6, PCB_FPU
+	andi.	%r6, %r19, PCB_FPU
 	beq	.L3
 	mr	%r3,%r2			/* Pass curthread to enable_fpu */
 	bl	enable_fpu
 
 .L3:
-	lwz	%r6, PCB_FLAGS(%r17)
 	/* Restore Altivec context if needed */
-	andi.	%r6, %r6, PCB_VEC
+	andi.	%r6, %r19, PCB_VEC
 	beq	.L4
 	mr	%r3,%r2			/* Pass curthread to enable_vec */
 	bl	enable_vec
@@ -195,6 +196,7 @@ ENTRY(savectx)
 	stmw	%r12,PCB_CONTEXT(%r3)	/* Save the non-volatile GP regs */
 	mfcr	%r4			/* Save the condition register */
 	stw	%r4,PCB_CR(%r3)
+	stw	%r1,PCB_SP(%r3)		/* Save the stack pointer */
 	mflr	%r4			/* Save the link register */
 	stw	%r4,PCB_LR(%r3)
 	blr

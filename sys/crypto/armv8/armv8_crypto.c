@@ -45,9 +45,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/bus.h>
 #include <sys/endian.h>
+#include <sys/lock.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
 #include <sys/module.h>
+#include <sys/mutex.h>
 #include <sys/queue.h>
 #include <sys/rwlock.h>
 #include <sys/smp.h>
@@ -272,9 +274,11 @@ armv8_crypto_newsession(device_t dev, crypto_session_t cses,
 	error = armv8_crypto_cipher_setup(ses, encini);
 	if (error != 0) {
 		CRYPTDEB("setup failed");
+		rw_wunlock(&sc->lock);
 		return (error);
 	}
 
+	rw_wunlock(&sc->lock);
 	return (0);
 }
 

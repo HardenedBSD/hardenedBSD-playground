@@ -35,12 +35,13 @@
 #include <sys/random.h>
 #include <sys/libkern.h>
 
+#define	get_random_u32() get_random_int()
+
 static inline void
 get_random_bytes(void *buf, int nbytes)
 {
 
-	if (read_random(buf, nbytes) == 0)
-		arc4rand(buf, nbytes, 0);
+	arc4random_buf(buf, nbytes);
 }
 
 static inline u_int

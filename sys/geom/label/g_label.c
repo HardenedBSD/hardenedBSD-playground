@@ -45,6 +45,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/stddef.h>
 #include <sys/sysctl.h>
 #include <geom/geom.h>
+#include <geom/geom_dbg.h>
 #include <geom/geom_slice.h>
 #include <geom/label/g_label.h>
 
@@ -95,6 +96,7 @@ const struct g_label_desc *g_labels[] = {
 	&g_label_reiserfs,
 	&g_label_ntfs,
 	&g_label_disk_ident,
+	&g_label_flashmap,
 #endif
 	NULL
 };

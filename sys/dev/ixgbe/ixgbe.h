@@ -339,7 +339,6 @@ struct rx_ring {
 struct ix_rx_queue {
 	struct adapter		*adapter;
 	u32			msix;           /* This queue's MSIX vector */
-	u32			eims;           /* This queue's EIMS bit */
 	u32			eitr_setting;
 	struct resource		*res;
 	void			*tag;
@@ -428,16 +427,11 @@ struct adapter {
 
 	/* Support for pluggable optics */
 	bool                    sfp_probe;
-	struct grouptask        mod_task;   /* SFP tasklet */
-	struct grouptask        msf_task;   /* Multispeed Fiber */
-	struct grouptask        mbx_task;   /* VF -> PF mailbox interrupt */
-	int                     sfp_reinit;
 
 	/* Flow Director */
 	int                     fdir_reinit;
-	struct grouptask        fdir_task;
 
-	struct grouptask        phy_task;   /* PHY intr tasklet */
+	u32			task_requests;
 
 	/*
 	 * Queues:
@@ -447,7 +441,6 @@ struct adapter {
 	 */
 	struct ix_tx_queue	*tx_queues;
 	struct ix_rx_queue	*rx_queues;
-	u64			active_queues;
 
 	/* Multicast array memory */
 	struct ixgbe_mc_addr    *mta;

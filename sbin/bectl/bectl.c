@@ -184,7 +184,8 @@ bectl_cmd_activate(int argc, char *argv[])
 static int
 bectl_cmd_create(int argc, char *argv[])
 {
-	char *atpos, *bootenv, *snapname, *source;
+	char snapshot[BE_MAXPATHLEN];
+	char *atpos, *bootenv, *snapname;
 	int err, opt;
 	bool recursive;
 
@@ -214,6 +215,8 @@ bectl_cmd_create(int argc, char *argv[])
 	}
 
 	bootenv = *argv;
+
+	err = BE_ERR_SUCCESS;
 	if ((atpos = strchr(bootenv, '@')) != NULL) {
 		/*
 		 * This is the "create a snapshot variant". No new boot
@@ -221,24 +224,22 @@ bectl_cmd_create(int argc, char *argv[])
 		 */
 		*atpos++ = '\0';
 		err = be_snapshot(be, bootenv, atpos, recursive, NULL);
-	} else if (snapname != NULL) {
-		if (strchr(snapname, '@') != NULL)
-			err = be_create_from_existing_snap(be, bootenv,
-			    snapname);
-		else
-			err = be_create_from_existing(be, bootenv, snapname);
 	} else {
-		if ((snapname = strchr(bootenv, '@')) != NULL) {
-			*(snapname++) = '\0';
-			if ((err = be_snapshot(be, be_active_path(be),
-			    snapname, true, NULL)) != BE_ERR_SUCCESS)
-				fprintf(stderr, "failed to create snapshot\n");
-			asprintf(&source, "%s@%s", be_active_path(be), snapname);
-			err = be_create_from_existing_snap(be, bootenv,
-			    source);
-			return (err);
-		} else
-			err = be_create(be, bootenv);
+		if (snapname == NULL)
+			/* Create from currently booted BE */
+			err = be_snapshot(be, be_active_path(be), NULL,
+			    recursive, snapshot);
+		else if (strchr(snapname, '@') != NULL)
+			/* Create from given snapshot */
+			strlcpy(snapshot, snapname, sizeof(snapshot));
+		else
+			/* Create from given BE */
+			err = be_snapshot(be, snapname, NULL, recursive,
+			    snapshot);
+
+		if (err == BE_ERR_SUCCESS)
+			err = be_create_depth(be, bootenv, snapshot,
+					      recursive == true ? -1 : 0);
 	}
 
 	switch (err) {
@@ -341,15 +342,18 @@ bectl_cmd_add(int argc, char *argv[])
 static int
 bectl_cmd_destroy(int argc, char *argv[])
 {
-	char *target;
-	int opt, err;
-	bool force;
+	nvlist_t *props;
+	char *origin, *target, targetds[BE_MAXPATHLEN];
+	int err, flags, opt;
 
-	force = false;
-	while ((opt = getopt(argc, argv, "F")) != -1) {
+	flags = 0;
+	while ((opt = getopt(argc, argv, "Fo")) != -1) {
 		switch (opt) {
 		case 'F':
-			force = true;
+			flags |= BE_DESTROY_FORCE;
+			break;
+		case 'o':
+			flags |= BE_DESTROY_ORIGIN;
 			break;
 		default:
 			fprintf(stderr, "bectl destroy: unknown option '-%c'\n",
@@ -368,7 +372,24 @@ bectl_cmd_destroy(int argc, char *argv[])
 
 	target = argv[0];
 
-	err = be_destroy(be, target, force);
+	/* We'll emit a notice if there's an origin to be cleaned up */
+	if ((flags & BE_DESTROY_ORIGIN) == 0 && strchr(target, '@') == NULL) {
+		if (be_root_concat(be, target, targetds) != 0)
+			goto destroy;
+		if (be_prop_list_alloc(&props) != 0)
+			goto destroy;
+		if (be_get_dataset_props(be, targetds, props) != 0) {
+			be_prop_list_free(props);
+			goto destroy;
+		}
+		if (nvlist_lookup_string(props, "origin", &origin) == 0)
+			fprintf(stderr, "bectl destroy: leaving origin '%s' intact\n",
+			    origin);
+		be_prop_list_free(props);
+	}
+
+destroy:
+	err = be_destroy(be, target, flags);
 
 	return (err);
 }

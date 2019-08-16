@@ -100,6 +100,7 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_extern.h>
 #include <vm/vm_kern.h>
 #include <vm/vm_page.h>
+#include <vm/vm_phys.h>
 #include <vm/vm_map.h>
 #include <vm/vm_object.h>
 #include <vm/vm_pager.h>
@@ -494,7 +495,7 @@ spinlock_enter(void)
 
 	td = curthread;
 	if (td->td_md.md_spinlock_count == 0) {
-		__asm __volatile("or 2,2,2"); /* Set high thread priority */
+		nop_prio_mhigh();
 		msr = intr_disable();
 		td->td_md.md_spinlock_count = 1;
 		td->td_md.md_saved_msr = msr;
@@ -515,7 +516,7 @@ spinlock_exit(void)
 	td->td_md.md_spinlock_count--;
 	if (td->td_md.md_spinlock_count == 0) {
 		intr_restore(msr);
-		__asm __volatile("or 6,6,6"); /* Set normal thread priority */
+		nop_prio_medium();
 	}
 }
 
@@ -541,12 +542,16 @@ DB_SHOW_COMMAND(spr, db_show_spr)
 	saved_sprno = sprno = (intptr_t) addr;
 	sprno = ((sprno & 0x3e0) >> 5) | ((sprno & 0x1f) << 5);
 	p = (uint32_t *)(void *)&get_spr;
+#ifdef __powerpc64__
 #if defined(_CALL_ELF) && _CALL_ELF == 2
 	/* Account for ELFv2 function prologue. */
 	p += 2;
+#else
+	p = *(volatile uint32_t * volatile *)p;
+#endif
 #endif
 	*p = (*p & ~0x001ff800) | (sprno << 11);
-	__syncicache(get_spr, cacheline_size);
+	__syncicache(__DEVOLATILE(uint32_t *, p), cacheline_size);
 	spr = get_spr(sprno);
 
 	db_printf("SPR %d(%x): %lx\n", saved_sprno, saved_sprno,
@@ -591,3 +596,16 @@ bzero(void *buf, size_t len)
 		len--;
 	}
 }
+
+/* __stack_chk_fail_local() is called in secure-plt (32-bit). */
+#if !defined(__powerpc64__)
+extern void __stack_chk_fail(void);
+void __stack_chk_fail_local(void);
+
+void
+__stack_chk_fail_local(void)
+{
+
+	__stack_chk_fail();
+}
+#endif

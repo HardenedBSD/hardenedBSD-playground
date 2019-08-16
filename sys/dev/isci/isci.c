@@ -408,15 +408,18 @@ isci_allocate_dma_buffer_callback(void *arg, bus_dma_segment_t *seg,
 }
 
 int
-isci_allocate_dma_buffer(device_t device, struct ISCI_MEMORY *memory)
+isci_allocate_dma_buffer(device_t device, struct ISCI_CONTROLLER *controller,
+    struct ISCI_MEMORY *memory)
 {
 	uint32_t status;
 
 	status = bus_dma_tag_create(bus_get_dma_tag(device),
-	    0x40 /* cacheline alignment */, 0x0, BUS_SPACE_MAXADDR,
+	    0x40 /* cacheline alignment */,
+	    ISCI_DMA_BOUNDARY, BUS_SPACE_MAXADDR,
 	    BUS_SPACE_MAXADDR, NULL, NULL, memory->size,
 	    0x1 /* we want physically contiguous */,
-	    memory->size, 0, NULL, NULL, &memory->dma_tag);
+	    memory->size, 0, busdma_lock_mutex, &controller->lock,
+	    &memory->dma_tag);
 
 	if(status == ENOMEM) {
 		isci_log_message(0, "ISCI", "bus_dma_tag_create failed\n");

@@ -2,11 +2,10 @@
 
 # Use the following command to build local debug version of dynamic
 # linker:
-# make DEBUG_FLAGS=-g DEBUG=-DDEBUG WITHOUT_TESTS=yes all
+# make DEBUG_FLAGS=-g WITHOUT_TESTS=yes all
 
 .include <src.opts.mk>
 PACKAGE=	clibs
-MK_BIND_NOW=	no
 MK_SSP=		no
 MK_CFI=		no
 MK_CROSS_DSO_CFI=	no
@@ -16,9 +15,17 @@ PROG?=		ld-elf.so.1
 .if (${PROG:M*ld-elf32*} != "")
 TAGS+=		lib32
 .endif
-SRCS=		rtld_start.S \
-		reloc.c rtld.c rtld_lock.c rtld_printf.c map_object.c \
-		malloc.c xmalloc.c debug.c libmap.c
+SRCS= \
+	rtld_start.S \
+	reloc.c \
+	rtld.c \
+	rtld_lock.c \
+	rtld_malloc.c \
+	rtld_printf.c \
+	map_object.c \
+	xmalloc.c \
+	debug.c \
+	libmap.c
 MAN=		rtld.1
 CSTD?=		gnu99
 CFLAGS+=	-Wall -DFREEBSD_ELF -DIN_RTLD -ffreestanding
@@ -57,7 +64,8 @@ CFLAGS+=	-fvisibility=hidden
 CFLAGS.reloc.c+=-fno-jump-tables
 .endif
 LDFLAGS+=	-shared -Wl,-Bsymbolic -Wl,-z,defs
-LIBADD=		c_nossp_pic
+# Pull in the dependencies that we use from libc
+.include "rtld-libc/Makefile.inc"
 .if ${MK_TOOLCHAIN} == "no"
 LDFLAGS+=	-L${LIBCDIR}
 .endif

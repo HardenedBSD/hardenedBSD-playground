@@ -22,6 +22,8 @@
 # They have to be listed here so we can build modules outside of the
 # src tree.
 
+KLDXREF_CMD?=	kldxref
+
 __DEFAULT_YES_OPTIONS = \
     AUTOFS \
     BHYVE \
@@ -50,9 +52,6 @@ __DEFAULT_YES_OPTIONS = \
 __DEFAULT_NO_OPTIONS = \
     EXTRA_TCP_STACKS \
     KERNEL_RETPOLINE \
-    MODULE_DRM \
-    MODULE_DRM2 \
-    NAND \
     OFED \
     RATELIMIT
 

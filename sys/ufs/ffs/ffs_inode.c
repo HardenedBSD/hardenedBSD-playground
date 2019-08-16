@@ -263,7 +263,7 @@ ffs_truncate(vp, length, flags, cred)
 			if ((error = ffs_syncvnode(vp, MNT_WAIT, 0)) != 0)
 				return (error);
 #ifdef QUOTA
-			(void) chkdq(ip, -extblocks, NOCRED, 0);
+			(void) chkdq(ip, -extblocks, NOCRED, FORCE);
 #endif
 			vinvalbuf(vp, V_ALT, 0, 0);
 			vn_pages_remove(vp,
@@ -509,7 +509,7 @@ ffs_truncate(vp, length, flags, cred)
 	ip->i_size = osize;
 	DIP_SET(ip, i_size, osize);
 
-	error = vtruncbuf(vp, cred, length, fs->fs_bsize);
+	error = vtruncbuf(vp, length, fs->fs_bsize);
 	if (error && (allerror == 0))
 		allerror = error;
 
@@ -594,15 +594,20 @@ done:
 #ifdef INVARIANTS
 	for (level = SINGLE; level <= TRIPLE; level++)
 		if (newblks[UFS_NDADDR + level] != DIP(ip, i_ib[level]))
-			panic("ffs_truncate1");
+			panic("ffs_truncate1: level %d newblks %jd != i_ib %jd",
+			    level, (intmax_t)newblks[UFS_NDADDR + level],
+			    (intmax_t)DIP(ip, i_ib[level]));
 	for (i = 0; i < UFS_NDADDR; i++)
 		if (newblks[i] != DIP(ip, i_db[i]))
-			panic("ffs_truncate2");
+			panic("ffs_truncate2: blkno %d newblks %jd != i_db %jd",
+			    i, (intmax_t)newblks[UFS_NDADDR + level],
+			    (intmax_t)DIP(ip, i_ib[level]));
 	BO_LOCK(bo);
 	if (length == 0 &&
 	    (fs->fs_magic != FS_UFS2_MAGIC || ip->i_din2->di_extsize == 0) &&
 	    (bo->bo_dirty.bv_cnt > 0 || bo->bo_clean.bv_cnt > 0))
-		panic("ffs_truncate3");
+		panic("ffs_truncate3: vp = %p, buffers: dirty = %d, clean = %d",
+			vp, bo->bo_dirty.bv_cnt, bo->bo_clean.bv_cnt);
 	BO_UNLOCK(bo);
 #endif /* INVARIANTS */
 	/*
@@ -616,7 +621,7 @@ done:
 		DIP_SET(ip, i_blocks, 0);
 	ip->i_flag |= IN_CHANGE;
 #ifdef QUOTA
-	(void) chkdq(ip, -blocksreleased, NOCRED, 0);
+	(void) chkdq(ip, -blocksreleased, NOCRED, FORCE);
 #endif
 	return (allerror);
 

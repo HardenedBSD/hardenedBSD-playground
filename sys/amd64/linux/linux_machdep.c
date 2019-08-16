@@ -228,35 +228,38 @@ linux_sigaltstack(struct thread *td, struct linux_sigaltstack_args *uap)
 int
 linux_arch_prctl(struct thread *td, struct linux_arch_prctl_args *args)
 {
+	struct pcb *pcb;
 	int error;
-	struct sysarch_args bsd_args;
 
+	pcb = td->td_pcb;
 	LINUX_CTR2(arch_prctl, "0x%x, %p", args->code, args->addr);
 
 	switch (args->code) {
 	case LINUX_ARCH_SET_GS:
-		bsd_args.op = AMD64_SET_GSBASE;
-		bsd_args.parms = (void *)args->addr;
-		error = sysarch(td, &bsd_args);
-		if (error == EINVAL)
+		if (args->addr < VM_MAXUSER_ADDRESS) {
+			set_pcb_flags(pcb, PCB_FULL_IRET);
+			pcb->pcb_gsbase = args->addr;
+			td->td_frame->tf_gs = _ugssel;
+			error = 0;
+		} else
 			error = EPERM;
 		break;
 	case LINUX_ARCH_SET_FS:
-		bsd_args.op = AMD64_SET_FSBASE;
-		bsd_args.parms = (void *)args->addr;
-		error = sysarch(td, &bsd_args);
-		if (error == EINVAL)
+		if (args->addr < VM_MAXUSER_ADDRESS) {
+			set_pcb_flags(pcb, PCB_FULL_IRET);
+			pcb->pcb_fsbase = args->addr;
+			td->td_frame->tf_fs = _ufssel;
+			error = 0;
+		} else
 			error = EPERM;
 		break;
 	case LINUX_ARCH_GET_FS:
-		bsd_args.op = AMD64_GET_FSBASE;
-		bsd_args.parms = (void *)args->addr;
-		error = sysarch(td, &bsd_args);
+		error = copyout(&pcb->pcb_fsbase, PTRIN(args->addr),
+		    sizeof(args->addr));
 		break;
 	case LINUX_ARCH_GET_GS:
-		bsd_args.op = AMD64_GET_GSBASE;
-		bsd_args.parms = (void *)args->addr;
-		error = sysarch(td, &bsd_args);
+		error = copyout(&pcb->pcb_gsbase, PTRIN(args->addr),
+		    sizeof(args->addr));
 		break;
 	default:
 		error = EINVAL;
@@ -281,7 +284,7 @@ linux_set_cloned_tls(struct thread *td, void *desc)
 
 int futex_xchgl_nosmap(int oparg, uint32_t *uaddr, int *oldval);
 int futex_xchgl_smap(int oparg, uint32_t *uaddr, int *oldval);
-DEFINE_IFUNC(, int, futex_xchgl, (int, uint32_t *, int *), static)
+DEFINE_IFUNC(, int, futex_xchgl, (int, uint32_t *, int *))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_SMAP) != 0 ?
@@ -290,7 +293,7 @@ DEFINE_IFUNC(, int, futex_xchgl, (int, uint32_t *, int *), static)
 
 int futex_addl_nosmap(int oparg, uint32_t *uaddr, int *oldval);
 int futex_addl_smap(int oparg, uint32_t *uaddr, int *oldval);
-DEFINE_IFUNC(, int, futex_addl, (int, uint32_t *, int *), static)
+DEFINE_IFUNC(, int, futex_addl, (int, uint32_t *, int *))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_SMAP) != 0 ?
@@ -299,7 +302,7 @@ DEFINE_IFUNC(, int, futex_addl, (int, uint32_t *, int *), static)
 
 int futex_orl_nosmap(int oparg, uint32_t *uaddr, int *oldval);
 int futex_orl_smap(int oparg, uint32_t *uaddr, int *oldval);
-DEFINE_IFUNC(, int, futex_orl, (int, uint32_t *, int *), static)
+DEFINE_IFUNC(, int, futex_orl, (int, uint32_t *, int *))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_SMAP) != 0 ?
@@ -308,7 +311,7 @@ DEFINE_IFUNC(, int, futex_orl, (int, uint32_t *, int *), static)
 
 int futex_andl_nosmap(int oparg, uint32_t *uaddr, int *oldval);
 int futex_andl_smap(int oparg, uint32_t *uaddr, int *oldval);
-DEFINE_IFUNC(, int, futex_andl, (int, uint32_t *, int *), static)
+DEFINE_IFUNC(, int, futex_andl, (int, uint32_t *, int *))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_SMAP) != 0 ?
@@ -317,7 +320,7 @@ DEFINE_IFUNC(, int, futex_andl, (int, uint32_t *, int *), static)
 
 int futex_xorl_nosmap(int oparg, uint32_t *uaddr, int *oldval);
 int futex_xorl_smap(int oparg, uint32_t *uaddr, int *oldval);
-DEFINE_IFUNC(, int, futex_xorl, (int, uint32_t *, int *), static)
+DEFINE_IFUNC(, int, futex_xorl, (int, uint32_t *, int *))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_SMAP) != 0 ?
