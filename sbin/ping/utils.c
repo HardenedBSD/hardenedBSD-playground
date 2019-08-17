@@ -1,8 +1,11 @@
 /*-
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Copyright (c) 1982, 1986, 1989, 1993
+ * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
+ *
+ * This code is derived from software contributed to Berkeley by
+ * Mike Muuss.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,27 +30,69 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)dir.h	8.2 (Berkeley) 1/4/94
- * $FreeBSD$
  */
 
-#ifndef _SYS_DIR_H_
-#define	_SYS_DIR_H_
+#if 0
+#ifndef lint
+static const char copyright[] =
+"@(#) Copyright (c) 1989, 1993\n\
+	The Regents of the University of California.  All rights reserved.\n";
+#endif /* not lint */
 
-#include <sys/cdefs.h>
-
-#ifdef __CC_SUPPORTS_WARNING
-#warning "The information in this file should be obtained from <dirent.h>"
-#warning "and is provided solely (and temporarily) for backward compatibility."
+#ifndef lint
+static char sccsid[] = "@(#)ping.c	8.1 (Berkeley) 6/5/93";
+#endif /* not lint */
 #endif
+#include <sys/cdefs.h>
+__FBSDID("$FreeBSD$");
 
-#include <dirent.h>
+#include <string.h>
+
+#include "utils.h"
 
 /*
- * Backwards compatibility.
+ * in_cksum --
+ *	Checksum routine for Internet Protocol family headers (C Version)
  */
-#define	direct		dirent
-#define	DIRSIZ(dp)	_GENERIC_DIRSIZ(dp)
+u_short
+in_cksum(u_char *addr, int len)
+{
+	int nleft, sum;
+	u_char *w;
+	union {
+		u_short	us;
+		u_char	uc[2];
+	} last;
+	u_short answer;
 
-#endif /* !_SYS_DIR_H_ */
+	nleft = len;
+	sum = 0;
+	w = addr;
+
+	/*
+	 * Our algorithm is simple, using a 32 bit accumulator (sum), we add
+	 * sequential 16 bit words to it, and at the end, fold back all the
+	 * carry bits from the top 16 bits into the lower 16 bits.
+	 */
+	while (nleft > 1)  {
+		u_short data;
+
+		memcpy(&data, w, sizeof(data));
+		sum += data;
+		w += sizeof(data);
+		nleft -= sizeof(data);
+	}
+
+	/* mop up an odd byte, if necessary */
+	if (nleft == 1) {
+		last.uc[0] = *w;
+		last.uc[1] = 0;
+		sum += last.us;
+	}
+
+	/* add back carry outs from top 16 bits to low 16 bits */
+	sum = (sum >> 16) + (sum & 0xffff);	/* add hi 16 to low 16 */
+	sum += (sum >> 16);			/* add carry */
+	answer = ~sum;				/* truncate to 16 bits */
+	return(answer);
+}
