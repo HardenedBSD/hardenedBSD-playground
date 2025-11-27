@@ -186,18 +186,13 @@ kern_break(struct thread *td, uintptr_t *addr)
 #ifdef PAX_NOEXEC
 		pax_noexec_nx(td->td_proc, &prot, &maxprot);
 #endif
-<<<<<<< HEAD
 		rv = vm_map_insert(map, NULL, 0, old, new, prot, maxprot, 0);
-=======
-		rv = vm_map_insert(map, NULL, 0, old, new, prot, VM_PROT_ALL,
-		    0);
 		if (rv == KERN_SUCCESS && (map->flags & MAP_WIREFUTURE) != 0) {
 			rv = vm_map_wire_locked(map, old, new,
 			    VM_MAP_WIRE_USER | VM_MAP_WIRE_NOHOLES);
 			if (rv != KERN_SUCCESS)
 				vm_map_delete(map, old, new);
 		}
->>>>>>> origin/freebsd/current/master
 		if (rv != KERN_SUCCESS) {
 #ifdef RACCT
 			if (racct_enable) {
